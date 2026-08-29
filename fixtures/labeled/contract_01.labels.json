@@ -1,0 +1,79 @@
+{
+  "entities": [
+    {
+      "type": "org_name",
+      "text": "Акционерное общество «Триема»",
+      "party": "supplier"
+    },
+    {
+      "type": "inn",
+      "text": "3662103003",
+      "party": "supplier"
+    },
+    {
+      "type": "kpp",
+      "text": "366201001",
+      "party": "supplier"
+    },
+    {
+      "type": "ogrn",
+      "text": "1023601546902",
+      "party": "supplier"
+    },
+    {
+      "type": "person",
+      "text": "Иванова Ивана Ивановича",
+      "party": "supplier"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810100000000001",
+      "party": "supplier"
+    },
+    {
+      "type": "bik",
+      "text": "042007681",
+      "party": "supplier"
+    },
+    {
+      "type": "phone",
+      "text": "+7 (473) 250-10-10",
+      "party": "supplier"
+    },
+    {
+      "type": "email",
+      "text": "info@triema.example",
+      "party": "supplier"
+    },
+    {
+      "type": "org_name",
+      "text": "Общество с ограниченной ответственностью «Вектор»",
+      "party": "buyer"
+    },
+    {
+      "type": "inn",
+      "text": "7707083893",
+      "party": "buyer"
+    },
+    {
+      "type": "kpp",
+      "text": "770701001",
+      "party": "buyer"
+    },
+    {
+      "type": "person",
+      "text": "Сидоровой Анны Петровны",
+      "party": "buyer"
+    },
+    {
+      "type": "phone",
+      "text": "8-910-347-51-07",
+      "party": "buyer"
+    },
+    {
+      "type": "email",
+      "text": "zakupki@vektor.example",
+      "party": "buyer"
+    }
+  ]
+}

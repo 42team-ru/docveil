@@ -75,14 +75,36 @@ coverage.xml
 .ocr_cache/
 
 # ─── Агентная обвязка ─────────────────────────────────────────────────────
-# .claude/settings.json и .dsh/skills/ — часть проекта, они коммитятся.
-# Игнорируется только локальное состояние конкретной машины.
+# .claude/agents/, .claude/settings.json, .codex/*.toml и .dsh/skills/ —
+# часть проекта, они коммитятся. Игнорируется локальное состояние машины
+# и всё, что связано с учётными данными.
+.codex/auth.json
+.codex/sessions/
+.codex/cache/
+.codex/tmp/
+.codex/.tmp/
+.codex/history.jsonl
+.codex/*.sqlite*
+.codex/shell_snapshots/
+.codex/installation_id
+.codex/version.json
+.codex/models_cache.json
+.codex/log/
 .claude/settings.local.json
 .claude/state/
+.dsh/.credentials.yaml
 .dsh/sessions/
 .dsh/storages/
 .dsh/cache/
+.dsh/profiles/node_modules/
+.dsh/.env
+.dsh/*.bak*
 .agents/cache/
+.claude
+.dsh/**
+.codex
+
+docs/ECONOMICS.md
 
 # ─── Среда разработки ─────────────────────────────────────────────────────
 .idea/

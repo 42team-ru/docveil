@@ -1,0 +1,29 @@
+{
+  "entities": [
+    {
+      "type": "person",
+      "text": "Кузнецов Пётр Алексеевич",
+      "party": "third_party"
+    },
+    {
+      "type": "inn",
+      "text": "500100732259",
+      "party": "third_party"
+    },
+    {
+      "type": "snils",
+      "text": "112-233-445 95",
+      "party": "third_party"
+    },
+    {
+      "type": "passport",
+      "text": "20 04 123456",
+      "party": "third_party"
+    },
+    {
+      "type": "email",
+      "text": "pkuznetsov@example.org",
+      "party": "third_party"
+    }
+  ]
+}

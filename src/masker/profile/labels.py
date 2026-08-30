@@ -17,13 +17,28 @@ def normalize_label(label: str) -> str:
     return " ".join(label.strip(' \t.,;:«»"').casefold().split())
 
 
+_COLLECTIVE_STEM = "сторон"
+
+
+def _is_collective(label: str) -> bool:
+    """Проверить, что метка — это «Стороны» (в любом падеже), а не роль одной стороны.
+
+    Это не словарь допустимых ролей: роли вроде «поставщик»/«покупатель» по-прежнему
+    берутся только из формулировок документа, без хардкода. Единственное исключение —
+    собирательное слово «Стороны», которое называет сразу обе стороны договора и
+    поэтому не может быть меткой одной конкретной стороны.
+    """
+    first_word = label.split(" ", 1)[0]
+    return first_word[: len(_COLLECTIVE_STEM)] == _COLLECTIVE_STEM
+
+
 def find_labels(text: str) -> list[tuple[int, str]]:
     """Найти ролевые метки только в контекстах, явно задающих роль."""
     found: list[tuple[int, str]] = []
     for expression in (PREAMBLE, REQUISITES, SIGNATURE):
         for match in expression.finditer(text):
             label = normalize_label(match.group(1))
-            if label:
+            if label and not _is_collective(label):
                 found.append((match.start(1), label))
     return sorted(set(found), key=lambda item: item[0])
 

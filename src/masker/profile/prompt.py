@@ -58,7 +58,10 @@ def build_request(
             "heading": block.heading,
             "text": block_text(document.segments, block),
         }
+        # Модели нечего решать по блокам без сущностей — отправка всего
+        # документа стоит лишних денег и лишний раз выносит текст наружу.
         for block in blocks
+        if block.entities
     ]
     batches: list[list[dict[str, str]]] = [[]]
     length = 0

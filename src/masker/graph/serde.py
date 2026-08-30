@@ -8,8 +8,10 @@ from masker.judge.agent import JudgeResult
 from masker.model import (
     Action,
     Anchor,
+    Decision,
     Entity,
     EntityType,
+    PolicyQuestion,
     Profile,
     ProfileMember,
     Question,
@@ -165,3 +167,97 @@ def judge_to_dicts(result: JudgeResult) -> dict[str, list[dict[str, Any]]]:
         "verdicts": verdicts_to_dicts(result.verdicts),
         "questions": questions_to_dicts(result.questions),
     }
+
+
+def policy_questions_to_dicts(questions: list[PolicyQuestion]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": item.id,
+            "kind": item.kind,
+            "target": item.target,
+            "title": item.title,
+            "prompt": item.prompt,
+            "options": list(item.options),
+            "default": item.default,
+            "critical": item.critical,
+            "found": item.found,
+            "by_type": [[key, count] for key, count in item.by_type],
+            "samples": list(item.samples),
+            "anchors": [anchor_to_dict(anchor) for anchor in item.anchors],
+            "linked": list(item.linked),
+            "role_title": item.role_title,
+        }
+        for item in questions
+    ]
+
+
+def policy_questions_from_dicts(items: list[dict[str, Any]]) -> list[PolicyQuestion]:
+    return [
+        PolicyQuestion(
+            id=str(item["id"]),
+            kind=str(item["kind"]),
+            target=str(item["target"]),
+            title=str(item["title"]),
+            prompt=str(item["prompt"]),
+            options=tuple(str(value) for value in item["options"]),
+            default=str(item["default"]),
+            critical=bool(item["critical"]),
+            found=int(item["found"]),
+            by_type=tuple((str(key), int(count)) for key, count in item.get("by_type", [])),
+            samples=tuple(str(value) for value in item.get("samples", [])),
+            anchors=tuple(anchor_from_dict(anchor) for anchor in item.get("anchors", [])),
+            linked=tuple(str(value) for value in item.get("linked", [])),
+            role_title=str(item.get("role_title", "")),
+        )
+        for item in items
+    ]
+
+
+def _decision_to_dict(decision: Decision) -> dict[str, Any]:
+    return {
+        "action": decision.action.value,
+        "decided_by": decision.decided_by,
+        "question_id": decision.question_id,
+        "reason": decision.reason,
+    }
+
+
+def _decision_from_dict(ref: str, item: dict[str, Any]) -> Decision:
+    return Decision(
+        ref,
+        Action(str(item["action"])),
+        str(item["decided_by"]),
+        str(item.get("question_id", "")),
+        str(item.get("reason", "")),
+    )
+
+
+def decisions_to_dicts(
+    decisions: list[Decision], overridden: dict[str, list[Decision]]
+) -> list[dict[str, Any]]:
+    """Одна запись на ``ref``: победившее решение плюс проигравшие (``overridden``).
+
+    Единица решения — ссылка на сущность, не тип и не профиль — раздел 4
+    плана T1.5.1: групповые ответы уже развёрнуты в ``PolicyAgent.apply``,
+    здесь остаётся только сериализовать итог по каждой ссылке.
+    """
+    return [
+        {
+            "ref": decision.ref,
+            **_decision_to_dict(decision),
+            "overridden": [_decision_to_dict(item) for item in overridden.get(decision.ref, [])],
+        }
+        for decision in decisions
+    ]
+
+
+def decisions_from_dicts(
+    items: list[dict[str, Any]],
+) -> tuple[list[Decision], dict[str, list[Decision]]]:
+    decisions: list[Decision] = []
+    overridden: dict[str, list[Decision]] = {}
+    for item in items:
+        ref = str(item["ref"])
+        decisions.append(_decision_from_dict(ref, item))
+        overridden[ref] = [_decision_from_dict(ref, entry) for entry in item.get("overridden", [])]
+    return decisions, overridden

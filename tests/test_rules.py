@@ -11,13 +11,11 @@ def test_bank_account_found_with_valid_checksum() -> None:
             text="БИК: 042007681",
             anchor=Anchor(fmt="docx", locator=("body", 0), label="абзац 1"),
             order=0,
-            is_table=False,
         ),
         Segment(
             text="Расчётный счёт: 40702810100000000002",
             anchor=Anchor(fmt="docx", locator=("body", 1), label="абзац 2"),
             order=1,
-            is_table=False,
         ),
     ]
 
@@ -42,7 +40,6 @@ def test_invalid_inn_not_detected_as_passport() -> None:
             text="Накладная № 3662103004 от 12.02.2026.",
             anchor=Anchor(fmt="docx", locator=("body", 0), label="абзац 1"),
             order=0,
-            is_table=False,
         ),
     ]
 
@@ -63,7 +60,6 @@ def test_real_passport_with_context_detected() -> None:
             text="Паспорт: 20 04 123456, выдан ОУФМС по Воронежской области.",
             anchor=Anchor(fmt="docx", locator=("body", 0), label="абзац 1"),
             order=0,
-            is_table=False,
         ),
     ]
 
@@ -81,13 +77,11 @@ def test_phone_not_found_inside_bank_account() -> None:
             text="БИК: 042007681",
             anchor=Anchor(fmt="docx", locator=("body", 0), label="абзац 1"),
             order=0,
-            is_table=False,
         ),
         Segment(
             text="Счёт: 40702810100000000002",
             anchor=Anchor(fmt="docx", locator=("body", 1), label="абзац 2"),
             order=1,
-            is_table=False,
         ),
     ]
 
@@ -131,7 +125,6 @@ def test_overlaps_resolution_priority() -> None:
             text="БИК 042007681 счёт 40702810100000000002",
             anchor=Anchor(fmt="docx", locator=("body", 0), label="абзац 1"),
             order=0,
-            is_table=False,
         ),
     ]
 
@@ -154,7 +147,6 @@ def test_real_phones_still_detected() -> None:
             text="Телефон: +7 (473) 250-10-10, 8-910-347-51-07",
             anchor=Anchor(fmt="docx", locator=("body", 0), label="абзац 1"),
             order=0,
-            is_table=False,
         ),
     ]
 

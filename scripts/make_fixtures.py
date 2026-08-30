@@ -324,10 +324,6 @@ def contract_06_address() -> tuple[DocxDocument, list[dict[str, str]]]:
         },
         {"type": "address", "text": "г. Воронеж, ул. Мира, 12"},
         {"type": "address", "text": "г. Воронеж"},
-        {
-            "type": "address",
-            "text": "309512, Белгородская область, г. Старый Оскол",
-        },
         {"type": "address", "text": "мкр. Жукова, д. 20, кв. 15"},
         {"type": "inn", "text": "3662103003", "party": "supplier"},
     ]

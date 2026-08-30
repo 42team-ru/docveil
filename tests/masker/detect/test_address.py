@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from masker.detect import DetectAgent
 from masker.detect.address import AddressDetector, address_markers
 from masker.model import Anchor, Document, Segment
 
@@ -73,3 +74,43 @@ def test_address_span_matches_segment_text() -> None:
 
     for entity in _detect(text):
         assert entity.text == text[entity.start : entity.end]
+
+
+def _split_cell_document() -> Document:
+    return Document(
+        path="test.docx",
+        fmt="docx",
+        segments=[
+            Segment(
+                text="адрес регистрации по месту жительства:",
+                anchor=Anchor("docx", ("table", 0, 0, 0, 0)),
+                order=0,
+            ),
+            Segment(
+                text="309512, Белгородская область, г. Старый Оскол,",
+                anchor=Anchor("docx", ("table", 0, 0, 0, 1)),
+                order=1,
+            ),
+            Segment(
+                text="мкр. Жукова, д. 20, кв. 15",
+                anchor=Anchor("docx", ("table", 0, 0, 0, 2)),
+                order=2,
+            ),
+        ],
+    )
+
+
+def test_address_split_across_cell_paragraphs_yields_two_spans() -> None:
+    result = DetectAgent([AddressDetector()]).detect(_split_cell_document())
+
+    assert [(entity.segment_order, entity.text) for entity in result.entities] == [
+        (1, "309512, Белгородская область, г. Старый Оскол"),
+        (2, "мкр. Жукова, д. 20, кв. 15"),
+    ]
+
+
+def test_trailing_comma_is_not_in_span() -> None:
+    result = DetectAgent([AddressDetector()]).detect(_split_cell_document())
+
+    assert result.entities[0].text.endswith("Оскол")
+    assert not result.entities[0].text.endswith(",")

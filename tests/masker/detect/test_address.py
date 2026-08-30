@@ -4,6 +4,7 @@ import pytest
 
 from masker.detect import DetectAgent, RuleDetector
 from masker.detect.address import AddressDetector, address_markers
+from masker.detect.ner import NatashaDetector, NerSpan
 from masker.model import Anchor, Document, Segment
 
 
@@ -200,3 +201,45 @@ def test_address_and_rule_entity_both_survive_in_agent() -> None:
         ("address", "394018, г. Воронеж, ул. Кирова, д. 4"),
         ("inn", "3662103003"),
     ]
+
+
+class _MeasuredAddressTagger:
+    def spans(self, text: str) -> list[NerSpan]:
+        assert text == (
+            "309512, Белгородская область, г. Старый Оскол, мкр. Жукова, д. 20, кв. 15"
+        )
+        return [
+            NerSpan(8, 30, "LOC"),
+            NerSpan(34, 46, "LOC"),
+            NerSpan(52, 58, "PER"),
+        ]
+
+
+def _zhukova_document() -> Document:
+    text = "309512, Белгородская область, г. Старый Оскол, мкр. Жукова, д. 20, кв. 15"
+    return Document(
+        path="test.docx",
+        fmt="docx",
+        segments=[Segment(text=text, anchor=Anchor("docx", ("body", 0)), order=0)],
+    )
+
+
+def test_address_absorbs_false_person_span() -> None:
+    tagger = _MeasuredAddressTagger()
+    entities = DetectAgent([AddressDetector(), NatashaDetector(tagger)]).detect(
+        _zhukova_document()
+    ).entities
+
+    assert [(entity.type.value, entity.text) for entity in entities] == [
+        (
+            "address",
+            "309512, Белгородская область, г. Старый Оскол, мкр. Жукова, д. 20, кв. 15",
+        )
+    ]
+
+
+@pytest.mark.models
+def test_address_absorbs_false_person_span_real_model() -> None:
+    entities = DetectAgent().detect(_zhukova_document()).entities
+
+    assert [entity.type.value for entity in entities] == ["address"]

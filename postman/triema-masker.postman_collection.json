@@ -1,0 +1,607 @@
+{
+  "info": {
+    "_postman_id": "5a8d7b0e-2f1a-4b3a-9f0d-3f2b6b6c9d10",
+    "name": "Triema Masker API",
+    "description": "FastAPI веб-слой triema-masker: аутентификация (JWT access + opaque refresh), управление пользователями (только админ) и загрузка документов в MinIO.\n\nПорядок использования:\n1. Поднять зависимости (`make up`) и API (`make api`), либо указать в окружении адрес уже запущенного сервера.\n2. Создать первого администратора: `make seed-admin email=... password=...` — либо вручную, если admin уже есть.\n3. Прогнать `Auth > Login (Admin)` — токен админа сохранится в переменную окружения `admin_access_token`.\n4. `Users (admin only) > Create User` создаст обычного пользователя и запомнит его email/пароль в окружении.\n5. `Auth > Login (Mobile)` под этим пользователем — заполнит `access_token`/`refresh_token` для остальных запросов.\n\nКоллекция ожидает окружение `Triema Masker - Local` (см. соседний файл *.postman_environment.json).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{access_token}}", "type": "string" }
+    ]
+  },
+  "event": [],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000/api", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (Admin)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\",\n  \"device\": \"mobile\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [ "{{base_url}}" ],
+              "path": [ "auth", "login" ]
+            },
+            "description": "Логин администратора. device=mobile — refresh-токен приходит в теле ответа (а не в httponly-cookie), что удобнее для скриптов Postman."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('access_token present', function () {",
+                  "    pm.expect(body.access_token).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.test('refresh_token present in body (mobile device)', function () {",
+                  "    pm.expect(body.refresh_token).to.be.a('string').and.not.empty;",
+                  "});",
+                  "",
+                  "pm.environment.set('admin_access_token', body.access_token);",
+                  "pm.environment.set('admin_refresh_token', body.refresh_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (Web, cookie refresh)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device\": \"web\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [ "{{base_url}}" ],
+              "path": [ "auth", "login" ]
+            },
+            "description": "device=web — refresh-токен уходит только в httponly Set-Cookie (Postman сам сохранит его в cookie jar для этого хоста и будет отправлять с запросами на /api/auth/*, включая 'Refresh Token (Cookie)' ниже). В теле ответа refresh_token будет null."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('refresh_token is null in body for web device', function () {",
+                  "    pm.expect(body.refresh_token).to.be.null;",
+                  "});",
+                  "pm.test('refresh_token cookie is set', function () {",
+                  "    pm.expect(pm.cookies.has('refresh_token')).to.be.true;",
+                  "});",
+                  "",
+                  "pm.environment.set('access_token', body.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (Mobile)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device\": \"mobile\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [ "{{base_url}}" ],
+              "path": [ "auth", "login" ]
+            },
+            "description": "device=mobile/desktop — refresh-токен приходит в теле ответа, клиент сам отвечает за его хранение."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('access_token', body.access_token);",
+                  "pm.environment.set('refresh_token', body.refresh_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login - invalid credentials (401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"definitely-wrong-password\",\n  \"device\": \"mobile\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [ "{{base_url}}" ],
+              "path": [ "auth", "login" ]
+            },
+            "description": "Негативный кейс: неверный пароль -> 401."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token (Body)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/refresh",
+              "host": [ "{{base_url}}" ],
+              "path": [ "auth", "refresh" ]
+            },
+            "description": "Ротация refresh-токена, переданного в теле (мобильный/десктопный клиент). Старый refresh-токен отзывается сразу же — повторный вызов с тем же токеном должен вернуть 401."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('access_token', body.access_token);",
+                  "pm.environment.set('refresh_token', body.refresh_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token (Cookie)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": { "mode": "raw", "raw": "" },
+            "url": {
+              "raw": "{{base_url}}/auth/refresh",
+              "host": [ "{{base_url}}" ],
+              "path": [ "auth", "refresh" ]
+            },
+            "description": "Ротация refresh-токена из httponly-cookie. Требует, чтобы перед этим был выполнен 'Login (Web, cookie refresh)' в этом же Postman-окружении, чтобы cookie jar уже содержал refresh_token для хоста из base_url."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('refresh_token stays out of body for cookie flow', function () {",
+                  "    pm.expect(body.refresh_token).to.be.null;",
+                  "});",
+                  "pm.environment.set('access_token', body.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token - missing token (401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/refresh",
+              "host": [ "{{base_url}}" ],
+              "path": [ "auth", "refresh" ]
+            },
+            "description": "Ни cookie, ни тело не переданы -> 401 'Refresh-токен не передан'."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Current User (Me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/me",
+              "host": [ "{{base_url}}" ],
+              "path": [ "auth", "me" ]
+            },
+            "description": "Профиль текущего пользователя по access-токену (заголовок Authorization наследуется с уровня коллекции)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('response has no password_hash', function () {",
+                  "    pm.expect(body).to.not.have.property('password_hash');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Current User - no token (401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/me",
+              "host": [ "{{base_url}}" ],
+              "path": [ "auth", "me" ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/logout",
+              "host": [ "{{base_url}}" ],
+              "path": [ "auth", "logout" ]
+            },
+            "description": "Отзывает переданный refresh-токен (или тот, что лежит в cookie) и просит клиента удалить cookie."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Users (admin only)",
+      "item": [
+        {
+          "name": "Create User",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{admin_access_token}}", "type": "string" } ]
+            },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{new_user_email}}\",\n  \"password\": \"{{new_user_password}}\",\n  \"full_name\": \"{{new_user_full_name}}\",\n  \"roles\": [\"user\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users",
+              "host": [ "{{base_url}}" ],
+              "path": [ "users" ]
+            },
+            "description": "Требует роль admin. Сохраняет email/пароль созданного пользователя в переменные user_email/user_password, чтобы дальше логиниться под ним (Auth > Login Mobile/Web)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('no password_hash leaked', function () {",
+                  "    pm.expect(body).to.not.have.property('password_hash');",
+                  "});",
+                  "",
+                  "pm.environment.set('created_user_id', body.id);",
+                  "pm.environment.set('user_email', pm.environment.get('new_user_email'));",
+                  "pm.environment.set('user_password', pm.environment.get('new_user_password'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create User - email already exists (409)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{admin_access_token}}", "type": "string" } ]
+            },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{new_user_email}}\",\n  \"password\": \"{{new_user_password}}\",\n  \"full_name\": \"{{new_user_full_name}}\",\n  \"roles\": [\"user\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users",
+              "host": [ "{{base_url}}" ],
+              "path": [ "users" ]
+            },
+            "description": "Повторный вызов Create User с тем же email -> 409. Запускать после успешного 'Create User'."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create User - forbidden for non-admin (403)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{access_token}}", "type": "string" } ]
+            },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"someone-else@example.com\",\n  \"password\": \"password123\",\n  \"full_name\": \"Someone Else\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users",
+              "host": [ "{{base_url}}" ],
+              "path": [ "users" ]
+            },
+            "description": "Использует access_token обычного пользователя (не admin) -> 403. Требует, чтобы был выполнен логин под обычным пользователем."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 403', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Users",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{admin_access_token}}", "type": "string" } ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users",
+              "host": [ "{{base_url}}" ],
+              "path": [ "users" ]
+            },
+            "description": "Список всех пользователей. Требует роль admin."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('response is an array', function () {",
+                  "    pm.expect(pm.response.json()).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Files",
+      "item": [
+        {
+          "name": "Upload File",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "",
+                  "description": "Документ для загрузки (PDF/DOCX/XLSX). Выберите файл вручную перед отправкой."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/files/upload",
+              "host": [ "{{base_url}}" ],
+              "path": [ "files", "upload" ]
+            },
+            "description": "Загружает файл в MinIO под пришедшим access-токеном. Требует авторизации (любой активный пользователь, не только admin)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('response has bucket/object_name/size', function () {",
+                  "    pm.expect(body).to.have.property('bucket');",
+                  "    pm.expect(body).to.have.property('object_name');",
+                  "    pm.expect(body).to.have.property('size');",
+                  "});",
+                  "",
+                  "pm.environment.set('uploaded_object_name', body.object_name);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload File - no token (401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/files/upload",
+              "host": [ "{{base_url}}" ],
+              "path": [ "files", "upload" ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

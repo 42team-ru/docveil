@@ -205,9 +205,7 @@ def test_address_and_rule_entity_both_survive_in_agent() -> None:
 
 class _MeasuredAddressTagger:
     def spans(self, text: str) -> list[NerSpan]:
-        assert text == (
-            "309512, Белгородская область, г. Старый Оскол, мкр. Жукова, д. 20, кв. 15"
-        )
+        assert text == ("309512, Белгородская область, г. Старый Оскол, мкр. Жукова, д. 20, кв. 15")
         return [
             NerSpan(8, 30, "LOC"),
             NerSpan(34, 46, "LOC"),
@@ -226,9 +224,11 @@ def _zhukova_document() -> Document:
 
 def test_address_absorbs_false_person_span() -> None:
     tagger = _MeasuredAddressTagger()
-    entities = DetectAgent([AddressDetector(), NatashaDetector(tagger)]).detect(
-        _zhukova_document()
-    ).entities
+    entities = (
+        DetectAgent([AddressDetector(), NatashaDetector(tagger)])
+        .detect(_zhukova_document())
+        .entities
+    )
 
     assert [(entity.type.value, entity.text) for entity in entities] == [
         (

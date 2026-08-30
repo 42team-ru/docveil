@@ -212,14 +212,18 @@ class AddressDetector:
     def detect(self, document: Document) -> list[Entity]:
         """Найти достаточные для маскирования адреса в каждом сегменте."""
         found: list[Entity] = []
-        loc_spans = {
-            segment.order: [
-                (span.start, span.end)
-                for span in self._tagger.spans(segment.text)
-                if span.label == "LOC"
-            ]
-            for segment in document.segments
-        } if self._tagger is not None else {}
+        loc_spans = (
+            {
+                segment.order: [
+                    (span.start, span.end)
+                    for span in self._tagger.spans(segment.text)
+                    if span.label == "LOC"
+                ]
+                for segment in document.segments
+            }
+            if self._tagger is not None
+            else {}
+        )
         for segment_index, segment in enumerate(document.segments):
             chunks = self._chunks(segment.text)
             index = 0

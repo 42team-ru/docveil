@@ -139,9 +139,12 @@ def test_profile_with_critical_entity_is_marked_critical_without_conscious_optio
     questions = PolicyAgent().questions(detection, profiles)
     profile_question = next(q for q in questions if q.id == "PROFILE-P1")
 
+    # У профиля критичность не «всё или ничего»: обычное «оставить» доступно
+    # всегда (снимает маску с некритичной части субъекта), а осознанный
+    # вариант для критичных реквизитов — только с --unmask-critical.
     assert profile_question.critical is True
     assert KEEP_CRITICAL_OPTION not in profile_question.options
-    assert profile_question.options == (MASK_OPTION,)
+    assert profile_question.options == (MASK_OPTION, KEEP_OPTION)
 
 
 def test_profiles_with_same_normalized_inn_link_to_each_other_but_stay_two_questions() -> None:

@@ -155,6 +155,18 @@ def is_organization_form_only(text: str) -> bool:
     return bool(value) and value in {form.casefold() for form in org_forms().forms}
 
 
+def is_partial_org_form(text: str) -> bool:
+    """Неполная оргформа — начало полной формы без имени организации.
+
+    «Общество с» детектируется как ORG в PDF-документах, где перенос строки
+    обрывает полную форму. Такой спан не несёт ПДн и должен быть отброшен.
+    """
+    value = text.strip(TRIM_CHARS).casefold()
+    if not value:
+        return False
+    return any(form.casefold().startswith(value + " ") for form in org_forms().forms)
+
+
 def has_organization_evidence(text: str) -> bool:
     """Найти в остатке форму организации либо полную пару кавычек."""
     folded = text.casefold()

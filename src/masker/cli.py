@@ -12,10 +12,9 @@ from xml.etree import ElementTree
 
 from docx import Document as open_docx
 
-from masker.detect import DetectAgent, RuleDetector
-from masker.detect.ner import LABEL_TO_TYPE
+from masker.detect import AddressDetector, DetectAgent, RuleDetector
+from masker.detect.ner import NatashaDetector
 from masker.detect.result import PiiChunk, build_pii_chunks
-from masker.detect.rules import PATTERNS
 from masker.ingest.docx_ingest import (
     count_nested_tables,
     count_skipped_body_blocks,
@@ -158,6 +157,8 @@ def _limitations(coverage: dict[str, Any]) -> list[str]:
     limitations = [
         "Проверяются непустые абзацы основного текста и верхнеуровневых таблиц DOCX.",
         "Колонтитулы, сноски и метаданные пока не обезличиваются.",
+        "Адрес собирается в пределах одного абзаца.",
+        "Место рождения не покрыто (T1.16).",
         "Preview содержит исходный текст и не предназначен для передачи наружу.",
     ]
     if int(coverage["tables"]["nested_count"]) > 0:
@@ -173,16 +174,15 @@ def _xml_part_has_text(archive: zipfile.ZipFile, name: str) -> bool:
 
 
 def _detection_coverage(
-    selected_types: frozenset[EntityType], *, rules_only: bool
+    selected_types: frozenset[EntityType], detector: DetectAgent
 ) -> dict[str, list[str]]:
-    active_types = set(PATTERNS)
-    if not rules_only:
-        active_types.update(LABEL_TO_TYPE.values())
+    active_types = {entity_type for item in detector.detectors for entity_type in item.types}
+    available_types = active_types | NatashaDetector.types
     return {
         "requested_types": sorted(entity_type.value for entity_type in selected_types),
         "active_detector_types": sorted(entity_type.value for entity_type in active_types),
         "requested_without_detector": sorted(
-            entity_type.value for entity_type in selected_types - active_types
+            entity_type.value for entity_type in selected_types - available_types
         ),
     }
 
@@ -206,8 +206,7 @@ def _build_report(
     entities: list[Entity],
     chunks: list[PiiChunk],
     selected_types: frozenset[EntityType],
-    *,
-    rules_only: bool,
+    detector: DetectAgent,
 ) -> dict[str, Any]:
     coverage = _document_coverage(source, document)
     return {
@@ -219,7 +218,7 @@ def _build_report(
         "entity_count": len(entities),
         "chunk_count": len(chunks),
         "summary": _summary(entities),
-        "detection_coverage": _detection_coverage(selected_types, rules_only=rules_only),
+        "detection_coverage": _detection_coverage(selected_types, detector),
         "document_coverage": coverage,
         "entities": [_entity_record(document, entity) for entity in entities],
         "chunks": [
@@ -247,7 +246,7 @@ def inspect_docx(
 ) -> tuple[Path, Path, Path | None, list[Entity]]:
     """Проверить один DOCX и записать JSON плюс подсвеченную копию."""
     document = ingest_docx(source)
-    detector = DetectAgent([RuleDetector()]) if rules_only else DetectAgent()
+    detector = DetectAgent([RuleDetector(), AddressDetector()]) if rules_only else DetectAgent()
     entities = [
         entity for entity in detector.detect(document).entities if entity.type in selected_types
     ]
@@ -263,7 +262,7 @@ def inspect_docx(
         entities,
         chunks,
         selected_types,
-        rules_only=rules_only,
+        detector,
     )
     _write_report(report_path, report)
     render_docx_preview(source, preview_path, document, entities)

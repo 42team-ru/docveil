@@ -220,6 +220,7 @@ class RuleDetector:
     name = "rules"
     source = Source.RULE
     priority = 100
+    types = frozenset(PATTERNS)
 
     def detect(self, document: Document) -> list[Entity]:
         """Найти формальные сущности с checksum-валидацией."""

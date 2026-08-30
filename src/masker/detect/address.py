@@ -11,7 +11,7 @@ from typing import Final
 import yaml
 
 from masker.detect.normalize import normalize_value
-from masker.model import Document, Entity, EntityType, Source
+from masker.model import Document, Entity, EntityType, Segment, Source
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +67,11 @@ def _marker_pattern(values: tuple[str, ...]) -> re.Pattern[str]:
 
 
 def _marker_start(
-    text: str, pattern: re.Pattern[str], *, requires_name: bool = False, requires_number: bool = False
+    text: str,
+    pattern: re.Pattern[str],
+    *,
+    requires_name: bool = False,
+    requires_number: bool = False,
 ) -> int | None:
     match = pattern.search(text)
     if match is None:
@@ -103,6 +107,7 @@ class AddressDetector:
         self._street = _marker_pattern(markers.street)
         self._building = _marker_pattern(markers.building)
         self._premises = _marker_pattern(markers.premises)
+        self._value_labels = tuple(label.casefold() for label in markers.value_labels)
 
     def _chunks(self, text: str) -> list[_Chunk]:
         chunks: list[_Chunk] = []
@@ -155,10 +160,39 @@ class AddressDetector:
             "settlement" in kinds and ("street" in kinds or "building" in kinds)
         )
 
+    def _has_value_label(self, document: Document, segment_index: int, start: int) -> bool:
+        segment = document.segments[segment_index]
+        prefix = segment.text[max(0, start - 60) : start].casefold()
+        if any(label in prefix for label in self._value_labels):
+            return True
+        for previous_index in range(max(0, segment_index - 2), segment_index):
+            previous = document.segments[previous_index]
+            if not self._same_context(previous, segment):
+                continue
+            value = previous.text.strip()
+            if value.endswith(":") and any(
+                label in value.casefold() for label in self._value_labels
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _same_context(previous: Segment, current: Segment) -> bool:
+        if previous.anchor.fmt != current.anchor.fmt:
+            return False
+        previous_locator = previous.anchor.locator
+        current_locator = current.anchor.locator
+        if previous_locator[0] == current_locator[0] == "body":
+            return True
+        return bool(
+            previous_locator[0] == current_locator[0] == "table"
+            and previous_locator[:4] == current_locator[:4]
+        )
+
     def detect(self, document: Document) -> list[Entity]:
         """Найти достаточные для маскирования адреса в каждом сегменте."""
         found: list[Entity] = []
-        for segment in document.segments:
+        for segment_index, segment in enumerate(document.segments):
             chunks = self._chunks(segment.text)
             index = 0
             while index < len(chunks):
@@ -171,10 +205,9 @@ class AddressDetector:
                 while end_index + 1 < len(chunks) and chunks[end_index + 1].kinds:
                     end_index += 1
                     kinds.update(chunks[end_index].kinds)
-                if self._is_sufficient(frozenset(kinds)):
-                    start, end = _trim_bounds(
-                        segment.text, first.value_start, chunks[end_index].end
-                    )
+                is_sufficient = self._is_sufficient(frozenset(kinds))
+                start, end = _trim_bounds(segment.text, first.value_start, chunks[end_index].end)
+                if is_sufficient or self._has_value_label(document, segment_index, start):
                     value = segment.text[start:end]
                     found.append(
                         Entity(
@@ -184,7 +217,7 @@ class AddressDetector:
                             start=start,
                             end=end,
                             source=Source.RULE,
-                            confidence=0.9,
+                            confidence=0.9 if is_sufficient else 0.5,
                             normalized=normalize_value(EntityType.ADDRESS, value),
                         )
                     )

@@ -114,3 +114,56 @@ def test_trailing_comma_is_not_in_span() -> None:
 
     assert result.entities[0].text.endswith("Оскол")
     assert not result.entities[0].text.endswith(",")
+
+
+def test_partial_address_requires_value_label() -> None:
+    assert [(entity.text, entity.confidence) for entity in _detect("Адрес: г. Воронеж")] == [
+        ("г. Воронеж", 0.5)
+    ]
+    assert _detect("Определение вынес Арбитражный суд г. Воронежа") == []
+
+
+def test_partial_address_confidence_is_below_full() -> None:
+    partial = _detect("Адрес: г. Воронеж")[0]
+    full = _detect("Адрес: г. Воронеж, ул. Мира, 12")[0]
+
+    assert partial.confidence == 0.5
+    assert full.confidence == 0.9
+    assert partial.confidence < full.confidence
+
+
+def test_birth_place_is_not_emitted_as_address() -> None:
+    assert _detect("место рождения: гор. Старый Оскол Белгородской обл.") == []
+
+
+def test_label_in_previous_paragraph_of_the_same_cell() -> None:
+    document = Document(
+        path="test.docx",
+        fmt="docx",
+        segments=[
+            Segment(
+                text="адрес регистрации по месту жительства:",
+                anchor=Anchor("docx", ("table", 0, 0, 0, 0)),
+                order=0,
+            ),
+            Segment(
+                text="г. Воронеж",
+                anchor=Anchor("docx", ("table", 0, 0, 0, 1)),
+                order=1,
+            ),
+            Segment(
+                text="Адрес:",
+                anchor=Anchor("docx", ("table", 0, 0, 1, 0)),
+                order=2,
+            ),
+            Segment(
+                text="г. Воронеж",
+                anchor=Anchor("docx", ("table", 0, 0, 0, 2)),
+                order=3,
+            ),
+        ],
+    )
+
+    entities = AddressDetector().detect(document)
+
+    assert [(entity.segment_order, entity.text) for entity in entities] == [(1, "г. Воронеж")]

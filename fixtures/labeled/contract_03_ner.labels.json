@@ -1,0 +1,59 @@
+{
+  "entities": [
+    {
+      "type": "org_name",
+      "text": "ООО \"Ромашка\"",
+      "party": "supplier"
+    },
+    {
+      "type": "inn",
+      "text": "3662103003",
+      "party": "supplier"
+    },
+    {
+      "type": "person",
+      "text": "Петровой Марии Сергеевны",
+      "party": "supplier"
+    },
+    {
+      "type": "org_name",
+      "text": "Общество с ограниченной ответственностью «Вектор»",
+      "party": "buyer"
+    },
+    {
+      "type": "person",
+      "text": "Сидоровой Анны Петровны",
+      "party": "buyer"
+    },
+    {
+      "type": "person",
+      "text": "Сидоров С.С.",
+      "party": "third_party"
+    },
+    {
+      "type": "org_name",
+      "text": "ООО «Договор и партнёры»",
+      "party": "third_party"
+    },
+    {
+      "type": "org_name",
+      "text": "АО «Актив»",
+      "party": "third_party"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810100000000002",
+      "party": "third_party"
+    },
+    {
+      "type": "bik",
+      "text": "042007681",
+      "party": "third_party"
+    },
+    {
+      "type": "person",
+      "text": "Сидорова Анна Петровна",
+      "party": "buyer"
+    }
+  ]
+}

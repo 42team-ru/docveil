@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 # Тесты не должны требовать рабочие PostgreSQL и MinIO: реальные зависимости
 # заменяются fixture-ами/моками до первого обращения к ним.
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/test")
-os.environ.setdefault("JWT_SECRET", "test-secret")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-key-32-bytes!!!!")
 os.environ.setdefault("MINIO_ENDPOINT", "localhost:9000")
 os.environ.setdefault("MINIO_ACCESS_KEY", "test-access-key")
 os.environ.setdefault("MINIO_SECRET_KEY", "test-secret-key")

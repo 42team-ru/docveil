@@ -21,6 +21,7 @@ step() {
 step "линт"     $PY -m ruff check src tests
 step "формат"   $PY -m ruff format --check src tests
 step "типы"     $PY -m mypy src
+step "лок"      uv lock --check
 step "тесты"    $PY -m pytest -q
 step "метрики"  $PY -m masker.eval --gate
 

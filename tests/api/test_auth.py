@@ -114,10 +114,8 @@ def test_refresh_success_cookie(client, mock_auth_service):
         expires_at,
     )
 
-    response = client.post(
-        "/api/auth/refresh",
-        cookies={"refresh_token": "old_refresh_token"},
-    )
+    client.cookies.set("refresh_token", "old_refresh_token")
+    response = client.post("/api/auth/refresh")
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {
@@ -168,10 +166,8 @@ def test_refresh_missing_token(client):
 def test_refresh_invalid_token(client, mock_auth_service):
     mock_auth_service.patch("api.routers.auth.rotate_refresh_token").return_value = None
 
-    response = client.post(
-        "/api/auth/refresh",
-        cookies={"refresh_token": "invalid_refresh_token"},
-    )
+    client.cookies.set("refresh_token", "invalid_refresh_token")
+    response = client.post("/api/auth/refresh")
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json()["detail"] == "Невалидный или просроченный refresh-токен"
@@ -180,10 +176,8 @@ def test_refresh_invalid_token(client, mock_auth_service):
 def test_logout(client, mock_auth_service):
     mock_revoke = mock_auth_service.patch("api.routers.auth.revoke_refresh_token")
 
-    response = client.post(
-        "/api/auth/logout",
-        cookies={"refresh_token": "token_to_revoke"},
-    )
+    client.cookies.set("refresh_token", "token_to_revoke")
+    response = client.post("/api/auth/logout")
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
     mock_revoke.assert_called_once()

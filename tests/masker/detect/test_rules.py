@@ -1,6 +1,9 @@
 """Тесты слоя правил: регулярки, контрольные суммы, разрешение пересечений."""
 
+from pathlib import Path
+
 from masker.detect.rules import _has_passport_context, detect_by_rules
+from masker.ingest.docx_ingest import ingest_docx
 from masker.model import Anchor, EntityType, Segment
 
 
@@ -138,6 +141,31 @@ def test_overlaps_resolution_priority() -> None:
 
     # Телефон не должен найтись внутри счёта
     assert EntityType.PHONE not in types
+
+
+def test_golden_snapshot_contract_01() -> None:
+    """Общий нормализатор не изменил контракт слоя правил."""
+    root = Path(__file__).resolve().parents[3]
+    document = ingest_docx(root / "fixtures/labeled/contract_01.docx")
+
+    actual = [
+        (item.type, item.text, item.segment_order, item.start, item.end, item.normalized)
+        for item in detect_by_rules(document.segments)
+    ]
+
+    assert actual == [
+        (EntityType.INN, "3662103003", 2, 35, 45, "3662103003"),
+        (EntityType.KPP, "366201001", 2, 51, 60, "366201001"),
+        (EntityType.OGRN, "1023601546902", 2, 67, 80, "1023601546902"),
+        (EntityType.INN, "7707083893", 3, 55, 65, "7707083893"),
+        (EntityType.KPP, "770701001", 3, 71, 80, "770701001"),
+        (EntityType.BANK_ACCOUNT, "40702810100000000002", 6, 16, 36, "40702810100000000002"),
+        (EntityType.BIK, "042007681", 7, 5, 14, "042007681"),
+        (EntityType.PHONE, "+7 (473) 250-10-10", 8, 9, 27, "+7(473)2501010"),
+        (EntityType.EMAIL, "info@triema.example", 8, 37, 56, "info@triema.example"),
+        (EntityType.PHONE, "8-910-347-51-07", 11, 9, 24, "89103475107"),
+        (EntityType.EMAIL, "zakupki@vektor.example", 12, 8, 30, "zakupki@vektor.example"),
+    ]
 
 
 def test_real_phones_still_detected() -> None:

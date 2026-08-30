@@ -11,11 +11,33 @@ from __future__ import annotations
 
 import json
 import pathlib
+import zipfile
 
 from docx import Document as DocxDocument
 from docx.shared import Pt
 
 OUT = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "labeled"
+ZIP_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
+
+
+def save_deterministic(doc: DocxDocument, path: pathlib.Path) -> None:
+    """Сохранить DOCX с фиксированными ZIP-метаданными и порядком записей."""
+    source = path.with_suffix(".source.docx")
+    target = path.with_suffix(".deterministic.docx")
+    doc.save(source)
+    with (
+        zipfile.ZipFile(source) as archive,
+        zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as output,
+    ):
+        for name in sorted(archive.namelist()):
+            original = archive.getinfo(name)
+            info = zipfile.ZipInfo(name, ZIP_TIMESTAMP)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = original.external_attr
+            info.create_system = original.create_system
+            output.writestr(info, archive.read(name))
+    source.unlink()
+    target.replace(path)
 
 
 def contract_01() -> tuple[DocxDocument, list[dict[str, str]]]:
@@ -39,7 +61,7 @@ def contract_01() -> tuple[DocxDocument, list[dict[str, str]]]:
 
     doc.add_heading("1. Реквизиты Поставщика", level=2)
     doc.add_paragraph("Адрес: 394018, г. Воронеж, ул. Кирова, д. 4, оф. 12")
-    doc.add_paragraph("Расчётный счёт: 40702810100000000001")
+    doc.add_paragraph("Расчётный счёт: 40702810100000000002")
     doc.add_paragraph("БИК: 042007681")
     doc.add_paragraph("Телефон: +7 (473) 250-10-10, e-mail: info@triema.example")
 
@@ -71,16 +93,22 @@ def contract_01() -> tuple[DocxDocument, list[dict[str, str]]]:
         {"type": "kpp", "text": "366201001", "party": "supplier"},
         {"type": "ogrn", "text": "1023601546902", "party": "supplier"},
         {"type": "person", "text": "Иванова Ивана Ивановича", "party": "supplier"},
-        {"type": "bank_account", "text": "40702810100000000001", "party": "supplier"},
+        {"type": "bank_account", "text": "40702810100000000002", "party": "supplier"},
         {"type": "bik", "text": "042007681", "party": "supplier"},
         {"type": "phone", "text": "+7 (473) 250-10-10", "party": "supplier"},
         {"type": "email", "text": "info@triema.example", "party": "supplier"},
-        {"type": "org_name", "text": "Общество с ограниченной ответственностью «Вектор»", "party": "buyer"},
+        {
+            "type": "org_name",
+            "text": "Общество с ограниченной ответственностью «Вектор»",
+            "party": "buyer",
+        },
         {"type": "inn", "text": "7707083893", "party": "buyer"},
         {"type": "kpp", "text": "770701001", "party": "buyer"},
         {"type": "person", "text": "Сидоровой Анны Петровны", "party": "buyer"},
         {"type": "phone", "text": "8-910-347-51-07", "party": "buyer"},
         {"type": "email", "text": "zakupki@vektor.example", "party": "buyer"},
+        {"type": "person", "text": "И.И. Иванов", "party": "supplier"},
+        {"type": "person", "text": "А.П. Сидорова", "party": "buyer"},
     ]
     return doc, labels
 
@@ -101,7 +129,7 @@ def contract_02_hard() -> tuple[DocxDocument, list[dict[str, str]]]:
         "Индивидуальный предприниматель Кузнецов Пётр Алексеевич, "
         "ИНН 500100732259, СНИЛС 112-233-445 95."
     )
-    doc.add_paragraph("Накладная № 3662103004 от 12.02.2026.")   # ловушка: битый ИНН
+    doc.add_paragraph("Накладная № 3662103004 от 12.02.2026.")  # ловушка: битый ИНН
     doc.add_paragraph("Внутренний код операции: 1023601546903.")  # ловушка: битый ОГРН
     doc.add_paragraph("Паспорт 20 04 123456, выдан 10.05.2018.")
     doc.add_paragraph("Контакт: pkuznetsov@example.org")
@@ -116,14 +144,105 @@ def contract_02_hard() -> tuple[DocxDocument, list[dict[str, str]]]:
     return doc, labels
 
 
+def contract_03_ner() -> tuple[DocxDocument, list[dict[str, str]]]:
+    """Трудные границы Natasha: формы, реквизиты внутри спана и роли."""
+    doc = DocxDocument()
+    doc.core_properties.author = "Петрова Мария Сергеевна"
+    doc.core_properties.title = "Проверка NER"
+
+    doc.add_heading("ПРОТОКОЛ СОГЛАСОВАНИЯ", level=1)
+    doc.add_paragraph(
+        'ООО "Ромашка" (ИНН 3662103003), в лице Генерального директора '
+        "Петровой Марии Сергеевны, подтверждает участие."
+    )
+    doc.add_paragraph(
+        "Поставщик: Общество с ограниченной ответственностью «Вектор», в лице "
+        "Сидоровой Анны Петровны."
+    )
+    doc.add_paragraph("ИП Сидоров С.С. направил документы в ООО «Договор и партнёры».")
+    doc.add_paragraph('ООО "Ромашка" (ОКПО 12345678, ИНН 3662103003) участвует.')
+    doc.add_paragraph("АО «Актив» (р/с 40702810100000000002 в банке, БИК 042007681) — исполнитель.")
+    doc.add_paragraph("ДОГОВОР ПОСТАВКИ")
+    doc.add_paragraph("Сидорова Анна Петровна согласовала документы.")
+    doc.add_paragraph("Адрес: 394018, г. Воронеж, ул. Кирова, д. 4, оф. 12")
+
+    labels = [
+        {"type": "org_name", "text": 'ООО "Ромашка"', "party": "supplier"},
+        {"type": "inn", "text": "3662103003", "party": "supplier"},
+        {"type": "person", "text": "Петровой Марии Сергеевны", "party": "supplier"},
+        {
+            "type": "org_name",
+            "text": "Общество с ограниченной ответственностью «Вектор»",
+            "party": "buyer",
+        },
+        {"type": "person", "text": "Сидоровой Анны Петровны", "party": "buyer"},
+        {"type": "person", "text": "Сидоров С.С.", "party": "third_party"},
+        {"type": "org_name", "text": "ООО «Договор и партнёры»", "party": "third_party"},
+        {"type": "org_name", "text": "АО «Актив»", "party": "third_party"},
+        {"type": "bank_account", "text": "40702810100000000002", "party": "third_party"},
+        {"type": "bik", "text": "042007681", "party": "third_party"},
+        {"type": "person", "text": "Сидорова Анна Петровна", "party": "buyer"},
+    ]
+    return doc, labels
+
+
+def contract_04_bankruptcy() -> tuple[DocxDocument, list[dict[str, str]]]:
+    """Синтетическая форма договора банкротства с реквизитами в таблице."""
+    doc = DocxDocument()
+    doc.core_properties.author = "Синтетический корпус"
+    doc.core_properties.title = "Договор купли-продажи имущества"
+
+    doc.add_heading("ДОГОВОР КУПЛИ-ПРОДАЖИ ИМУЩЕСТВА", level=1)
+    doc.add_paragraph(
+        "Продавец, Сидоровой Анны Петровны, 15 февраля 1982 года рождения, "
+        "место рождения: г. Орёл, СНИЛС 112-233-445 95, ИНН 500100732259, "
+        "адрес регистрации: 302000, г. Орёл, ул. Лесная, д. 7."
+    )
+    doc.add_paragraph(
+        "Должник ООО «Север», в лице финансового управляющего "
+        "Кузнецова Петра Алексеевича, действует в рамках конкурсного производства."
+    )
+    doc.add_paragraph("Определение вынес Арбитражный суд.")
+    doc.add_paragraph("Продавца уведомили; Продавцу передан акт; Продавец получил оплату.")
+    doc.add_paragraph("Покупатель осмотрел лот; Покупателя уведомили; Покупателю передан акт.")
+
+    table = doc.add_table(rows=1, cols=2)
+    table.style = "Table Grid"
+    table.cell(0, 0).text = (
+        "Продавец: Сидорова Анна Петровна\n"
+        "СНИЛС 112-233-445 95\nИНН 500100732259\n"
+        "Адрес: 302000, г. Орёл, ул. Лесная, д. 7"
+    )
+    table.cell(0, 1).text = "Покупатель: ______\nПаспорт: ______\nАдрес: ______\nПодпись: ______"
+
+    # Дата, место рождения и адрес намеренно не размечены: их детекторы — T1.13/T1.14.
+    labels = [
+        {"type": "person", "text": "Сидоровой Анны Петровны", "party": "seller"},
+        {"type": "snils", "text": "112-233-445 95", "party": "seller"},
+        {"type": "inn", "text": "500100732259", "party": "seller"},
+        {"type": "org_name", "text": "ООО «Север»", "party": "seller"},
+        {
+            "type": "person",
+            "text": "Кузнецова Петра Алексеевича",
+            "party": "third_party",
+        },
+    ]
+    return doc, labels
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
-    for name, builder in (("contract_01", contract_01), ("contract_02_hard", contract_02_hard)):
+    for name, builder in (
+        ("contract_01", contract_01),
+        ("contract_02_hard", contract_02_hard),
+        ("contract_03_ner", contract_03_ner),
+        ("contract_04_bankruptcy", contract_04_bankruptcy),
+    ):
         doc, labels = builder()
         for p in doc.paragraphs:
             for run in p.runs:
                 run.font.size = run.font.size or Pt(11)
-        doc.save(OUT / f"{name}.docx")
+        save_deterministic(doc, OUT / f"{name}.docx")
         (OUT / f"{name}.labels.json").write_text(
             json.dumps({"entities": labels}, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",

@@ -4,6 +4,7 @@
 # игнорируются целиком; в репозиторий попадает только синтетика с разметкой
 # из fixtures/labeled/.
 fixtures/real/
+fixtures/private/
 fixtures/incoming/
 /data/
 !fixtures/labeled/

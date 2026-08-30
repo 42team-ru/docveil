@@ -61,7 +61,7 @@ def test_injected_detectors_are_called_and_share_a_chunk() -> None:
     ]
 
 
-def test_rule_priority_wins_over_overlapping_model_entity() -> None:
+def test_rule_priority_carves_overlapping_model_entity() -> None:
     document = _document()
     text = document.segments[0].text
     inn_start = text.index("7707083893")
@@ -82,7 +82,10 @@ def test_rule_priority_wins_over_overlapping_model_entity() -> None:
 
     result = DetectAgent([model, rules]).detect(document)
 
-    assert result.entities == [rules.entities[0]]
+    assert [(entity.type, entity.text) for entity in result.entities] == [
+        (EntityType.ORG_NAME, "ООО Ромашка"),
+        (EntityType.INN, "7707083893"),
+    ]
 
 
 def test_invalid_plugin_span_fails_with_detector_name() -> None:
@@ -97,3 +100,29 @@ def test_invalid_plugin_span_fails_with_detector_name() -> None:
 
     with pytest.raises(ValueError, match="broken-detector"):
         DetectAgent([broken]).detect(document)
+
+
+def test_default_detectors_include_rules_then_natasha() -> None:
+    agent = DetectAgent()
+
+    assert [detector.name for detector in agent._detectors] == ["rules", "natasha"]
+
+
+def test_explicit_rules_do_not_load_natasha() -> None:
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from masker.detect import DetectAgent; "
+            "from masker.detect.rules import RuleDetector; "
+            "DetectAgent([RuleDetector()]); assert 'natasha' not in sys.modules",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr

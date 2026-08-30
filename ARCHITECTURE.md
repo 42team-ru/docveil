@@ -27,7 +27,7 @@
 
 | Формат | Якорь | Подсветка |
 |---|---|---|
-| DOCX | `("body", para_idx)` + `Entity.start/end` | `run.font.highlight_color = YELLOW` |
+| DOCX | `("body", para_idx)` или `("table", tbl_idx, row, col, para)` + `Entity.start/end` | `run.font.highlight_color = YELLOW` |
 | XLSX | `(sheet, cell, char_range)` | `PatternFill` + комментарий с типом |
 | PDF (текстовый) | `(page, bbox, char_range)` | `add_redact_annot(fill=…)` + вставка маркера |
 | PDF (скан) | `(page, bbox)` от OCR | тот же redact поверх изображения |

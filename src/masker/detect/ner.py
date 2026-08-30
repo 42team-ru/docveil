@@ -10,6 +10,7 @@ from masker.detect.normalize import normalize_value
 from masker.detect.orgforms import (
     expand_org_span,
     fix_person_initials,
+    has_organization_evidence,
     is_organization_form_only,
     is_public_body,
     is_role_stopword,
@@ -107,7 +108,11 @@ class NatashaDetector:
                 value = segment.text[start:end]
                 if is_role_stopword(value) or (
                     entity_type is EntityType.ORG_NAME
-                    and (is_organization_form_only(value) or is_public_body(value))
+                    and (
+                        is_organization_form_only(value)
+                        or is_public_body(value)
+                        or (len(value.split()) == 1 and not has_organization_evidence(value))
+                    )
                 ):
                     continue
                 found.append(

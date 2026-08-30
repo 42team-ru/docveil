@@ -12,7 +12,7 @@ from docx.enum.text import WD_COLOR_INDEX
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
-from masker.ingest.docx_ingest import iter_runs
+from masker.ingest.docx_ingest import DocxLocator, iter_runs, resolve_anchor
 from masker.model import Document, Entity
 
 
@@ -71,16 +71,20 @@ def render_docx_preview(
     destination = Path(destination)
     preview = open_docx(str(source))
     segments = {segment.order: segment for segment in document.segments}
-    by_paragraph: dict[int, list[Entity]] = defaultdict(list)
+    order_by_locator: dict[DocxLocator, int] = {}
+    by_locator: dict[DocxLocator, list[Entity]] = defaultdict(list)
     for entity in entities:
         segment = segments[entity.segment_order]
-        part, paragraph_index = segment.anchor.locator
-        if part != "body" or not isinstance(paragraph_index, int):
-            continue
-        by_paragraph[paragraph_index].append(entity)
+        locator = segment.anchor.locator
+        order_by_locator[locator] = segment.order
+        by_locator[locator].append(entity)
 
-    for paragraph_index, paragraph_entities in sorted(by_paragraph.items()):
-        _highlight_paragraph(preview.paragraphs[paragraph_index], paragraph_entities)
+    for locator, paragraph_entities in sorted(
+        by_locator.items(), key=lambda item: order_by_locator[item[0]]
+    ):
+        paragraph = resolve_anchor(preview, locator)
+        if paragraph is not None:
+            _highlight_paragraph(paragraph, paragraph_entities)
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     preview.save(str(destination))

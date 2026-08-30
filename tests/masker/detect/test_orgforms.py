@@ -39,6 +39,7 @@ def test_seller_role_is_dropped() -> None:
 def test_document_heading_dropped() -> None:
     assert is_role_stopword("ДОГОВОР ПОСТАВКИ")
     assert is_role_stopword("ПРОТОКОЛ СОГЛАСОВАНИЯ")
+    assert is_role_stopword("ПРОВЕРКА ТАБЛИЦ")
 
 
 def test_role_stopword_does_not_drop_org_names() -> None:

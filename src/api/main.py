@@ -13,7 +13,7 @@ from api.routers import auth, files, users
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     await run_in_threadpool(ensure_bucket)
     yield
 

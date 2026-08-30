@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class DeviceType(str, Enum):
+class DeviceType(StrEnum):
     """Тип клиента, выполняющего вход.
 
     WEB получает refresh-токен только в httponly-cookie; остальные — в теле ответа,

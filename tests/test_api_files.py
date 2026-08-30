@@ -1,12 +1,13 @@
-from unittest.mock import AsyncMock
+import io
 import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi import status
-from datetime import datetime, UTC
-import io
 
-from api.main import app
 from api.core.deps import get_current_user
+from api.main import app
 from api.models.user import UserORM
 
 
@@ -27,6 +28,7 @@ def auth_user():
 def override_get_current_user(auth_user):
     async def _mock_get_current_user():
         return auth_user
+
     app.dependency_overrides[get_current_user] = _mock_get_current_user
     yield
     app.dependency_overrides.pop(get_current_user, None)

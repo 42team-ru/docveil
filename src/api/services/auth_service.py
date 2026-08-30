@@ -39,7 +39,7 @@ async def get_user_by_id(session: AsyncSession, user_id: str | uuid.UUID) -> Use
 async def issue_tokens(
     session: AsyncSession, user: UserORM, device: str
 ) -> tuple[str, str, datetime]:
-    """Выдать новую пару access/refresh для устройства. Возвращает (access, refresh, refresh_exp)."""
+    """Выдать пару access/refresh и время истечения refresh-токена."""
     access_token = create_access_token(str(user.id), user.roles)
     refresh_plain = generate_refresh_token()
     expires_at = datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days)

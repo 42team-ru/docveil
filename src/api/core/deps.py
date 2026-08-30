@@ -25,10 +25,14 @@ async def get_current_user(
     try:
         payload = decode_access_token(credentials.credentials)
     except jwt.PyJWTError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Невалидный или просроченный токен") from exc
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Невалидный или просроченный токен"
+        ) from exc
     user = await get_user_by_id(session, payload["sub"])
     if user is None or not user.is_active:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден или деактивирован")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Пользователь не найден или деактивирован"
+        )
     return user
 
 

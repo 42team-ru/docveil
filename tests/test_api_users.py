@@ -1,11 +1,12 @@
-from unittest.mock import AsyncMock
 import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi import status
-from datetime import datetime, UTC
 
-from api.main import app
 from api.core.deps import require_admin
+from api.main import app
 from api.models.user import UserORM
 
 
@@ -26,6 +27,7 @@ def admin_user():
 def override_require_admin(admin_user):
     async def _mock_require_admin():
         return admin_user
+
     app.dependency_overrides[require_admin] = _mock_require_admin
     yield
     app.dependency_overrides.pop(require_admin, None)
@@ -42,7 +44,7 @@ def mock_user_service(mocker):
 def test_create_user_success(client, override_require_admin, mock_user_service):
     user_id = uuid.uuid4()
     mock_user_service.patch("api.routers.users.email_exists").return_value = False
-    
+
     created_user = UserORM(
         id=user_id,
         email="newuser@example.com",
@@ -56,9 +58,14 @@ def test_create_user_success(client, override_require_admin, mock_user_service):
 
     response = client.post(
         "/api/users",
-        json={"email": "newuser@example.com", "password": "password123", "full_name": "New User", "roles": ["user"]},
+        json={
+            "email": "newuser@example.com",
+            "password": "password123",
+            "full_name": "New User",
+            "roles": ["user"],
+        },
     )
-    
+
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
     assert data["email"] == "newuser@example.com"
@@ -70,9 +77,14 @@ def test_create_user_email_exists(client, override_require_admin, mock_user_serv
 
     response = client.post(
         "/api/users",
-        json={"email": "newuser@example.com", "password": "password123", "full_name": "New User", "roles": ["user"]},
+        json={
+            "email": "newuser@example.com",
+            "password": "password123",
+            "full_name": "New User",
+            "roles": ["user"],
+        },
     )
-    
+
     assert response.status_code == status.HTTP_409_CONFLICT
     assert response.json()["detail"] == "Пользователь с таким email уже существует"
 
@@ -123,7 +135,11 @@ def test_create_user_forbidden_for_non_admin(client, mock_user_service):
     try:
         response = client.post(
             "/api/users",
-            json={"email": "newuser@example.com", "password": "password123", "full_name": "New User"},
+            json={
+                "email": "newuser@example.com",
+                "password": "password123",
+                "full_name": "New User",
+            },
         )
     finally:
         app.dependency_overrides.pop(get_current_user, None)

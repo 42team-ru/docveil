@@ -63,6 +63,11 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 # Проект русскоязычный: кириллица в строках и комментариях — норма, не опечатка.
 ignore = ["RUF001", "RUF002", "RUF003"]
 
+[tool.ruff.lint.per-file-ignores]
+# Depends/Cookie — декларативная часть сигнатуры FastAPI, а не вычисления логики.
+"src/api/core/deps.py" = ["B008"]
+"src/api/routers/*.py" = ["B008"]
+
 [tool.mypy]
 python_version = "3.13"
 mypy_path = "src"

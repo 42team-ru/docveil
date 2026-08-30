@@ -32,7 +32,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
 
 
 def generate_refresh_token() -> str:
-    """Непрозрачный refresh-токен (не JWT) — хранится в БД в виде хэша, чтобы его можно было отозвать."""
+    """Выдать непрозрачный refresh-токен для хранения в БД в виде хэша."""
     return secrets.token_urlsafe(48)
 
 

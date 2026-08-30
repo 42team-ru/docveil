@@ -1,14 +1,13 @@
-from datetime import datetime, UTC, timedelta
-from unittest.mock import AsyncMock
 import uuid
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import status
 
-from api.main import app
 from api.core.deps import get_current_user
+from api.main import app
 from api.models.user import UserORM
-from api.schemas.auth import DeviceType
 
 
 @pytest.fixture
@@ -32,15 +31,23 @@ def test_login_success_web(client, mock_auth_service):
     )
     mock_auth_service.patch("api.routers.auth.authenticate_user").return_value = user
     expires_at = datetime.now(UTC) + timedelta(days=30)
-    mock_auth_service.patch("api.routers.auth.issue_tokens").return_value = ("access_token123", "refresh_token456", expires_at)
+    mock_auth_service.patch("api.routers.auth.issue_tokens").return_value = (
+        "access_token123",
+        "refresh_token456",
+        expires_at,
+    )
 
     response = client.post(
         "/api/auth/login",
         json={"email": "test@example.com", "password": "password", "device": "web"},
     )
-    
+
     assert response.status_code == status.HTTP_200_OK
-    assert response.json() == {"access_token": "access_token123", "token_type": "bearer", "refresh_token": None}
+    assert response.json() == {
+        "access_token": "access_token123",
+        "token_type": "bearer",
+        "refresh_token": None,
+    }
     assert "refresh_token" in response.cookies
     assert response.cookies["refresh_token"] == "refresh_token456"
 
@@ -57,18 +64,22 @@ def test_login_success_mobile(client, mock_auth_service):
     )
     mock_auth_service.patch("api.routers.auth.authenticate_user").return_value = user
     expires_at = datetime.now(UTC) + timedelta(days=30)
-    mock_auth_service.patch("api.routers.auth.issue_tokens").return_value = ("access_token123", "refresh_token456", expires_at)
+    mock_auth_service.patch("api.routers.auth.issue_tokens").return_value = (
+        "access_token123",
+        "refresh_token456",
+        expires_at,
+    )
 
     response = client.post(
         "/api/auth/login",
         json={"email": "test@example.com", "password": "password", "device": "mobile"},
     )
-    
+
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {
         "access_token": "access_token123",
         "token_type": "bearer",
-        "refresh_token": "refresh_token456"
+        "refresh_token": "refresh_token456",
     }
     assert "refresh_token" not in response.cookies
 
@@ -80,7 +91,7 @@ def test_login_invalid_credentials(client, mock_auth_service):
         "/api/auth/login",
         json={"email": "test@example.com", "password": "wrong_password", "device": "web"},
     )
-    
+
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json()["detail"] == "Неверный email или пароль"
 
@@ -96,15 +107,24 @@ def test_refresh_success_cookie(client, mock_auth_service):
         created_at=datetime.now(UTC),
     )
     expires_at = datetime.now(UTC) + timedelta(days=30)
-    mock_auth_service.patch("api.routers.auth.rotate_refresh_token").return_value = (user, "new_access", "new_refresh", expires_at)
+    mock_auth_service.patch("api.routers.auth.rotate_refresh_token").return_value = (
+        user,
+        "new_access",
+        "new_refresh",
+        expires_at,
+    )
 
     response = client.post(
         "/api/auth/refresh",
         cookies={"refresh_token": "old_refresh_token"},
     )
-    
+
     assert response.status_code == status.HTTP_200_OK
-    assert response.json() == {"access_token": "new_access", "token_type": "bearer", "refresh_token": None}
+    assert response.json() == {
+        "access_token": "new_access",
+        "token_type": "bearer",
+        "refresh_token": None,
+    }
     assert response.cookies["refresh_token"] == "new_refresh"
 
 
@@ -119,18 +139,23 @@ def test_refresh_success_body(client, mock_auth_service):
         created_at=datetime.now(UTC),
     )
     expires_at = datetime.now(UTC) + timedelta(days=30)
-    mock_auth_service.patch("api.routers.auth.rotate_refresh_token").return_value = (user, "new_access", "new_refresh", expires_at)
+    mock_auth_service.patch("api.routers.auth.rotate_refresh_token").return_value = (
+        user,
+        "new_access",
+        "new_refresh",
+        expires_at,
+    )
 
     response = client.post(
         "/api/auth/refresh",
         json={"refresh_token": "old_refresh_token"},
     )
-    
+
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {
         "access_token": "new_access",
         "token_type": "bearer",
-        "refresh_token": "new_refresh"
+        "refresh_token": "new_refresh",
     }
 
 
@@ -147,7 +172,7 @@ def test_refresh_invalid_token(client, mock_auth_service):
         "/api/auth/refresh",
         cookies={"refresh_token": "invalid_refresh_token"},
     )
-    
+
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json()["detail"] == "Невалидный или просроченный refresh-токен"
 
@@ -164,7 +189,10 @@ def test_logout(client, mock_auth_service):
     mock_revoke.assert_called_once()
     assert "set-cookie" in response.headers
     assert "refresh_token" in response.headers["set-cookie"]
-    assert "Max-Age=0" in response.headers["set-cookie"] or "expires" in response.headers["set-cookie"].lower()
+    assert (
+        "Max-Age=0" in response.headers["set-cookie"]
+        or "expires" in response.headers["set-cookie"].lower()
+    )
 
 
 def test_logout_without_token_does_not_call_revoke(client, mock_auth_service):

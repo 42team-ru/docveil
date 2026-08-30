@@ -24,7 +24,14 @@ from masker.ingest.docx_ingest import (
 )
 from masker.judge import JudgeAgent
 from masker.judge.agent import JudgeResult
-from masker.llm import LLMError, LLMProvider, get_provider, load_llm_config
+from masker.llm import (
+    LLMError,
+    LLMProvider,
+    TracingProvider,
+    get_provider,
+    load_llm_config,
+    write_trace,
+)
 from masker.model import Document, Entity, EntityType
 from masker.profile import ProfileAgent
 from masker.profile.agent import ProfileResult
@@ -159,7 +166,7 @@ def _document_coverage(source: Path, document: Document) -> dict[str, Any]:
     }
 
 
-def _limitations(coverage: dict[str, Any]) -> list[str]:
+def _limitations(coverage: dict[str, Any], *, llm_trace: bool = False) -> list[str]:
     limitations = [
         "Проверяются непустые абзацы основного текста и верхнеуровневых таблиц DOCX.",
         "Колонтитулы, сноски и метаданные пока не обезличиваются.",
@@ -170,6 +177,11 @@ def _limitations(coverage: dict[str, Any]) -> list[str]:
     if int(coverage["tables"]["nested_count"]) > 0:
         limitations.append(
             "Вложенные таблицы пока не разбираются; документ нельзя считать покрытым полностью."
+        )
+    if llm_trace:
+        limitations.append(
+            "llm-trace.jsonl и llm-trace.md содержат исходные PII в открытом виде "
+            "и не предназначены для передачи наружу."
         )
     return limitations
 
@@ -215,6 +227,7 @@ def _build_report(
     detector: DetectAgent,
     profile_result: ProfileResult | None = None,
     judge_result: JudgeResult | None = None,
+    llm_trace: bool = False,
 ) -> dict[str, Any]:
     coverage = _document_coverage(source, document)
     report = {
@@ -232,7 +245,7 @@ def _build_report(
         "chunks": [
             _chunk_record(document, chunk, index) for index, chunk in enumerate(chunks, start=1)
         ],
-        "limitations": _limitations(coverage),
+        "limitations": _limitations(coverage, llm_trace=llm_trace),
     }
     if profile_result is not None and judge_result is not None:
         # Сериализаторы графа задают единый публичный JSON-формат для CLI и State.
@@ -264,8 +277,14 @@ def inspect_docx(
     html: bool,
     profile: bool = False,
     llm: LLMProvider | None = None,
-) -> tuple[Path, Path, Path | None, list[Entity]]:
-    """Проверить один DOCX и записать JSON плюс подсвеченную копию."""
+    tracer: TracingProvider | None = None,
+) -> tuple[Path, Path, Path | None, list[Entity], tuple[Path, Path] | None]:
+    """Проверить один DOCX и записать JSON плюс подсвеченную копию.
+
+    Если передан ``tracer``, ``llm`` обязан быть тем же объектом (или
+    оборачивать его): рядом с отчётом появятся ``llm-trace.jsonl`` и
+    ``llm-trace.md`` с дословным обменом с моделью.
+    """
     document = ingest_docx(source)
     detector = DetectAgent([RuleDetector(), AddressDetector()]) if rules_only else DetectAgent()
     entities = [
@@ -291,13 +310,15 @@ def inspect_docx(
         detector,
         profile_result,
         judge_result,
+        llm_trace=tracer is not None,
     )
     _write_report(report_path, report)
     render_docx_preview(source, preview_path, document, entities)
     html_path = artifact_dir / "report.html" if html else None
     if html_path is not None:
         render_html_report(report, source, html_path)
-    return report_path, preview_path, html_path, entities
+    trace_paths = write_trace(artifact_dir, tracer) if tracer is not None else None
+    return report_path, preview_path, html_path, entities, trace_paths
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -342,6 +363,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="явно разрешить отправку исходных PII и контекста в удалённую LLM",
     )
+    parser.add_argument(
+        "--llm-trace",
+        action="store_true",
+        help=(
+            "записать llm-trace.jsonl и llm-trace.md рядом с report.json "
+            "(дословный обмен с LLM и разбор её ответа); требует --profile"
+        ),
+    )
     return parser
 
 
@@ -362,6 +391,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--llm-config требует --profile")
     if args.allow_remote_pii and args.llm_config is None:
         parser.error("--allow-remote-pii требует --llm-config")
+    if args.llm_trace and not args.profile:
+        parser.error("--llm-trace требует --profile")
 
     llm: LLMProvider | None = None
     if args.llm_config is not None:
@@ -377,15 +408,26 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as error:
             parser.error(str(error))
 
+    if args.llm_trace and llm is None:
+        print("--llm-trace: LLM не подключена (--llm-config не задан), трейс не будет записан.")
+
     for source in args.files:
-        report_path, preview_path, html_path, entities = inspect_docx(
+        tracer: TracingProvider | None = None
+        run_llm = llm
+        if args.llm_trace and llm is not None:
+            # Новый трейсер на каждый файл: артефакт рядом с report.json
+            # не должен смешивать обмен с LLM по разным документам.
+            tracer = TracingProvider(llm)
+            run_llm = tracer
+        report_path, preview_path, html_path, entities, trace_paths = inspect_docx(
             source,
             args.out,
             selected_types,
             rules_only=args.rules_only,
             html=args.html,
             profile=args.profile,
-            llm=llm,
+            llm=run_llm,
+            tracer=tracer,
         )
         print(f"{source}: найдено сущностей — {len(entities)}")
         print(f"  отчёт:  {report_path}")
@@ -402,6 +444,14 @@ def main(argv: list[str] | None = None) -> int:
             )
             for diagnostic in profile_judge["diagnostics"]:
                 print(f"  диагностика LLM: {diagnostic}")
+        if trace_paths is not None:
+            trace_jsonl, trace_markdown = trace_paths
+            print(f"  LLM-трейс:  {trace_jsonl}")
+            print(f"  LLM-трейс (человекочитаемый): {trace_markdown}")
+            print(
+                "  ВНИМАНИЕ: файлы llm-trace содержат исходные PII в открытом виде "
+                "и не предназначены для передачи наружу."
+            )
     print("ВАЖНО: preview содержит исходный текст и служит только для проверки детектора.")
     return 0
 

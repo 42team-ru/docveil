@@ -8,16 +8,22 @@ from masker.llm.base import LLMError, LLMProvider, Message
 from masker.llm.config import LLMConfig, load_llm_config
 from masker.llm.fake import FakeProvider
 from masker.llm.openrouter import OpenRouterProvider
+from masker.llm.trace import BatchTrace, CallTrace, ProfileOutcome, TracingProvider, write_trace
 
 __all__ = [
+    "BatchTrace",
+    "CallTrace",
     "FakeProvider",
     "LLMConfig",
     "LLMError",
     "LLMProvider",
     "Message",
     "OpenRouterProvider",
+    "ProfileOutcome",
+    "TracingProvider",
     "get_provider",
     "load_llm_config",
+    "write_trace",
 ]
 
 

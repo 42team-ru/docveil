@@ -160,6 +160,69 @@ def test_cli_records_profile_and_judge_with_fake_llm(tmp_path: Path) -> None:
     assert len(report["profile_judge"]["verdicts"]) == report["entity_count"]
 
 
+def test_cli_llm_trace_requires_profile(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match="2"):
+        main([str(FIXTURE), "--out", str(tmp_path), "--rules-only", "--llm-trace"])
+
+
+def test_cli_llm_trace_writes_readable_and_machine_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "llm.yaml"
+    config.write_text("llm:\n  provider: fake\n", encoding="utf-8")
+
+    exit_code = main(
+        [
+            str(FIXTURE),
+            "--out",
+            str(tmp_path / "output"),
+            "--rules-only",
+            "--profile",
+            "--llm-config",
+            str(config),
+            "--llm-trace",
+        ]
+    )
+
+    assert exit_code == 0
+    artifact_dir = tmp_path / "output" / FIXTURE.stem
+    jsonl_path = artifact_dir / "llm-trace.jsonl"
+    markdown_path = artifact_dir / "llm-trace.md"
+    assert jsonl_path.is_file()
+    assert markdown_path.is_file()
+    assert stat.S_IMODE(jsonl_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(markdown_path.stat().st_mode) == 0o600
+
+    lines = [json.loads(line) for line in jsonl_path.read_text(encoding="utf-8").splitlines()]
+    assert any(record["kind"] == "call" for record in lines)
+
+    markdown = markdown_path.read_text(encoding="utf-8")
+    assert "# Трейс обмена с LLM" in markdown
+    assert "### Ответ модели (дословно)" in markdown
+
+    report = json.loads((artifact_dir / "report.json").read_text(encoding="utf-8"))
+    assert any("llm-trace" in item for item in report["limitations"])
+
+    captured = capsys.readouterr()
+    assert "llm-trace.jsonl" in captured.out
+    assert "исходные PII в открытом виде" in captured.out
+
+
+def test_cli_llm_trace_without_llm_config_is_a_noop(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = main(
+        [str(FIXTURE), "--out", str(tmp_path), "--rules-only", "--profile", "--llm-trace"]
+    )
+
+    assert exit_code == 0
+    artifact_dir = tmp_path / FIXTURE.stem
+    assert not (artifact_dir / "llm-trace.jsonl").exists()
+    assert not (artifact_dir / "llm-trace.md").exists()
+    captured = capsys.readouterr()
+    assert "LLM не подключена" in captured.out
+
+
 def test_cli_requires_explicit_consent_for_remote_pii(tmp_path: Path) -> None:
     config = tmp_path / "llm.yaml"
     config.write_text("llm:\n  provider: openrouter\n  model: openrouter/auto\n", encoding="utf-8")

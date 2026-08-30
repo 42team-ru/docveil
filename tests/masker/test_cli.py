@@ -80,7 +80,7 @@ def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
     }
     assert report["document_coverage"]["body"]["skipped_blocks"] == 0
     assert report["document_coverage"]["safe_to_export"] is False
-    assert "address" in report["detection_coverage"]["requested_without_detector"]
+    assert "address" not in report["detection_coverage"]["requested_without_detector"]
     assert [paragraph.text for paragraph in preview.paragraphs] == [
         paragraph.text for paragraph in original.paragraphs
     ]
@@ -130,6 +130,23 @@ def test_cli_uses_ner_by_default(tmp_path: Path) -> None:
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
     assert [(item["type"], item["text"]) for item in report["entities"]] == [
         ("person", "Кузнецов Пётр Алексеевич")
+    ]
+
+
+@pytest.mark.parametrize("rules_only", [False, True])
+def test_detection_coverage_follows_detector_set(tmp_path: Path, rules_only: bool) -> None:
+    args = [str(FIXTURE), "--out", str(tmp_path), "--types", "all"]
+    if rules_only:
+        args.append("--rules-only")
+
+    assert main(args) == 0
+
+    report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
+    assert report["detection_coverage"]["requested_without_detector"] == [
+        "bank_name",
+        "contract_number",
+        "date",
+        "money",
     ]
 
 

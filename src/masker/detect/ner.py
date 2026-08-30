@@ -101,6 +101,7 @@ class NatashaDetector:
     name = "natasha"
     source = Source.NER
     priority = 50
+    types = frozenset(LABEL_TO_TYPE.values())
 
     def __init__(self, tagger: NerTagger | None = None) -> None:
         self._tagger = tagger

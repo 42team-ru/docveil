@@ -37,6 +37,11 @@ class DetectAgent:
             detectors = default_detectors()
         self._detectors = list(detectors)
 
+    @property
+    def detectors(self) -> tuple[EntityDetector, ...]:
+        """Подключённые детекторы в порядке их запуска."""
+        return tuple(self._detectors)
+
     @staticmethod
     def _validate(detector: EntityDetector, document: Document, entities: list[Entity]) -> None:
         segments = {segment.order: segment for segment in document.segments}

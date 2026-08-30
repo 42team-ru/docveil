@@ -184,3 +184,17 @@ def test_real_phones_still_detected() -> None:
     assert len(phones) == 2
     assert any("+7 (473) 250-10-10" in e.text for e in phones)
     assert any("8-910-347-51-07" in e.text for e in phones)
+
+
+def test_landline_phone_without_country_code() -> None:
+    """Городской номер в формате (код) XXX-XX-XX без +7/8 должен детектироваться."""
+    segments = [
+        Segment(
+            text="тел: (812) 411-11-22",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+    phones = [e for e in detect_by_rules(segments) if e.type == EntityType.PHONE]
+    assert len(phones) == 1
+    assert "(812) 411-11-22" in phones[0].text

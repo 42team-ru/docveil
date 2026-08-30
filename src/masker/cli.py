@@ -25,7 +25,7 @@ from masker.ingest.docx_ingest import (
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.model import Document, Entity, EntityType
 from masker.render.docx_preview import render_docx_preview
-from masker.render.pdf_render import render_pdf_preview
+from masker.render.pdf_render import render_pdf_preview, render_pdf_redacted
 from masker.report.html import render_html_report
 
 DEFAULT_OUTPUT = Path("out") / "inspect"
@@ -312,8 +312,9 @@ def inspect_pdf(
     selected_types: frozenset[EntityType],
     *,
     rules_only: bool,
-) -> tuple[Path, Path, list[Entity]]:
-    """Проверить один PDF и записать JSON плюс подсвеченную preview-копию."""
+    redact: bool,
+) -> tuple[Path, Path, Path | None, list[Entity]]:
+    """Проверить один PDF, записать JSON + preview; опционально — redacted-копию."""
     document = ingest_pdf(source)
     detector = DetectAgent([RuleDetector(), AddressDetector()]) if rules_only else DetectAgent()
     entities = [
@@ -325,13 +326,14 @@ def inspect_pdf(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     report_path = artifact_dir / "report.json"
     preview_path = artifact_dir / "preview.pdf"
+    redacted_path = artifact_dir / "redacted.pdf" if redact else None
 
     coverage = _document_coverage_pdf(source, document)
     report: dict[str, Any] = {
         "report_version": REPORT_VERSION,
         "input": source.name,
         "format": document.fmt,
-        "preview_only": True,
+        "preview_only": not redact,
         "selected_types": sorted(entity_type.value for entity_type in selected_types),
         "entity_count": len(entities),
         "chunk_count": len(chunks),
@@ -346,7 +348,9 @@ def inspect_pdf(
     }
     _write_report(report_path, report)
     render_pdf_preview(source, preview_path, document, entities)
-    return report_path, preview_path, entities
+    if redacted_path is not None:
+        render_pdf_redacted(source, redacted_path, document, entities)
+    return report_path, preview_path, redacted_path, entities
 
 
 _SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf"})
@@ -381,6 +385,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="создать цветной HTML-отчёт по чанкам и найденным PII (только для DOCX)",
     )
+    parser.add_argument(
+        "--redact",
+        action="store_true",
+        help="создать обезличенную копию PDF с удалёнными сущностями (только для PDF)",
+    )
     return parser
 
 
@@ -404,15 +413,18 @@ def main(argv: list[str] | None = None) -> int:
 
     for source in args.files:
         if source.suffix.casefold() == ".pdf":
-            report_path, preview_path, entities = inspect_pdf(
+            report_path, preview_path, redacted_path, entities = inspect_pdf(
                 source,
                 args.out,
                 selected_types,
                 rules_only=args.rules_only,
+                redact=args.redact,
             )
             print(f"{source}: найдено сущностей — {len(entities)}")
             print(f"  отчёт:  {report_path}")
             print(f"  preview: {preview_path}")
+            if redacted_path is not None:
+                print(f"  redacted: {redacted_path}")
         else:
             report_path, preview_path, html_path, entities = inspect_docx(
                 source,

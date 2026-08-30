@@ -281,6 +281,55 @@ def contract_05_tables() -> tuple[DocxDocument, list[dict[str, str]]]:
     return doc, labels
 
 
+def contract_06_address() -> tuple[DocxDocument, list[dict[str, str]]]:
+    """Адресные случаи T1.14: достаточные, частичные и отрицательные."""
+    doc = DocxDocument()
+    doc.core_properties.author = "Синтетический корпус"
+    doc.core_properties.title = "Проверка адресов"
+
+    doc.add_heading("ПРОВЕРКА АДРЕСОВ", level=1)
+    doc.add_paragraph("Адрес: 394018, г. Воронеж, ул. Кирова, д. 4, оф. 12")
+    doc.add_paragraph(
+        "Адрес регистрации: 394024, Воронежская область, г Воронеж, "
+        "пер Здоровья, д 86а, кв 95"
+    )
+    doc.add_paragraph("Адрес: г. Воронеж, ул. Мира, 12")
+    doc.add_paragraph("Адрес: г. Воронеж")
+    doc.add_paragraph("г. Воронеж, 15 января 2026 г.")
+    doc.add_paragraph("место рождения: гор. Старый Оскол Белгородской обл.")
+    doc.add_paragraph(
+        "Адрес: 394018, г. Воронеж, ул. Кирова, д. 4, оф. 12, ИНН 3662103003"
+    )
+
+    table = doc.add_table(rows=1, cols=1)
+    table.style = "Table Grid"
+    _set_cell_paragraphs(
+        table.cell(0, 0),
+        [
+            "адрес регистрации по месту жительства:",
+            "309512, Белгородская область, г. Старый Оскол,",
+            "мкр. Жукова, д. 20, кв. 15",
+        ],
+    )
+
+    labels = [
+        {"type": "address", "text": "394018, г. Воронеж, ул. Кирова, д. 4, оф. 12"},
+        {
+            "type": "address",
+            "text": "394024, Воронежская область, г Воронеж, пер Здоровья, д 86а, кв 95",
+        },
+        {"type": "address", "text": "г. Воронеж, ул. Мира, 12"},
+        {"type": "address", "text": "г. Воронеж"},
+        {
+            "type": "address",
+            "text": "309512, Белгородская область, г. Старый Оскол",
+        },
+        {"type": "address", "text": "мкр. Жукова, д. 20, кв. 15"},
+        {"type": "inn", "text": "3662103003", "party": "supplier"},
+    ]
+    return doc, labels
+
+
 def _set_cell_paragraphs(cell, lines: list[str]) -> None:
     cell.paragraphs[0].text = lines[0]
     for line in lines[1:]:
@@ -295,6 +344,7 @@ def main() -> int:
         ("contract_03_ner", contract_03_ner),
         ("contract_04_bankruptcy", contract_04_bankruptcy),
         ("contract_05_tables", contract_05_tables),
+        ("contract_06_address", contract_06_address),
     ):
         doc, labels = builder()
         for p in doc.paragraphs:

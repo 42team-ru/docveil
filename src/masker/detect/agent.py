@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 from masker.detect.base import EntityDetector
+from masker.detect.normalize import normalize_value
+from masker.detect.orgforms import (
+    has_organization_evidence,
+    is_organization_form_only,
+    is_role_stopword,
+    shrink_span,
+)
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.model import Document, Entity, EntityType, Source
+
+MIN_FRAGMENT_LEN = 2
 
 
 def _overlaps(first: Entity, second: Entity) -> bool:
@@ -22,9 +32,9 @@ class DetectAgent:
 
     def __init__(self, detectors: Iterable[EntityDetector] | None = None) -> None:
         if detectors is None:
-            from masker.detect.rules import RuleDetector
+            from masker.detect import default_detectors
 
-            detectors = [RuleDetector()]
+            detectors = default_detectors()
         self._detectors = list(detectors)
 
     @staticmethod
@@ -61,12 +71,86 @@ class DetectAgent:
             ),
         )
         accepted: list[Entity] = []
-        for _, entity in ordered:
-            if not any(_overlaps(entity, existing) for existing in accepted):
+        for _detector, entity in ordered:
+            overlaps = [existing for existing in accepted if _overlaps(entity, existing)]
+            if not overlaps:
                 accepted.append(entity)
+                continue
+            if entity.source is Source.RULE:
+                continue
+            accepted.extend(DetectAgent._carve(entity, overlaps))
         return sorted(
             accepted,
             key=lambda item: (item.segment_order, item.start, item.end, item.type.value),
+        )
+
+    @staticmethod
+    def _carve(entity: Entity, existing: list[Entity]) -> list[Entity]:
+        """Вычесть из модельного спана точные, уже принятые сущности правил."""
+        intervals = sorted(
+            (
+                max(entity.start, other.start),
+                min(entity.end, other.end),
+            )
+            for other in existing
+            if other.segment_order == entity.segment_order
+        )
+        fragments: list[tuple[int, int]] = []
+        cursor = entity.start
+        for start, end in intervals:
+            if cursor < start:
+                fragments.append((cursor, start))
+            cursor = max(cursor, end)
+        if cursor < entity.end:
+            fragments.append((cursor, entity.end))
+
+        carved: list[Entity] = []
+        for start, end in fragments:
+            local_start = start - entity.start
+            local_end = end - entity.start
+            bounds = shrink_span(entity.text, local_start, local_end)
+            if bounds is None:
+                continue
+            local_start, local_end = bounds
+            value_start = entity.start + local_start
+            value_end = entity.start + local_end
+            text = entity.text[local_start:local_end]
+            if (
+                value_end - value_start < MIN_FRAGMENT_LEN
+                or not any(char.isalpha() for char in text)
+                or is_organization_form_only(text)
+                or is_role_stopword(text)
+            ):
+                continue
+            if value_start != entity.start and not DetectAgent._has_fragment_evidence(
+                entity.type, text
+            ):
+                continue
+            carved.append(
+                Entity(
+                    type=entity.type,
+                    text=text,
+                    segment_order=entity.segment_order,
+                    start=value_start,
+                    end=value_end,
+                    source=entity.source,
+                    confidence=entity.confidence,
+                    normalized=normalize_value(entity.type, text),
+                )
+            )
+        return carved
+
+    @staticmethod
+    def _has_fragment_evidence(entity_type: EntityType, text: str) -> bool:
+        if entity_type is EntityType.ORG_NAME:
+            return has_organization_evidence(text)
+        if entity_type is not EntityType.PERSON:
+            return False
+        tokens = [token.strip(".,;:()[]{}«»\"'“”„") for token in text.split()]
+        return bool(tokens) and all(
+            token
+            and (token[0].isupper() or bool(re.fullmatch(r"[А-ЯЁ]\.?", token, flags=re.IGNORECASE)))
+            for token in tokens
         )
 
     def detect(self, document: Document) -> DetectionResult:

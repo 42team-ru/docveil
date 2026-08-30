@@ -74,6 +74,16 @@
       "type": "email",
       "text": "zakupki@vektor.example",
       "party": "buyer"
+    },
+    {
+      "type": "person",
+      "text": "И.И. Иванов",
+      "party": "supplier"
+    },
+    {
+      "type": "person",
+      "text": "А.П. Сидорова",
+      "party": "buyer"
     }
   ]
 }

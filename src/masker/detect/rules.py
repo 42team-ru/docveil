@@ -23,6 +23,7 @@ from masker.detect.checksums import (
     is_valid_ogrn,
     is_valid_snils,
 )
+from masker.detect.normalize import normalize_value
 from masker.model import Document, Entity, EntityType, Segment, Source
 
 #: Сколько соседних сегментов просматривать в поисках БИК для счёта.
@@ -80,10 +81,6 @@ PRIORITY = [
     EntityType.PHONE,
     EntityType.SITE,
 ]
-
-
-def _normalize_digits(text: str) -> str:
-    return re.sub(r"[\s\-]", "", text)
 
 
 def find_biks(segments: list[Segment]) -> dict[int, list[str]]:
@@ -202,11 +199,6 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                 ):
                     continue
 
-                normalized = (
-                    _normalize_digits(value)
-                    if etype not in (EntityType.EMAIL, EntityType.SITE)
-                    else value.casefold()
-                )
                 raw_hits.append(
                     Entity(
                         type=etype,
@@ -216,7 +208,7 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                         end=m.end(),
                         source=Source.RULE,
                         confidence=_confidence(etype, value, seg, biks),
-                        normalized=normalized,
+                        normalized=normalize_value(etype, value),
                     )
                 )
     return resolve_overlaps(raw_hits)

@@ -32,7 +32,7 @@ dev = [
     "pytest>=9",
     "pytest-asyncio>=1.4",
     "pytest-mock>=3.15",
-    "httpx>=0.28",
+    "httpx2>=2.12",
     "ruff>=0.14",
     "mypy>=1.19",
 ]
@@ -52,6 +52,8 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
     "e2e: ходит в сеть (настоящий GigaChat, живые модели). Отобрать: pytest -m e2e",
+    "models: использует настоящие локальные модели (natasha). Отобрать: pytest -m models",
+    "private: работает на реальных документах из fixtures/private. Отобрать: pytest -m private",
 ]
 
 [tool.ruff]

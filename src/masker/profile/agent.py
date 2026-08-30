@@ -62,11 +62,21 @@ class ProfileAgent:
             by_id = {profile.id: profile for profile in profiles}
             for proposed in decision.profiles:
                 profile = by_id[proposed.id]
-                if proposed.role_title:
-                    profile.role_title = role_title(proposed.role_title)
-                    profile.role_id = slugify(proposed.role_title)
-                    profile.marker_label = marker_label(proposed.role_title)
-                    profile.role_confidence = proposed.confidence
-                    profile.source = Source.LLM
+                if not proposed.role_title:
+                    continue
+                # Структурная роль надёжнее модели ровно тогда, когда сама модель
+                # не увереннее структуры: LLM не должна тихо подменять или
+                # понижать роль, в которую уже есть основания верить сильнее.
+                if proposed.confidence <= profile.role_confidence:
+                    continue
+                new_role_title = role_title(proposed.role_title)
+                profile.role_title = new_role_title
+                profile.role_id = slugify(proposed.role_title)
+                profile.marker_label = marker_label(proposed.role_title)
+                profile.role_confidence = proposed.confidence
+                profile.source = Source.LLM
+                profile.evidence.append(
+                    f"LLM: роль «{new_role_title}» с уверенностью {proposed.confidence:.1f}"
+                )
         result.candidates = build_candidates(raw_candidates, document.segments, detection.entities)
         return result

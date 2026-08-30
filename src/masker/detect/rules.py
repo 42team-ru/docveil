@@ -52,7 +52,7 @@ PATTERNS: dict[EntityType, re.Pattern[str]] = {
     EntityType.PASSPORT: re.compile(rf"{_L}\d{{2}}{_DIGIT_SEP}\d{{2}}{_DIGIT_SEP}\d{{6}}{_R}"),
     EntityType.EMAIL: re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"),
     EntityType.PHONE: re.compile(
-        r"(?:\+7|8)[\s\-]?\(?\d{3,4}\)?[\s\-]?\d{2,3}[\s\-]?\d{2}[\s\-]?\d{2}"
+        r"(?:(?:\+7|8)[\s\-]?\(?\d{3,4}\)?|(?<!\d)\(\d{3,4}\))[\s\-]?\d{2,3}[\s\-]?\d{2}[\s\-]?\d{2}"
     ),
     EntityType.SITE: re.compile(r"https?://[^\s,;]+|(?<![\w@])www\.[\w.-]+"),
 }

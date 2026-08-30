@@ -6,12 +6,15 @@ import functools
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import yaml
 
 from masker.detect.normalize import normalize_value
 from masker.model import Document, Entity, EntityType, Segment, Source
+
+if TYPE_CHECKING:
+    from masker.detect.ner import NerTagger
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +103,7 @@ class AddressDetector:
     source = Source.RULE
     priority = 90
 
-    def __init__(self) -> None:
+    def __init__(self, tagger: NerTagger | None = None) -> None:
         markers = address_markers()
         self._index = re.compile(markers.index_pattern)
         self._region = _marker_pattern(markers.region)
@@ -110,6 +113,7 @@ class AddressDetector:
         self._premises = _marker_pattern(markers.premises)
         self._value_labels = tuple(label.casefold() for label in markers.value_labels)
         self._stop_labels = tuple(label.casefold() for label in markers.stop_labels)
+        self._tagger = tagger
 
     def _chunks(self, text: str) -> list[_Chunk]:
         chunks: list[_Chunk] = []
@@ -207,6 +211,14 @@ class AddressDetector:
     def detect(self, document: Document) -> list[Entity]:
         """Найти достаточные для маскирования адреса в каждом сегменте."""
         found: list[Entity] = []
+        loc_spans = {
+            segment.order: [
+                (span.start, span.end)
+                for span in self._tagger.spans(segment.text)
+                if span.label == "LOC"
+            ]
+            for segment in document.segments
+        } if self._tagger is not None else {}
         for segment_index, segment in enumerate(document.segments):
             chunks = self._chunks(segment.text)
             index = 0
@@ -236,7 +248,16 @@ class AddressDetector:
                             start=start,
                             end=end,
                             source=Source.RULE,
-                            confidence=0.9 if is_sufficient else 0.5,
+                            confidence=(
+                                0.9
+                                if is_sufficient
+                                else 0.7
+                                if any(
+                                    start <= loc_start and loc_end <= end
+                                    for loc_start, loc_end in loc_spans.get(segment.order, [])
+                                )
+                                else 0.5
+                            ),
                             normalized=normalize_value(EntityType.ADDRESS, value),
                         )
                     )

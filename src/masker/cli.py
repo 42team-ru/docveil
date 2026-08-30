@@ -1,4 +1,4 @@
-"""CLI для локальной проверки слоя детекции на DOCX."""
+"""CLI для локальной проверки слоя детекции на DOCX и PDF."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
+import pymupdf
 from docx import Document as open_docx
 
 from masker.detect import AddressDetector, DetectAgent, RuleDetector
@@ -21,8 +22,10 @@ from masker.ingest.docx_ingest import (
     ingest_docx,
     iter_body_blocks,
 )
+from masker.ingest.pdf_ingest import ingest_pdf
 from masker.model import Document, Entity, EntityType
 from masker.render.docx_preview import render_docx_preview
+from masker.render.pdf_render import render_pdf_preview
 from masker.report.html import render_html_report
 
 DEFAULT_OUTPUT = Path("out") / "inspect"
@@ -272,12 +275,91 @@ def inspect_docx(
     return report_path, preview_path, html_path, entities
 
 
+def _document_coverage_pdf(source: Path, document: Document) -> dict[str, Any]:
+    pdf = pymupdf.open(str(source))  # type: ignore[no-untyped-call]
+    page_count = len(pdf)
+    pdf.close()  # type: ignore[no-untyped-call]
+    return {
+        "safe_to_export": False,
+        "pages": {
+            "processed": True,
+            "count": page_count,
+            "segment_count": len(document.segments),
+        },
+        "images": {
+            "processed": False,
+            "note": "Страницы-сканы (без текстового слоя) пропускаются (T2.3).",
+        },
+        "metadata": {
+            "processed": False,
+            "present_fields": sorted(document.meta),
+        },
+    }
+
+
+def _limitations_pdf(coverage: dict[str, Any]) -> list[str]:
+    return [
+        "Проверяются непустые строки текстового слоя PDF.",
+        "Графические объекты и изображения внутри PDF не обезличиваются (T2.3).",
+        "Колонтитулы PDF могут содержать текст вне текстового слоя страницы.",
+        "Preview содержит исходный текст и не предназначен для передачи наружу.",
+    ]
+
+
+def inspect_pdf(
+    source: Path,
+    output_dir: Path,
+    selected_types: frozenset[EntityType],
+    *,
+    rules_only: bool,
+) -> tuple[Path, Path, list[Entity]]:
+    """Проверить один PDF и записать JSON плюс подсвеченную preview-копию."""
+    document = ingest_pdf(source)
+    detector = DetectAgent([RuleDetector(), AddressDetector()]) if rules_only else DetectAgent()
+    entities = [
+        entity for entity in detector.detect(document).entities if entity.type in selected_types
+    ]
+    chunks = build_pii_chunks(document.segments, entities)
+
+    artifact_dir = output_dir / source.stem
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    report_path = artifact_dir / "report.json"
+    preview_path = artifact_dir / "preview.pdf"
+
+    coverage = _document_coverage_pdf(source, document)
+    report: dict[str, Any] = {
+        "report_version": REPORT_VERSION,
+        "input": source.name,
+        "format": document.fmt,
+        "preview_only": True,
+        "selected_types": sorted(entity_type.value for entity_type in selected_types),
+        "entity_count": len(entities),
+        "chunk_count": len(chunks),
+        "summary": _summary(entities),
+        "detection_coverage": _detection_coverage(selected_types, detector),
+        "document_coverage": coverage,
+        "entities": [_entity_record(document, entity) for entity in entities],
+        "chunks": [
+            _chunk_record(document, chunk, index) for index, chunk in enumerate(chunks, start=1)
+        ],
+        "limitations": _limitations_pdf(coverage),
+    }
+    _write_report(report_path, report)
+    render_pdf_preview(source, preview_path, document, entities)
+    return report_path, preview_path, entities
+
+
+_SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf"})
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="masker",
-        description="Найти PII в DOCX и создать JSON-отчёт с подсвеченной preview-копией.",
+        description="Найти PII в DOCX или PDF и создать JSON-отчёт с подсвеченной preview-копией.",
     )
-    parser.add_argument("files", nargs="+", type=Path, help="один или несколько файлов .docx")
+    parser.add_argument(
+        "files", nargs="+", type=Path, help="один или несколько файлов .docx или .pdf"
+    )
     parser.add_argument(
         "--out",
         type=Path,
@@ -297,7 +379,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--html",
         action="store_true",
-        help="создать цветной HTML-отчёт по чанкам и найденным PII",
+        help="создать цветной HTML-отчёт по чанкам и найденным PII (только для DOCX)",
     )
     return parser
 
@@ -311,24 +393,39 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(error))
 
     invalid = [
-        path for path in args.files if not path.is_file() or path.suffix.casefold() != ".docx"
+        path
+        for path in args.files
+        if not path.is_file() or path.suffix.casefold() not in _SUPPORTED_SUFFIXES
     ]
     if invalid:
-        parser.error("ожидались существующие DOCX: " + ", ".join(str(path) for path in invalid))
+        parser.error(
+            "ожидались существующие DOCX или PDF: " + ", ".join(str(path) for path in invalid)
+        )
 
     for source in args.files:
-        report_path, preview_path, html_path, entities = inspect_docx(
-            source,
-            args.out,
-            selected_types,
-            rules_only=args.rules_only,
-            html=args.html,
-        )
-        print(f"{source}: найдено сущностей — {len(entities)}")
-        print(f"  отчёт:  {report_path}")
-        print(f"  preview: {preview_path}")
-        if html_path is not None:
-            print(f"  HTML:    {html_path}")
+        if source.suffix.casefold() == ".pdf":
+            report_path, preview_path, entities = inspect_pdf(
+                source,
+                args.out,
+                selected_types,
+                rules_only=args.rules_only,
+            )
+            print(f"{source}: найдено сущностей — {len(entities)}")
+            print(f"  отчёт:  {report_path}")
+            print(f"  preview: {preview_path}")
+        else:
+            report_path, preview_path, html_path, entities = inspect_docx(
+                source,
+                args.out,
+                selected_types,
+                rules_only=args.rules_only,
+                html=args.html,
+            )
+            print(f"{source}: найдено сущностей — {len(entities)}")
+            print(f"  отчёт:  {report_path}")
+            print(f"  preview: {preview_path}")
+            if html_path is not None:
+                print(f"  HTML:    {html_path}")
     print("ВАЖНО: preview содержит исходный текст и служит только для проверки детектора.")
     return 0
 

@@ -62,7 +62,7 @@ class Anchor:
     """
 
     fmt: str  # "docx" | "xlsx" | "pdf"
-    locator: tuple[str | int, ...]  # docx: ("body", para_idx) | ("table", ...)
+    locator: tuple[str | int | float, ...]  # docx: ("body", idx) | pdf: ("page", n, x0, y0, x1, y1)
     label: str = ""  # «абзац 7» — для отчёта человеку
 
 

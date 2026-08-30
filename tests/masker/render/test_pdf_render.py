@@ -177,6 +177,30 @@ def test_redacted_entity_not_found_graceful(tmp_path: pathlib.Path) -> None:
     render_pdf_redacted(src, dest, document, [entity])  # не должен бросать
 
 
+def test_blackbox_original_text_absent(tmp_path: pathlib.Path) -> None:
+    src = _make_pdf_with_inn(tmp_path)
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    render_pdf_redacted(src, dest, document, [entity], style="blackbox")
+    doc = pymupdf.open(str(dest))
+    text = doc[0].get_text()
+    doc.close()
+    assert _INN not in text
+
+
+def test_blackbox_no_marker_in_text(tmp_path: pathlib.Path) -> None:
+    src = _make_pdf_with_inn(tmp_path)
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    render_pdf_redacted(src, dest, document, [entity], style="blackbox")
+    doc = pymupdf.open(str(dest))
+    text = doc[0].get_text()
+    doc.close()
+    assert "[INN]" not in text
+
+
 def test_redacted_multipage_all_redacted(tmp_path: pathlib.Path) -> None:
     src = _make_pdf_with_inn(tmp_path, pages=2)
     dest = tmp_path / "redacted.pdf"

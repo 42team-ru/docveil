@@ -64,6 +64,7 @@ def test_yaml_order_does_not_matter(monkeypatch) -> None:  # type: ignore[no-unt
             role_words=frozenset(reversed(tuple(data.role_words))),
             requisite_labels=frozenset(reversed(tuple(data.requisite_labels))),
             public_bodies=tuple(reversed(data.public_bodies)),
+            landmark_stems=tuple(reversed(data.landmark_stems)),
             quote_pairs=tuple(reversed(data.quote_pairs)),
         ),
     )

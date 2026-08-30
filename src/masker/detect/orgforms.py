@@ -26,6 +26,7 @@ class OrgForms:
     role_words: frozenset[str]
     requisite_labels: frozenset[str]
     public_bodies: tuple[str, ...]
+    landmark_stems: tuple[str, ...]
     quote_pairs: tuple[tuple[str, str], ...]
 
 
@@ -46,6 +47,7 @@ def org_forms() -> OrgForms:
         role_words=frozenset(raw["role_words"]),
         requisite_labels=frozenset(raw["requisite_labels"]),
         public_bodies=tuple(raw["public_bodies"]),
+        landmark_stems=tuple(raw.get("landmark_stems", [])),
         quote_pairs=tuple((pair[0], pair[1]) for pair in raw["quote_pairs"]),
     )
 
@@ -129,6 +131,21 @@ def is_public_body(text: str) -> bool:
             for stem in org_forms().public_bodies
         )
         for token in tokens
+    )
+
+
+def is_landmark_place(text: str) -> bool:
+    """Вернуть True если хотя бы один токен — культурный/исторический объект.
+
+    Применяется только к спанам без признаков организации (без оргформы).
+    Соборы, дворцы, монастыри и прочие достопримечательности не являются ПДн.
+    """
+    value = text.strip(TRIM_CHARS).casefold()
+    tokens = [token.strip(TRIM_CHARS) for token in value.replace("-", " ").split()]
+    tokens = [token for token in tokens if token]
+    stems = org_forms().landmark_stems
+    return bool(stems) and any(
+        token.startswith(stem) and len(token) - len(stem) <= 3 for token in tokens for stem in stems
     )
 
 

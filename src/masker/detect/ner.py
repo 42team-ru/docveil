@@ -12,6 +12,7 @@ from masker.detect.orgforms import (
     expand_org_span,
     fix_person_initials,
     has_organization_evidence,
+    is_landmark_place,
     is_organization_form_only,
     is_public_body,
     is_role_stopword,
@@ -132,6 +133,7 @@ class NatashaDetector:
                     and (
                         is_organization_form_only(value)
                         or is_public_body(value)
+                        or (is_landmark_place(value) and not has_organization_evidence(value))
                         or (len(value.split()) == 1 and not has_organization_evidence(value))
                     )
                 ):

@@ -6,12 +6,18 @@ from dataclasses import dataclass
 
 from masker.detect.result import DetectionResult
 from masker.judge.scoring import ASK_BELOW, score
-from masker.model import Action, Entity, Profile, Question, Verdict, is_critical
+from masker.model import (
+    KEEP_OPTION,
+    MASK_OPTION,
+    Action,
+    Entity,
+    Profile,
+    Question,
+    Verdict,
+    is_critical,
+)
 from masker.profile.agent import ProfileResult
 from masker.refs import EntityIndex, entity_sort_key
-
-MASK_OPTION = "маскировать"
-KEEP_OPTION = "оставить"
 
 
 @dataclass(slots=True)

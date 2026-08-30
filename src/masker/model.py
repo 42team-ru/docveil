@@ -164,3 +164,82 @@ class Question:
 def is_critical(entity_type: EntityType) -> bool:
     """Вернуть, относится ли тип к типам, которые маскируются без вопроса."""
     return entity_type in CRITICAL_TYPES
+
+
+#: Варианты ответа на вопрос политики или судьи. Единый набор строк для
+#: всех источников решений — CLI, веб и отчёт сравнивают ответы буквально.
+MASK_OPTION = "маскировать"
+KEEP_OPTION = "оставить"
+#: Отдельный вариант для критичных типов/профилей: обычным «оставить» снять
+#: маску с критичного реквизита нельзя — см. AGENTS.md и раздел 3 плана T1.5.1.
+KEEP_CRITICAL_OPTION = "оставить (осознанное решение)"
+
+
+class DecisionSource:
+    """Строковые константы источников решения по ссылке (``Decision.decided_by``)."""
+
+    CRITICAL_GUARD = "critical_guard"
+    ENTITY = "entity"
+    PROFILE = "profile"
+    TYPE = "type"
+    JUDGE = "judge"
+    DEFAULT = "default"
+
+
+#: Порядок разрешения конфликтов между источниками решений, от самого
+#: частного к самому общему. Персональное решение по сущности (``entity``)
+#: сильнее решения по её профилю (``profile``), решение по профилю сильнее
+#: решения по её типу (``type``). ``critical_guard`` стоит над всем и
+#: применяется только пока критичный тип не подтверждён дважды — см.
+#: ``PolicyAgent.apply`` и раздел 7 плана T1.5.1. Порядок фиксирован и
+#: проверен тестом на любую другую перестановку.
+DECISION_PRECEDENCE: tuple[str, ...] = (
+    DecisionSource.CRITICAL_GUARD,
+    DecisionSource.ENTITY,
+    DecisionSource.PROFILE,
+    DecisionSource.TYPE,
+    DecisionSource.JUDGE,
+    DecisionSource.DEFAULT,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class Decision:
+    """Итоговое действие над одной ссылкой (``ref``) после разрешения конфликтов.
+
+    Единица решения — ссылка на сущность, а не тип и не профиль: групповые
+    ответы на вопросы политики разворачиваются в такие записи, одну на
+    ``ref`` — см. раздел 4 плана T1.5.1.
+    """
+
+    ref: str
+    action: Action
+    decided_by: str
+    question_id: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyQuestion:
+    """Вопрос о классе сущностей: типе или профиле (субъекте), а не о ``ref``.
+
+    В отличие от ``Question`` (вопрос про конкретную сущность с ``refs``),
+    ``PolicyQuestion`` описывает группу. Разворачивание группы в решения по
+    ссылкам делает предикатом ``PolicyAgent.apply``, а не список ``refs``
+    внутри вопроса — см. раздел 4 плана T1.5.1.
+    """
+
+    id: str
+    kind: str
+    target: str
+    title: str
+    prompt: str
+    options: tuple[str, ...]
+    default: str
+    critical: bool
+    found: int
+    by_type: tuple[tuple[str, int], ...]
+    samples: tuple[str, ...]
+    anchors: tuple[Anchor, ...]
+    linked: tuple[str, ...]
+    role_title: str = ""

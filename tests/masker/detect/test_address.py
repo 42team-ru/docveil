@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from masker.detect import DetectAgent
+from masker.detect import DetectAgent, RuleDetector
 from masker.detect.address import AddressDetector, address_markers
 from masker.model import Anchor, Document, Segment
 
@@ -167,3 +167,36 @@ def test_label_in_previous_paragraph_of_the_same_cell() -> None:
     entities = AddressDetector().detect(document)
 
     assert [(entity.segment_order, entity.text) for entity in entities] == [(1, "г. Воронеж")]
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "ИНН 3662103003",
+        "телефон +7 (473) 250-10-10",
+        "р/с 40702810100000000002",
+    ],
+)
+def test_address_stops_before_requisites(suffix: str) -> None:
+    text = f"Адрес: 394018, г. Воронеж, ул. Кирова, д. 4, {suffix}"
+
+    address = _detect(text)[0]
+
+    assert address.text == "394018, г. Воронеж, ул. Кирова, д. 4"
+    assert suffix not in address.text
+
+
+def test_address_and_rule_entity_both_survive_in_agent() -> None:
+    text = "Адрес: 394018, г. Воронеж, ул. Кирова, д. 4, ИНН 3662103003"
+    document = Document(
+        path="test.docx",
+        fmt="docx",
+        segments=[Segment(text=text, anchor=Anchor("docx", ("body", 0)), order=0)],
+    )
+
+    entities = DetectAgent([RuleDetector(), AddressDetector()]).detect(document).entities
+
+    assert [(entity.type.value, entity.text) for entity in entities] == [
+        ("address", "394018, г. Воронеж, ул. Кирова, д. 4"),
+        ("inn", "3662103003"),
+    ]

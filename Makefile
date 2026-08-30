@@ -32,7 +32,7 @@ fmt:
 # Ворота, которые всегда зелёные, хуже отсутствия ворот.
 # Ломаем инвариант нарочно и убеждаемся, что ворота это ловят.
 gate-selftest:
-	@$(PY) -m pytest -q tests/test_gate_selftest.py
+	@$(PY) -m pytest -q tests/masker/test_gate_selftest.py
 
 up:
 	docker compose up -d

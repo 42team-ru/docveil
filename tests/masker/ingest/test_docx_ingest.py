@@ -22,7 +22,9 @@ from masker.detect.rules import detect_by_rules
 from masker.ingest.docx_ingest import ingest_docx, iter_runs
 from masker.model import EntityType
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = next(
+    parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
+)
 FIXTURES = ROOT / "fixtures" / "labeled"
 CONTRACTS = [
     (FIXTURES / "contract_01.docx", 17),

@@ -133,6 +133,41 @@ def test_cli_uses_ner_by_default(tmp_path: Path) -> None:
     ]
 
 
+def test_cli_records_profile_and_judge_with_fake_llm(tmp_path: Path) -> None:
+    config = tmp_path / "llm.yaml"
+    config.write_text("llm:\n  provider: fake\n", encoding="utf-8")
+
+    assert (
+        main(
+            [
+                str(FIXTURE),
+                "--out",
+                str(tmp_path / "output"),
+                "--rules-only",
+                "--profile",
+                "--llm-config",
+                str(config),
+            ]
+        )
+        == 0
+    )
+
+    report = json.loads(
+        (tmp_path / "output" / FIXTURE.stem / "report.json").read_text(encoding="utf-8")
+    )
+    assert report["profile_judge"]["llm_calls"] == 1
+    assert len(report["profile_judge"]["profiles"]) == 1
+    assert len(report["profile_judge"]["verdicts"]) == report["entity_count"]
+
+
+def test_cli_requires_explicit_consent_for_remote_pii(tmp_path: Path) -> None:
+    config = tmp_path / "llm.yaml"
+    config.write_text("llm:\n  provider: openrouter\n  model: openrouter/auto\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="2"):
+        main([str(FIXTURE), "--profile", "--llm-config", str(config)])
+
+
 @pytest.mark.parametrize("rules_only", [False, True])
 def test_detection_coverage_follows_detector_set(tmp_path: Path, rules_only: bool) -> None:
     args = [str(FIXTURE), "--out", str(tmp_path), "--types", "all"]

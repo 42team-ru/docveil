@@ -1,0 +1,9 @@
+# Конфигурация живой LLM для профилирования через OpenRouter.
+# Ключ не записывается в этот файл: export OPENROUTER_API_KEY='...'.
+llm:
+  provider: openrouter
+  model: openrouter/auto
+  api_key_env: OPENROUTER_API_KEY
+  timeout_seconds: 60
+  title: triema-masker
+  # site_url: https://example.invalid/triema-masker

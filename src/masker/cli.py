@@ -312,7 +312,7 @@ def inspect_pdf(
     selected_types: frozenset[EntityType],
     *,
     rules_only: bool,
-    redact: bool,
+    redact_style: str | None,
 ) -> tuple[Path, Path, Path | None, list[Entity]]:
     """Проверить один PDF, записать JSON + preview; опционально — redacted-копию."""
     document = ingest_pdf(source)
@@ -326,14 +326,14 @@ def inspect_pdf(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     report_path = artifact_dir / "report.json"
     preview_path = artifact_dir / "preview.pdf"
-    redacted_path = artifact_dir / "redacted.pdf" if redact else None
+    redacted_path = artifact_dir / "redacted.pdf" if redact_style else None
 
     coverage = _document_coverage_pdf(source, document)
     report: dict[str, Any] = {
         "report_version": REPORT_VERSION,
         "input": source.name,
         "format": document.fmt,
-        "preview_only": not redact,
+        "preview_only": redact_style is None,
         "selected_types": sorted(entity_type.value for entity_type in selected_types),
         "entity_count": len(entities),
         "chunk_count": len(chunks),
@@ -348,8 +348,8 @@ def inspect_pdf(
     }
     _write_report(report_path, report)
     render_pdf_preview(source, preview_path, document, entities)
-    if redacted_path is not None:
-        render_pdf_redacted(source, redacted_path, document, entities)
+    if redacted_path is not None and redact_style is not None:
+        render_pdf_redacted(source, redacted_path, document, entities, style=redact_style)
     return report_path, preview_path, redacted_path, entities
 
 
@@ -386,9 +386,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="создать цветной HTML-отчёт по чанкам и найденным PII (только для DOCX)",
     )
     parser.add_argument(
-        "--redact",
-        action="store_true",
-        help="создать обезличенную копию PDF с удалёнными сущностями (только для PDF)",
+        "--redact-style",
+        choices=["marker", "blackbox"],
+        default=None,
+        metavar="STYLE",
+        help=(
+            "создать обезличенную копию PDF (только для PDF). "
+            "marker — белый фон, маркер [ТИП] вписан по ширине; "
+            "blackbox — чёрный прямоугольник, маркер невидим визуально."
+        ),
     )
     return parser
 
@@ -418,7 +424,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.out,
                 selected_types,
                 rules_only=args.rules_only,
-                redact=args.redact,
+                redact_style=args.redact_style,
             )
             print(f"{source}: найдено сущностей — {len(entities)}")
             print(f"  отчёт:  {report_path}")

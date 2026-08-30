@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from masker.detect import DetectAgent, RuleDetector
 from masker.detect.address import AddressDetector, address_markers
 from masker.detect.ner import NatashaDetector, NerSpan, memoize_tagger
+from masker.ingest.docx_ingest import ingest_docx
 from masker.model import Anchor, Document, Segment
 
 
@@ -291,3 +294,24 @@ def test_tagger_is_called_once_per_segment() -> None:
     DetectAgent([AddressDetector(tagger), NatashaDetector(tagger)]).detect(document)
 
     assert raw_tagger.calls == len(document.segments)
+
+
+@pytest.mark.models
+def test_body_address_ends_before_signatory() -> None:
+    fixture = Path(__file__).resolve().parents[3] / "fixtures/labeled/contract_06_address.docx"
+    document = ingest_docx(fixture)
+    segment = next(segment for segment in document.segments if "312822458000" in segment.text)
+
+    entities = [
+        entity
+        for entity in DetectAgent().detect(document).entities
+        if entity.segment_order == segment.order and entity.type.value in {"address", "person"}
+    ]
+
+    assert [(entity.type.value, entity.text) for entity in entities] == [
+        (
+            "address",
+            "394024, Воронежская область, г Воронеж, пер Здоровья, д 86а, кв 95",
+        ),
+        ("person", "Атараев Б.М"),
+    ]

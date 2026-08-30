@@ -304,6 +304,11 @@ def contract_06_address() -> tuple[DocxDocument, list[dict[str, str]]]:
     doc.add_paragraph(
         "Адрес: 394018, г. Воронеж, ул. Кирова, д. 4, оф. 12, ИНН 3662103003"
     )
+    doc.add_paragraph(
+        "ИНН: 312822458000 , адрес регистрации по месту жительства: 394024, "
+        "Воронежская область, г Воронеж, пер Здоровья, д 86а, кв 95 ) Атараев Б.М., "
+        "именуемый в дальнейшем «Продавец»"
+    )
 
     table = doc.add_table(rows=1, cols=1)
     table.style = "Table Grid"
@@ -326,6 +331,8 @@ def contract_06_address() -> tuple[DocxDocument, list[dict[str, str]]]:
         {"type": "address", "text": "г. Воронеж"},
         {"type": "address", "text": "мкр. Жукова, д. 20, кв. 15"},
         {"type": "inn", "text": "3662103003", "party": "supplier"},
+        {"type": "inn", "text": "312822458000", "party": "seller"},
+        {"type": "person", "text": "Атараев Б.М", "party": "seller"},
     ]
     return doc, labels
 

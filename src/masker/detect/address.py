@@ -54,6 +54,9 @@ def address_markers() -> AddressMarkers:
 
 _CHUNK_RE: Final = re.compile(r"[^,;]+")
 _TRIM_CHARS: Final = " \t\u00a0.,;:"
+_HARD_BOUNDARY_RE: Final = re.compile(r'[();"«»\n]')
+_NUMBER_VALUE_RE: Final = re.compile(r"\s*(\d[\w-]*)")
+_NAME_VALUE_RE: Final = re.compile(r"\s+([А-ЯЁ][\w-]*(?:\s+[А-ЯЁ][\w-]*)*)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +66,7 @@ class _Chunk:
     kinds: frozenset[str]
     value_start: int
     is_stop: bool
+    has_hard_boundary: bool
 
 
 def _marker_pattern(values: tuple[str, ...]) -> re.Pattern[str]:
@@ -116,6 +120,59 @@ class AddressDetector:
         self._stop_labels = tuple(label.casefold() for label in markers.stop_labels)
         self._tagger = tagger
 
+    @staticmethod
+    def _hard_boundary(value: str) -> int:
+        match = _HARD_BOUNDARY_RE.search(value)
+        return match.start() if match is not None else len(value)
+
+    @staticmethod
+    def _number_end(value: str, start: int, limit: int) -> int | None:
+        match = _NUMBER_VALUE_RE.match(value, start)
+        if match is None or match.end(1) > limit:
+            return None
+        return match.end(1)
+
+    @staticmethod
+    def _name_end(value: str, start: int, limit: int) -> int | None:
+        match = _NAME_VALUE_RE.match(value, start)
+        if match is None:
+            return None
+        return min(match.end(1), limit)
+
+    def _component_end(
+        self,
+        value: str,
+        *,
+        index: re.Match[str] | None,
+        kinds: frozenset[str],
+        previous_kinds: frozenset[str],
+    ) -> int:
+        """Вернуть конец последнего значения компонента, не всего чанка."""
+        limit = self._hard_boundary(value)
+        ends: list[int] = []
+        if index is not None and index.end() <= limit:
+            ends.append(index.end())
+        region = self._region.search(value)
+        if region is not None and region.end() <= limit and "region" in kinds:
+            ends.append(region.end())
+        for kind, pattern in (("settlement", self._settlement), ("street", self._street)):
+            marker = pattern.search(value)
+            if marker is not None and kind in kinds:
+                name_end = self._name_end(value, marker.end(), limit)
+                if name_end is not None:
+                    ends.append(name_end)
+        for kind, pattern in (("building", self._building), ("premises", self._premises)):
+            marker = pattern.search(value)
+            if marker is not None and kind in kinds:
+                number_end = self._number_end(value, marker.end(), limit)
+                if number_end is not None:
+                    ends.append(number_end)
+        if "building" in kinds and "street" in previous_kinds:
+            number_end = self._number_end(value, 0, limit)
+            if number_end is not None:
+                ends.append(number_end)
+        return max(ends, default=limit)
+
     def _chunks(self, text: str) -> list[_Chunk]:
         chunks: list[_Chunk] = []
         previous_kinds: frozenset[str] = frozenset()
@@ -162,13 +219,20 @@ class AddressDetector:
                 if marker_start is not None
             ]
             value_start = start + (min(starts) if starts else 0)
+            value_end = start + self._component_end(
+                value,
+                index=index,
+                kinds=kinds,
+                previous_kinds=previous_kinds,
+            )
             chunks.append(
                 _Chunk(
                     start=start,
-                    end=end,
+                    end=value_end,
                     kinds=kinds,
                     value_start=value_start,
                     is_stop=is_stop,
+                    has_hard_boundary=self._hard_boundary(value) < len(value),
                 )
             )
             previous_kinds = kinds
@@ -236,6 +300,7 @@ class AddressDetector:
                 end_index = index
                 while (
                     end_index + 1 < len(chunks)
+                    and not chunks[end_index].has_hard_boundary
                     and not chunks[end_index + 1].is_stop
                     and chunks[end_index + 1].kinds
                 ):

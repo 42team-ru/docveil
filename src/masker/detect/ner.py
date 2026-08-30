@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -33,6 +34,25 @@ class NerTagger(Protocol):
 
     def spans(self, text: str) -> list[NerSpan]:
         """Вернуть модельные спаны с локальными смещениями."""
+
+
+class MemoizedNerTagger:
+    """Кэшировать результат NER по тексту сегмента для нескольких детекторов."""
+
+    def __init__(self, delegate: NerTagger) -> None:
+        @functools.lru_cache(maxsize=2048)
+        def spans_for_text(text: str) -> tuple[NerSpan, ...]:
+            return tuple(delegate.spans(text))
+
+        self._spans_for_text: Callable[[str], tuple[NerSpan, ...]] = spans_for_text
+
+    def spans(self, text: str) -> list[NerSpan]:
+        return list(self._spans_for_text(text))
+
+
+def memoize_tagger(tagger: NerTagger) -> NerTagger:
+    """Вернуть теггер с кэшем по значению текста сегмента."""
+    return MemoizedNerTagger(tagger)
 
 
 class _NatashaTagger:

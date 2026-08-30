@@ -4,7 +4,7 @@ import pytest
 
 from masker.detect import DetectAgent, RuleDetector
 from masker.detect.address import AddressDetector, address_markers
-from masker.detect.ner import NatashaDetector, NerSpan
+from masker.detect.ner import NatashaDetector, NerSpan, memoize_tagger
 from masker.model import Anchor, Document, Segment
 
 
@@ -243,3 +243,51 @@ def test_address_absorbs_false_person_span_real_model() -> None:
     entities = DetectAgent().detect(_zhukova_document()).entities
 
     assert [entity.type.value for entity in entities] == ["address"]
+
+
+def test_loc_signal_raises_partial_confidence() -> None:
+    class LocationTagger:
+        def spans(self, text: str) -> list[NerSpan]:
+            assert text == "Адрес: г. Воронеж"
+            return [NerSpan(10, 17, "LOC")]
+
+    entities = AddressDetector(LocationTagger()).detect(
+        Document(
+            path="test.docx",
+            fmt="docx",
+            segments=[
+                Segment(
+                    text="Адрес: г. Воронеж",
+                    anchor=Anchor("docx", ("body", 0)),
+                    order=0,
+                )
+            ],
+        )
+    )
+
+    assert entities[0].confidence == 0.7
+
+
+def test_tagger_is_called_once_per_segment() -> None:
+    class CountingTagger:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def spans(self, text: str) -> list[NerSpan]:
+            self.calls += 1
+            return []
+
+    raw_tagger = CountingTagger()
+    tagger = memoize_tagger(raw_tagger)
+    document = Document(
+        path="test.docx",
+        fmt="docx",
+        segments=[
+            Segment("Адрес: г. Воронеж", Anchor("docx", ("body", 0)), 0),
+            Segment("Сидорова Анна Петровна", Anchor("docx", ("body", 1)), 1),
+        ],
+    )
+
+    DetectAgent([AddressDetector(tagger), NatashaDetector(tagger)]).detect(document)
+
+    assert raw_tagger.calls == len(document.segments)

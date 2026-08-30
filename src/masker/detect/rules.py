@@ -23,7 +23,7 @@ from masker.detect.checksums import (
     is_valid_ogrn,
     is_valid_snils,
 )
-from masker.model import Entity, EntityType, Segment, Source
+from masker.model import Document, Entity, EntityType, Segment, Source
 
 #: Сколько соседних сегментов просматривать в поисках БИК для счёта.
 BIK_LOOKAROUND = 3
@@ -220,3 +220,15 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                     )
                 )
     return resolve_overlaps(raw_hits)
+
+
+class RuleDetector:
+    """Адаптер слоя регулярных правил к общему контракту детекторов."""
+
+    name = "rules"
+    source = Source.RULE
+    priority = 100
+
+    def detect(self, document: Document) -> list[Entity]:
+        """Найти формальные сущности с checksum-валидацией."""
+        return detect_by_rules(document.segments)

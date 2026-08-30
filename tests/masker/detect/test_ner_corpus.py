@@ -8,7 +8,7 @@ from functools import lru_cache
 from masker.detect import DetectAgent
 from masker.detect.ner import NER_CONFIDENCE
 from masker.detect.normalize import normalize_value
-from masker.eval import load_corpus, score
+from masker.eval import MIN_PRECISION, MIN_RECALL_OTHER, load_corpus, score
 from masker.ingest.docx_ingest import ingest_docx
 from masker.model import CRITICAL_TYPES, EntityType
 
@@ -55,9 +55,12 @@ def test_ner_confidence_is_calibrated() -> None:
         assert precision - 0.20 <= NER_CONFIDENCE[entity_type] <= precision
 
 
-def test_no_address_in_corpus() -> None:
-    by_type, _metrics = _corpus_metrics()
-    assert "address" not in by_type
+def test_address_meets_corpus_thresholds() -> None:
+    _by_type, metrics = _corpus_metrics()
+    address = metrics[EntityType.ADDRESS.value]
+
+    assert address["precision"] >= MIN_PRECISION
+    assert address["recall"] >= MIN_RECALL_OTHER
 
 
 def test_every_occurrence_of_critical_value_is_detected() -> None:

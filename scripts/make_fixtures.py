@@ -97,6 +97,7 @@ def contract_01() -> tuple[DocxDocument, list[dict[str, str]]]:
         {"type": "bik", "text": "042007681", "party": "supplier"},
         {"type": "phone", "text": "+7 (473) 250-10-10", "party": "supplier"},
         {"type": "email", "text": "info@triema.example", "party": "supplier"},
+        {"type": "address", "text": "394018, г. Воронеж, ул. Кирова, д. 4, оф. 12"},
         {
             "type": "org_name",
             "text": "Общество с ограниченной ответственностью «Вектор»",
@@ -107,6 +108,7 @@ def contract_01() -> tuple[DocxDocument, list[dict[str, str]]]:
         {"type": "person", "text": "Сидоровой Анны Петровны", "party": "buyer"},
         {"type": "phone", "text": "8-910-347-51-07", "party": "buyer"},
         {"type": "email", "text": "zakupki@vektor.example", "party": "buyer"},
+        {"type": "address", "text": "101000, г. Москва, ул. Мясницкая, д. 26"},
         {"type": "person", "text": "И.И. Иванов", "party": "supplier"},
         {"type": "person", "text": "А.П. Сидорова", "party": "buyer"},
     ]
@@ -182,6 +184,7 @@ def contract_03_ner() -> tuple[DocxDocument, list[dict[str, str]]]:
         {"type": "bank_account", "text": "40702810100000000002", "party": "third_party"},
         {"type": "bik", "text": "042007681", "party": "third_party"},
         {"type": "person", "text": "Сидорова Анна Петровна", "party": "buyer"},
+        {"type": "address", "text": "394018, г. Воронеж, ул. Кирова, д. 4, оф. 12"},
     ]
     return doc, labels
 
@@ -240,6 +243,7 @@ def contract_04_bankruptcy() -> tuple[DocxDocument, list[dict[str, str]]]:
         },
         # T1.11: сущность находится в отдельном абзаце ячейки таблицы.
         {"type": "person", "text": "Сидорова Анна Петровна", "party": "seller"},
+        {"type": "address", "text": "302000, г. Орёл, ул. Лесная, д. 7"},
     ]
     return doc, labels
 

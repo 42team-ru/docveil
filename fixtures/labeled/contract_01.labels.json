@@ -46,6 +46,10 @@
       "party": "supplier"
     },
     {
+      "type": "address",
+      "text": "394018, г. Воронеж, ул. Кирова, д. 4, оф. 12"
+    },
+    {
       "type": "org_name",
       "text": "Общество с ограниченной ответственностью «Вектор»",
       "party": "buyer"
@@ -74,6 +78,10 @@
       "type": "email",
       "text": "zakupki@vektor.example",
       "party": "buyer"
+    },
+    {
+      "type": "address",
+      "text": "101000, г. Москва, ул. Мясницкая, д. 26"
     },
     {
       "type": "person",

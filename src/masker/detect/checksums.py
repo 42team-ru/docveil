@@ -77,16 +77,21 @@ def is_valid_account(account: str, bik: str) -> bool:
 
     Расчётный счёт приписывается к последним трём цифрам БИК,
     корреспондентский — к «0» плюс код региона из БИК.
+    Алгоритм: Положение ЦБ РФ №579-П.
     """
     acc = _digits(account)
     b = _digits(bik)
     if acc is None or b is None or len(acc) != 20 or len(b) != 9:
         return False
     bik_s = "".join(map(str, b))
-    prefix = "0" + bik_s[4:6] if bik_s[6:9] == "000" else bik_s[6:9]
-    control = [int(c) for c in prefix] + acc
+    acc_s = "".join(map(str, acc))
+
+    # Определяем ключ: для корр. счёта (301...) используем "0" + региональный код БИК
+    prefix = "0" + bik_s[4:6] if acc_s.startswith("301") else bik_s[6:9]
+
+    control = prefix + acc_s
     weights = (7, 1, 3)
-    total = sum(d * weights[i % 3] % 10 for i, d in enumerate(control))
+    total = sum(int(d) * weights[i % 3] for i, d in enumerate(control))
     return total % 10 == 0
 
 

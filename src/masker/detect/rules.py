@@ -107,6 +107,46 @@ def _nearby_biks(biks: dict[int, list[str]], order: int) -> list[str]:
     return out
 
 
+def _has_passport_context(text: str, start: int, end: int) -> bool:
+    """Проверяет, есть ли рядом с числом слова, характерные для паспорта.
+
+    Паспорт не имеет контрольной суммы, поэтому любое 10-значное число
+    подходит под формат. Защита от ИНН с битой контрольной цифрой и
+    номеров накладных: требуем характерные слова в окрестности.
+    """
+    # Окно контекста: ~50 символов до и после
+    context_start = max(0, start - 50)
+    context_end = min(len(text), end + 50)
+    context = text[context_start:context_end].lower()
+
+    # Паспорт упоминается с характерными словами
+    passport_markers = [
+        "паспорт",
+        "удостовер",
+        "выдан",
+        "серия",
+        "номер паспорта",
+        "документ",
+    ]
+
+    # Антимаркеры: если рядом эти слова, точно не паспорт
+    anti_markers = [
+        "накладная",
+        "инн",
+        "счет",
+        "счёт",
+        "договор",
+        "заказ",
+    ]
+
+    # Проверяем антимаркеры (высокий приоритет)
+    if any(marker in context for marker in anti_markers):
+        return False
+
+    # Проверяем маркеры паспорта
+    return any(marker in context for marker in passport_markers)
+
+
 def _accept(etype: EntityType, raw: str, seg: Segment, biks: dict[int, list[str]]) -> bool:
     """Проходит ли кандидат проверку своего типа."""
     if etype is EntityType.BANK_ACCOUNT:
@@ -155,6 +195,13 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                 value = m.group()
                 if not _accept(etype, value, seg, biks):
                     continue
+
+                # Паспорт требует проверки контекста (нет контрольной суммы)
+                if etype is EntityType.PASSPORT and not _has_passport_context(
+                    seg.text, m.start(), m.end()
+                ):
+                    continue
+
                 normalized = (
                     _normalize_digits(value)
                     if etype not in (EntityType.EMAIL, EntityType.SITE)

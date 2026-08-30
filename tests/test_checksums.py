@@ -50,4 +50,16 @@ def test_kpp() -> None:
 
 def test_account_requires_matching_bik() -> None:
     # Счёт валиден только в паре со «своим» БИК — на чужом контрольная сумма рвётся.
-    assert not is_valid_account("40702810100000000001", "044525225")
+    assert not is_valid_account("40702810100000000002", "044525225")
+
+
+def test_account_valid_with_correct_bik() -> None:
+    """Проверка, что алгоритм работает на реальных данных (дефект 1)."""
+    # Сбербанк корр. счёт (проверенные данные)
+    assert is_valid_account("30101810400000000225", "044525225")
+
+    # Фикстура contract_01 с валидным счётом
+    assert is_valid_account("40702810100000000002", "042007681")
+
+    # Старый синтетический счёт не должен проходить
+    assert not is_valid_account("40702810100000000001", "042007681")

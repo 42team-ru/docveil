@@ -1,12 +1,16 @@
 """Разбор DOCX в `Document`. T1.1.
 
-Якорь сегмента — `(part, para_idx, run_idx)`, где `part` различает основной
-текст, таблицы, колонтитулы и сноски. По якорю рендер находит тот самый run
-и разрезает его, не трогая остальное форматирование.
+Сегмент — непустой абзац основного текста (`w:body/w:p`). Якорь —
+`("body", para_idx)`, где `para_idx` — физический индекс абзаца в
+`doc.paragraphs`: пропущенные пустые абзацы физически существуют, и рендер
+обязан находить абзац по индексу, а не по счётчику непустых.
 
-Таблицы обходятся по ячейкам, каждый абзац ячейки — отдельный сегмент
-с `is_table=True`. Пустые абзацы пропускаются: маскировать в них нечего,
-а порядковые номера сегментов должны оставаться плотными.
+Номер run'а в якорь не входит намеренно: сущность может пересекать границу
+run'ов («ИНН 36» + «62103003» — обычное дело после правок в Word), и одним
+индексом она не адресуется. Рендер получает по якорю абзац и сам вычисляет
+покрывающие run'ы по `Entity.start/end` через `iter_runs`.
+
+Таблицы (T1.11), колонтитулы и сноски (T1.12) в этот разбор не входят.
 """
 
 from __future__ import annotations
@@ -14,90 +18,27 @@ from __future__ import annotations
 import pathlib
 
 from docx import Document as open_docx
-from docx.document import Document as DocxDocument
-from docx.table import Table
+from docx.oxml.text.run import CT_R
 from docx.text.paragraph import Paragraph
+from docx.text.run import Run
 
 from masker.model import Anchor, Document, Segment
 
-#: Части документа, которые обходим. Порядок фиксирован — от него зависит
-#: `Segment.order`, а значит и детерминизм всего пайплайна.
+#: Часть документа, которую обходим. Первый элемент якоря — дискриминатор:
+#: T1.11/T1.12 добавят "table", "header", "footer", не трогая уже выданные якоря.
 PART_BODY = "body"
-PART_TABLE = "table"
-PART_HEADER = "header"
-PART_FOOTER = "footer"
 
 
-def _paragraph_segments(
-    para: Paragraph,
-    part: str,
-    locator_head: tuple[object, ...],
-    order: int,
-    is_table: bool,
-    label: str,
-) -> list[Segment]:
-    """Один абзац — один сегмент, если в нём есть текст."""
-    text = para.text
-    if not text.strip():
-        return []
-    return [
-        Segment(
-            text=text,
-            anchor=Anchor(fmt="docx", locator=(part, *locator_head), label=label),
-            order=order,
-            is_table=is_table,
-        )
-    ]
+def iter_runs(paragraph: Paragraph) -> list[Run]:
+    """Runs абзаца в порядке документа, включая runs внутри гиперссылок.
 
-
-def _iter_body(doc: DocxDocument) -> list[tuple[str, tuple[object, ...], Paragraph, bool, str]]:
-    """Абзацы основного текста и ячеек таблиц в порядке их следования.
-
-    python-docx не даёт готового обхода «тело в исходном порядке», поэтому
-    идём по XML-детям тела и разбираем абзацы и таблицы по мере встречи.
-    Иначе таблицы уехали бы в конец и `Segment.order` перестал бы
-    соответствовать чтению документа.
+    `paragraph.runs` отдаёт только прямых детей `w:p` и теряет текст
+    гиперссылок, а `paragraph.text` их включает. Единственная форма, при
+    которой смещения сегмента совпадают с обходом рендера, — эта:
+    `"".join(r.text for r in iter_runs(p)) == p.text`.
     """
-    items: list[tuple[str, tuple[object, ...], Paragraph, bool, str]] = []
-    body = doc.element.body
-    para_idx = table_idx = 0
-    for child in body.iterchildren():
-        tag = child.tag.rsplit("}", 1)[-1]
-        if tag == "p":
-            para = Paragraph(child, doc)
-            items.append((PART_BODY, (para_idx,), para, False, f"абзац {para_idx + 1}"))
-            para_idx += 1
-        elif tag == "tbl":
-            table = Table(child, doc)
-            for r, row in enumerate(table.rows):
-                for c, cell in enumerate(row.cells):
-                    for q, para in enumerate(cell.paragraphs):
-                        items.append(
-                            (
-                                PART_TABLE,
-                                (table_idx, r, c, q),
-                                para,
-                                True,
-                                f"таблица {table_idx + 1}, строка {r + 1}, столбец {c + 1}",
-                            )
-                        )
-            table_idx += 1
-    return items
-
-
-def _iter_headers_footers(
-    doc: DocxDocument,
-) -> list[tuple[str, tuple[object, ...], Paragraph, bool, str]]:
-    """Колонтитулы: реквизиты часто живут именно там, и про них забывают."""
-    items: list[tuple[str, tuple[object, ...], Paragraph, bool, str]] = []
-    for s, section in enumerate(doc.sections):
-        for part, container, human in (
-            (PART_HEADER, section.header, "верхний колонтитул"),
-            (PART_FOOTER, section.footer, "нижний колонтитул"),
-        ):
-            for i, para in enumerate(container.paragraphs):
-                items.append((part, (s, i), para, False, f"{human}, раздел {s + 1}"))
-    return items
+    elements: list[CT_R] = paragraph._p.xpath("./w:r | ./w:hyperlink/w:r")
+    return [Run(r, paragraph) for r in elements]
 
 
 def ingest_docx(path: str | pathlib.Path) -> Document:
@@ -106,8 +47,21 @@ def ingest_docx(path: str | pathlib.Path) -> Document:
     doc = open_docx(str(path))
 
     segments: list[Segment] = []
-    for part, locator, para, is_table, label in _iter_body(doc) + _iter_headers_footers(doc):
-        segments.extend(_paragraph_segments(para, part, locator, len(segments), is_table, label))
+    for para_idx, para in enumerate(doc.paragraphs):
+        text = para.text
+        if not text.strip():
+            continue
+        segments.append(
+            Segment(
+                text=text,
+                anchor=Anchor(
+                    fmt="docx",
+                    locator=(PART_BODY, para_idx),
+                    label=f"абзац {para_idx + 1}",
+                ),
+                order=len(segments),
+            )
+        )
 
     props = doc.core_properties
     meta = {

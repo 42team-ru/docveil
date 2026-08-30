@@ -27,10 +27,16 @@
 
 | Формат | Якорь | Подсветка |
 |---|---|---|
-| DOCX | `(part, para_idx, run_idx, char_range)` | `run.font.highlight_color = YELLOW` |
+| DOCX | `("body", para_idx)` + `Entity.start/end` | `run.font.highlight_color = YELLOW` |
 | XLSX | `(sheet, cell, char_range)` | `PatternFill` + комментарий с типом |
 | PDF (текстовый) | `(page, bbox, char_range)` | `add_redact_annot(fill=…)` + вставка маркера |
 | PDF (скан) | `(page, bbox)` от OCR | тот же redact поверх изображения |
+
+Номер run'а в якорь не входит намеренно: сущность может пересекать границу
+run'ов («ИНН 36» + «62103003» — обычное дело после правок в Word), и одним
+индексом она не адресуется. Рендер получает по якорю абзац и сам находит
+покрывающие run'ы по смещениям через `docx_ingest.iter_runs()`, который
+обходит и runs внутри гиперссылок.
 
 ## Агенты
 

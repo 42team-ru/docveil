@@ -101,3 +101,66 @@ class Document:
     def text(self) -> str:
         """Линейный текст документа — вход для NER и LLM."""
         return "\n".join(s.text for s in self.segments)
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileMember:
+    """Сущность профиля и её место в исходном документе."""
+
+    entity: Entity
+    anchor: Anchor
+    ref: str
+
+
+@dataclass(slots=True)
+class Profile:
+    """Детерминированная или уточнённая моделью группа одного субъекта."""
+
+    id: str
+    members: list[ProfileMember]
+    role_id: str = ""
+    role_title: str = ""
+    marker_label: str = ""
+    confidence: float = 0.0
+    role_confidence: float = 0.0
+    source: Source = Source.RULE
+    evidence: list[str] = field(default_factory=list)
+
+
+class Action(StrEnum):
+    """Действие судьи над сущностью."""
+
+    MASK = "mask"
+    ASK = "ask"
+    KEEP = "keep"
+
+
+@dataclass(frozen=True, slots=True)
+class Verdict:
+    """Решение по одной сущности."""
+
+    ref: str
+    action: Action
+    confidence: float
+    reason: str
+    profile_id: str = ""
+    question_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Question:
+    """Один вопрос человеку о повторяющемся значении."""
+
+    id: str
+    kind: str
+    key: str
+    prompt: str
+    options: tuple[str, ...]
+    default: str
+    refs: tuple[str, ...]
+    anchors: tuple[Anchor, ...]
+
+
+def is_critical(entity_type: EntityType) -> bool:
+    """Вернуть, относится ли тип к типам, которые маскируются без вопроса."""
+    return entity_type in CRITICAL_TYPES

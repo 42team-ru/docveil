@@ -61,15 +61,36 @@ def build_context_blocks(segments: list[Segment], entities: list[Entity]) -> lis
     blocks: list[ContextBlock] = []
     current: ContextBlock | None = None
     active_label = ""
+    # Метка, поставленная самим заголовком («1. Реквизиты Исполнителя»), должна
+    # управлять всем разделом до следующего заголовка независимо от смены типа
+    # якоря внутри раздела (таблица реквизитов идёт сразу после заголовка).
+    # Метка, подхваченная из формулировки внутри абзаца (преамбула «именуемое
+    # в дальнейшем ...»), такой гарантии не даёт и гасится на первой же смене
+    # структуры — иначе она утекает в совсем другой раздел документа.
+    active_label_from_heading = False
     seen_labels: set[str] = set()
     empty_gap = 0
+    previous_anchor_kind: str | None = None
     for segment in sorted(segments, key=lambda item: item.order):
+        segment_anchor_kind = _anchor_kind(segment)
+        is_numbered_heading = bool(HEADING.match(segment.text.strip()))
+        # Сброс выполняется до применения explicit_label этого же сегмента —
+        # иначе заголовок, который сам несёт метку, погасил бы её же.
+        if is_numbered_heading or (
+            previous_anchor_kind is not None
+            and segment_anchor_kind != previous_anchor_kind
+            and not active_label_from_heading
+        ):
+            active_label = ""
+            active_label_from_heading = False
+        previous_anchor_kind = segment_anchor_kind
         labels = find_labels(segment.text)
         explicit_label = labels[0][1] if labels else ""
         if explicit_label:
             explicit_label = _known_label(explicit_label, seen_labels)
             seen_labels.add(explicit_label)
             active_label = explicit_label
+            active_label_from_heading = is_numbered_heading
         heading = segment.text.strip() if _is_heading(segment.text) else ""
         segment_entities = entities_by_segment.get(segment.order, [])
         new_block = current is None
@@ -91,15 +112,18 @@ def build_context_blocks(segments: list[Segment], entities: list[Entity]) -> lis
                 id=f"B{len(blocks) + 1}",
                 spans=[],
                 entities=[],
-                label=explicit_label or active_label,
+                label=active_label,
                 heading=heading,
             )
             blocks.append(current)
         assert current is not None
-        if explicit_label:
-            current.label = explicit_label
-        elif not current.label:
-            current.label = active_label
+        # Метка блока всегда следует за текущей активной меткой, а не только
+        # заполняет пустое поле: иначе блок, начавшийся без сущностей на
+        # сегменте с меткой (например, преамбула), донесёт эту метку до
+        # сегмента с сущностью даже после того, как метка уже погашена
+        # заголовком — граница блока по заголовку срабатывает только когда в
+        # блоке уже есть хотя бы одна сущность.
+        current.label = active_label
         if heading and not current.heading:
             current.heading = heading
         current.spans.append(BlockSpan(segment.order, 0, len(segment.text)))

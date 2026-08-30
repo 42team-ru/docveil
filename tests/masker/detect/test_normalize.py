@@ -44,3 +44,15 @@ def test_different_surnames_stay_different() -> None:
 
 def test_unknown_type_is_casefolded_and_whitespace_is_collapsed() -> None:
     assert normalize_value("unknown", "  Тест\tЗначение ") == "тест значение"
+
+
+def test_initials_key_is_the_same_regardless_of_word_order() -> None:
+    assert normalize_value(EntityType.PERSON, "Атараев Б.М") == normalize_value(
+        EntityType.PERSON, "Б.М. Атараев"
+    )
+
+
+def test_initials_key_is_the_same_regardless_of_dots_and_order() -> None:
+    assert normalize_value(EntityType.PERSON, "И.И. Иванов") == normalize_value(
+        EntityType.PERSON, "Иванов И.И."
+    )

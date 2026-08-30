@@ -24,6 +24,11 @@
       "type": "person",
       "text": "Кузнецова Петра Алексеевича",
       "party": "third_party"
+    },
+    {
+      "type": "person",
+      "text": "Сидорова Анна Петровна",
+      "party": "seller"
     }
   ]
 }

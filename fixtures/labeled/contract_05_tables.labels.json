@@ -1,0 +1,14 @@
+{
+  "entities": [
+    {
+      "type": "org_name",
+      "text": "ООО «Горизонт»",
+      "party": "supplier"
+    },
+    {
+      "type": "inn",
+      "text": "3662103003",
+      "party": "supplier"
+    }
+  ]
+}

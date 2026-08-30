@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document as open_docx
-from docx.table import Table
+from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
+
+from masker.ingest.docx_ingest import DocxLocator
 
 _STYLE = """
 :root { color-scheme: light; font-family: Inter, Arial, sans-serif; color: #202124; }
@@ -67,12 +69,12 @@ th { color: #4b5056; background: #f0f2f4; font-weight: 700; }
   font-family: Georgia, "Times New Roman", serif; }
 .document-heading .line-text { font-weight: 700; }
 .chunk-range { background: #fff7cf; box-shadow: inset 0 -2px #d0aa35; }
-.document-table { border-top: 3px solid #c62828; border-bottom: 1px solid #dfe1e5;
-  padding: 10px 12px 14px; background: #fffafa; }
+.document-table { border-top: 3px solid #2f6f4e; border-bottom: 1px solid #dfe1e5;
+  padding: 10px 12px 14px; background: #fbfffd; }
 .document-table-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px;
-  color: #8a1c1c; font-size: 12px; font-weight: 800; }
+  color: #24543c; font-size: 12px; font-weight: 800; }
 .table-scroll { overflow-x: auto; }
-.document-table table { min-width: 620px; border: 1px solid #e2caca; }
+.document-table table { min-width: 620px; border: 1px solid #c9ddd0; }
 .document-table td { white-space: pre-wrap; font-family: Georgia, "Times New Roman", serif; }
 .supplement { margin-top: 12px; padding: 12px; border-left: 4px solid #c62828;
   background: #fff; }
@@ -165,24 +167,31 @@ def _summary(report: dict[str, Any]) -> str:
 
 def _coverage(report: dict[str, Any]) -> str:
     document = report["document_coverage"]
+    body_details = f"{document['body']['nonempty_paragraphs']} абзацев"
+    if int(document["body"].get("skipped_blocks", 0)):
+        body_details += f", пропущено блоков: {document['body']['skipped_blocks']}"
+    table_details = (
+        f"{document['tables']['count']} таблиц, {document['tables']['nonempty_paragraphs']} абзацев"
+    )
+    if int(document["tables"].get("nested_count", 0)):
+        table_details += f", вложенных таблиц: {document['tables']['nested_count']}"
     rows = [
-        ("Основной текст", "да", f"{document['body']['nonempty_paragraphs']} абзацев"),
-        (
-            "Таблицы",
-            "нет",
-            f"{document['tables']['count']} таблиц, "
-            f"{document['tables']['nonempty_paragraphs']} абзацев",
-        ),
+        ("Основной текст", _processed_label(document["body"]["processed"]), body_details),
+        ("Таблицы", _processed_label(document["tables"]["processed"]), table_details),
         (
             "Колонтитулы",
-            "нет",
+            _processed_label(document["headers"]["processed"]),
             f"{document['headers']['parts_with_text']} header, "
             f"{document['footers']['parts_with_text']} footer с текстом",
         ),
-        ("Сноски", "нет", "есть текст" if document["footnotes"]["has_text"] else "нет текста"),
+        (
+            "Сноски",
+            _processed_label(document["footnotes"]["processed"]),
+            "есть текст" if document["footnotes"]["has_text"] else "нет текста",
+        ),
         (
             "Метаданные",
-            "нет",
+            _processed_label(document["metadata"]["processed"]),
             ", ".join(document["metadata"]["present_fields"]) or "пусто",
         ),
     ]
@@ -190,6 +199,10 @@ def _coverage(report: dict[str, Any]) -> str:
         f"<tr><td>{escape(name)}</td><td>{processed}</td><td>{escape(details)}</td></tr>"
         for name, processed, details in rows
     )
+
+
+def _processed_label(value: object) -> str:
+    return "да" if value else "нет"
 
 
 def _document_paragraph_markup(text: str, chunks: list[dict[str, Any]]) -> str:
@@ -220,17 +233,44 @@ def _document_paragraph_markup(text: str, chunks: list[dict[str, Any]]) -> str:
     return "".join(pieces) or "&nbsp;"
 
 
-def _table_markup(table: Table, table_index: int) -> str:
+def _report_locator(raw: object) -> DocxLocator | None:
+    if not isinstance(raw, list):
+        return None
+    locator: list[str | int] = []
+    for item in raw:
+        if not isinstance(item, str | int):
+            return None
+        locator.append(item)
+    return tuple(locator)
+
+
+def _table_markup(
+    table: Table,
+    table_index: int,
+    chunks_by_locator: dict[DocxLocator, list[dict[str, Any]]],
+    *,
+    processed: bool,
+) -> str:
     rows: list[str] = []
-    for row in table.rows:
-        cells = "".join(
-            f"<td>{escape(cell.text).replace(chr(10), '<br>')}</td>" for cell in row.cells
-        )
+    locator_table_index = table_index - 1
+    for row_idx, tr in enumerate(table._tbl.tr_lst):
+        cell_markup: list[str] = []
+        for cell_idx, tc in enumerate(tr.tc_lst):
+            cell = _Cell(tc, table)
+            paragraphs: list[str] = []
+            for para_idx, paragraph_xml in enumerate(tc.p_lst):
+                paragraph = Paragraph(paragraph_xml, cell)
+                locator = ("table", locator_table_index, row_idx, cell_idx, para_idx)
+                chunks = chunks_by_locator.get(locator, [])
+                paragraphs.append(_document_paragraph_markup(paragraph.text, chunks))
+            cell_markup.append(f"<td>{'<br>'.join(paragraphs) or '&nbsp;'}</td>")
+        cells = "".join(cell_markup)
         rows.append(f"<tr>{cells}</tr>")
+    status = "обработана" if processed else "не обработана"
     return (
         '<div class="document-table">'
         '<div class="document-table-head">'
-        f"<span>Таблица {table_index}</span><span>НЕ ОБРАБОТАНА ДЕТЕКТОРОМ</span>"
+        f"<span>Таблица {table_index}</span><span>{status}</span>"
         "</div>"
         f'<div class="table-scroll"><table><tbody>{"".join(rows)}</tbody></table></div>'
         "</div>"
@@ -239,18 +279,19 @@ def _table_markup(table: Table, table_index: int) -> str:
 
 def _full_document(report: dict[str, Any], source: Path) -> str:
     source_docx = open_docx(str(source))
-    chunks_by_paragraph: dict[int, list[dict[str, Any]]] = {}
+    chunks_by_locator: dict[DocxLocator, list[dict[str, Any]]] = {}
     for chunk in report["chunks"]:
-        locator = chunk["anchor"]["locator"]
-        if len(locator) == 2 and locator[0] == "body" and isinstance(locator[1], int):
-            chunks_by_paragraph.setdefault(locator[1], []).append(chunk)
+        locator = _report_locator(chunk["anchor"]["locator"])
+        if locator is not None:
+            chunks_by_locator.setdefault(locator, []).append(chunk)
 
     blocks: list[str] = []
     paragraph_index = 0
     table_index = 0
+    tables_processed = bool(report["document_coverage"]["tables"]["processed"])
     for block in source_docx.iter_inner_content():
         if isinstance(block, Paragraph):
-            chunks = chunks_by_paragraph.get(paragraph_index, [])
+            chunks = chunks_by_locator.get(("body", paragraph_index), [])
             style_name = block.style.name if block.style is not None else ""
             heading = " document-heading" if style_name.startswith("Heading") else ""
             blocks.append(
@@ -262,7 +303,14 @@ def _full_document(report: dict[str, Any], source: Path) -> str:
             paragraph_index += 1
         elif isinstance(block, Table):
             table_index += 1
-            blocks.append(_table_markup(block, table_index))
+            blocks.append(
+                _table_markup(
+                    block,
+                    table_index,
+                    chunks_by_locator,
+                    processed=tables_processed,
+                )
+            )
     return "".join(blocks)
 
 

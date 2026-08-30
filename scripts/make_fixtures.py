@@ -208,12 +208,24 @@ def contract_04_bankruptcy() -> tuple[DocxDocument, list[dict[str, str]]]:
 
     table = doc.add_table(rows=1, cols=2)
     table.style = "Table Grid"
-    table.cell(0, 0).text = (
-        "Продавец: Сидорова Анна Петровна\n"
-        "СНИЛС 112-233-445 95\nИНН 500100732259\n"
-        "Адрес: 302000, г. Орёл, ул. Лесная, д. 7"
+    _set_cell_paragraphs(
+        table.cell(0, 0),
+        [
+            "Продавец: Сидорова Анна Петровна",
+            "СНИЛС 112-233-445 95",
+            "ИНН 500100732259",
+            "Адрес: 302000, г. Орёл, ул. Лесная, д. 7",
+        ],
     )
-    table.cell(0, 1).text = "Покупатель: ______\nПаспорт: ______\nАдрес: ______\nПодпись: ______"
+    _set_cell_paragraphs(
+        table.cell(0, 1),
+        [
+            "Покупатель: ______",
+            "Паспорт: ______",
+            "Адрес: ______",
+            "Подпись: ______",
+        ],
+    )
 
     # Дата, место рождения и адрес намеренно не размечены: их детекторы — T1.13/T1.14.
     labels = [
@@ -226,8 +238,53 @@ def contract_04_bankruptcy() -> tuple[DocxDocument, list[dict[str, str]]]:
             "text": "Кузнецова Петра Алексеевича",
             "party": "third_party",
         },
+        # T1.11: сущность находится в отдельном абзаце ячейки таблицы.
+        {"type": "person", "text": "Сидорова Анна Петровна", "party": "seller"},
     ]
     return doc, labels
+
+
+def contract_05_tables() -> tuple[DocxDocument, list[dict[str, str]]]:
+    """Табличные крайние случаи: merge и вложенная таблица вне скоупа."""
+    doc = DocxDocument()
+    doc.core_properties.author = "Синтетический корпус"
+    doc.core_properties.title = "Проверка таблиц"
+
+    doc.add_heading("ПРОВЕРКА ТАБЛИЦ", level=1)
+    doc.add_paragraph("ООО «Горизонт», ИНН 3662103003, подписало спецификацию.")
+
+    merged = doc.add_table(rows=2, cols=3)
+    merged.style = "Table Grid"
+    merged.cell(0, 0).merge(merged.cell(0, 1)).text = "Объединённая ячейка: ИНН 3662103003"
+    merged.cell(0, 2).text = "Хвост строки"
+    merged.cell(1, 0).text = "Обычная ячейка"
+    merged.cell(1, 1).text = "Контроль"
+    merged.cell(1, 2).text = "Без PII"
+
+    vertical = doc.add_table(rows=2, cols=2)
+    vertical.style = "Table Grid"
+    vertical.cell(0, 0).merge(vertical.cell(1, 0)).text = "Вертикальное объединение"
+    vertical.cell(0, 1).text = "Верхняя ячейка"
+    vertical.cell(1, 1).text = "Нижняя ячейка"
+
+    nested_host = doc.add_table(rows=1, cols=1)
+    nested_host.style = "Table Grid"
+    nested_host.cell(0, 0).text = "Ячейка с вложенной таблицей"
+    nested = nested_host.cell(0, 0).add_table(rows=1, cols=1)
+    nested.style = "Table Grid"
+    nested.cell(0, 0).text = "СНИЛС 112-233-445 95"
+
+    labels = [
+        {"type": "org_name", "text": "ООО «Горизонт»", "party": "supplier"},
+        {"type": "inn", "text": "3662103003", "party": "supplier"},
+    ]
+    return doc, labels
+
+
+def _set_cell_paragraphs(cell, lines: list[str]) -> None:
+    cell.paragraphs[0].text = lines[0]
+    for line in lines[1:]:
+        cell.add_paragraph(line)
 
 
 def main() -> int:
@@ -237,6 +294,7 @@ def main() -> int:
         ("contract_02_hard", contract_02_hard),
         ("contract_03_ner", contract_03_ner),
         ("contract_04_bankruptcy", contract_04_bankruptcy),
+        ("contract_05_tables", contract_05_tables),
     ):
         doc, labels = builder()
         for p in doc.paragraphs:

@@ -7,6 +7,7 @@ from functools import lru_cache
 
 from masker.detect import DetectAgent
 from masker.detect.ner import NER_CONFIDENCE
+from masker.detect.normalize import normalize_value
 from masker.eval import load_corpus, score
 from masker.ingest.docx_ingest import ingest_docx
 from masker.model import CRITICAL_TYPES, EntityType
@@ -57,3 +58,35 @@ def test_ner_confidence_is_calibrated() -> None:
 def test_no_address_in_corpus() -> None:
     by_type, _metrics = _corpus_metrics()
     assert "address" not in by_type
+
+
+def test_every_occurrence_of_critical_value_is_detected() -> None:
+    failures: list[str] = []
+    checked: set[tuple[str, EntityType, str]] = set()
+    for path, labels in load_corpus():
+        document = ingest_docx(path)
+        entities = DetectAgent().detect(document).entities
+        text = document.text()
+        for item in labels["entities"]:
+            entity_type = EntityType(item["type"])
+            if entity_type not in CRITICAL_TYPES:
+                continue
+            expected_text = item["text"]
+            key = (path.name, entity_type, expected_text)
+            if key in checked:
+                continue
+            checked.add(key)
+            normalized = normalize_value(entity_type, expected_text)
+            expected_count = text.count(expected_text)
+            found_count = sum(
+                1
+                for entity in entities
+                if entity.type is entity_type and entity.normalized == normalized
+            )
+            if found_count != expected_count:
+                failures.append(
+                    f"{path.name}: {entity_type.value} {expected_text!r} "
+                    f"найдено {found_count}, вхождений {expected_count}"
+                )
+
+    assert failures == []

@@ -73,3 +73,40 @@ def test_public_body_is_dropped() -> None:
     tagger = FakeTagger({text: [NerSpan(0, len(text), "ORG")]})
 
     assert NatashaDetector(tagger).detect(document) == []
+
+
+def test_single_token_org_without_evidence_is_dropped() -> None:
+    text = "Резистор МЛТ-0,25"
+    document = _document(text)
+    tagger = FakeTagger({text: [NerSpan(0, len("Резистор"), "ORG")]})
+
+    assert NatashaDetector(tagger).detect(document) == []
+
+
+def test_org_with_form_or_quotes_survives() -> None:
+    texts = (
+        "АО «Триема»",
+        "Общество с ограниченной ответственностью «Вектор»",
+        "ООО «Мойдодыр»",
+    )
+    first_start = texts[0].index("Триема")
+    second_start = texts[1].index("Вектор")
+    third_start = texts[2].index("Мойдодыр")
+    document = _document(*texts)
+    tagger = FakeTagger(
+        {
+            "АО «Триема»": [NerSpan(first_start, first_start + len("Триема"), "ORG")],
+            "Общество с ограниченной ответственностью «Вектор»": [
+                NerSpan(second_start, second_start + len("Вектор"), "ORG")
+            ],
+            "ООО «Мойдодыр»": [NerSpan(third_start, third_start + len("Мойдодыр"), "ORG")],
+        }
+    )
+
+    entities = NatashaDetector(tagger).detect(document)
+
+    assert [(entity.type, entity.text) for entity in entities] == [
+        (EntityType.ORG_NAME, "АО «Триема»"),
+        (EntityType.ORG_NAME, "Общество с ограниченной ответственностью «Вектор»"),
+        (EntityType.ORG_NAME, "ООО «Мойдодыр»"),
+    ]

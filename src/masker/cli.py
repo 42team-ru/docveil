@@ -16,7 +16,12 @@ from masker.detect import DetectAgent, RuleDetector
 from masker.detect.ner import LABEL_TO_TYPE
 from masker.detect.result import PiiChunk, build_pii_chunks
 from masker.detect.rules import PATTERNS
-from masker.ingest.docx_ingest import ingest_docx
+from masker.ingest.docx_ingest import (
+    count_nested_tables,
+    count_skipped_body_blocks,
+    ingest_docx,
+    iter_body_blocks,
+)
 from masker.model import Document, Entity, EntityType
 from masker.render.docx_preview import render_docx_preview
 from masker.report.html import render_html_report
@@ -93,14 +98,14 @@ def _summary(entities: list[Entity]) -> dict[str, Any]:
 
 def _document_coverage(source: Path, document: Document) -> dict[str, Any]:
     source_docx = open_docx(str(source))
-    table_paragraphs = {
-        id(paragraph._p): paragraph.text
-        for table in source_docx.tables
-        for row in table.rows
-        for cell in row.cells
-        for paragraph in cell.paragraphs
+    nonempty_blocks = [
+        (locator, paragraph.text)
+        for locator, paragraph in iter_body_blocks(source_docx)
         if paragraph.text.strip()
-    }
+    ]
+    body_paragraphs = [text for locator, text in nonempty_blocks if locator[0] == "body"]
+    table_paragraphs = [text for locator, text in nonempty_blocks if locator[0] == "table"]
+    nested_tables = count_nested_tables(source_docx)
     with zipfile.ZipFile(source) as archive:
         names = archive.namelist()
         header_names = [
@@ -118,12 +123,14 @@ def _document_coverage(source: Path, document: Document) -> dict[str, Any]:
         "safe_to_export": False,
         "body": {
             "processed": True,
-            "nonempty_paragraphs": len(document.segments),
+            "nonempty_paragraphs": len(body_paragraphs),
+            "skipped_blocks": count_skipped_body_blocks(source_docx),
         },
         "tables": {
-            "processed": False,
+            "processed": True,
             "count": len(source_docx.tables),
             "nonempty_paragraphs": len(table_paragraphs),
+            "nested_count": nested_tables,
         },
         "headers": {
             "processed": False,
@@ -145,6 +152,19 @@ def _document_coverage(source: Path, document: Document) -> dict[str, Any]:
             "present_fields": sorted(document.meta),
         },
     }
+
+
+def _limitations(coverage: dict[str, Any]) -> list[str]:
+    limitations = [
+        "Проверяются непустые абзацы основного текста и верхнеуровневых таблиц DOCX.",
+        "Колонтитулы, сноски и метаданные пока не обезличиваются.",
+        "Preview содержит исходный текст и не предназначен для передачи наружу.",
+    ]
+    if int(coverage["tables"]["nested_count"]) > 0:
+        limitations.append(
+            "Вложенные таблицы пока не разбираются; документ нельзя считать покрытым полностью."
+        )
+    return limitations
 
 
 def _xml_part_has_text(archive: zipfile.ZipFile, name: str) -> bool:
@@ -189,6 +209,7 @@ def _build_report(
     *,
     rules_only: bool,
 ) -> dict[str, Any]:
+    coverage = _document_coverage(source, document)
     return {
         "report_version": REPORT_VERSION,
         "input": source.name,
@@ -199,16 +220,12 @@ def _build_report(
         "chunk_count": len(chunks),
         "summary": _summary(entities),
         "detection_coverage": _detection_coverage(selected_types, rules_only=rules_only),
-        "document_coverage": _document_coverage(source, document),
+        "document_coverage": coverage,
         "entities": [_entity_record(document, entity) for entity in entities],
         "chunks": [
             _chunk_record(document, chunk, index) for index, chunk in enumerate(chunks, start=1)
         ],
-        "limitations": [
-            "Проверяются только непустые абзацы основного текста DOCX.",
-            "Таблицы, колонтитулы, сноски и метаданные пока не обезличиваются.",
-            "Preview содержит исходный текст и не предназначен для передачи наружу.",
-        ],
+        "limitations": _limitations(coverage),
     }
 
 

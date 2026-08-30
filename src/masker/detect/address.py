@@ -59,6 +59,7 @@ class _Chunk:
     end: int
     kinds: frozenset[str]
     value_start: int
+    is_stop: bool
 
 
 def _marker_pattern(values: tuple[str, ...]) -> re.Pattern[str]:
@@ -108,6 +109,7 @@ class AddressDetector:
         self._building = _marker_pattern(markers.building)
         self._premises = _marker_pattern(markers.premises)
         self._value_labels = tuple(label.casefold() for label in markers.value_labels)
+        self._stop_labels = tuple(label.casefold() for label in markers.stop_labels)
 
     def _chunks(self, text: str) -> list[_Chunk]:
         chunks: list[_Chunk] = []
@@ -117,7 +119,12 @@ class AddressDetector:
             if start == end:
                 continue
             value = text[start:end]
+            is_stop = any(label in value.casefold() for label in self._stop_labels) or bool(
+                re.search(r"\d{6}", value)
+            )
             index = self._index.search(value)
+            if index is not None:
+                is_stop = False
             region_start = _marker_start(value, self._region)
             settlement_start = _marker_start(value, self._settlement, requires_name=True)
             street_start = _marker_start(value, self._street, requires_name=True)
@@ -150,7 +157,15 @@ class AddressDetector:
                 if marker_start is not None
             ]
             value_start = start + (min(starts) if starts else 0)
-            chunks.append(_Chunk(start=start, end=end, kinds=kinds, value_start=value_start))
+            chunks.append(
+                _Chunk(
+                    start=start,
+                    end=end,
+                    kinds=kinds,
+                    value_start=value_start,
+                    is_stop=is_stop,
+                )
+            )
             previous_kinds = kinds
         return chunks
 
@@ -197,12 +212,16 @@ class AddressDetector:
             index = 0
             while index < len(chunks):
                 first = chunks[index]
-                if not first.kinds:
+                if first.is_stop or not first.kinds:
                     index += 1
                     continue
                 kinds = set(first.kinds)
                 end_index = index
-                while end_index + 1 < len(chunks) and chunks[end_index + 1].kinds:
+                while (
+                    end_index + 1 < len(chunks)
+                    and not chunks[end_index + 1].is_stop
+                    and chunks[end_index + 1].kinds
+                ):
                     end_index += 1
                     kinds.update(chunks[end_index].kinds)
                 is_sufficient = self._is_sufficient(frozenset(kinds))

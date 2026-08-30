@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 
 # Эти символы не несут значения, если остаются на краю вырезанного модельного спана.
-TRIM_CHARS = " \t\u00a0.,;:\u2014\u2013-()[]{}«»\"'“”„…/"
+TRIM_CHARS = " \t\u00a0.,;:\u2014\u2013-()[]{}«»\"'“”„…/№"
 _QUOTE_CHARS = frozenset(
     char for pair in (("«", "»"), ('"', '"'), ("“", "”"), ("„", "“")) for char in pair
 )

@@ -24,6 +24,16 @@
       "type": "inn",
       "text": "3662103003",
       "party": "supplier"
+    },
+    {
+      "type": "inn",
+      "text": "312822458000",
+      "party": "seller"
+    },
+    {
+      "type": "person",
+      "text": "Атараев Б.М",
+      "party": "seller"
     }
   ]
 }

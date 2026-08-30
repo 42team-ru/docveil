@@ -63,6 +63,24 @@ def test_address_meets_corpus_thresholds() -> None:
     assert address["recall"] >= MIN_RECALL_OTHER
 
 
+def test_address_never_swallows_person() -> None:
+    for path, labels in load_corpus():
+        addresses = [
+            entity.text
+            for entity in DetectAgent().detect(ingest_docx(path)).entities
+            if entity.type is EntityType.ADDRESS
+        ]
+        protected_values = [
+            item["text"]
+            for item in labels["entities"]
+            if item["type"] in {EntityType.PERSON.value, EntityType.ORG_NAME.value}
+        ]
+        for address in addresses:
+            assert all(value not in address for value in protected_values), (
+                f"{path.name}: address {address!r} поглотил person/org_name"
+            )
+
+
 def test_every_occurrence_of_critical_value_is_detected() -> None:
     failures: list[str] = []
     checked: set[tuple[str, EntityType, str]] = set()

@@ -9,6 +9,11 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
+
+ROOT = next(
+    parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
+)
 
 
 def test_pytest_step_can_fail(tmp_path) -> None:
@@ -55,3 +60,36 @@ def test_critical_unmasked_metric_can_fail(monkeypatch) -> None:  # type: ignore
     monkeypatch.setattr(eval_module.PolicyAgent, "apply", broken_apply)
 
     assert eval_module.run(gate=True) != 0, "ворота не заметили снятую маску с критичного типа"
+
+
+def test_validate_step_can_fail(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """T1.8, шаг 11: ворота обязаны краснеть, когда рендер пропустил замену.
+
+    Ворота, которые всегда зелёные, хуже отсутствия ворот. Здесь проверяется
+    не сам ``ValidateAgent`` (это тесты в ``tests/masker/validate/``), а
+    последнее звено: полный прогон CLI при найденной утечке обязан вернуть
+    ``EXIT_LEAK``, а не записать её в ``report.json`` и молча выйти нулём.
+
+    Ломаем ``_redact_paragraph``, отбрасывая одну замену: остальные маркеры
+    расставлены, документ выглядит обезличенным — ровно тот дефект, который
+    глазами не ловится.
+    """
+    import masker.render.docx_redact as docx_redact
+    from masker.cli import EXIT_LEAK, main
+
+    fixture = ROOT / "fixtures" / "labeled" / "contract_02_hard.docx"
+    args = [str(fixture), "--types", "all", "--redact-style", "marker"]
+    assert main([*args, "--out", str(tmp_path / "clean")]) == 0, (
+        "фикстура обязана проходить чисто, иначе тест доказывает не то"
+    )
+
+    original = docx_redact._redact_paragraph
+
+    def skip_one(paragraph, replacements, style):  # type: ignore[no-untyped-def]
+        original(paragraph, replacements[:-1], style)
+
+    monkeypatch.setattr(docx_redact, "_redact_paragraph", skip_one)
+
+    assert main([*args, "--out", str(tmp_path / "broken")]) == EXIT_LEAK, (
+        "CLI вернул 0, хотя Validate обязан был увидеть пропущенную замену"
+    )

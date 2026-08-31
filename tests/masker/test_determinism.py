@@ -101,3 +101,39 @@ def test_two_cli_runs_give_byte_identical_report(tmp_path: Path) -> None:
         assert first_zip.namelist() == second_zip.namelist()
         for name in first_zip.namelist():
             assert first_zip.read(name) == second_zip.read(name), name
+
+
+def test_idempotent_second_pass_on_masked_document(tmp_path: Path) -> None:
+    """Инвариант идемпотентности: повторный прогон по уже обезличенному
+    документу не меняет ничего.
+
+    Второй проход обязан не найти сущностей вовсе — иначе маркеры первого
+    прохода сами похожи на PII, и каждый следующий прогон переписывал бы
+    документ заново. Сырые байты контейнера сравнивать нельзя (`python-docx`
+    штампует в заголовки zip время сохранения), поэтому сравнивается
+    распакованное содержимое всех частей — то, что определяет документ.
+    """
+    args = [
+        "--types",
+        "all",
+        "--redact-style",
+        "marker",
+        "--profile",
+    ]
+    first_out = tmp_path / "first"
+    assert main([str(FIXTURE), "--out", str(first_out), *args]) == 0
+    masked = first_out / FIXTURE.stem / "redacted.docx"
+
+    second_out = tmp_path / "second"
+    assert main([str(masked), "--out", str(second_out), *args]) == 0
+    report = json.loads((second_out / masked.stem / "report.json").read_text(encoding="utf-8"))
+
+    assert report["entity_count"] == 0, f"второй проход нашёл сущности: {report['entities']}"
+    assert report["plan"]["groups"] == []
+    assert report["plan"]["skipped"]["count"] == 0
+
+    twice_masked = second_out / masked.stem / "redacted.docx"
+    with zipfile.ZipFile(masked) as once, zipfile.ZipFile(twice_masked) as twice:
+        assert once.namelist() == twice.namelist()
+        for name in once.namelist():
+            assert once.read(name) == twice.read(name), name

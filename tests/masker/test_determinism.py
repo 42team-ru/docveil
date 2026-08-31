@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 
 from masker.cli import main
@@ -63,3 +64,40 @@ def test_two_full_runs_with_same_answers_are_byte_identical(tmp_path: Path) -> N
 
     assert first_questions == second_questions
     assert first_report == second_report
+
+
+def test_two_cli_runs_give_byte_identical_report(tmp_path: Path) -> None:
+    """T1.6, шаг 6: план (маркеры, группы, ``skipped``) не должен вносить
+    недетерминизм в простой CLI-путь (без ``--ask``) при ``--redact-style``."""
+    out_first = tmp_path / "first"
+    out_second = tmp_path / "second"
+
+    args = [
+        str(FIXTURE),
+        "--redact-style",
+        "marker",
+        "--profile",
+        "--types",
+        "all",
+    ]
+    assert main([*args, "--out", str(out_first)]) == 0
+    assert main([*args, "--out", str(out_second)]) == 0
+
+    report_first = (out_first / FIXTURE.stem / "report.json").read_bytes()
+    report_second = (out_second / FIXTURE.stem / "report.json").read_bytes()
+    assert report_first == report_second
+
+    # Сырые байты .docx как контейнера сравнивать нельзя: `python-docx`
+    # пишет в заголовок каждой записи zip текущее время сохранения
+    # (разрешение 2 секунды), это внешний артефакт библиотеки, а не наш
+    # недетерминизм. Сравниваем распакованное содержимое частей архива —
+    # то, что реально определяет обезличенный документ.
+    redacted_first = out_first / FIXTURE.stem / "redacted.docx"
+    redacted_second = out_second / FIXTURE.stem / "redacted.docx"
+    with (
+        zipfile.ZipFile(redacted_first) as first_zip,
+        zipfile.ZipFile(redacted_second) as second_zip,
+    ):
+        assert first_zip.namelist() == second_zip.namelist()
+        for name in first_zip.namelist():
+            assert first_zip.read(name) == second_zip.read(name), name

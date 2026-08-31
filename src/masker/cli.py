@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
+import sys
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -43,7 +45,17 @@ from masker.llm import (
     load_llm_config,
     write_trace,
 )
-from masker.model import Document, Entity, EntityType, Question
+from masker.mask import PlanAgent
+from masker.model import (
+    Action,
+    Document,
+    Entity,
+    EntityType,
+    Leak,
+    MaskPlan,
+    Question,
+    ValidationReport,
+)
 from masker.profile import ProfileAgent
 from masker.profile.agent import ProfileResult
 from masker.refs import EntityIndex
@@ -61,10 +73,16 @@ from masker.run import (
     sqlite_checkpointer_factory,
     start_run,
 )
+from masker.validate import ValidateAgent
 
 DEFAULT_OUTPUT = Path("out") / "inspect"
 REPORT_VERSION = 3
 WORD_TEXT_TAG = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
+
+#: Коды возврата CLI. 0 — успех, 3 — ошибка треда графа (см. ``_resume``/
+#: ``_start_interactive``), 10 — прогон приостановлен, ждёт ответов
+#: человека. 4 свободен — Validate (T1.8) нашёл утечку в артефакте.
+EXIT_LEAK = 4
 
 
 def _entity_record(
@@ -73,6 +91,8 @@ def _entity_record(
     *,
     ref_by_entity_id: dict[int, str] | None = None,
     decision_by_ref: dict[str, dict[str, Any]] | None = None,
+    marker_by_ref: dict[str, str] | None = None,
+    group_id_by_ref: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     segment = document.segments[entity.segment_order]
     record: dict[str, Any] = {
@@ -99,14 +119,32 @@ def _entity_record(
                 record["decision"] = decision["action"]
                 record["decided_by"] = decision["decided_by"]
                 record["reason"] = decision["reason"]
+            # Пустая строка — сущность не попала в план (`plan.skipped`):
+            # фильтр по типу, решение «оставить» или отсутствие якоря.
+            record["marker"] = (marker_by_ref or {}).get(ref, "")
+            record["group_id"] = (group_id_by_ref or {}).get(ref, "")
     return record
 
 
-def _chunk_record(document: Document, chunk: PiiChunk, index: int) -> dict[str, Any]:
+def _chunk_record(
+    document: Document,
+    chunk: PiiChunk,
+    index: int,
+    *,
+    ref_by_entity_id: dict[int, str] | None = None,
+    marker_by_ref: dict[str, str] | None = None,
+    group_id_by_ref: dict[str, str] | None = None,
+) -> dict[str, Any]:
     segment = document.segments[chunk.segment_order]
     pii: list[dict[str, Any]] = []
     for entity in chunk.entities:
-        record = _entity_record(document, entity)
+        record = _entity_record(
+            document,
+            entity,
+            ref_by_entity_id=ref_by_entity_id,
+            marker_by_ref=marker_by_ref,
+            group_id_by_ref=group_id_by_ref,
+        )
         record["chunk_start"] = entity.start - chunk.start
         record["chunk_end"] = entity.end - chunk.start
         pii.append(record)
@@ -265,6 +303,64 @@ def _parse_types(value: str) -> frozenset[EntityType]:
         raise ValueError(f"неизвестный тип {error.args[0]!r}; допустимы: all, {allowed}") from error
 
 
+def _plan_record(plan: MaskPlan) -> dict[str, Any]:
+    """Сериализовать план масок для report.json — раздел «Проводка плана в CLI»."""
+    skipped_by_reason: Counter[str] = Counter(item.reason for item in plan.skipped)
+    return {
+        "requested_types": list(plan.requested_types),
+        "groups": [
+            {
+                "id": group.id,
+                "marker": group.marker,
+                "type": group.type.value,
+                "profile_id": group.profile_id,
+                "ref_count": len(group.refs),
+                "sample": group.sample,
+            }
+            for group in plan.groups
+        ],
+        "skipped": {
+            "count": len(plan.skipped),
+            "by_reason": dict(sorted(skipped_by_reason.items())),
+        },
+    }
+
+
+def _leak_record(leak: Leak) -> dict[str, Any]:
+    """Сериализовать одну утечку как есть — TASKS.md и T1.9 ссылаются на
+    ``report["leaked"]`` по имени, поле не переименовывать."""
+    return dataclasses.asdict(leak)
+
+
+def _validation_record(report: ValidationReport) -> dict[str, Any]:
+    """Сериализовать ``ValidationReport`` для report.json (T1.8, шаг 10).
+
+    План перечисляет ровно эти поля — ``ok``, ``checked_artifacts``,
+    ``checked_parts``, счётчики. Полный список ``residual`` намеренно не
+    дублируется здесь: он не провал прогона и не относится к тому, что
+    ``TASKS.md``/``T1.9`` называют по имени (``leaked`` — единственный
+    список, обязанный быть top-level ключом).
+    """
+    return {
+        "status": "checked",
+        "ok": report.ok,
+        "checked_artifacts": list(report.checked_artifacts),
+        "checked_parts": list(report.checked_parts),
+        "leaked_count": len(report.leaked),
+        "residual_count": len(report.residual),
+    }
+
+
+def _validation_skipped(reason: str) -> dict[str, Any]:
+    """Заглушка ``validation`` для случаев, где проверять нечего.
+
+    Не провал, не «утечки нет»: явное «мы не проверяли» — противоречие П2
+    плана T1.6/T1.8 (Validate не трогает ``preview.docx``, у которого нет
+    редактирующего рендера, значит и результата проверки нет).
+    """
+    return {"status": "skipped", "reason": reason}
+
+
 def _build_report(
     source: Path,
     document: Document,
@@ -277,12 +373,19 @@ def _build_report(
     llm_trace: bool = False,
     decisions: dict[str, Any] | None = None,
     ref_by_entity_id: dict[int, str] | None = None,
+    plan: MaskPlan | None = None,
 ) -> dict[str, Any]:
     coverage = _document_coverage(source, document)
     decision_by_ref = (
         {item["ref"]: item for item in decisions["by_ref"]} if decisions is not None else None
     )
     critical_unmasked = bool(decisions and decisions.get("critical_unmasked"))
+    marker_by_ref = (
+        {repl.ref: repl.marker for repl in plan.replacements} if plan is not None else {}
+    )
+    group_id_by_ref = (
+        {repl.ref: repl.group_id for repl in plan.replacements} if plan is not None else {}
+    )
     report: dict[str, Any] = {
         "report_version": REPORT_VERSION,
         "input": source.name,
@@ -296,17 +399,32 @@ def _build_report(
         "document_coverage": coverage,
         "entities": [
             _entity_record(
-                document, entity, ref_by_entity_id=ref_by_entity_id, decision_by_ref=decision_by_ref
+                document,
+                entity,
+                ref_by_entity_id=ref_by_entity_id,
+                decision_by_ref=decision_by_ref,
+                marker_by_ref=marker_by_ref,
+                group_id_by_ref=group_id_by_ref,
             )
             for entity in entities
         ],
         "chunks": [
-            _chunk_record(document, chunk, index) for index, chunk in enumerate(chunks, start=1)
+            _chunk_record(
+                document,
+                chunk,
+                index,
+                ref_by_entity_id=ref_by_entity_id,
+                marker_by_ref=marker_by_ref,
+                group_id_by_ref=group_id_by_ref,
+            )
+            for index, chunk in enumerate(chunks, start=1)
         ],
         "limitations": _limitations(
             coverage, llm_trace=llm_trace, critical_unmasked=critical_unmasked
         ),
     }
+    if plan is not None:
+        report["plan"] = _plan_record(plan)
     if profile_result is not None and judge_result is not None:
         # Сериализаторы графа задают единый публичный JSON-формат для CLI и State.
         report["profile_judge"] = {
@@ -350,15 +468,26 @@ def inspect_docx(
     """
     document = ingest_docx(source)
     detector = DetectAgent([RuleDetector(), AddressDetector()]) if rules_only else DetectAgent()
-    entities = [
-        entity for entity in detector.detect(document).entities if entity.type in selected_types
-    ]
+    # Детекция больше не режется по selected_types (T1.6, шаг 6): фильтр —
+    # дело плана, а не детектора. Иначе Validate (T1.8) не смог бы искать
+    # утечки незапрошенных типов — их бы попросту не было среди сущностей.
+    entities = detector.detect(document).entities
     chunks = build_pii_chunks(document.segments, entities)
     detection = DetectionResult(entities=entities, chunks=chunks)
     profile_result = ProfileAgent(llm).profile(document, detection) if profile else None
     judge_result = (
         JudgeAgent().judge(detection, profile_result) if profile_result is not None else None
     )
+
+    index = EntityIndex(entities)
+    ref_by_entity_id = {id(entity): index.ref(entity) for entity in entities}
+    plan = PlanAgent().plan(
+        document,
+        entities,
+        profiles=profile_result.profiles if profile_result is not None else None,
+        requested_types=selected_types,
+    )
+    masked_entities = [replacement.entity for replacement in plan.replacements]
 
     artifact_dir = output_dir / source.stem
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -375,12 +504,28 @@ def inspect_docx(
         profile_result,
         judge_result,
         llm_trace=tracer is not None,
+        ref_by_entity_id=ref_by_entity_id,
+        plan=plan,
     )
     report["preview_only"] = redact_style is None
-    _write_report(report_path, report)
-    render_docx_preview(source, preview_path, document, entities)
+    # Preview подсвечивает то же, что попало бы в маску — сущности из плана,
+    # а не всё найденное детектором (иначе подсветка перестала бы совпадать
+    # с --types и с тем, что реально уходит в redacted-копию).
+    render_docx_preview(source, preview_path, document, masked_entities)
     if redacted_path is not None and redact_style is not None:
-        render_docx_redacted(source, redacted_path, document, entities, style=redact_style)
+        render_docx_redacted(source, redacted_path, document, plan, style=redact_style)
+        validation_report = ValidateAgent().validate(plan, [redacted_path])
+        report["validation"] = _validation_record(validation_report)
+        report["leaked"] = [_leak_record(leak) for leak in validation_report.leaked]
+    else:
+        # T1.8, шаг 10: Validate проверяет только артефакты редактирующих
+        # рендеров. Без --redact-style обезличенного файла не существует —
+        # преview намеренно содержит исходный текст (противоречие П2 плана
+        # T1.6/T1.8), проверять там утечки было бы гарантированным красным
+        # результатом на артефакте, который таким и задуман.
+        report["validation"] = _validation_skipped("preview_only: --redact-style не задан")
+        report["leaked"] = []
+    _write_report(report_path, report)
     html_path = artifact_dir / "report.html" if html else None
     if html_path is not None:
         render_html_report(report, source, html_path)
@@ -491,6 +636,14 @@ def _write_graph_report(
     ``preview.docx`` подсвечивает только сущности, чьё итоговое действие —
     маскировать: оставленные человеком видны в отчёте (``decisions.by_ref``),
     но не в preview — раздел 10 плана T1.5.1.
+
+    Маркер и план строятся тем же ``PlanAgent``, что и в простом CLI-пути
+    (T1.6, шаг 6) — иначе report.json графового прогона расходился бы с
+    report.json обычного по набору полей у сущностей. Настоящий
+    ``masked_black``/``masked_highlight`` (взамен сегодняшнего preview с
+    исходным текстом) графовый путь пока не производит — это T1.10,
+    переносящий render/validate в узлы графа; здесь план используется
+    только для отчёта и для отбора сущностей, попадающих в preview-подсветку.
     """
     document = ingest_docx(source)
     state = outcome.state
@@ -532,12 +685,15 @@ def _write_graph_report(
         "invalid_answers": raw_decisions.get("invalid_answers", []),
         "diagnostics": raw_decisions.get("diagnostics", []),
     }
-    decision_by_ref = {item["ref"]: item for item in decisions["by_ref"]}
-    masked_entities = [
-        entity
-        for entity in entities
-        if decision_by_ref.get(ref_by_entity_id.get(id(entity), ""), {}).get("action") == "mask"
-    ]
+    actions = {item["ref"]: Action(item["action"]) for item in decisions["by_ref"]}
+    plan = PlanAgent().plan(
+        document,
+        entities,
+        profiles=profile_result.profiles,
+        requested_types=selected_types,
+        actions=actions,
+    )
+    masked_entities = [replacement.entity for replacement in plan.replacements]
 
     artifact_dir.mkdir(parents=True, exist_ok=True)
     report_path = artifact_dir / "report.json"
@@ -554,7 +710,16 @@ def _write_graph_report(
         llm_trace=False,
         decisions=decisions,
         ref_by_entity_id=ref_by_entity_id,
+        plan=plan,
     )
+    # Графовый путь пока не производит настоящий обезличенный артефакт —
+    # preview.docx намеренно содержит исходный текст (T1.10 подключит сюда
+    # render/validate как узлы графа). Validate здесь нечего проверять, но
+    # поле должно быть в отчёте того же вида, что у простого CLI-пути.
+    report["validation"] = _validation_skipped(
+        "graph path does not produce a redacted artifact yet (T1.10)"
+    )
+    report["leaked"] = []
     _write_report(report_path, report)
     render_docx_preview(source, preview_path, document, masked_entities)
     html_path = artifact_dir / "report.html" if html else None
@@ -694,10 +859,17 @@ def inspect_pdf(
     """Проверить один PDF, записать JSON + preview; опционально — redacted-копию."""
     document = ingest_pdf(source)
     detector = DetectAgent([RuleDetector(), AddressDetector()]) if rules_only else DetectAgent()
-    entities = [
-        entity for entity in detector.detect(document).entities if entity.type in selected_types
-    ]
+    # Детекция больше не режется по selected_types (T1.6, шаг 6) — см. тот же
+    # комментарий в inspect_docx.
+    entities = detector.detect(document).entities
     chunks = build_pii_chunks(document.segments, entities)
+
+    entity_index = EntityIndex(entities)
+    ref_by_entity_id = {id(entity): entity_index.ref(entity) for entity in entities}
+    plan = PlanAgent().plan(document, entities, requested_types=selected_types)
+    marker_by_ref = {repl.ref: repl.marker for repl in plan.replacements}
+    group_id_by_ref = {repl.ref: repl.group_id for repl in plan.replacements}
+    masked_entities = [replacement.entity for replacement in plan.replacements]
 
     artifact_dir = output_dir / source.stem
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -717,17 +889,61 @@ def inspect_pdf(
         "summary": _summary(entities),
         "detection_coverage": _detection_coverage(selected_types, detector),
         "document_coverage": coverage,
-        "entities": [_entity_record(document, entity) for entity in entities],
+        "entities": [
+            _entity_record(
+                document,
+                entity,
+                ref_by_entity_id=ref_by_entity_id,
+                marker_by_ref=marker_by_ref,
+                group_id_by_ref=group_id_by_ref,
+            )
+            for entity in entities
+        ],
         "chunks": [
-            _chunk_record(document, chunk, index) for index, chunk in enumerate(chunks, start=1)
+            _chunk_record(
+                document,
+                chunk,
+                index,
+                ref_by_entity_id=ref_by_entity_id,
+                marker_by_ref=marker_by_ref,
+                group_id_by_ref=group_id_by_ref,
+            )
+            for index, chunk in enumerate(chunks, start=1)
         ],
         "limitations": _limitations_pdf(coverage),
+        "plan": _plan_record(plan),
     }
-    _write_report(report_path, report)
-    render_pdf_preview(source, preview_path, document, entities)
+    render_pdf_preview(source, preview_path, document, masked_entities)
     if redacted_path is not None and redact_style is not None:
-        render_pdf_redacted(source, redacted_path, document, entities, style=redact_style)
+        render_pdf_redacted(source, redacted_path, document, plan, style=redact_style)
+        validation_report = ValidateAgent().validate(plan, [redacted_path])
+        report["validation"] = _validation_record(validation_report)
+        report["leaked"] = [_leak_record(leak) for leak in validation_report.leaked]
+    else:
+        report["validation"] = _validation_skipped("preview_only: --redact-style не задан")
+        report["leaked"] = []
+    _write_report(report_path, report)
     return report_path, preview_path, redacted_path, entities
+
+
+def _print_leaks(source: Path, report: dict[str, Any]) -> bool:
+    """Напечатать утечки в stderr, вернуть True, если они есть.
+
+    Печать в stderr, а не в stdout: код возврата CLI и так сигнализирует
+    провал, stderr — для диагностики, не для машинного разбора (машинному
+    разбору служит report.json, где ``leaked`` — ключ верхнего уровня).
+    """
+    leaked = report.get("leaked") or []
+    if not leaked:
+        return False
+    print(f"{source}: ValidateAgent нашёл утечки ({len(leaked)}):", file=sys.stderr)
+    for item in leaked:
+        print(
+            f"  [{item['kind']}] {item['entity_type']} в {item['artifact']}:{item['part']} "
+            f"— {item['value']!r} ({item['detail']})",
+            file=sys.stderr,
+        )
+    return True
 
 
 _SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf"})
@@ -912,6 +1128,7 @@ def main(argv: list[str] | None = None) -> int:
         # один документ за раз, раздел 9 плана T1.5.1.
         return _start_interactive(args.files[0], args, parser, selected_types, llm)
 
+    any_leaked = False
     for source in args.files:
         if source.suffix.casefold() == ".pdf":
             # Профилирование/LLM/человек в цикле для PDF не реализованы (T2.2
@@ -929,6 +1146,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  preview: {preview_path}")
             if redacted_path is not None:
                 print(f"  redacted: {redacted_path}")
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            if _print_leaks(source, report):
+                any_leaked = True
             continue
 
         tracer: TracingProvider | None = None
@@ -956,8 +1176,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  redacted: {redacted_path}")
         if html_path is not None:
             print(f"  HTML:    {html_path}")
+        report = json.loads(report_path.read_text(encoding="utf-8"))
         if args.profile:
-            report = json.loads(report_path.read_text(encoding="utf-8"))
             profile_judge = report["profile_judge"]
             print(
                 "  профили: "
@@ -974,8 +1194,10 @@ def main(argv: list[str] | None = None) -> int:
                 "  ВНИМАНИЕ: файлы llm-trace содержат исходные PII в открытом виде "
                 "и не предназначены для передачи наружу."
             )
+        if _print_leaks(source, report):
+            any_leaked = True
     print("ВАЖНО: preview содержит исходный текст и служит только для проверки детектора.")
-    return 0
+    return EXIT_LEAK if any_leaked else 0
 
 
 if __name__ == "__main__":

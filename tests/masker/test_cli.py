@@ -9,7 +9,8 @@ import pytest
 from docx import Document as open_docx
 from docx.enum.text import WD_COLOR_INDEX
 
-from masker.cli import main
+import masker.render.docx_redact as docx_redact_module
+from masker.cli import EXIT_LEAK, main
 from masker.ingest.docx_ingest import iter_runs
 from masker.model import CRITICAL_TYPES
 
@@ -104,7 +105,101 @@ def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
     assert stat.S_IMODE((artifact_dir / "report.html").stat().st_mode) == 0o600
 
 
+def test_report_lists_marker_for_every_masked_entity(tmp_path: Path) -> None:
+    """T1.6, шаг 6, приёмка из плана дословно: у каждой сущности, которая
+    реально уходит в план (не в ``skipped``), непустой маркер, начинающийся
+    с ``[``.
+
+    ``--types all`` без ``--profile`` и без явных решений (``actions=None``
+    в ``PlanAgent``) означает «маскировать всё найденное»: у этой фикстуры
+    ничего не должно попасть в ``plan.skipped`` — что и проверяется явно,
+    а не молчаливым допущением."""
+    assert (
+        main(
+            [
+                str(FIXTURE),
+                "--out",
+                str(tmp_path),
+                "--types",
+                "all",
+                "--redact-style",
+                "marker",
+            ]
+        )
+        == 0
+    )
+
+    report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
+    assert report["plan"]["skipped"]["count"] == 0
+    assert report["entities"]
+    for record in report["entities"]:
+        assert record["marker"].startswith("[")
+        assert record["group_id"]
+
+
+def test_cli_returns_4_on_leak(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """T1.8, шаг 10: сломанный рендер (пропущена одна замена) даёт код 4,
+    в report.json ``leaked`` непуст."""
+    original_redact_paragraph = docx_redact_module._redact_paragraph
+
+    def broken(paragraph: object, replacements: list[object], style: str) -> None:
+        original_redact_paragraph(paragraph, replacements[:-1], style)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(docx_redact_module, "_redact_paragraph", broken)
+
+    rc = main(
+        [
+            str(FIXTURE),
+            "--out",
+            str(tmp_path),
+            "--types",
+            "all",
+            "--redact-style",
+            "marker",
+        ]
+    )
+
+    assert rc == EXIT_LEAK
+    report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
+    assert report["leaked"]
+    assert report["validation"]["ok"] is False
+
+
+def test_cli_returns_0_when_clean(tmp_path: Path) -> None:
+    assert (
+        main(
+            [
+                str(FIXTURE),
+                "--out",
+                str(tmp_path),
+                "--types",
+                "all",
+                "--redact-style",
+                "marker",
+            ]
+        )
+        == 0
+    )
+    report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
+    assert report["leaked"] == []
+    assert report["validation"]["ok"] is True
+    assert report["validation"]["status"] == "checked"
+
+
+def test_cli_without_redact_style_reports_validation_skipped(tmp_path: Path) -> None:
+    assert main([str(FIXTURE), "--out", str(tmp_path), "--types", "all"]) == 0
+    report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
+    assert report["validation"]["status"] == "skipped"
+    assert report["validation"]["reason"]
+    assert report["leaked"] == []
+
+
 def test_cli_filters_entity_types(tmp_path: Path) -> None:
+    """Фильтр по ``--types`` больше не режет детекцию (T1.6, шаг 6): в
+    ``report.json`` остаются все найденные сущности, а незапрошенные типы
+    осознанно уходят в ``plan.skipped`` — это то, на чём стоит Validate
+    (T1.8): утечку незапрошенного типа есть чем поймать, потому что он не
+    исчез из отчёта раньше времени."""
     assert (
         main(
             [
@@ -120,18 +215,54 @@ def test_cli_filters_entity_types(tmp_path: Path) -> None:
     )
 
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
-    assert report["entity_count"] == 2
-    assert [item["type"] for item in report["entities"]] == ["inn", "snils"]
+    # Детекция rules-only находит все 4 типа с контрольной суммой/regex —
+    # inn, snils, passport, email; person доступен только через NER.
+    assert report["entity_count"] == 4
+    entities_by_type = {item["type"]: item for item in report["entities"]}
+    assert set(entities_by_type) == {"inn", "snils", "passport", "email"}
+    # Запрошенные типы дошли до плана и получили маркер.
+    assert entities_by_type["inn"]["marker"] == "[ИНН]"
+    assert entities_by_type["snils"]["marker"] == "[СНИЛС]"
+    # Незапрошенные типы остались в отчёте, но не в плане: пустой маркер,
+    # причина — фильтр по типу, а не исчезновение из детекции.
+    assert entities_by_type["passport"]["marker"] == ""
+    assert entities_by_type["email"]["marker"] == ""
+    assert report["plan"]["requested_types"] == ["inn", "snils"]
+    assert report["plan"]["skipped"] == {"count": 2, "by_reason": {"type_not_requested": 2}}
     assert report["detection_coverage"]["requested_without_detector"] == []
+
+
+def test_detection_is_not_filtered_by_types_anymore(tmp_path: Path) -> None:
+    """T1.6, шаг 6, приёмка из плана дословно: при ``--types inn``
+    ``entity_count`` включает найденные ``person``, а ``plan.skipped``
+    содержит их с причиной ``type_not_requested``."""
+    assert main([str(FIXTURE), "--out", str(tmp_path), "--types", "inn"]) == 0
+
+    report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
+    types_found = {item["type"] for item in report["entities"]}
+    assert "person" in types_found
+    person_records = [item for item in report["entities"] if item["type"] == "person"]
+    assert person_records
+    assert all(item["marker"] == "" for item in person_records)
+    assert report["plan"]["skipped"]["by_reason"].get("type_not_requested", 0) >= len(
+        person_records
+    )
 
 
 def test_cli_uses_ner_by_default(tmp_path: Path) -> None:
     assert main([str(FIXTURE), "--out", str(tmp_path), "--types", "person"]) == 0
 
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
-    assert [(item["type"], item["text"]) for item in report["entities"]] == [
-        ("person", "Кузнецов Пётр Алексеевич")
-    ]
+    # Детекция больше не режется по --types: report.json видит все 5 меток
+    # фикстуры (person + inn/snils/passport/email), но маркер в плане
+    # получает только запрошенный person.
+    entities_by_type = {item["type"]: item for item in report["entities"]}
+    assert set(entities_by_type) == {"person", "inn", "snils", "passport", "email"}
+    assert entities_by_type["person"]["text"] == "Кузнецов Пётр Алексеевич"
+    assert entities_by_type["person"]["marker"] == "[ФИО]"
+    for other in ("inn", "snils", "passport", "email"):
+        assert entities_by_type[other]["marker"] == ""
+    assert report["plan"]["skipped"]["by_reason"] == {"type_not_requested": 4}
 
 
 def test_cli_records_profile_and_judge_with_fake_llm(tmp_path: Path) -> None:

@@ -124,16 +124,48 @@ def _chunk_markup(chunk: dict[str, Any]) -> str:
 def _pii_rows(chunk: dict[str, Any]) -> str:
     rows: list[str] = []
     for item in chunk["pii"]:
+        marker = str(item.get("marker") or "")
         rows.append(
             "<tr>"
             f'<td><span class="type">{escape(str(item["type"]))}</span></td>'
             f"<td>{escape(str(item['text']))}</td>"
+            f"<td>{escape(marker)}</td>"
             f"<td>{escape(str(item['source']))}</td>"
             f"<td>{float(item['confidence']):.2f}</td>"
             f"<td>{int(item['start'])}:{int(item['end'])}</td>"
             "</tr>"
         )
     return "".join(rows)
+
+
+def _groups(report: dict[str, Any]) -> str:
+    """Блок «Группы согласованности»: один маркер — одна строка.
+
+    Показывает то, ради чего T1.6 существует: сколько раз встретилось
+    значение и каким единым маркером оно везде заменено. ``plan`` в отчёте
+    может отсутствовать (старый report.json, report_version < 4) —
+    в этом случае блок пуст, а не падает.
+    """
+    plan = report.get("plan")
+    groups = plan.get("groups", []) if isinstance(plan, dict) else []
+    if not groups:
+        return '<p class="empty">Групп согласованности нет.</p>'
+    rows: list[str] = []
+    for group in groups:
+        rows.append(
+            "<tr>"
+            f'<td><span class="type">{escape(str(group["marker"]))}</span></td>'
+            f"<td>{escape(str(group['type']))}</td>"
+            f"<td>{escape(str(group['profile_id']))}</td>"
+            f"<td>{int(group['ref_count'])}</td>"
+            f"<td>{escape(str(group['sample']))}</td>"
+            "</tr>"
+        )
+    return (
+        "<table><thead><tr><th>Маркер</th><th>Тип</th><th>Профиль</th>"
+        "<th>Встречается</th><th>Образец</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
 
 
 def _chunks(report: dict[str, Any]) -> str:
@@ -151,7 +183,7 @@ def _chunks(report: dict[str, Any]) -> str:
             f"{int(chunk['start'])}:{int(chunk['end'])} · PII {int(chunk['pii_count'])}</p>"
             "</div>"
             f'<div class="chunk-text">{_chunk_markup(chunk)}</div>'
-            "<table><thead><tr><th>Тип</th><th>Текст</th><th>Источник</th>"
+            "<table><thead><tr><th>Тип</th><th>Текст</th><th>Маркер</th><th>Источник</th>"
             f"<th>Confidence</th><th>Спан</th></tr></thead><tbody>{_pii_rows(chunk)}</tbody></table>"
             "</article>"
         )
@@ -367,6 +399,7 @@ def render_html_report(report: dict[str, Any], source: Path, destination: Path) 
 </header><main>{missing_warning}
 <h2>Покрытие документа</h2><table><thead><tr><th>Область</th><th>Обработана</th>
 <th>Фактическое содержимое</th></tr></thead><tbody>{_coverage(report)}</tbody></table>
+<h2>Группы согласованности</h2>{_groups(report)}
 <h2 id="full-document">Полный документ</h2>
 <div class="legend"><span class="legend-item"><span class="legend-swatch"></span>
 Контекст chunk</span>

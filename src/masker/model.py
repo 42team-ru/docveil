@@ -243,3 +243,91 @@ class PolicyQuestion:
     anchors: tuple[Anchor, ...]
     linked: tuple[str, ...]
     role_title: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class MaskGroup:
+    """Группа сущностей с одним значением и одним маркером.
+
+    Согласованность псевдонимов держится на группе, а не на отдельной
+    сущности: все ``Entity`` с одним ``mask.keys.group_key`` и одним
+    профилем попадают в одну группу и получают один и тот же ``marker``
+    — см. T1.6 (``docs/plans/T1.6-T1.8-plan-validate.md``).
+    """
+
+    id: str  # "G1", по порядку первого вхождения в документе
+    key: str  # ключ согласованности, см. mask/keys.py::group_key
+    type: EntityType
+    marker: str  # "[ПОСТАВЩИК-ИНН-2]"
+    profile_id: str  # "" — сущность без профиля
+    role_label: str  # "ПОСТАВЩИК" | "СТОРОНА-2" | "" (без профиля)
+    number: int  # порядковый номер внутри пары (role_label, type), от 1
+    refs: tuple[str, ...]  # ссылки EntityIndex, в текстовом порядке
+    sample: str  # первое встреченное написание — для отчёта
+
+
+@dataclass(frozen=True, slots=True)
+class Replacement:
+    """Одна замена: что, где, на что.
+
+    Поля ``entity`` и ``marker`` — контракт, на который уже написан
+    ``eval.py`` (``result.replacements``, ``repl.entity.type.value``,
+    ``repl.entity.text``): переименовывать их нельзя, иначе сломается ещё
+    не подключённая метрика.
+    """
+
+    ref: str
+    entity: Entity
+    marker: str
+    group_id: str
+    profile_id: str
+    anchor: Anchor
+
+
+@dataclass(frozen=True, slots=True)
+class SkippedRef:
+    """Сущность, не попавшая в план, и почему."""
+
+    ref: str
+    type: EntityType
+    reason: str  # "type_not_requested" | "kept" | "no_anchor"
+
+
+@dataclass(frozen=True, slots=True)
+class MaskPlan:
+    """Результат ``PlanAgent``: что и как маскируется во всём документе."""
+
+    replacements: tuple[Replacement, ...]  # в текстовом порядке
+    groups: tuple[MaskGroup, ...]  # в порядке номеров
+    skipped: tuple[SkippedRef, ...]
+    requested_types: tuple[str, ...]  # отсортированные значения
+
+
+@dataclass(frozen=True, slots=True)
+class Leak:
+    """Одна найденная утечка исходных данных или их остаточный след.
+
+    Таксономия ``kind`` («detector» | «raw» | «metadata») и разбиение на
+    ``ValidationReport.leaked``/``.residual`` — см. раздел «Таксономия
+    утечек» плана T1.8.
+    """
+
+    kind: str  # "detector" | "raw" | "metadata"
+    artifact: str  # имя файла артефакта
+    part: str  # "word/document.xml" | "docProps/core.xml" | "page 3" | ""
+    entity_type: str
+    value: str  # исходная строка или найденный текст
+    ref: str = ""
+    group_id: str = ""
+    detail: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationReport:
+    """Итог проверки обезличенных артефактов ``ValidateAgent``."""
+
+    leaked: tuple[Leak, ...]  # провал прогона
+    residual: tuple[Leak, ...]  # найдено, но не провал — см. таксономию
+    checked_artifacts: tuple[str, ...]
+    checked_parts: tuple[str, ...]
+    ok: bool

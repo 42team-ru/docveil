@@ -23,13 +23,14 @@ from masker.model import Document, Entity
 _NBSP = " "  # неразрывный пробел — не схлопывается в Word
 
 
-def _build_marker(entity: Entity) -> str:
+def _build_marker(entity: Entity, style: str = "marker") -> str:
     marker = f"[{entity.type.value.upper()}]"
-    # Набиваем неразрывными пробелами до длины исходного текста.
-    # Пробел ≈ 0.5× ширины среднего символа, поэтому умножаем разницу на 2.
     gap = len(entity.text) - len(marker)
     if gap > 0:
-        marker += _NBSP * (gap * 2)
+        # blackbox: точки всегда получают фоновую заливку (trailing-пробелы — нет).
+        # marker: NBSP приемлем, хвост белый и визуально незаметен.
+        pad = "." if style == "blackbox" else _NBSP
+        marker += pad * (gap * 2)
     return marker
 
 
@@ -91,7 +92,7 @@ def _redact_run_parts(
             abs_seg_start = run_start + seg_start
             if entity.start >= abs_seg_start:
                 # Первый фрагмент сущности — вставляем маркер
-                cloned_run.text = _build_marker(entity)
+                cloned_run.text = _build_marker(entity, style)
                 _apply_style(cloned_run, style)
             else:
                 # Продолжение сущности из предыдущего run — обнуляем

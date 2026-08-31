@@ -32,6 +32,7 @@ dev = [
     "pytest>=9",
     "pytest-asyncio>=1.4",
     "pytest-mock>=3.15",
+    "pytest-xdist>=3.6",
     "httpx2>=2.12",
     "ruff>=0.14",
     "mypy>=1.19",
@@ -78,5 +79,5 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # PyMuPDF не поставляет стабы — все ошибки в этих модулях артефакт библиотеки, а не логики.
-module = ["masker.ingest.pdf_ingest", "masker.render.pdf_render"]
+module = ["masker.ingest.pdf_ingest", "masker.render.pdf_render", "masker.validate.parts"]
 ignore_errors = true

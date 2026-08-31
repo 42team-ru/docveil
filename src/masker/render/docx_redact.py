@@ -1,4 +1,4 @@
-"""Настоящее редактирование DOCX: замена сущностей маркерами с удалением текста."""
+"""Настоящее редактирование DOCX: замена сущностей маркерами плана с удалением текста."""
 
 from __future__ import annotations
 
@@ -18,14 +18,25 @@ from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
 from masker.ingest.docx_ingest import DocxLocator, iter_runs, resolve_anchor
-from masker.model import Document, Entity
+from masker.model import Document, MaskPlan, Replacement
 
-_NBSP = " "  # неразрывный пробел — не схлопывается в Word
+_NBSP = " "  # неразрывный пробел — не схлопывается в Word
 
 
-def _build_marker(entity: Entity, style: str = "marker") -> str:
-    marker = f"[{entity.type.value.upper()}]"
-    gap = len(entity.text) - len(marker)
+def _build_marker(replacement: Replacement, style: str = "marker") -> str:
+    """Дописать паддинг к готовому маркеру плана.
+
+    Текст маркера (например, ``[ПОСТАВЩИК-ИНН]``) приходит целиком из
+    ``Replacement.marker`` — рендер больше не знает про ``EntityType`` и не
+    собирает маркер сам (T1.6, `mask/agent.py`). Паддинг компенсирует
+    случай, когда исходное значение длиннее маркера; если маркер уже
+    длиннее исходного значения — обычный случай для маркеров с ролью,
+    например «ИНН» (10 знаков) → ``[ПОСТАВЩИК-ИНН]`` (17 знаков) — паддинг
+    не добавляется и текст маркера не обрезается (см.
+    `test_marker_longer_than_source_does_not_pad`).
+    """
+    marker = replacement.marker
+    gap = len(replacement.entity.text) - len(marker)
     if gap > 0:
         # blackbox: точки всегда получают фоновую заливку (trailing-пробелы — нет).
         # marker: NBSP приемлем, хвост белый и визуально незаметен.
@@ -58,19 +69,19 @@ def _redact_run_parts(
     paragraph: Paragraph,
     run: Run,
     run_start: int,
-    entities: list[Entity],
+    replacements: list[Replacement],
     style: str,
 ) -> None:
     text = run.text
     run_end = run_start + len(text)
-    overlaps = [e for e in entities if e.start < run_end and run_start < e.end]
+    overlaps = [r for r in replacements if r.entity.start < run_end and run_start < r.entity.end]
     if not text or not overlaps:
         return
 
     boundaries: set[int] = {0, len(text)}
-    for entity in overlaps:
-        boundaries.add(max(0, entity.start - run_start))
-        boundaries.add(min(len(text), entity.end - run_start))
+    for replacement in overlaps:
+        boundaries.add(max(0, replacement.entity.start - run_start))
+        boundaries.add(min(len(text), replacement.entity.end - run_start))
     positions = sorted(boundaries)
 
     element = run._r
@@ -83,16 +94,18 @@ def _redact_run_parts(
         clone = deepcopy(element)
         cloned_run = Run(clone, paragraph)
 
-        seg_entities = [
-            e for e in overlaps if e.start < run_start + seg_end and run_start + seg_start < e.end
+        seg_replacements = [
+            r
+            for r in overlaps
+            if r.entity.start < run_start + seg_end and run_start + seg_start < r.entity.end
         ]
 
-        if seg_entities:
-            entity = seg_entities[0]
+        if seg_replacements:
+            replacement = seg_replacements[0]
             abs_seg_start = run_start + seg_start
-            if entity.start >= abs_seg_start:
+            if replacement.entity.start >= abs_seg_start:
                 # Первый фрагмент сущности — вставляем маркер
-                cloned_run.text = _build_marker(entity, style)
+                cloned_run.text = _build_marker(replacement, style)
                 _apply_style(cloned_run, style)
             else:
                 # Продолжение сущности из предыдущего run — обнуляем
@@ -106,10 +119,10 @@ def _redact_run_parts(
     parent.remove(element)
 
 
-def _redact_paragraph(paragraph: Paragraph, entities: list[Entity], style: str) -> None:
+def _redact_paragraph(paragraph: Paragraph, replacements: list[Replacement], style: str) -> None:
     offset = 0
     for run in list(iter_runs(paragraph)):
-        _redact_run_parts(paragraph, run, offset, entities, style)
+        _redact_run_parts(paragraph, run, offset, replacements, style)
         offset += len(run.text)
 
 
@@ -117,14 +130,20 @@ def render_docx_redacted(
     source: str | pathlib.Path,
     destination: str | pathlib.Path,
     document: Document,
-    entities: list[Entity],
+    plan: MaskPlan,
     *,
     style: str = "marker",
 ) -> None:
-    """Создать обезличенную копию DOCX: текст сущностей заменён маркерами.
+    """Создать обезличенную копию DOCX: текст сущностей заменён маркерами плана.
 
-    style="marker"   — светло-серый фон, маркер [ТИП] тёмным текстом.
-    style="blackbox" — чёрный фон, маркер [ТИП] чёрным текстом (визуально невидим).
+    style="marker"   — светло-серый фон, маркер плана тёмным текстом.
+    style="blackbox" — чёрный фон, маркер плана чёрным текстом (визуально невидим).
+
+    ``document`` рендеру для поиска места замены не нужен: место уже
+    посчитано один раз ``PlanAgent`` и приходит в
+    ``plan.replacements[].anchor``. Параметр оставлен для единообразия
+    сигнатуры с ``render_docx_preview`` и на будущее — T1.10 подключает оба
+    рендера как узлы графа с общим набором аргументов.
     """
     if style not in ("marker", "blackbox"):
         raise ValueError(f"неизвестный стиль редактирования: {style!r}")
@@ -134,21 +153,19 @@ def render_docx_redacted(
     shutil.copy2(source, destination)
     doc = open_docx(str(destination))
 
-    segments = {seg.order: seg for seg in document.segments}
-    order_by_locator: dict[DocxLocator, int] = {}
-    by_locator: dict[DocxLocator, list[Entity]] = defaultdict(list)
-    for entity in entities:
-        segment = segments[entity.segment_order]
-        locator = cast(DocxLocator, segment.anchor.locator)
-        order_by_locator[locator] = segment.order
-        by_locator[locator].append(entity)
+    by_locator: dict[DocxLocator, list[Replacement]] = defaultdict(list)
+    for replacement in plan.replacements:
+        locator = cast(DocxLocator, replacement.anchor.locator)
+        by_locator[locator].append(replacement)
 
-    for locator, paragraph_entities in sorted(
-        by_locator.items(), key=lambda item: order_by_locator[item[0]]
-    ):
+    # `plan.replacements` уже в текстовом порядке (контракт `MaskPlan`),
+    # поэтому порядок вставки в `by_locator` и есть порядок документа —
+    # отдельная сортировка по месту, как раньше через `document.segments`,
+    # больше не нужна.
+    for locator, paragraph_replacements in by_locator.items():
         paragraph = resolve_anchor(doc, locator)
         if paragraph is not None:
-            _redact_paragraph(paragraph, paragraph_entities, style)
+            _redact_paragraph(paragraph, paragraph_replacements, style)
 
     props = doc.core_properties
     for attr in ("author", "last_modified_by", "title", "subject", "keywords", "comments"):

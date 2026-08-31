@@ -1,4 +1,4 @@
-"""Тесты pdf_render: preview (highlight) и redacted (настоящее удаление)."""
+"""Тесты pdf_render: preview (highlight) и redacted (настоящее удаление) через `MaskPlan`."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ import stat
 import pymupdf
 
 from masker.ingest.pdf_ingest import ingest_pdf
-from masker.model import Entity, EntityType, Source
+from masker.mask.agent import PlanAgent
+from masker.model import Document, Entity, EntityType, MaskPlan, Profile, ProfileMember, Source
+from masker.refs import EntityIndex
 from masker.render.pdf_render import render_pdf_preview, render_pdf_redacted
 
 _INN = "3662103003"
@@ -27,7 +29,7 @@ def _make_pdf_with_inn(tmp_path: pathlib.Path, pages: int = 1) -> pathlib.Path:
     return path
 
 
-def _entity_for_doc(document, text: str, etype: EntityType) -> Entity:
+def _entity_for_doc(document: Document, text: str, etype: EntityType) -> Entity:
     seg = next(s for s in document.segments if text in s.text)
     start = seg.text.index(text)
     return Entity(
@@ -39,6 +41,27 @@ def _entity_for_doc(document, text: str, etype: EntityType) -> Entity:
         source=Source.RULE,
         confidence=1.0,
         normalized=text,
+    )
+
+
+def _plan(
+    document: Document, entities: list[Entity], *, profiles: list[Profile] | None = None
+) -> MaskPlan:
+    return PlanAgent().plan(document, entities, profiles=profiles)
+
+
+def _profile_for(marker_label: str, members: list[Entity], index: EntityIndex) -> Profile:
+    from masker.model import Anchor
+
+    return Profile(
+        id="P1",
+        members=[
+            ProfileMember(
+                entity=entity, anchor=Anchor(fmt="pdf", locator=()), ref=index.ref(entity)
+            )
+            for entity in members
+        ],
+        marker_label=marker_label,
     )
 
 
@@ -101,7 +124,7 @@ def test_redacted_text_absent_from_text_layer(tmp_path: pathlib.Path) -> None:
     dest = tmp_path / "redacted.pdf"
     document = ingest_pdf(src)
     entity = _entity_for_doc(document, _INN, EntityType.INN)
-    render_pdf_redacted(src, dest, document, [entity])
+    render_pdf_redacted(src, dest, document, _plan(document, [entity]))
     doc = pymupdf.open(str(dest))
     text = doc[0].get_text()
     doc.close()
@@ -113,7 +136,7 @@ def test_redacted_text_absent_from_raw_bytes(tmp_path: pathlib.Path) -> None:
     dest = tmp_path / "redacted.pdf"
     document = ingest_pdf(src)
     entity = _entity_for_doc(document, _INN, EntityType.INN)
-    render_pdf_redacted(src, dest, document, [entity])
+    render_pdf_redacted(src, dest, document, _plan(document, [entity]))
     assert _INN.encode() not in dest.read_bytes()
 
 
@@ -122,18 +145,36 @@ def test_redacted_marker_appears_in_text(tmp_path: pathlib.Path) -> None:
     dest = tmp_path / "redacted.pdf"
     document = ingest_pdf(src)
     entity = _entity_for_doc(document, _INN, EntityType.INN)
-    render_pdf_redacted(src, dest, document, [entity])
+    render_pdf_redacted(src, dest, document, _plan(document, [entity]))
     doc = pymupdf.open(str(dest))
     text = doc[0].get_text()
     doc.close()
-    assert "[INN]" in text
+    assert "[ИНН]" in text
+
+
+def test_pdf_marker_from_plan(tmp_path: pathlib.Path) -> None:
+    """Ради этого шага всё затевалось: в PDF тоже маркер с ролью, а не
+    латинский тип."""
+    src = _make_pdf_with_inn(tmp_path)
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    index = EntityIndex([entity])
+    profile = _profile_for("ПОСТАВЩИК", [entity], index)
+    render_pdf_redacted(src, dest, document, _plan(document, [entity], profiles=[profile]))
+    doc = pymupdf.open(str(dest))
+    text = doc[0].get_text()
+    doc.close()
+    assert "[ПОСТАВЩИК-ИНН]" in text
+    assert _INN not in text
+    assert "[INN]" not in text
 
 
 def test_redacted_metadata_cleared(tmp_path: pathlib.Path) -> None:
     src = _make_pdf_with_inn(tmp_path)
     dest = tmp_path / "redacted.pdf"
     document = ingest_pdf(src)
-    render_pdf_redacted(src, dest, document, [])
+    render_pdf_redacted(src, dest, document, _plan(document, []))
     doc = pymupdf.open(str(dest))
     author = doc.metadata.get("author", "")
     doc.close()
@@ -145,7 +186,7 @@ def test_redacted_page_count_preserved(tmp_path: pathlib.Path) -> None:
     dest = tmp_path / "redacted.pdf"
     document = ingest_pdf(src)
     entities = [_entity_for_doc(document, _INN, EntityType.INN)]
-    render_pdf_redacted(src, dest, document, entities)
+    render_pdf_redacted(src, dest, document, _plan(document, entities))
     src_doc = pymupdf.open(str(src))
     dst_doc = pymupdf.open(str(dest))
     assert len(dst_doc) == len(src_doc)
@@ -157,7 +198,7 @@ def test_redacted_permissions(tmp_path: pathlib.Path) -> None:
     src = _make_pdf_with_inn(tmp_path)
     dest = tmp_path / "redacted.pdf"
     document = ingest_pdf(src)
-    render_pdf_redacted(src, dest, document, [])
+    render_pdf_redacted(src, dest, document, _plan(document, []))
     assert stat.S_IMODE(dest.stat().st_mode) == 0o600
 
 
@@ -174,7 +215,7 @@ def test_redacted_entity_not_found_graceful(tmp_path: pathlib.Path) -> None:
         end=10,
         source=Source.RULE,
     )
-    render_pdf_redacted(src, dest, document, [entity])  # не должен бросать
+    render_pdf_redacted(src, dest, document, _plan(document, [entity]))  # не должен бросать
 
 
 def test_blackbox_original_text_absent(tmp_path: pathlib.Path) -> None:
@@ -182,7 +223,7 @@ def test_blackbox_original_text_absent(tmp_path: pathlib.Path) -> None:
     dest = tmp_path / "redacted.pdf"
     document = ingest_pdf(src)
     entity = _entity_for_doc(document, _INN, EntityType.INN)
-    render_pdf_redacted(src, dest, document, [entity], style="blackbox")
+    render_pdf_redacted(src, dest, document, _plan(document, [entity]), style="blackbox")
     doc = pymupdf.open(str(dest))
     text = doc[0].get_text()
     doc.close()
@@ -194,11 +235,11 @@ def test_blackbox_no_marker_in_text(tmp_path: pathlib.Path) -> None:
     dest = tmp_path / "redacted.pdf"
     document = ingest_pdf(src)
     entity = _entity_for_doc(document, _INN, EntityType.INN)
-    render_pdf_redacted(src, dest, document, [entity], style="blackbox")
+    render_pdf_redacted(src, dest, document, _plan(document, [entity]), style="blackbox")
     doc = pymupdf.open(str(dest))
     text = doc[0].get_text()
     doc.close()
-    assert "[INN]" not in text
+    assert "[ИНН]" not in text
 
 
 def test_redacted_multipage_all_redacted(tmp_path: pathlib.Path) -> None:
@@ -220,7 +261,7 @@ def test_redacted_multipage_all_redacted(tmp_path: pathlib.Path) -> None:
         for seg in document.segments
         if _INN in seg.text
     ]
-    render_pdf_redacted(src, dest, document, entities)
+    render_pdf_redacted(src, dest, document, _plan(document, entities))
     doc = pymupdf.open(str(dest))
     for page in doc:
         assert _INN not in page.get_text()

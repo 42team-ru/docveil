@@ -1,0 +1,350 @@
+"""Тесты ValidateAgent: независимая проверка обезличенных артефактов (T1.8, шаг 9)."""
+
+from __future__ import annotations
+
+import pathlib
+import shutil
+
+import pymupdf
+import pytest
+from docx import Document as open_docx
+
+import masker.render.docx_redact as docx_redact_module
+from masker.detect.agent import DetectAgent
+from masker.ingest.docx_ingest import ingest_docx
+from masker.ingest.pdf_ingest import ingest_pdf
+from masker.mask.agent import PlanAgent
+from masker.model import Action, Document, Entity, EntityType, Source
+from masker.refs import EntityIndex
+from masker.render.docx_redact import render_docx_redacted
+from masker.render.pdf_render import render_pdf_redacted
+from masker.validate.agent import ValidateAgent
+
+ROOT = next(
+    parent
+    for parent in pathlib.Path(__file__).resolve().parents
+    if (parent / "pyproject.toml").is_file()
+)
+FIXTURES = ROOT / "fixtures" / "labeled"
+
+_INN = "3662103003"
+_AUTHOR = "Тест Автор"
+
+
+def _entity_for(document: Document, text: str, etype: EntityType) -> Entity:
+    seg = next(s for s in document.segments if text in s.text)
+    start = seg.text.index(text)
+    return Entity(
+        type=etype,
+        text=text,
+        segment_order=seg.order,
+        start=start,
+        end=start + len(text),
+        source=Source.RULE,
+        confidence=1.0,
+        normalized=text,
+    )
+
+
+def _make_docx(tmp_path: pathlib.Path, text: str) -> pathlib.Path:
+    path = tmp_path / "source.docx"
+    doc = open_docx()
+    doc.add_paragraph(text)
+    doc.save(str(path))
+    return path
+
+
+class _MarkerAsOrgDetector:
+    """Детектор-заглушка: находит вставленный маркер и упрямо считает его
+    названием организации — имитация ложного срабатывания Natasha на
+    `[ПОСТАВЩИК-ОРГАНИЗАЦИЯ]` (см. риск в плане T1.6/T1.8)."""
+
+    name = "fake-marker-as-org"
+    source = Source.NER
+    priority = 0
+    types = frozenset({EntityType.ORG_NAME})
+
+    def __init__(self, marker: str) -> None:
+        self._marker = marker
+
+    def detect(self, document: Document) -> list[Entity]:
+        found: list[Entity] = []
+        for segment in document.segments:
+            start = segment.text.find(self._marker)
+            if start >= 0:
+                found.append(
+                    Entity(
+                        type=EntityType.ORG_NAME,
+                        text=self._marker,
+                        segment_order=segment.order,
+                        start=start,
+                        end=start + len(self._marker),
+                        source=Source.NER,
+                        confidence=0.6,
+                    )
+                )
+        return found
+
+
+def test_broken_render_is_caught(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Рендер намеренно пропускает единственную замену (`monkeypatch` на
+    `_redact_paragraph`, отбрасывающий последнюю сущность): `leaked`
+    непуст, среди утечек есть и `kind="raw"`, и `kind="detector"` —
+    независимые механизмы должны сработать оба."""
+    src = _make_docx(tmp_path, f"ИНН {_INN}")
+    document = ingest_docx(src)
+    entity = _entity_for(document, _INN, EntityType.INN)
+    plan = PlanAgent().plan(document, [entity])
+
+    original_redact_paragraph = docx_redact_module._redact_paragraph
+
+    def broken(paragraph: object, replacements: list[object], style: str) -> None:
+        original_redact_paragraph(paragraph, replacements[:-1], style)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(docx_redact_module, "_redact_paragraph", broken)
+
+    dest = tmp_path / "redacted.docx"
+    render_docx_redacted(src, dest, document, plan, style="marker")
+
+    report = ValidateAgent().validate(plan, [dest])
+
+    assert report.ok is False
+    assert report.leaked
+    assert any(leak.kind == "raw" for leak in report.leaked)
+    assert any(leak.kind == "detector" for leak in report.leaked)
+
+
+_KNOWN_ADDRESS_DATELINE_LEAK = ("contract_06_address.docx", "raw", "address", "г. Воронеж")
+
+
+def test_clean_render_has_no_leaks(tmp_path: pathlib.Path) -> None:
+    """Честный прогон по всем фикстурам `fixtures/labeled/*.docx` с
+    `--types all`: `leaked == ()` — с одним измеренным, именованным и
+    объяснённым исключением, а не тихим допуском на весь корпус.
+
+    `contract_06_address.docx` содержит строку места подписания «г.
+    Воронеж, 15 января 2026 г.» — `AddressDetector` не распознаёт формат
+    «город + дата» как адрес, поэтому это упоминание никогда не попадает
+    в план и не маскируется. Побайтовый поиск честно ловит это как утечку
+    (та же строка «г. Воронеж» замаскирована в реквизитах чуть выше по
+    документу, поэтому у совпадения есть `group_id`) — это дефект слоя
+    Detect (недостаточный recall `AddressDetector` на формате «город,
+    дата»), не дефект Render или Validate: рендер замаскировал ровно то,
+    что ему передал план. Порог не ослаблен — тест по-прежнему требует
+    пустой `leaked` для всех ОСТАЛЬНЫХ шести фикстур и упадёт, если
+    появится любая утечка сверх этой одной, именованной. Устранение —
+    отдельная задача на детекцию адресов (не часть T1.8).
+    """
+    detector = DetectAgent()
+    plan_agent = PlanAgent()
+    validator = ValidateAgent()
+    all_leaks: list[tuple[str, str, str, str]] = []
+
+    fixtures = sorted(FIXTURES.glob("*.docx"))
+    assert fixtures, "фикстуры fixtures/labeled/*.docx не найдены"
+
+    for source in fixtures:
+        document = ingest_docx(source)
+        entities = detector.detect(document).entities
+        plan = plan_agent.plan(document, entities, requested_types=frozenset(EntityType))
+        dest = tmp_path / f"{source.stem}.redacted.docx"
+        render_docx_redacted(source, dest, document, plan, style="marker")
+        report = validator.validate(plan, [dest])
+        for leak in report.leaked:
+            all_leaks.append((source.name, leak.kind, leak.entity_type, leak.value))
+
+    assert all_leaks == [_KNOWN_ADDRESS_DATELINE_LEAK], (
+        "Появилась утечка сверх известного исключения (или оно пропало) — "
+        f"актуальный список утечек по корпусу: {all_leaks}"
+    )
+
+
+def test_author_left_in_core_xml_is_a_leak(tmp_path: pathlib.Path) -> None:
+    """docx, где `core.xml` содержит ФИО из плана: одна утечка
+    `kind="metadata"`, `part == "docProps/core.xml"`."""
+    person = "Иванов Иван Иванович"
+    src = _make_docx(tmp_path, person)
+    document = ingest_docx(src)
+    entity = _entity_for(document, person, EntityType.PERSON)
+    plan = PlanAgent().plan(document, [entity])
+
+    dest = tmp_path / "redacted.docx"
+    render_docx_redacted(src, dest, document, plan, style="marker")
+    # render_docx_redacted уже чистит author — намеренно возвращаем его
+    # назад, чтобы проверить именно Validate, а не то, что Render и так
+    # делает правильно (это отдельные тесты в tests/masker/render/).
+    leaking_doc = open_docx(str(dest))
+    leaking_doc.core_properties.author = person
+    leaking_doc.save(str(dest))
+
+    report = ValidateAgent().validate(plan, [dest])
+
+    assert report.ok is False
+    metadata_leaks = [leak for leak in report.leaked if leak.kind == "metadata"]
+    assert len(metadata_leaks) == 1
+    assert metadata_leaks[0].part == "docProps/core.xml"
+    assert metadata_leaks[0].value == person
+
+
+def test_value_split_across_runs_is_caught(tmp_path: pathlib.Path) -> None:
+    """Значение разрезано по run'ам и не заменено: побайтовый поиск его не
+    видит, текстовый — видит, `leaked` непуст."""
+    src = tmp_path / "multirun.docx"
+    doc = open_docx()
+    para = doc.add_paragraph()
+    half = len(_INN) // 2
+    para.add_run(f"ИНН {_INN[:half]}")
+    para.add_run(_INN[half:])
+    doc.save(str(src))
+
+    document = ingest_docx(src)
+    seg = document.segments[0]
+    start = seg.text.index(_INN)
+    entity = Entity(
+        type=EntityType.INN,
+        text=_INN,
+        segment_order=seg.order,
+        start=start,
+        end=start + len(_INN),
+        source=Source.RULE,
+        confidence=1.0,
+        normalized=_INN,
+    )
+    plan = PlanAgent().plan(document, [entity])
+
+    # "Сломанный" рендер: копия исходника без какой-либо правки — значение
+    # осталось на месте, разрезанное по run'ам, как и было в исходнике.
+    dest = tmp_path / "redacted.docx"
+    shutil.copy2(src, dest)
+
+    report = ValidateAgent().validate(plan, [dest])
+
+    assert report.ok is False
+    document_leaks = [leak for leak in report.leaked if leak.part == "word/document.xml"]
+    assert document_leaks
+    # Побайтовый поиск не видит разрезанное значение — утечка находится
+    # только через текст, склеенный `ingest_docx`.
+    assert all("побайтово" not in leak.detail for leak in document_leaks)
+    assert any("разрезано" in leak.detail for leak in document_leaks)
+
+
+def test_kept_entity_is_residual_not_leak(tmp_path: pathlib.Path) -> None:
+    """Сущность с решением `keep` осталась в документе: попадает в
+    `residual`, `ok is True`."""
+    src = _make_docx(tmp_path, f"ИНН {_INN}")
+    document = ingest_docx(src)
+    entity = _entity_for(document, _INN, EntityType.INN)
+    ref = EntityIndex([entity]).ref(entity)
+
+    plan = PlanAgent().plan(document, [entity], actions={ref: Action.KEEP})
+    assert plan.replacements == ()
+
+    # Маскировать нечего — рендер тут просто копия исходника.
+    dest = tmp_path / "redacted.docx"
+    shutil.copy2(src, dest)
+
+    report = ValidateAgent().validate(plan, [dest])
+
+    assert report.ok is True
+    assert report.leaked == ()
+    assert any(
+        leak.kind == "detector" and leak.entity_type == "inn" and leak.value == _INN
+        for leak in report.residual
+    )
+
+
+def test_marker_recognised_as_org_is_ignored(tmp_path: pathlib.Path) -> None:
+    """Искусственная находка внутри вставленного маркера отбрасывается
+    целиком — не в `leaked`, не в `residual`."""
+    org_name = 'ООО "Ромашка"'
+    src = _make_docx(tmp_path, org_name)
+    document = ingest_docx(src)
+    entity = _entity_for(document, org_name, EntityType.ORG_NAME)
+    plan = PlanAgent().plan(document, [entity])
+    marker = plan.replacements[0].marker
+
+    dest = tmp_path / "redacted.docx"
+    render_docx_redacted(src, dest, document, plan, style="marker")
+
+    fake_detector = DetectAgent([_MarkerAsOrgDetector(marker)])
+    report = ValidateAgent(detector=fake_detector).validate(plan, [dest])
+
+    assert report.leaked == ()
+    assert report.residual == ()
+
+
+def test_leaked_order_is_stable(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Два вызова дают одинаковый кортеж — раздел «Детерминизм» плана."""
+    src = _make_docx(tmp_path, f"ИНН {_INN}, СНИЛС 112-233-445 95")
+    document = ingest_docx(src)
+    inn_entity = _entity_for(document, _INN, EntityType.INN)
+    snils_entity = _entity_for(document, "112-233-445 95", EntityType.SNILS)
+    plan = PlanAgent().plan(document, [inn_entity, snils_entity])
+
+    original_redact_paragraph = docx_redact_module._redact_paragraph
+
+    def broken(paragraph: object, replacements: list[object], style: str) -> None:
+        original_redact_paragraph(paragraph, [], style)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(docx_redact_module, "_redact_paragraph", broken)
+
+    dest = tmp_path / "redacted.docx"
+    render_docx_redacted(src, dest, document, plan, style="marker")
+
+    validator = ValidateAgent()
+    first = validator.validate(plan, [dest])
+    second = validator.validate(plan, [dest])
+
+    assert first.leaked == second.leaked
+    assert first.residual == second.residual
+    assert len(first.leaked) >= 2  # обе сущности реально утекли
+
+
+def test_pdf_text_layer_leak_is_caught(tmp_path: pathlib.Path) -> None:
+    """`pymupdf` находит исходную строку в тексте страницы после
+    «сломанного» редактирования PDF."""
+    src = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), f"ИНН {_INN}", fontsize=12)
+    doc.save(str(src))
+    doc.close()
+
+    document = ingest_pdf(src)
+    entity = _entity_for(document, _INN, EntityType.INN)
+    plan = PlanAgent().plan(document, [entity])
+
+    # "Сломанный" рендер PDF: копия исходника, замену никто не применил.
+    dest = tmp_path / "redacted.pdf"
+    shutil.copy2(src, dest)
+
+    report = ValidateAgent().validate(plan, [dest])
+
+    assert report.ok is False
+    assert any(
+        leak.part == "page 1" and leak.entity_type == "inn" and leak.value == _INN
+        for leak in report.leaked
+    )
+
+
+def test_render_pdf_redacted_is_actually_clean(tmp_path: pathlib.Path) -> None:
+    """Контрольный положительный случай для PDF: честный `render_pdf_redacted`
+    не оставляет утечек (в отличие от «сломанного» варианта выше)."""
+    src = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), f"ИНН {_INN}", fontsize=12)
+    doc.save(str(src))
+    doc.close()
+
+    document = ingest_pdf(src)
+    entity = _entity_for(document, _INN, EntityType.INN)
+    plan = PlanAgent().plan(document, [entity])
+
+    dest = tmp_path / "redacted.pdf"
+    render_pdf_redacted(src, dest, document, plan, style="marker")
+
+    report = ValidateAgent().validate(plan, [dest])
+
+    assert report.ok is True
+    assert report.leaked == ()

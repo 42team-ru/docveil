@@ -8,7 +8,7 @@ from collections import defaultdict
 
 import pymupdf
 
-from masker.model import Document, Entity
+from masker.model import Document, Entity, MaskPlan, Replacement
 
 _FONT_FILE: pathlib.Path = pathlib.Path(__file__).parent.parent / "data" / "DejaVuSans.ttf"
 _FONT_NAME = "cyr"
@@ -39,15 +39,20 @@ def render_pdf_redacted(
     source_path: str | pathlib.Path,
     dest_path: str | pathlib.Path,
     document: Document,
-    entities: list[Entity],
+    plan: MaskPlan,
     *,
     style: str = "marker",
 ) -> None:
-    """Удалить сущности из content-stream и вставить заглушки.
+    """Удалить сущности из content-stream и вставить заглушки с маркерами плана.
 
-    style="marker"   — белый фон, маркер [ТИП] вписан по ширине прямоугольника.
+    style="marker"   — белый фон, маркер плана вписан по ширине прямоугольника.
     style="blackbox" — чёрный прямоугольник без текста; исходный текст полностью
                        удалён из content-stream, маркер не вставляется.
+
+    ``document`` рендеру для поиска места замены не нужен — см. докстринг
+    ``render_docx_redacted``: место уже посчитано один раз ``PlanAgent`` и
+    приходит в ``plan.replacements[].anchor``. Параметр оставлен для
+    единообразия сигнатуры с ``render_pdf_preview``.
     """
     if style not in ("marker", "blackbox"):
         raise ValueError(f"неизвестный стиль редактирования: {style!r}")
@@ -59,11 +64,11 @@ def render_pdf_redacted(
 
     # Сгруппировать по страницам; поиск rects до любых изменений документа.
     by_page: dict[int, list[tuple[pymupdf.Rect, str]]] = defaultdict(list)
-    for entity in entities:
-        page_num, clip = _parse_locator(document.segments[entity.segment_order].anchor.locator)
+    for replacement in plan.replacements:
+        page_num, clip = _parse_locator(replacement.anchor.locator)
         page = doc[page_num]
-        marker = _build_marker(entity)
-        for rect in page.search_for(entity.text, clip=clip):
+        marker = _build_marker(replacement)
+        for rect in page.search_for(replacement.entity.text, clip=clip):
             by_page[page_num].append((rect, marker))
 
     fill_color = (0.0, 0.0, 0.0) if style == "blackbox" else (1.0, 1.0, 1.0)
@@ -108,5 +113,11 @@ def _fit_fontsize(font: pymupdf.Font, rect: pymupdf.Rect, text: str) -> float:
     return 4.0
 
 
-def _build_marker(entity: Entity) -> str:
-    return f"[{entity.type.value.upper()}]"
+def _build_marker(replacement: Replacement) -> str:
+    """Строка маркера для вставки в PDF.
+
+    Паддинг символами, в отличие от `render/docx_redact.py`, здесь не нужен:
+    `_fit_fontsize` вписывает маркер любой длины в ширину прямоугольника
+    подбором размера шрифта, а не дополнением текста.
+    """
+    return replacement.marker

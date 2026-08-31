@@ -15,7 +15,16 @@ from docx import Document as open_docx
 from masker.detect import AddressDetector, DetectAgent, RuleDetector
 from masker.detect.ner import NatashaDetector
 from masker.detect.result import DetectionResult, PiiChunk, build_pii_chunks
-from masker.graph.serde import judge_to_dicts, profiles_to_dicts
+from masker.graph.nodes import RunDeps
+from masker.graph.questions import parse_answers
+from masker.graph.serde import (
+    entity_from_dict,
+    judge_to_dicts,
+    profiles_from_dicts,
+    profiles_to_dicts,
+    questions_from_dicts,
+    verdicts_from_dicts,
+)
 from masker.ingest.docx_ingest import (
     count_nested_tables,
     count_skipped_body_blocks,
@@ -37,6 +46,16 @@ from masker.profile import ProfileAgent
 from masker.profile.agent import ProfileResult
 from masker.render.docx_preview import render_docx_preview
 from masker.report.html import render_html_report
+from masker.run import (
+    AlreadyFinishedError,
+    RunOptions,
+    RunOutcome,
+    ThreadExistsError,
+    UnknownThreadError,
+    resume_run,
+    sqlite_checkpointer_factory,
+    start_run,
+)
 
 DEFAULT_OUTPUT = Path("out") / "inspect"
 REPORT_VERSION = 2
@@ -321,12 +340,236 @@ def inspect_docx(
     return report_path, preview_path, html_path, entities, trace_paths
 
 
+def _run_options_from_args(
+    args: argparse.Namespace, selected_types: frozenset[EntityType]
+) -> RunOptions:
+    """Опции графа из аргументов CLI — то, из чего считается ``thread_id``."""
+    types_tuple = (
+        None
+        if selected_types == frozenset(EntityType)
+        else tuple(sorted(entity_type.value for entity_type in selected_types))
+    )
+    return RunOptions(
+        types=types_tuple,
+        rules_only=args.rules_only,
+        profile=True,
+        unmask_critical=args.unmask_critical,
+        llm_config_id=str(args.llm_config) if args.llm_config is not None else "",
+        interactive=True,
+    )
+
+
+def _types_from_state_options(options: dict[str, Any]) -> frozenset[EntityType]:
+    """Типы, реально выбранные при прогоне — из состояния треда, а не из CLI.
+
+    ``--resume`` не обязан повторять ``--types``/``--rules-only``: отчёт
+    строится по тому, что реально было выбрано в первой фазе.
+    """
+    types = options.get("types")
+    if not types:
+        return frozenset(EntityType)
+    return frozenset(EntityType(str(value)) for value in types)
+
+
+def _state_db_path(args: argparse.Namespace) -> Path:
+    state_db: Path | None = args.state_db
+    out: Path = args.out
+    return state_db if state_db is not None else out / "state.sqlite"
+
+
+def _write_questions(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o600)
+
+
+def _print_questions(outcome: RunOutcome, questions_path: Path) -> None:
+    assert outcome.payload is not None
+    print(f"thread_id: {outcome.thread_id}")
+    print(f"вопросов: {len(outcome.payload['questions'])}")
+    for question in outcome.payload["questions"]:
+        options_text = ", ".join(question["options"])
+        print(f"  [{question['id']}] {question['prompt']} — варианты: {options_text}")
+    print(f"  файл вопросов: {questions_path}")
+    print(
+        "  для ответа: masker --resume "
+        f"{outcome.thread_id} --answers <файл> --out <тот же --out> --profile"
+    )
+
+
+def _load_answers(path: Path, parser: argparse.ArgumentParser) -> dict[str, str]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        parser.error(f"не удалось прочитать --answers {path}: {error}")
+        raise AssertionError("unreachable") from error
+    except json.JSONDecodeError as error:
+        parser.error(f"--answers {path} не является корректным JSON: {error}")
+        raise AssertionError("unreachable") from error
+    try:
+        return parse_answers(raw)
+    except ValueError as error:
+        parser.error(str(error))
+        raise AssertionError("unreachable") from error
+
+
+def _write_graph_report(
+    source: Path, artifact_dir: Path, outcome: RunOutcome, *, html: bool
+) -> tuple[Path, Path, Path | None]:
+    """Собрать report.json/preview.docx из состояния графа после ``finalize``.
+
+    Полная перестройка ``_build_report``/подсветка только оставшихся к
+    маскированию сущностей — шаг 10 плана T1.5.1; здесь блок ``decisions``
+    добавляется поверх уже существующего формата отчёта.
+    """
+    document = ingest_docx(source)
+    state = outcome.state
+    entities = [entity_from_dict(item) for item in state.get("entities", [])]
+    chunks = build_pii_chunks(document.segments, entities)
+    options = state.get("options", {})
+    selected_types = _types_from_state_options(options)
+    rules_only = bool(options.get("rules_only", False))
+    detector = DetectAgent([RuleDetector(), AddressDetector()]) if rules_only else DetectAgent()
+    profile_result = ProfileResult(
+        profiles=profiles_from_dicts(state.get("profiles", [])),
+        blocks=[],
+        unassigned=list(state.get("unassigned", [])),
+        candidates=[entity_from_dict(item) for item in state.get("candidates", [])],
+        anchors={segment.order: segment.anchor for segment in document.segments},
+        diagnostics=list(state.get("diagnostics", [])),
+    )
+    judge_result = JudgeResult(
+        verdicts_from_dicts(state.get("verdicts", [])),
+        questions_from_dicts(state.get("questions", [])),
+    )
+
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    report_path = artifact_dir / "report.json"
+    preview_path = artifact_dir / "preview.docx"
+    report = _build_report(
+        source,
+        document,
+        entities,
+        chunks,
+        selected_types,
+        detector,
+        profile_result,
+        judge_result,
+        llm_trace=False,
+    )
+    report["decisions"] = state.get("decisions", {})
+    report["final_actions"] = state.get("final_actions", [])
+    _write_report(report_path, report)
+    render_docx_preview(source, preview_path, document, entities)
+    html_path = artifact_dir / "report.html" if html else None
+    if html_path is not None:
+        render_html_report(report, source, html_path)
+    return report_path, preview_path, html_path
+
+
+def _print_graph_report(
+    outcome: RunOutcome, report_path: Path, preview_path: Path, html_path: Path | None
+) -> None:
+    print(f"прогон завершён, thread_id {outcome.thread_id}")
+    print(f"  отчёт:   {report_path}")
+    print(f"  preview: {preview_path}")
+    if html_path is not None:
+        print(f"  HTML:    {html_path}")
+    print("ВАЖНО: preview содержит исходный текст и служит только для проверки детектора.")
+
+
+def _start_interactive(
+    source: Path,
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    selected_types: frozenset[EntityType],
+    llm: LLMProvider | None,
+) -> int:
+    """Первая фаза: начать прогон через граф, приостановиться или завершить.
+
+    ``--answers`` без ``--ask`` — тоже первая фаза, просто с ответами,
+    известными заранее: если их достаточно, прерывания не возникает.
+    """
+    artifact_dir = args.out / source.stem
+    factory = sqlite_checkpointer_factory(_state_db_path(args))
+    options = _run_options_from_args(args, selected_types)
+    deps = RunDeps(llm=llm)
+    pre_answers = _load_answers(args.answers, parser) if args.answers is not None else None
+
+    try:
+        outcome = start_run(
+            source,
+            options,
+            checkpointer_factory=factory,
+            deps=deps,
+            thread_id=args.thread_id,
+            fresh=args.fresh,
+            answers=pre_answers,
+        )
+    except (UnknownThreadError, AlreadyFinishedError, ThreadExistsError) as error:
+        print(str(error))
+        return 3
+
+    if outcome.status == "waiting":
+        questions_path = artifact_dir / "questions.json"
+        assert outcome.payload is not None
+        _write_questions(questions_path, outcome.payload)
+        _print_questions(outcome, questions_path)
+        return 10
+
+    report_path, preview_path, html_path = _write_graph_report(
+        source, artifact_dir, outcome, html=args.html
+    )
+    _print_graph_report(outcome, report_path, preview_path, html_path)
+    return 0
+
+
+def _resume(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Вторая фаза: прислать ответы на приостановленный прогон."""
+    if args.answers is None:
+        parser.error("--resume требует --answers")
+    answers = _load_answers(args.answers, parser)
+    factory = sqlite_checkpointer_factory(_state_db_path(args))
+
+    try:
+        outcome = resume_run(args.resume, answers, checkpointer_factory=factory, deps=RunDeps())
+    except (UnknownThreadError, AlreadyFinishedError) as error:
+        print(str(error))
+        return 3
+
+    name = str(outcome.state.get("meta", {}).get("name") or "")
+    stem = Path(name).stem if name else args.resume
+    artifact_dir = args.out / stem
+
+    if outcome.status == "waiting":
+        questions_path = artifact_dir / "questions.json"
+        assert outcome.payload is not None
+        _write_questions(questions_path, outcome.payload)
+        _print_questions(outcome, questions_path)
+        return 10
+
+    source = Path(str(outcome.state["path"]))
+    report_path, preview_path, html_path = _write_graph_report(
+        source, artifact_dir, outcome, html=args.html
+    )
+    _print_graph_report(outcome, report_path, preview_path, html_path)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="masker",
         description="Найти PII в DOCX и создать JSON-отчёт с подсвеченной preview-копией.",
     )
-    parser.add_argument("files", nargs="+", type=Path, help="один или несколько файлов .docx")
+    parser.add_argument(
+        "files",
+        nargs="*",
+        type=Path,
+        help="один или несколько файлов .docx; не нужны вместе с --resume",
+    )
     parser.add_argument(
         "--out",
         type=Path,
@@ -371,16 +614,77 @@ def build_parser() -> argparse.ArgumentParser:
             "(дословный обмен с LLM и разбор её ответа); требует --profile"
         ),
     )
+    parser.add_argument(
+        "--ask",
+        action="store_true",
+        help=(
+            "остановиться на вопросах человеку, записать questions.json и выйти "
+            "с кодом 10; требует --profile"
+        ),
+    )
+    parser.add_argument(
+        "--answers",
+        type=Path,
+        help=(
+            "файл ответов (JSON); допустим и в первой фазе без --ask "
+            "(тогда прерывания не возникает), и вместе с --resume"
+        ),
+    )
+    parser.add_argument(
+        "--resume",
+        metavar="THREAD_ID",
+        help="продолжить приостановленный прогон по идентификатору; файлы не нужны",
+    )
+    parser.add_argument(
+        "--thread-id",
+        dest="thread_id",
+        help="задать идентификатор прогона вручную вместо детерминированного вычисления",
+    )
+    parser.add_argument(
+        "--state-db",
+        type=Path,
+        help="файл чекпойнтера LangGraph (по умолчанию <--out>/state.sqlite)",
+    )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="удалить тред перед прогоном и начать заново",
+    )
+    parser.add_argument(
+        "--unmask-critical",
+        action="store_true",
+        help=(
+            "разрешить снятие маски с критичных типов/профилей — первое из двух "
+            "обязательных подтверждений (второе — ответ «оставить (осознанное решение)»)"
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if not args.files and args.resume is None:
+        parser.error("нужны файлы или --resume THREAD_ID")
+    if args.files and args.resume is not None:
+        parser.error("--resume не принимает позиционные файлы")
+    if args.ask and not args.profile:
+        parser.error("--ask требует --profile")
+    if args.answers is not None and args.resume is None and not args.profile:
+        parser.error("--answers без --resume требует --profile")
+    if args.unmask_critical and args.resume is None and not args.profile:
+        parser.error("--unmask-critical требует --profile (или используйте вместе с --resume)")
+    if args.thread_id is not None and args.resume is not None:
+        parser.error("--thread-id не сочетается с --resume: идентификатор уже задан позиционно")
+
     try:
         selected_types = _parse_types(args.types)
     except ValueError as error:
         parser.error(str(error))
+
+    if args.resume is not None:
+        return _resume(args, parser)
 
     invalid = [
         path for path in args.files if not path.is_file() or path.suffix.casefold() != ".docx"
@@ -393,6 +697,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--allow-remote-pii требует --llm-config")
     if args.llm_trace and not args.profile:
         parser.error("--llm-trace требует --profile")
+    if (args.ask or args.answers is not None) and len(args.files) != 1:
+        parser.error("--ask/--answers без --resume работают ровно с одним файлом")
 
     llm: LLMProvider | None = None
     if args.llm_config is not None:
@@ -410,6 +716,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.llm_trace and llm is None:
         print("--llm-trace: LLM не подключена (--llm-config не задан), трейс не будет записан.")
+
+    if args.ask or args.answers is not None:
+        # Единственный файл (проверено выше) — человек в цикле смотрит на
+        # один документ за раз, раздел 9 плана T1.5.1.
+        return _start_interactive(args.files[0], args, parser, selected_types, llm)
 
     for source in args.files:
         tracer: TracingProvider | None = None

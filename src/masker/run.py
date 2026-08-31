@@ -123,8 +123,13 @@ def _thread_status(snapshot: Any) -> Literal["unknown", "waiting", "done"]:
     return "done"
 
 
-def _initial_state(path: str | Path, options: RunOptions, thread_id: str) -> State:
-    return {
+def _initial_state(
+    path: str | Path,
+    options: RunOptions,
+    thread_id: str,
+    answers: dict[str, str] | None = None,
+) -> State:
+    state: State = {
         "path": str(path),
         "options": {
             **options.canonical(),
@@ -132,6 +137,12 @@ def _initial_state(path: str | Path, options: RunOptions, thread_id: str) -> Sta
             "interactive": options.interactive,
         },
     }
+    if answers:
+        # Ответы известны заранее (CLI `--answers` без `--ask`) — needs_human
+        # видит непустой state["answers"] и не ставит граф на паузу вовсе,
+        # прогон завершается за один invoke (раздел 5 плана T1.5.1).
+        state["answers"] = dict(answers)
+    return state
 
 
 def _outcome_from_invoke_result(thread_id: str, result: dict[str, Any]) -> RunOutcome:
@@ -149,8 +160,13 @@ def start_run(
     deps: RunDeps | None = None,
     thread_id: str | None = None,
     fresh: bool = False,
+    answers: dict[str, str] | None = None,
 ) -> RunOutcome:
     """Начать прогон (или вернуть вопросы уже приостановленного).
+
+    ``answers``, заданный заранее (CLI ``--answers`` без ``--ask``),
+    попадает в начальное состояние: если ответов достаточно, граф ни разу
+    не встаёт на паузу — прогон завершается за один вызов.
 
     На приостановленном треде не выполняет узлы заново — вопросы читаются
     через ``get_state`` (пробой доказано: повторный ``invoke`` перезапускает
@@ -188,7 +204,7 @@ def start_run(
                 f"прогон {tid} уже завершён; для нового прогона используйте --fresh"
             )
 
-        result = graph.invoke(_initial_state(path, options, tid), config)
+        result = graph.invoke(_initial_state(path, options, tid, answers), config)
         return _outcome_from_invoke_result(tid, result)
 
 

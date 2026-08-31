@@ -213,3 +213,19 @@ def test_sqlite_checkpointer_factory_reuses_existing_saver_type(tmp_path: Path) 
     factory = sqlite_checkpointer_factory(tmp_path / "db.sqlite")
     with factory() as saver:
         assert isinstance(saver, SqliteSaver)
+
+
+def test_start_run_with_pre_supplied_answers_finishes_without_pausing(tmp_path: Path) -> None:
+    """``--answers`` без ``--ask``: ответы известны заранее, паузы не возникает."""
+    factory = _factory(tmp_path)
+    options = RunOptions(rules_only=True, types=("inn",), interactive=True)
+
+    peek = start_run(FIXTURE, options, checkpointer_factory=factory)
+    assert peek.status == "waiting"
+    assert peek.payload is not None
+    answers = {question["id"]: question["default"] for question in peek.payload["questions"]}
+
+    done = start_run(FIXTURE, options, checkpointer_factory=factory, fresh=True, answers=answers)
+
+    assert done.status == "done"
+    assert done.state["final_actions"]

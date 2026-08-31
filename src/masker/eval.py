@@ -20,6 +20,7 @@ from masker.detect.agent import DetectAgent
 from masker.ingest.docx_ingest import ingest_docx
 from masker.judge import JudgeAgent
 from masker.model import CRITICAL_TYPES, EntityType, is_critical
+from masker.policy.agent import PolicyAgent
 from masker.profile import ProfileAgent
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "labeled"
@@ -31,7 +32,18 @@ MIN_PRECISION = 0.90
 MIN_CLUSTER_PURITY = 1.0
 # T3.2 поднимет минимальное покрытие ролями до 0.90 после расширения корпуса.
 MIN_ROLE_COVERAGE = 0.70
+#: Вопросы судьи (Q*) — по одной конкретной сущности. Раздельно от вопросов
+#: политики (раздел T1.5.1): природа разная, общий порог мерить бессмысленно.
 MAX_QUESTIONS = 12
+#: Вопросы политики (TYPE-*/PROFILE-*) — по одному на каждый найденный тип и
+#: профиль, поэтому их всегда больше, чем вопросов судьи. Порог считан по
+#: фактическому прогону корпуса (fixtures/labeled, 2026-08-31): максимум на
+#: документ — 12 (contract_01.docx), среднее — 6.9; берём 10 c запасом на
+#: рост корпуса.
+MAX_POLICY_QUESTIONS = 10
+#: Критичный тип/профиль, снятый без двойного подтверждения, — утечка.
+#: Порог жёсткий и не подлежит пересмотру без решения о варианте A (раздел 3).
+MAX_CRITICAL_UNMASKED = 0
 
 
 def load_corpus() -> list[tuple[pathlib.Path, dict[str, Any]]]:
@@ -71,6 +83,8 @@ def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) ->
     role_correct = 0
     critical_questions = 0
     questions = 0
+    policy_questions = 0
+    critical_unmasked = 0
     synonyms_path = FIXTURES.parent / "role_synonyms.json"
     synonyms = (
         json.loads(synonyms_path.read_text(encoding="utf-8")) if synonyms_path.exists() else {}
@@ -122,28 +136,49 @@ def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) ->
             for ref in question.refs
             if ref in refs_to_entities and is_critical(refs_to_entities[ref].type)
         )
+        policy_questions += len(PolicyAgent().questions(detection, profiles))
+        # Неинтерактивный прогон: никто не спрашивал — только уверенность
+        # судьи и защита критичных типов могут повлиять на решение (раздел 6
+        # плана T1.5.1, needs_human/finalize_node). Порог critical_unmasked
+        # == 0 держит инвариант «двойное подтверждение обязательно».
+        policy_result = PolicyAgent().apply(
+            detection,
+            profiles,
+            judge.verdicts,
+            [],
+            [],
+            {},
+            allow_unmask_critical=False,
+        )
+        critical_unmasked += len(policy_result.critical_unmasked)
     return {
         "cluster_purity": pure / party_matched if party_matched else 1.0,
         "role_coverage": covered / matched if matched else 1.0,
         "role_accuracy": role_correct / role_checked if role_checked else 1.0,
         "critical_in_questions": float(critical_questions),
         "questions_per_document": questions / len(corpus) if corpus else 0.0,
+        "policy_questions_per_document": policy_questions / len(corpus) if corpus else 0.0,
+        "critical_unmasked": float(critical_unmasked),
     }
 
 
 def _print_profile_judge(metrics: dict[str, float]) -> list[str]:
     print("\nПРОФИЛИ И СУДЬЯ")
     for name, value in metrics.items():
-        print(f"{name:<24}{value:.3f}")
+        print(f"{name:<30}{value:.3f}")
     failures: list[str] = []
     if metrics["cluster_purity"] < MIN_CLUSTER_PURITY:
         failures.append("cluster_purity ниже порога")
     if metrics["role_coverage"] < MIN_ROLE_COVERAGE:
         failures.append("role_coverage ниже порога")
     if metrics["questions_per_document"] > MAX_QUESTIONS:
-        failures.append("слишком много вопросов")
+        failures.append("слишком много вопросов судьи")
     if metrics["critical_in_questions"] != 0:
         failures.append("критичные сущности попали в вопросы")
+    if metrics["policy_questions_per_document"] > MAX_POLICY_QUESTIONS:
+        failures.append("слишком много вопросов политики (типы/профили)")
+    if metrics["critical_unmasked"] > MAX_CRITICAL_UNMASKED:
+        failures.append("критичный тип снят без двойного подтверждения (critical_unmasked)")
     return failures
 
 

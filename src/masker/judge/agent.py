@@ -44,7 +44,11 @@ class JudgeAgent:
         }
         raw: list[tuple[Entity, str, Profile | None, float]] = []
         for entity in sorted(entities, key=entity_sort_key):
-            ref = candidate_refs.get(id(entity), index.ref(entity))
+            # `dict.get(key, default)` вычисляет `default` всегда, даже когда
+            # `key` найден: `index.ref` падает на кандидате, которого нет в
+            # детекции. Кандидаты — законная ссылка вне EntityIndex (refs.py).
+            candidate_ref = candidate_refs.get(id(entity))
+            ref = candidate_ref if candidate_ref is not None else index.ref(entity)
             profile = profile_for_ref.get(ref)
             confidence = score(entity, profile)
             raw.append((entity, ref, profile, confidence))

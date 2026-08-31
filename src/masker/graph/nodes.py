@@ -84,7 +84,7 @@ def extract_node(state: State) -> dict[str, object]:
             }
             for segment in document.segments
         ],
-        "meta": {**document.meta, "name": path.name},
+        "meta": {**document.meta, "name": path.name, "format": document.fmt},
     }
 
 
@@ -220,11 +220,19 @@ def finalize_node(state: State) -> dict[str, object]:
     detection = DetectionResult(entities, build_pii_chunks(document.segments, entities))
     profiles = _profile_result(state, document)
     verdicts = verdicts_from_dicts(state.get("verdicts", []))
-    judge_questions = questions_from_dicts(state.get("questions", []))
-    policy_questions = policy_questions_from_dicts(state.get("policy_questions", []))
-    answers = state.get("answers", {})
     options = state.get("options", {})
     allow_unmask_critical = bool(options.get("unmask_critical", False))
+    interactive = bool(options.get("interactive", False))
+    # Вопросы политики и судьи строятся узлами безусловно (policy_node не
+    # знает про роутер), но никто их не задавал, если прогон неинтерактивный
+    # или ответы были известны заранее без прохода через ask_human — тогда
+    # групповые/персональные источники не участвуют в решении вовсе, и оно
+    # опирается только на уверенность судьи и защиту критичных типов.
+    judge_questions = questions_from_dicts(state.get("questions", [])) if interactive else []
+    policy_questions = (
+        policy_questions_from_dicts(state.get("policy_questions", [])) if interactive else []
+    )
+    answers = state.get("answers", {})
 
     result = PolicyAgent().apply(
         detection,

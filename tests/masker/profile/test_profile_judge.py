@@ -45,3 +45,24 @@ def test_critical_never_asked_and_repeated_phone_is_one_question() -> None:
         verdict.action is Action.KEEP
         for verdict in JudgeAgent().apply_answers(result, {"Q1": "оставить"})[1:]
     )
+
+
+def test_judge_handles_llm_candidates_that_are_not_in_detection_index() -> None:
+    """Регрессия: ``candidate_refs.get(id(x), index.ref(x))`` вычисляет запасной
+
+    вариант всегда, даже когда ключ найден — ``index.ref`` падает на
+    кандидате, которого нет в детекции. Кандидаты (``C*``) — законная ссылка
+    вне ``EntityIndex`` (см. ``refs.py``), судья обязан их принимать.
+    """
+    segment = Segment("Договор № 44/2026", Anchor("docx", ("body", 0)), 0)
+    document = Document("test.docx", "docx", [segment])
+    entities: list[Entity] = []
+    detection = DetectionResult(entities, build_pii_chunks(document.segments, entities))
+    profiles = ProfileAgent().profile(document, detection)
+    profiles.candidates = [
+        Entity(EntityType.CONTRACT_NUMBER, "44/2026", 0, 11, 18, Source.LLM, 0.6, "44/2026")
+    ]
+
+    result = JudgeAgent().judge(detection, profiles)
+
+    assert result.verdicts[0].ref == "C1"

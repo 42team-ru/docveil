@@ -8,6 +8,11 @@ from masker.detect.orgforms import org_forms
 from masker.model import EntityType
 
 _WHITESPACE = re.compile(r"\s+")
+# Токен-инициал: одна буква, за которой может идти ещё одна и более пар
+# «точка+буква», плюс необязательная точка на конце. Так распознаются и
+# «б», и «б.», и «б.м» (без пробела), и «б.м.» — но не полное слово вроде
+# «иванов», где между буквами нет точек.
+_INITIAL_TOKEN = re.compile(r"^[а-я](?:\.[а-я])*\.?$")
 _DIGIT_TYPES = frozenset(
     {
         EntityType.INN,
@@ -64,17 +69,34 @@ def _normalize_org(text: str) -> str:
 
 
 def _normalize_person(text: str) -> str:
-    tokens: list[str] = []
+    """Свести ФИО к ключу вида «фамилия и.о.» независимо от порядка слов и точек.
+
+    Инициалы («Б.М.», «Б.М», «Б», «Б.») распознаются и приводятся к канону
+    «б.м.» отдельно от полных слов, а полные слова (фамилия, при наличии —
+    остальные части) всегда идут первыми, независимо от того, где они стояли
+    в тексте: «Атараев Б.М» и «Б.М. Атараев» дают один и тот же ключ.
+
+    Сопоставление полной формы («Иванов Иван Иванович») с инициальной формой
+    («И.И. Иванов») этим не решается — это две разные полные строки, и ключи
+    у них останутся разными; такое сопоставление — предмет отдельной задачи
+    T1.6, а не этой нормализации.
+    """
+    words: list[str] = []
+    initials: list[str] = []
     for token in _base(text).split():
-        if len(token) < 4:
-            tokens.append(token)
+        if _INITIAL_TOKEN.match(token):
+            initials.extend(letter for letter in token if letter != ".")
             continue
-        for ending in _PERSON_ENDINGS:
-            if token.endswith(ending) and len(token) - len(ending) >= 3:
-                token = token[: -len(ending)]
-                break
-        tokens.append(token)
-    return " ".join(tokens)
+        if len(token) >= 4:
+            for ending in _PERSON_ENDINGS:
+                if token.endswith(ending) and len(token) - len(ending) >= 3:
+                    token = token[: -len(ending)]
+                    break
+        words.append(token)
+    canon = list(words)
+    if initials:
+        canon.append("".join(f"{letter}." for letter in initials))
+    return " ".join(canon)
 
 
 def normalize_value(entity_type: EntityType | str, text: str) -> str:

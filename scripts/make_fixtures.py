@@ -294,16 +294,13 @@ def contract_06_address() -> tuple[DocxDocument, list[dict[str, str]]]:
     doc.add_heading("ПРОВЕРКА АДРЕСОВ", level=1)
     doc.add_paragraph("Адрес: 394018, г. Воронеж, ул. Кирова, д. 4, оф. 12")
     doc.add_paragraph(
-        "Адрес регистрации: 394024, Воронежская область, г Воронеж, "
-        "пер Здоровья, д 86а, кв 95"
+        "Адрес регистрации: 394024, Воронежская область, г Воронеж, пер Здоровья, д 86а, кв 95"
     )
     doc.add_paragraph("Адрес: г. Воронеж, ул. Мира, 12")
     doc.add_paragraph("Адрес: г. Воронеж")
     doc.add_paragraph("г. Воронеж, 15 января 2026 г.")
     doc.add_paragraph("место рождения: гор. Старый Оскол Белгородской обл.")
-    doc.add_paragraph(
-        "Адрес: 394018, г. Воронеж, ул. Кирова, д. 4, оф. 12, ИНН 3662103003"
-    )
+    doc.add_paragraph("Адрес: 394018, г. Воронеж, ул. Кирова, д. 4, оф. 12, ИНН 3662103003")
     doc.add_paragraph(
         "ИНН: 312822458000 , адрес регистрации по месту жительства: 394024, "
         "Воронежская область, г Воронеж, пер Здоровья, д 86а, кв 95 ) Атараев Б.М., "
@@ -337,6 +334,39 @@ def contract_06_address() -> tuple[DocxDocument, list[dict[str, str]]]:
     return doc, labels
 
 
+def contract_08_roles() -> tuple[DocxDocument, list[dict[str, str]]]:
+    """Открытые роли: заказчик и исполнитель, без словаря ролей в коде."""
+    doc = DocxDocument()
+    doc.add_heading("ДОГОВОР ОКАЗАНИЯ УСЛУГ", level=1)
+    doc.add_paragraph(
+        "ООО «Северный свет», ИНН 3662103003, именуемое в дальнейшем «Заказчик», с одной стороны, и"
+    )
+    doc.add_paragraph(
+        "ООО «Точный расчёт», ИНН 7707083893, именуемое в дальнейшем «Исполнитель», "
+        "с другой стороны, заключили договор."
+    )
+    doc.add_heading("1. Реквизиты Заказчика", level=2)
+    doc.add_paragraph("Расчётный счёт: 40702810100000000002")
+    doc.add_heading("2. Реквизиты Исполнителя", level=2)
+    table = doc.add_table(rows=1, cols=1)
+    table.style = "Table Grid"
+    table.cell(0, 0).text = "Телефон: 8-910-347-51-07"
+    doc.add_heading("3. Подписи", level=2)
+    doc.add_paragraph("Заказчик: ______________ Иванов И.И.")
+    doc.add_paragraph("Исполнитель: ______________ Сидоров А.П.")
+    labels = [
+        {"type": "org_name", "text": "ООО «Северный свет»", "party": "customer"},
+        {"type": "inn", "text": "3662103003", "party": "customer"},
+        {"type": "bank_account", "text": "40702810100000000002", "party": "customer"},
+        {"type": "org_name", "text": "ООО «Точный расчёт»", "party": "contractor"},
+        {"type": "inn", "text": "7707083893", "party": "contractor"},
+        {"type": "phone", "text": "8-910-347-51-07", "party": "contractor"},
+        {"type": "person", "text": "Иванов И.И", "party": "customer"},
+        {"type": "person", "text": "Сидоров А.П", "party": "contractor"},
+    ]
+    return doc, labels
+
+
 def _set_cell_paragraphs(cell, lines: list[str]) -> None:
     cell.paragraphs[0].text = lines[0]
     for line in lines[1:]:
@@ -352,6 +382,7 @@ def main() -> int:
         ("contract_04_bankruptcy", contract_04_bankruptcy),
         ("contract_05_tables", contract_05_tables),
         ("contract_06_address", contract_06_address),
+        ("contract_08_roles", contract_08_roles),
     ):
         doc, labels = builder()
         for p in doc.paragraphs:

@@ -16,7 +16,12 @@ import sys
 from collections import defaultdict
 from typing import Any
 
-from masker.model import CRITICAL_TYPES, EntityType
+from masker.detect.agent import DetectAgent
+from masker.ingest.docx_ingest import ingest_docx
+from masker.judge import JudgeAgent
+from masker.model import CRITICAL_TYPES, EntityType, is_critical
+from masker.policy.agent import PolicyAgent
+from masker.profile import ProfileAgent
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "labeled"
 
@@ -24,6 +29,21 @@ FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "labeled"
 MIN_RECALL_CRITICAL = 1.0
 MIN_RECALL_OTHER = 0.85
 MIN_PRECISION = 0.90
+MIN_CLUSTER_PURITY = 1.0
+# T3.2 поднимет минимальное покрытие ролями до 0.90 после расширения корпуса.
+MIN_ROLE_COVERAGE = 0.70
+#: Вопросы судьи (Q*) — по одной конкретной сущности. Раздельно от вопросов
+#: политики (раздел T1.5.1): природа разная, общий порог мерить бессмысленно.
+MAX_QUESTIONS = 12
+#: Вопросы политики (TYPE-*/PROFILE-*) — по одному на каждый найденный тип и
+#: профиль, поэтому их всегда больше, чем вопросов судьи. Порог считан по
+#: фактическому прогону корпуса (fixtures/labeled, 2026-08-31): максимум на
+#: документ — 12 (contract_01.docx), среднее — 6.9; берём 10 c запасом на
+#: рост корпуса.
+MAX_POLICY_QUESTIONS = 10
+#: Критичный тип/профиль, снятый без двойного подтверждения, — утечка.
+#: Порог жёсткий и не подлежит пересмотру без решения о варианте A (раздел 3).
+MAX_CRITICAL_UNMASKED = 0
 
 
 def load_corpus() -> list[tuple[pathlib.Path, dict[str, Any]]]:
@@ -53,15 +73,125 @@ def score(expected: set[tuple[str, str]], found: set[tuple[str, str]]) -> dict[s
     return {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1}
 
 
+def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> dict[str, float]:
+    """Посчитать профиль и судью напрямую, пока общий pipeline ещё не собран."""
+    matched = 0
+    party_matched = 0
+    covered = 0
+    pure = 0
+    role_checked = 0
+    role_correct = 0
+    critical_questions = 0
+    questions = 0
+    policy_questions = 0
+    critical_unmasked = 0
+    synonyms_path = FIXTURES.parent / "role_synonyms.json"
+    synonyms = (
+        json.loads(synonyms_path.read_text(encoding="utf-8")) if synonyms_path.exists() else {}
+    )
+    for path, labels in corpus:
+        if path.suffix != ".docx":
+            continue
+        document = ingest_docx(path)
+        detection = DetectAgent().detect(document)
+        profiles = ProfileAgent().profile(document, detection)
+        judge = JudgeAgent().judge(detection, profiles)
+        profile_by_value = {
+            (member.entity.type.value, member.entity.text): profile
+            for profile in profiles.profiles
+            for member in profile.members
+        }
+        for item in labels["entities"]:
+            profile = profile_by_value.get((item["type"], item["text"]))
+            if profile is None:
+                continue
+            matched += 1
+            if profile.role_title:
+                covered += 1
+            party = item.get("party")
+            if party:
+                party_matched += 1
+                peers = [
+                    member
+                    for member in profile.members
+                    if any(
+                        candidate["type"] == member.entity.type.value
+                        and candidate["text"] == member.entity.text
+                        and candidate.get("party") == party
+                        for candidate in labels["entities"]
+                    )
+                ]
+                pure += int(bool(peers))
+                expected_roles = {value.casefold() for value in synonyms.get(party, [])}
+                if expected_roles:
+                    role_checked += 1
+                    role_correct += int(profile.role_title.casefold() in expected_roles)
+        questions += len(judge.questions)
+        refs_to_entities = {
+            member.ref: member.entity for profile in profiles.profiles for member in profile.members
+        }
+        critical_questions += sum(
+            1
+            for question in judge.questions
+            for ref in question.refs
+            if ref in refs_to_entities and is_critical(refs_to_entities[ref].type)
+        )
+        policy_questions += len(PolicyAgent().questions(detection, profiles))
+        # Неинтерактивный прогон: никто не спрашивал — только уверенность
+        # судьи и защита критичных типов могут повлиять на решение (раздел 6
+        # плана T1.5.1, needs_human/finalize_node). Порог critical_unmasked
+        # == 0 держит инвариант «двойное подтверждение обязательно».
+        policy_result = PolicyAgent().apply(
+            detection,
+            profiles,
+            judge.verdicts,
+            [],
+            [],
+            {},
+            allow_unmask_critical=False,
+        )
+        critical_unmasked += len(policy_result.critical_unmasked)
+    return {
+        "cluster_purity": pure / party_matched if party_matched else 1.0,
+        "role_coverage": covered / matched if matched else 1.0,
+        "role_accuracy": role_correct / role_checked if role_checked else 1.0,
+        "critical_in_questions": float(critical_questions),
+        "questions_per_document": questions / len(corpus) if corpus else 0.0,
+        "policy_questions_per_document": policy_questions / len(corpus) if corpus else 0.0,
+        "critical_unmasked": float(critical_unmasked),
+    }
+
+
+def _print_profile_judge(metrics: dict[str, float]) -> list[str]:
+    print("\nПРОФИЛИ И СУДЬЯ")
+    for name, value in metrics.items():
+        print(f"{name:<30}{value:.3f}")
+    failures: list[str] = []
+    if metrics["cluster_purity"] < MIN_CLUSTER_PURITY:
+        failures.append("cluster_purity ниже порога")
+    if metrics["role_coverage"] < MIN_ROLE_COVERAGE:
+        failures.append("role_coverage ниже порога")
+    if metrics["questions_per_document"] > MAX_QUESTIONS:
+        failures.append("слишком много вопросов судьи")
+    if metrics["critical_in_questions"] != 0:
+        failures.append("критичные сущности попали в вопросы")
+    if metrics["policy_questions_per_document"] > MAX_POLICY_QUESTIONS:
+        failures.append("слишком много вопросов политики (типы/профили)")
+    if metrics["critical_unmasked"] > MAX_CRITICAL_UNMASKED:
+        failures.append("критичный тип снят без двойного подтверждения (critical_unmasked)")
+    return failures
+
+
 def run(gate: bool) -> int:
+    corpus = load_corpus()
+    profile_failures = _print_profile_judge(_profile_judge_metrics(corpus)) if corpus else []
     try:
         from masker.pipeline import mask_document
     except ImportError:
         print("МЕТРИКИ ПРОПУЩЕНЫ: masker.pipeline ещё не реализован.")
         print("После T1.10 этот пропуск обязан исчезнуть — иначе ворота декоративны.")
-        return 0
+        return 1 if gate and profile_failures else 0
 
-    corpus = load_corpus()
     if not corpus:
         print("МЕТРИКИ ПРОПУЩЕНЫ: в fixtures/labeled нет размеченных документов.")
         return 1
@@ -91,6 +221,7 @@ def run(gate: bool) -> int:
         if m["precision"] < MIN_PRECISION:
             failures.append(f"{name}: precision {m['precision']:.3f} < {MIN_PRECISION}")
 
+    failures.extend(profile_failures)
     if failures and gate:
         print("\nПОРОГИ НЕ ВЗЯТЫ:")
         for f in failures:

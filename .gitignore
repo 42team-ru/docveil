@@ -14,6 +14,7 @@ fixtures/incoming/
 .env
 .env.*
 !.env.example
+masker.llm.local.yaml
 *.credentials.yaml
 credentials.yaml
 secrets.yaml

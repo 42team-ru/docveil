@@ -86,7 +86,7 @@ def test_resume_with_answers_completes_and_report_has_decisions(tmp_path: Path) 
     assert exit_code == 0
     report = json.loads((tmp_path / "contract_01" / "report.json").read_text(encoding="utf-8"))
     assert "decisions" in report
-    assert "final_actions" in report
+    assert "by_ref" in report["decisions"]
 
 
 def test_resume_unknown_thread_gives_code_3_and_no_new_files(tmp_path: Path) -> None:

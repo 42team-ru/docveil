@@ -41,9 +41,10 @@ from masker.llm import (
     load_llm_config,
     write_trace,
 )
-from masker.model import Document, Entity, EntityType
+from masker.model import Document, Entity, EntityType, Question
 from masker.profile import ProfileAgent
 from masker.profile.agent import ProfileResult
+from masker.refs import EntityIndex
 from masker.render.docx_preview import render_docx_preview
 from masker.report.html import render_html_report
 from masker.run import (
@@ -58,13 +59,19 @@ from masker.run import (
 )
 
 DEFAULT_OUTPUT = Path("out") / "inspect"
-REPORT_VERSION = 2
+REPORT_VERSION = 3
 WORD_TEXT_TAG = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
 
 
-def _entity_record(document: Document, entity: Entity) -> dict[str, Any]:
+def _entity_record(
+    document: Document,
+    entity: Entity,
+    *,
+    ref_by_entity_id: dict[int, str] | None = None,
+    decision_by_ref: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     segment = document.segments[entity.segment_order]
-    return {
+    record: dict[str, Any] = {
         "type": entity.type.value,
         "text": entity.text,
         "normalized": entity.normalized,
@@ -79,6 +86,16 @@ def _entity_record(document: Document, entity: Entity) -> dict[str, Any]:
             "label": segment.anchor.label,
         },
     }
+    if ref_by_entity_id is not None:
+        ref = ref_by_entity_id.get(id(entity))
+        if ref is not None:
+            record["ref"] = ref
+            decision = (decision_by_ref or {}).get(ref)
+            if decision is not None:
+                record["decision"] = decision["action"]
+                record["decided_by"] = decision["decided_by"]
+                record["reason"] = decision["reason"]
+    return record
 
 
 def _chunk_record(document: Document, chunk: PiiChunk, index: int) -> dict[str, Any]:
@@ -185,7 +202,9 @@ def _document_coverage(source: Path, document: Document) -> dict[str, Any]:
     }
 
 
-def _limitations(coverage: dict[str, Any], *, llm_trace: bool = False) -> list[str]:
+def _limitations(
+    coverage: dict[str, Any], *, llm_trace: bool = False, critical_unmasked: bool = False
+) -> list[str]:
     limitations = [
         "Проверяются непустые абзацы основного текста и верхнеуровневых таблиц DOCX.",
         "Колонтитулы, сноски и метаданные пока не обезличиваются.",
@@ -201,6 +220,11 @@ def _limitations(coverage: dict[str, Any], *, llm_trace: bool = False) -> list[s
         limitations.append(
             "llm-trace.jsonl и llm-trace.md содержат исходные PII в открытом виде "
             "и не предназначены для передачи наружу."
+        )
+    if critical_unmasked:
+        limitations.append(
+            "С части критичных реквизитов маска снята осознанным решением человека "
+            "(--unmask-critical); список — decisions.critical_unmasked в report.json."
         )
     return limitations
 
@@ -247,9 +271,15 @@ def _build_report(
     profile_result: ProfileResult | None = None,
     judge_result: JudgeResult | None = None,
     llm_trace: bool = False,
+    decisions: dict[str, Any] | None = None,
+    ref_by_entity_id: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     coverage = _document_coverage(source, document)
-    report = {
+    decision_by_ref = (
+        {item["ref"]: item for item in decisions["by_ref"]} if decisions is not None else None
+    )
+    critical_unmasked = bool(decisions and decisions.get("critical_unmasked"))
+    report: dict[str, Any] = {
         "report_version": REPORT_VERSION,
         "input": source.name,
         "format": document.fmt,
@@ -260,11 +290,18 @@ def _build_report(
         "summary": _summary(entities),
         "detection_coverage": _detection_coverage(selected_types, detector),
         "document_coverage": coverage,
-        "entities": [_entity_record(document, entity) for entity in entities],
+        "entities": [
+            _entity_record(
+                document, entity, ref_by_entity_id=ref_by_entity_id, decision_by_ref=decision_by_ref
+            )
+            for entity in entities
+        ],
         "chunks": [
             _chunk_record(document, chunk, index) for index, chunk in enumerate(chunks, start=1)
         ],
-        "limitations": _limitations(coverage, llm_trace=llm_trace),
+        "limitations": _limitations(
+            coverage, llm_trace=llm_trace, critical_unmasked=critical_unmasked
+        ),
     }
     if profile_result is not None and judge_result is not None:
         # Сериализаторы графа задают единый публичный JSON-формат для CLI и State.
@@ -276,6 +313,8 @@ def _build_report(
             "diagnostics": profile_result.diagnostics,
             **judge_to_dicts(judge_result),
         }
+    if decisions is not None:
+        report["decisions"] = decisions
     return report
 
 
@@ -416,14 +455,33 @@ def _load_answers(path: Path, parser: argparse.ArgumentParser) -> dict[str, str]
         raise AssertionError("unreachable") from error
 
 
+def _entity_questions_summary(
+    questions: list[Question], answers: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Итог каждого вопроса судьи: ответ человека либо вариант по умолчанию."""
+    result: list[dict[str, Any]] = []
+    for question in questions:
+        raw = answers.get(question.id)
+        valid = raw in question.options
+        result.append(
+            {
+                "id": question.id,
+                "prompt": question.prompt,
+                "answer": raw if valid else question.default,
+                "source": "human" if valid else "default",
+            }
+        )
+    return result
+
+
 def _write_graph_report(
     source: Path, artifact_dir: Path, outcome: RunOutcome, *, html: bool
 ) -> tuple[Path, Path, Path | None]:
     """Собрать report.json/preview.docx из состояния графа после ``finalize``.
 
-    Полная перестройка ``_build_report``/подсветка только оставшихся к
-    маскированию сущностей — шаг 10 плана T1.5.1; здесь блок ``decisions``
-    добавляется поверх уже существующего формата отчёта.
+    ``preview.docx`` подсвечивает только сущности, чьё итоговое действие —
+    маскировать: оставленные человеком видны в отчёте (``decisions.by_ref``),
+    но не в preview — раздел 10 плана T1.5.1.
     """
     document = ingest_docx(source)
     state = outcome.state
@@ -439,12 +497,38 @@ def _write_graph_report(
         unassigned=list(state.get("unassigned", [])),
         candidates=[entity_from_dict(item) for item in state.get("candidates", [])],
         anchors={segment.order: segment.anchor for segment in document.segments},
+        llm_calls=int(state.get("llm_calls", 0)),
         diagnostics=list(state.get("diagnostics", [])),
     )
     judge_result = JudgeResult(
         verdicts_from_dicts(state.get("verdicts", [])),
         questions_from_dicts(state.get("questions", [])),
     )
+
+    index = EntityIndex(entities)
+    ref_by_entity_id = {id(entity): index.ref(entity) for entity in entities}
+    raw_decisions = state.get("decisions", {})
+    decisions: dict[str, Any] = {
+        "mode": raw_decisions.get("mode", "unknown"),
+        "thread_id": outcome.thread_id,
+        "by_ref": state.get("final_actions", []),
+        "types": raw_decisions.get("types", []),
+        "profiles": raw_decisions.get("profiles", []),
+        "entity_questions": _entity_questions_summary(
+            judge_result.questions, dict(state.get("answers", {}))
+        ),
+        "critical_unmasked": raw_decisions.get("critical_unmasked", []),
+        "unanswered_defaults": raw_decisions.get("unanswered_defaults", []),
+        "ignored_answers": raw_decisions.get("ignored_answers", []),
+        "invalid_answers": raw_decisions.get("invalid_answers", []),
+        "diagnostics": raw_decisions.get("diagnostics", []),
+    }
+    decision_by_ref = {item["ref"]: item for item in decisions["by_ref"]}
+    masked_entities = [
+        entity
+        for entity in entities
+        if decision_by_ref.get(ref_by_entity_id.get(id(entity), ""), {}).get("action") == "mask"
+    ]
 
     artifact_dir.mkdir(parents=True, exist_ok=True)
     report_path = artifact_dir / "report.json"
@@ -459,11 +543,11 @@ def _write_graph_report(
         profile_result,
         judge_result,
         llm_trace=False,
+        decisions=decisions,
+        ref_by_entity_id=ref_by_entity_id,
     )
-    report["decisions"] = state.get("decisions", {})
-    report["final_actions"] = state.get("final_actions", [])
     _write_report(report_path, report)
-    render_docx_preview(source, preview_path, document, entities)
+    render_docx_preview(source, preview_path, document, masked_entities)
     html_path = artifact_dir / "report.html" if html else None
     if html_path is not None:
         render_html_report(report, source, html_path)

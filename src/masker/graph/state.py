@@ -13,6 +13,9 @@ class State(TypedDict, total=False):
     profiles: list[dict[str, Any]]
     unassigned: list[str]
     candidates: list[dict[str, Any]]
+    #: Число обращений к LLM во время профилирования — не восстанавливается
+    #: из ``profiles``/``candidates``, поэтому хранится отдельно.
+    llm_calls: int
     verdicts: list[dict[str, Any]]
     questions: list[dict[str, Any]]
     answers: dict[str, str]

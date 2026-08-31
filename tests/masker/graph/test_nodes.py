@@ -79,6 +79,7 @@ def test_profile_node_factory_actually_calls_the_llm_provider() -> None:
 
     assert provider.calls > 0
     assert state["profiles"]
+    assert state["llm_calls"] == provider.calls
 
 
 def test_judge_node_factory_produces_verdicts_and_questions() -> None:

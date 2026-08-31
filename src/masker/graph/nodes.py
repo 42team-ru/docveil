@@ -117,6 +117,7 @@ def make_profile_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
             "profiles": profiles_to_dicts(result.profiles),
             "unassigned": result.unassigned,
             "candidates": [entity_to_dict(item) for item in result.candidates],
+            "llm_calls": result.llm_calls,
             "diagnostics": result.diagnostics,
         }
 
@@ -130,6 +131,7 @@ def _profile_result(state: State, document: Document) -> ProfileResult:
         unassigned=list(state.get("unassigned", [])),
         candidates=[entity_from_dict(item) for item in state.get("candidates", [])],
         anchors={segment.order: segment.anchor for segment in document.segments},
+        llm_calls=int(state.get("llm_calls", 0)),
         diagnostics=list(state.get("diagnostics", [])),
     )
 

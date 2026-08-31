@@ -26,6 +26,8 @@ p { margin: 0; }
 .muted { color: #5f6368; font-size: 13px; }
 .danger { margin-top: 16px; padding: 12px 14px; color: #8a1c1c; background: #fde8e7;
   border-left: 4px solid #c62828; font-weight: 700; }
+.critical-banner { margin-top: 12px; padding: 12px 14px; color: #fff; background: #c62828;
+  border-left: 4px solid #8a1c1c; font-weight: 700; }
 .summary { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .badge { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #c9cdd2;
   background: #fff; padding: 5px 8px; border-radius: 6px; font-size: 12px; }
@@ -326,6 +328,22 @@ def _metadata(report: dict[str, Any], source: Path) -> str:
     return f'<dl class="supplement"><strong>Метаданные · НЕ ОБРАБОТАНЫ</strong>{"".join(rows)}</dl>'
 
 
+def _critical_unmasked_banner(report: dict[str, Any]) -> str:
+    """Красный баннер, если человек осознанно снял маску с критичного типа.
+
+    Раздел 3 плана T1.5.1: снятие маски с ``CRITICAL_TYPES`` — громкое
+    событие, а не тихая настройка.
+    """
+    items = report.get("decisions", {}).get("critical_unmasked") or []
+    if not items:
+        return ""
+    targets = ", ".join(sorted({str(item["target"]) for item in items}))
+    return (
+        '<p class="critical-banner">ВНИМАНИЕ: маска снята с критичного типа '
+        f"({escape(targets)}) — осознанное решение человека, --unmask-critical.</p>"
+    )
+
+
 def render_html_report(report: dict[str, Any], source: Path, destination: Path) -> None:
     """Записать локальный HTML с цветной разметкой PII внутри чанков."""
     missing = report["detection_coverage"]["requested_without_detector"]
@@ -335,6 +353,7 @@ def render_html_report(report: dict[str, Any], source: Path, destination: Path) 
             '<p class="warning"><strong>Нет активного детектора:</strong> '
             f"{escape(', '.join(missing))}</p>"
         )
+    critical_banner = _critical_unmasked_banner(report)
     html = f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -344,6 +363,7 @@ def render_html_report(report: dict[str, Any], source: Path, destination: Path) 
 <p class="muted">PII {int(report["entity_count"])} · чанков {int(report["chunk_count"])}</p>
 <div class="summary">{_summary(report)}</div>
 <p class="danger">НЕ БЕЗОПАСЕН ДЛЯ ЭКСПОРТА: это диагностический отчёт с исходными PII.</p>
+{critical_banner}
 </header><main>{missing_warning}
 <h2>Покрытие документа</h2><table><thead><tr><th>Область</th><th>Обработана</th>
 <th>Фактическое содержимое</th></tr></thead><tbody>{_coverage(report)}</tbody></table>

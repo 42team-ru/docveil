@@ -20,9 +20,17 @@ from docx.text.run import Run
 from masker.ingest.docx_ingest import DocxLocator, iter_runs, resolve_anchor
 from masker.model import Document, Entity
 
+_NBSP = " "  # неразрывный пробел — не схлопывается в Word
+
 
 def _build_marker(entity: Entity) -> str:
-    return f"[{entity.type.value.upper()}]"
+    marker = f"[{entity.type.value.upper()}]"
+    # Набиваем неразрывными пробелами до длины исходного текста.
+    # Пробел ≈ 0.5× ширины среднего символа, поэтому умножаем разницу на 2.
+    gap = len(entity.text) - len(marker)
+    if gap > 0:
+        marker += _NBSP * (gap * 2)
+    return marker
 
 
 def _set_run_shading(run: Run, fill: str) -> None:

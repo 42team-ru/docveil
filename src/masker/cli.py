@@ -25,6 +25,7 @@ from masker.ingest.docx_ingest import (
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.model import Document, Entity, EntityType
 from masker.render.docx_preview import render_docx_preview
+from masker.render.docx_redact import render_docx_redacted
 from masker.render.pdf_render import render_pdf_preview, render_pdf_redacted
 from masker.report.html import render_html_report
 
@@ -246,7 +247,8 @@ def inspect_docx(
     *,
     rules_only: bool,
     html: bool,
-) -> tuple[Path, Path, Path | None, list[Entity]]:
+    redact_style: str | None,
+) -> tuple[Path, Path, Path | None, Path | None, list[Entity]]:
     """Проверить один DOCX и записать JSON плюс подсвеченную копию."""
     document = ingest_docx(source)
     detector = DetectAgent([RuleDetector(), AddressDetector()]) if rules_only else DetectAgent()
@@ -259,6 +261,7 @@ def inspect_docx(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     report_path = artifact_dir / "report.json"
     preview_path = artifact_dir / "preview.docx"
+    redacted_path = artifact_dir / "redacted.docx" if redact_style else None
     report = _build_report(
         source,
         document,
@@ -267,12 +270,15 @@ def inspect_docx(
         selected_types,
         detector,
     )
+    report["preview_only"] = redact_style is None
     _write_report(report_path, report)
     render_docx_preview(source, preview_path, document, entities)
+    if redacted_path is not None and redact_style is not None:
+        render_docx_redacted(source, redacted_path, document, entities, style=redact_style)
     html_path = artifact_dir / "report.html" if html else None
     if html_path is not None:
         render_html_report(report, source, html_path)
-    return report_path, preview_path, html_path, entities
+    return report_path, preview_path, html_path, redacted_path, entities
 
 
 def _document_coverage_pdf(source: Path, document: Document) -> dict[str, Any]:
@@ -391,9 +397,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="STYLE",
         help=(
-            "создать обезличенную копию PDF (только для PDF). "
-            "marker — белый фон, маркер [ТИП] вписан по ширине; "
-            "blackbox — чёрный прямоугольник, маркер невидим визуально."
+            "создать обезличенную копию (PDF и DOCX). "
+            "marker — светло-серый/белый фон, маркер [ТИП]; "
+            "blackbox — чёрный прямоугольник, текст визуально невидим."
         ),
     )
     return parser
@@ -432,16 +438,19 @@ def main(argv: list[str] | None = None) -> int:
             if redacted_path is not None:
                 print(f"  redacted: {redacted_path}")
         else:
-            report_path, preview_path, html_path, entities = inspect_docx(
+            report_path, preview_path, html_path, redacted_path, entities = inspect_docx(
                 source,
                 args.out,
                 selected_types,
                 rules_only=args.rules_only,
                 html=args.html,
+                redact_style=args.redact_style,
             )
             print(f"{source}: найдено сущностей — {len(entities)}")
             print(f"  отчёт:  {report_path}")
             print(f"  preview: {preview_path}")
+            if redacted_path is not None:
+                print(f"  redacted: {redacted_path}")
             if html_path is not None:
                 print(f"  HTML:    {html_path}")
     print("ВАЖНО: preview содержит исходный текст и служит только для проверки детектора.")

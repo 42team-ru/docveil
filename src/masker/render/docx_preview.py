@@ -6,6 +6,7 @@ from collections import defaultdict
 from copy import deepcopy
 from itertools import pairwise
 from pathlib import Path
+from typing import cast
 
 from docx import Document as open_docx
 from docx.enum.text import WD_COLOR_INDEX
@@ -75,7 +76,7 @@ def render_docx_preview(
     by_locator: dict[DocxLocator, list[Entity]] = defaultdict(list)
     for entity in entities:
         segment = segments[entity.segment_order]
-        locator = segment.anchor.locator
+        locator = cast(DocxLocator, segment.anchor.locator)
         order_by_locator[locator] = segment.order
         by_locator[locator].append(entity)
 

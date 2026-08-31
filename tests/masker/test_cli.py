@@ -562,3 +562,58 @@ def test_critical_unmask_shows_banner_and_limitation(tmp_path: Path) -> None:
     assert any("осознанн" in item.casefold() for item in report["limitations"])
     html = (tmp_path / "contract_01" / "report.html").read_text(encoding="utf-8")
     assert "критич" in html.casefold()
+
+
+# ── PDF ───────────────────────────────────────────────────────────────────────
+
+
+def _make_pdf_with_inn(path: Path) -> None:
+    import pymupdf
+
+    font = str(ROOT / "src" / "masker" / "data" / "DejaVuSans.ttf")
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=font)
+    page.insert_text((72, 100), "ИНН 3662103003", fontname="dvu", fontsize=12)
+    doc.save(str(path))
+    doc.close()
+
+
+def test_cli_accepts_pdf_file(tmp_path: Path) -> None:
+    src = tmp_path / "contract.pdf"
+    _make_pdf_with_inn(src)
+    assert main([str(src), "--out", str(tmp_path / "out"), "--rules-only"]) == 0
+
+
+def test_cli_pdf_creates_report_and_preview(tmp_path: Path) -> None:
+    src = tmp_path / "contract.pdf"
+    _make_pdf_with_inn(src)
+    main([str(src), "--out", str(tmp_path / "out"), "--rules-only"])
+    artifact_dir = tmp_path / "out" / "contract"
+    assert (artifact_dir / "report.json").exists()
+    assert (artifact_dir / "preview.pdf").exists()
+
+
+def test_cli_pdf_report_format_field(tmp_path: Path) -> None:
+    src = tmp_path / "contract.pdf"
+    _make_pdf_with_inn(src)
+    main([str(src), "--out", str(tmp_path / "out"), "--rules-only"])
+    report = json.loads((tmp_path / "out" / "contract" / "report.json").read_text(encoding="utf-8"))
+    assert report["format"] == "pdf"
+    assert report["entity_count"] >= 1
+
+
+def test_cli_pdf_artifacts_permissions(tmp_path: Path) -> None:
+    src = tmp_path / "contract.pdf"
+    _make_pdf_with_inn(src)
+    main([str(src), "--out", str(tmp_path / "out"), "--rules-only"])
+    artifact_dir = tmp_path / "out" / "contract"
+    assert stat.S_IMODE((artifact_dir / "report.json").stat().st_mode) == 0o600
+    assert stat.S_IMODE((artifact_dir / "preview.pdf").stat().st_mode) == 0o600
+
+
+def test_cli_still_rejects_txt(tmp_path: Path) -> None:
+    source = tmp_path / "contract.txt"
+    source.write_text("test", encoding="utf-8")
+    with pytest.raises(SystemExit, match="2"):
+        main([str(source), "--out", str(tmp_path)])

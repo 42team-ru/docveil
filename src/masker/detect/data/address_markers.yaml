@@ -1,4 +1,4 @@
-index_pattern: '(?<!\d)\d{6}(?!\d)'
+index_pattern: '(?<!\d)[1-9]\d{5}(?!\d)'
 region:
   - область
   - обл

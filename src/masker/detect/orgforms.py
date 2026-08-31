@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 
 # Эти символы не несут значения, если остаются на краю вырезанного модельного спана.
-TRIM_CHARS = " \t\u00a0.,;:\u2014\u2013-()[]{}«»\"'“”„…/"
+TRIM_CHARS = " \t\u00a0.,;:\u2014\u2013-()[]{}«»\"'“”„…/№"
 _QUOTE_CHARS = frozenset(
     char for pair in (("«", "»"), ('"', '"'), ("“", "”"), ("„", "“")) for char in pair
 )
@@ -26,6 +26,7 @@ class OrgForms:
     role_words: frozenset[str]
     requisite_labels: frozenset[str]
     public_bodies: tuple[str, ...]
+    landmark_stems: tuple[str, ...]
     quote_pairs: tuple[tuple[str, str], ...]
 
 
@@ -46,6 +47,7 @@ def org_forms() -> OrgForms:
         role_words=frozenset(raw["role_words"]),
         requisite_labels=frozenset(raw["requisite_labels"]),
         public_bodies=tuple(raw["public_bodies"]),
+        landmark_stems=tuple(raw.get("landmark_stems", [])),
         quote_pairs=tuple((pair[0], pair[1]) for pair in raw["quote_pairs"]),
     )
 
@@ -132,10 +134,37 @@ def is_public_body(text: str) -> bool:
     )
 
 
+def is_landmark_place(text: str) -> bool:
+    """Вернуть True если хотя бы один токен — культурный/исторический объект.
+
+    Применяется только к спанам без признаков организации (без оргформы).
+    Соборы, дворцы, монастыри и прочие достопримечательности не являются ПДн.
+    """
+    value = text.strip(TRIM_CHARS).casefold()
+    tokens = [token.strip(TRIM_CHARS) for token in value.replace("-", " ").split()]
+    tokens = [token for token in tokens if token]
+    stems = org_forms().landmark_stems
+    return bool(stems) and any(
+        token.startswith(stem) and len(token) - len(stem) <= 3 for token in tokens for stem in stems
+    )
+
+
 def is_organization_form_only(text: str) -> bool:
     """Не выпускать остаток «ООО» без собственно названия."""
     value = text.strip(TRIM_CHARS).casefold()
     return bool(value) and value in {form.casefold() for form in org_forms().forms}
+
+
+def is_partial_org_form(text: str) -> bool:
+    """Неполная оргформа — начало полной формы без имени организации.
+
+    «Общество с» детектируется как ORG в PDF-документах, где перенос строки
+    обрывает полную форму. Такой спан не несёт ПДн и должен быть отброшен.
+    """
+    value = text.strip(TRIM_CHARS).casefold()
+    if not value:
+        return False
+    return any(form.casefold().startswith(value + " ") for form in org_forms().forms)
 
 
 def has_organization_evidence(text: str) -> bool:

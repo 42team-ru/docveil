@@ -612,6 +612,49 @@ def test_cli_pdf_artifacts_permissions(tmp_path: Path) -> None:
     assert stat.S_IMODE((artifact_dir / "preview.pdf").stat().st_mode) == 0o600
 
 
+# ── DOCX redact ───────────────────────────────────────────────────────────────
+
+
+def _make_simple_docx(path: Path) -> None:
+    doc = open_docx()
+    doc.core_properties.author = "Тест Автор"
+    doc.add_paragraph("ИНН 3662103003")
+    doc.save(str(path))
+
+
+def test_cli_docx_redact_creates_file(tmp_path: Path) -> None:
+    src = tmp_path / "contract.docx"
+    _make_simple_docx(src)
+    assert (
+        main([str(src), "--out", str(tmp_path / "out"), "--rules-only", "--redact-style", "marker"])
+        == 0
+    )
+    assert (tmp_path / "out" / "contract" / "redacted.docx").exists()
+
+
+def test_cli_docx_redact_permissions(tmp_path: Path) -> None:
+    src = tmp_path / "contract.docx"
+    _make_simple_docx(src)
+    main([str(src), "--out", str(tmp_path / "out"), "--rules-only", "--redact-style", "marker"])
+    redacted = tmp_path / "out" / "contract" / "redacted.docx"
+    assert stat.S_IMODE(redacted.stat().st_mode) == 0o600
+
+
+def test_cli_docx_no_redact_without_flag(tmp_path: Path) -> None:
+    src = tmp_path / "contract.docx"
+    _make_simple_docx(src)
+    main([str(src), "--out", str(tmp_path / "out"), "--rules-only"])
+    assert not (tmp_path / "out" / "contract" / "redacted.docx").exists()
+
+
+def test_cli_docx_report_preview_only_false(tmp_path: Path) -> None:
+    src = tmp_path / "contract.docx"
+    _make_simple_docx(src)
+    main([str(src), "--out", str(tmp_path / "out"), "--rules-only", "--redact-style", "blackbox"])
+    report = json.loads((tmp_path / "out" / "contract" / "report.json").read_text(encoding="utf-8"))
+    assert report["preview_only"] is False
+
+
 def test_cli_still_rejects_txt(tmp_path: Path) -> None:
     source = tmp_path / "contract.txt"
     source.write_text("test", encoding="utf-8")

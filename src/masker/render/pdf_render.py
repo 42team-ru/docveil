@@ -40,14 +40,24 @@ def render_pdf_redacted(
     dest_path: str | pathlib.Path,
     document: Document,
     entities: list[Entity],
+    *,
+    style: str = "marker",
 ) -> None:
-    """Удалить сущности из content-stream и вставить маркеры-заглушки."""
+    """Удалить сущности из content-stream и вставить заглушки.
+
+    style="marker"   — белый фон, маркер [ТИП] вписан по ширине прямоугольника.
+    style="blackbox" — чёрный прямоугольник без текста; исходный текст полностью
+                       удалён из content-stream, маркер не вставляется.
+    """
+    if style not in ("marker", "blackbox"):
+        raise ValueError(f"неизвестный стиль редактирования: {style!r}")
+
     source_path = pathlib.Path(source_path)
     dest_path = pathlib.Path(dest_path)
     doc = pymupdf.open(str(source_path))
-    font = pymupdf.Font(fontfile=str(_FONT_FILE))
+    font = pymupdf.Font(fontfile=str(_FONT_FILE)) if style == "marker" else None
 
-    # Сгруппировать по страницам; поиск rects до любых изменений.
+    # Сгруппировать по страницам; поиск rects до любых изменений документа.
     by_page: dict[int, list[tuple[pymupdf.Rect, str]]] = defaultdict(list)
     for entity in entities:
         page_num, clip = _parse_locator(document.segments[entity.segment_order].anchor.locator)
@@ -56,24 +66,28 @@ def render_pdf_redacted(
         for rect in page.search_for(entity.text, clip=clip):
             by_page[page_num].append((rect, marker))
 
+    fill_color = (0.0, 0.0, 0.0) if style == "blackbox" else (1.0, 1.0, 1.0)
+
     for page_num, redactions in by_page.items():
         page = doc[page_num]
-        page.insert_font(fontname=_FONT_NAME, fontfile=str(_FONT_FILE))
         for rect, _ in redactions:
-            page.add_redact_annot(rect, fill=(1.0, 0.95, 0.4))
+            page.add_redact_annot(rect, fill=fill_color)
         page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
-        for rect, marker in redactions:
-            size = _fit_fontsize(font, rect, marker)
-            box = pymupdf.Rect(rect.x0, rect.y0 - 1, rect.x1 + 2, rect.y1 + 2)
-            page.insert_textbox(
-                box,
-                marker,
-                fontname=_FONT_NAME,
-                fontfile=str(_FONT_FILE),
-                fontsize=size,
-                color=(0.35, 0.15, 0.0),
-                align=pymupdf.TEXT_ALIGN_LEFT,
-            )
+        if style == "marker":
+            assert font is not None
+            page.insert_font(fontname=_FONT_NAME, fontfile=str(_FONT_FILE))
+            for rect, marker in redactions:
+                size = _fit_fontsize(font, rect, marker)
+                box = pymupdf.Rect(rect.x0, rect.y0 - 1, rect.x1 + 2, rect.y1 + 2)
+                page.insert_textbox(
+                    box,
+                    marker,
+                    fontname=_FONT_NAME,
+                    fontfile=str(_FONT_FILE),
+                    fontsize=size,
+                    color=(0.20, 0.20, 0.20),
+                    align=pymupdf.TEXT_ALIGN_LEFT,
+                )
 
     doc.set_metadata({})
     doc.del_xml_metadata()

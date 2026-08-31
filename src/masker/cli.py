@@ -48,7 +48,8 @@ from masker.profile import ProfileAgent
 from masker.profile.agent import ProfileResult
 from masker.refs import EntityIndex
 from masker.render.docx_preview import render_docx_preview
-from masker.render.pdf_render import render_pdf_preview
+from masker.render.docx_redact import render_docx_redacted
+from masker.render.pdf_render import render_pdf_preview, render_pdf_redacted
 from masker.report.html import render_html_report
 from masker.run import (
     AlreadyFinishedError,
@@ -336,10 +337,11 @@ def inspect_docx(
     *,
     rules_only: bool,
     html: bool,
+    redact_style: str | None = None,
     profile: bool = False,
     llm: LLMProvider | None = None,
     tracer: TracingProvider | None = None,
-) -> tuple[Path, Path, Path | None, list[Entity], tuple[Path, Path] | None]:
+) -> tuple[Path, Path, Path | None, Path | None, list[Entity], tuple[Path, Path] | None]:
     """Проверить один DOCX и записать JSON плюс подсвеченную копию.
 
     Если передан ``tracer``, ``llm`` обязан быть тем же объектом (или
@@ -362,6 +364,7 @@ def inspect_docx(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     report_path = artifact_dir / "report.json"
     preview_path = artifact_dir / "preview.docx"
+    redacted_path = artifact_dir / "redacted.docx" if redact_style else None
     report = _build_report(
         source,
         document,
@@ -373,13 +376,16 @@ def inspect_docx(
         judge_result,
         llm_trace=tracer is not None,
     )
+    report["preview_only"] = redact_style is None
     _write_report(report_path, report)
     render_docx_preview(source, preview_path, document, entities)
+    if redacted_path is not None and redact_style is not None:
+        render_docx_redacted(source, redacted_path, document, entities, style=redact_style)
     html_path = artifact_dir / "report.html" if html else None
     if html_path is not None:
         render_html_report(report, source, html_path)
     trace_paths = write_trace(artifact_dir, tracer) if tracer is not None else None
-    return report_path, preview_path, html_path, entities, trace_paths
+    return report_path, preview_path, html_path, redacted_path, entities, trace_paths
 
 
 def _run_options_from_args(
@@ -683,8 +689,9 @@ def inspect_pdf(
     selected_types: frozenset[EntityType],
     *,
     rules_only: bool,
-) -> tuple[Path, Path, list[Entity]]:
-    """Проверить один PDF и записать JSON плюс подсвеченную preview-копию."""
+    redact_style: str | None = None,
+) -> tuple[Path, Path, Path | None, list[Entity]]:
+    """Проверить один PDF, записать JSON + preview; опционально — redacted-копию."""
     document = ingest_pdf(source)
     detector = DetectAgent([RuleDetector(), AddressDetector()]) if rules_only else DetectAgent()
     entities = [
@@ -696,13 +703,14 @@ def inspect_pdf(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     report_path = artifact_dir / "report.json"
     preview_path = artifact_dir / "preview.pdf"
+    redacted_path = artifact_dir / "redacted.pdf" if redact_style else None
 
     coverage = _document_coverage_pdf(source, document)
     report: dict[str, Any] = {
         "report_version": REPORT_VERSION,
         "input": source.name,
         "format": document.fmt,
-        "preview_only": True,
+        "preview_only": redact_style is None,
         "selected_types": sorted(entity_type.value for entity_type in selected_types),
         "entity_count": len(entities),
         "chunk_count": len(chunks),
@@ -717,7 +725,9 @@ def inspect_pdf(
     }
     _write_report(report_path, report)
     render_pdf_preview(source, preview_path, document, entities)
-    return report_path, preview_path, entities
+    if redacted_path is not None and redact_style is not None:
+        render_pdf_redacted(source, redacted_path, document, entities, style=redact_style)
+    return report_path, preview_path, redacted_path, entities
 
 
 _SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf"})
@@ -754,6 +764,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--html",
         action="store_true",
         help="создать цветной HTML-отчёт по чанкам и найденным PII (только для DOCX)",
+    )
+    parser.add_argument(
+        "--redact-style",
+        choices=["marker", "blackbox"],
+        default=None,
+        metavar="STYLE",
+        help=(
+            "создать обезличенную копию (PDF и DOCX). "
+            "marker — светло-серый/белый фон, маркер [ТИП]; "
+            "blackbox — чёрный прямоугольник, текст визуально невидим."
+        ),
     )
     parser.add_argument(
         "--profile",
@@ -859,6 +880,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(
             "ожидались существующие DOCX или PDF: " + ", ".join(str(path) for path in invalid)
         )
+
     if args.llm_config is not None and not args.profile:
         parser.error("--llm-config требует --profile")
     if args.allow_remote_pii and args.llm_config is None:
@@ -893,16 +915,20 @@ def main(argv: list[str] | None = None) -> int:
     for source in args.files:
         if source.suffix.casefold() == ".pdf":
             # Профилирование/LLM/человек в цикле для PDF не реализованы (T2.2
-            # покрывает только детекцию) — PDF всегда идёт по простому пути.
-            report_path, preview_path, entities = inspect_pdf(
+            # покрывает только детекцию) — PDF всегда идёт по простому пути,
+            # но настоящее редактирование (--redact-style) доступно и здесь.
+            report_path, preview_path, redacted_path, entities = inspect_pdf(
                 source,
                 args.out,
                 selected_types,
                 rules_only=args.rules_only,
+                redact_style=args.redact_style,
             )
             print(f"{source}: найдено сущностей — {len(entities)}")
             print(f"  отчёт:  {report_path}")
             print(f"  preview: {preview_path}")
+            if redacted_path is not None:
+                print(f"  redacted: {redacted_path}")
             continue
 
         tracer: TracingProvider | None = None
@@ -912,12 +938,13 @@ def main(argv: list[str] | None = None) -> int:
             # не должен смешивать обмен с LLM по разным документам.
             tracer = TracingProvider(llm)
             run_llm = tracer
-        report_path, preview_path, html_path, entities, trace_paths = inspect_docx(
+        report_path, preview_path, html_path, redacted_path, entities, trace_paths = inspect_docx(
             source,
             args.out,
             selected_types,
             rules_only=args.rules_only,
             html=args.html,
+            redact_style=args.redact_style,
             profile=args.profile,
             llm=run_llm,
             tracer=tracer,
@@ -925,6 +952,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{source}: найдено сущностей — {len(entities)}")
         print(f"  отчёт:  {report_path}")
         print(f"  preview: {preview_path}")
+        if redacted_path is not None:
+            print(f"  redacted: {redacted_path}")
         if html_path is not None:
             print(f"  HTML:    {html_path}")
         if args.profile:

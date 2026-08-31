@@ -89,11 +89,14 @@ def test_durable_resume_survives_new_graph_and_saver_objects(tmp_path: Path) -> 
 
     payload = first["__interrupt__"][0].value
     answers = {question["id"]: question["default"] for question in payload["questions"]}
+    # Конверт, не голый словарь: пустой/«плоский» resume-словарь без
+    # обёртки трактуется langgraph как отсутствие значения (см. run.py).
+    resume_value = {"schema_version": payload["schema_version"], "answers": answers}
 
     # Новый объект графа и новый SqliteSaver на том же файле — не тот же процесс.
     with SqliteSaver.from_conn_string(str(db)) as saver:
         graph = compile_graph(RunDeps(), saver)
-        final = graph.invoke(Command(resume=answers), config)
+        final = graph.invoke(Command(resume=resume_value), config)
 
     assert "__interrupt__" not in final
     assert final["final_actions"]

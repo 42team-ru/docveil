@@ -177,9 +177,9 @@ def test_ask_human_node_has_no_side_effects(
 ) -> None:
     captured: list[dict[str, object]] = []
 
-    def fake_interrupt(value: dict[str, object]) -> dict[str, str]:
+    def fake_interrupt(value: dict[str, object]) -> dict[str, object]:
         captured.append(value)
-        return {"TYPE-inn": "маскировать"}
+        return {"schema_version": 1, "answers": {"TYPE-inn": "маскировать"}}
 
     monkeypatch.setattr(nodes, "interrupt", fake_interrupt)
     state: State = {

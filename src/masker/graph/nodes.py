@@ -16,7 +16,7 @@ from langgraph.types import interrupt
 
 from masker.detect import AddressDetector, DetectAgent, RuleDetector
 from masker.detect.result import DetectionResult, build_pii_chunks
-from masker.graph.questions import build_ask_payload
+from masker.graph.questions import build_ask_payload, parse_answers
 from masker.graph.serde import (
     anchor_from_dict,
     decisions_to_dicts,
@@ -175,8 +175,15 @@ def ask_human_node(state: State) -> dict[str, object]:
     Без побочных эффектов: LangGraph выполняет этот узел заново при каждом
     возобновлении приостановленного треда (проверено пробоем — раздел 2 плана
     T1.5.1), поэтому узел не пишет файлы и не меняет входной ``state``.
+
+    Значение возобновления — конверт ``{"schema_version": ..., "answers": {...}}``,
+    не голый словарь ответов: экспериментально подтверждено (langgraph
+    1.2.11), что ``Command(resume={})`` с пустым словарём трактуется как
+    отсутствие значения и узел ставится на паузу заново вместо возобновления —
+    непустой конверт с ``schema_version`` защищает от этого при любых, в том
+    числе пустых, ответах.
     """
-    return {"answers": interrupt(build_ask_payload(state))}
+    return {"answers": parse_answers(interrupt(build_ask_payload(state)))}
 
 
 def apply_answers_node(state: State) -> dict[str, object]:

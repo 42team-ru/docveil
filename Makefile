@@ -17,8 +17,11 @@ install:
 gate:
 	./scripts/gate.sh
 
+# PYTEST_WORKERS=0 — последовательный прогон (отладка), по умолчанию 4 процесса.
+PYTEST_WORKERS ?= 4
+
 test:
-	$(PY) -m pytest -q
+	$(PY) -m pytest -q -n $(PYTEST_WORKERS)
 
 eval:
 	$(PY) -m masker.eval

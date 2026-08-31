@@ -2,7 +2,7 @@
 # Ключ не записывается в этот файл: export OPENROUTER_API_KEY='...'.
 llm:
   provider: openrouter
-  model: openrouter/auto
+  model: z-ai/glm-5.3-flash
   api_key_env: OPENROUTER_API_KEY
   timeout_seconds: 60
   title: triema-masker

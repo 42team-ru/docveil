@@ -1,0 +1,44 @@
+{
+  "entities": [
+    {
+      "type": "org_name",
+      "text": "ООО «Северный свет»",
+      "party": "customer"
+    },
+    {
+      "type": "inn",
+      "text": "3662103003",
+      "party": "customer"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810100000000002",
+      "party": "customer"
+    },
+    {
+      "type": "org_name",
+      "text": "ООО «Точный расчёт»",
+      "party": "contractor"
+    },
+    {
+      "type": "inn",
+      "text": "7707083893",
+      "party": "contractor"
+    },
+    {
+      "type": "phone",
+      "text": "8-910-347-51-07",
+      "party": "contractor"
+    },
+    {
+      "type": "person",
+      "text": "Иванов И.И",
+      "party": "customer"
+    },
+    {
+      "type": "person",
+      "text": "Сидоров А.П",
+      "party": "contractor"
+    }
+  ]
+}

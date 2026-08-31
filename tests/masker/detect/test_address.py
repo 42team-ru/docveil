@@ -120,6 +120,43 @@ def test_trailing_comma_is_not_in_span() -> None:
     assert not result.entities[0].text.endswith(",")
 
 
+def test_address_split_across_cell_paragraphs_shares_normalized_key() -> None:
+    """Один адрес, разорванный границей абзаца ячейки, должен склеиться в один ключ."""
+    result = DetectAgent([AddressDetector()]).detect(_split_cell_document())
+
+    assert len(result.entities) == 2
+    assert result.entities[0].normalized == result.entities[1].normalized
+    assert result.entities[0].normalized == (
+        "309512, белгородская область, г. старый оскол мкр. жукова, д. 20, кв. 15"
+    )
+
+
+def _unrelated_addresses_document() -> Document:
+    return Document(
+        path="test.docx",
+        fmt="docx",
+        segments=[
+            Segment(
+                text="г. Воронеж, ул. Мира, 12",
+                anchor=Anchor("docx", ("table", 0, 0, 0, 0)),
+                order=0,
+            ),
+            Segment(
+                text="394024, Воронежская область, г Воронеж, пер Здоровья, д 86а, кв 95",
+                anchor=Anchor("docx", ("table", 0, 0, 0, 1)),
+                order=1,
+            ),
+        ],
+    )
+
+
+def test_unrelated_addresses_in_neighboring_paragraphs_keep_different_keys() -> None:
+    result = DetectAgent([AddressDetector()]).detect(_unrelated_addresses_document())
+
+    assert len(result.entities) == 2
+    assert result.entities[0].normalized != result.entities[1].normalized
+
+
 def test_partial_address_requires_value_label() -> None:
     assert [(entity.text, entity.confidence) for entity in _detect("Адрес: г. Воронеж")] == [
         ("г. Воронеж", 0.5)

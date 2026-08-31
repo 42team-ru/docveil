@@ -79,3 +79,24 @@ make gate        # ворота: линт, типы, тесты, метрики
 (`rus` уже установлен). LLM — только на роли сторон и спорные случаи,
 за интерфейсом `LLMProvider`. Движок целиком собран на LangGraph: узлы,
 состояние, чекпойнты и пауза на уточняющих вопросах.
+
+## Проверка профилей через OpenRouter
+
+`masker.llm.yaml` содержит безопасную конфигурацию по умолчанию. Секрет в него
+не записывается: перед запуском передайте ключ окружением. Команда отправляет
+в OpenRouter найденные исходные PII и контекстные фрагменты документа, поэтому
+явное подтверждение `--allow-remote-pii` обязательно.
+
+```bash
+export OPENROUTER_API_KEY='...'
+.venv/bin/masker fixtures/labeled/contract_08_roles.docx \
+  --out out/openrouter-check \
+  --profile \
+  --llm-config masker.llm.yaml \
+  --allow-remote-pii
+```
+
+В `out/openrouter-check/contract_08_roles/report.json` появится блок
+`profile_judge`: профили, роль, число вызовов модели, диагностика, вердикты и
+вопросы. `preview.docx` по-прежнему содержит исходный текст и не предназначен
+для передачи наружу. Живой smoke-тест доступен отдельно: `pytest -m e2e`.

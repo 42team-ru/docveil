@@ -57,6 +57,9 @@ _TRIM_CHARS: Final = " \t\u00a0.,;:"
 _HARD_BOUNDARY_RE: Final = re.compile(r'[();"«»\n]')
 _NUMBER_VALUE_RE: Final = re.compile(r"\s*(\d[\w-]*)")
 _NAME_VALUE_RE: Final = re.compile(r"\s+([А-ЯЁ][\w-]*(?:\s+[А-ЯЁ][\w-]*)*)")
+# Маркер, с которого продолжается адрес, разорванный границей абзаца одной
+# ячейки: «309512, ..., г. Старый Оскол,» + «мкр. Жукова, д. 20, кв. 15».
+_CONTINUATION_MARKER_RE: Final = re.compile(r"^(?:мкр|ул|д|кв|оф|корп)\.", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +276,39 @@ class AddressDetector:
             and previous_locator[:4] == current_locator[:4]
         )
 
+    def _link_paragraph_split(self, document: Document, found: list[Entity]) -> None:
+        """Дать одинаковый ``normalized`` двум частям адреса, разорванного абзацем.
+
+        Склеить спаны нельзя: смещения ``Entity`` локальны сегменту по контракту
+        ``model.py``. Поэтому склеивается ключ — тогда последующий шаг сборки
+        маркеров (T1.6) выдаст на обе части один и тот же маркер.
+        """
+        by_segment: dict[int, list[Entity]] = {}
+        for entity in found:
+            by_segment.setdefault(entity.segment_order, []).append(entity)
+        segments = sorted(document.segments, key=lambda item: item.order)
+        texts = {segment.order: segment.text for segment in segments}
+        for position in range(1, len(segments)):
+            previous_segment = segments[position - 1]
+            current_segment = segments[position]
+            if not self._same_context(previous_segment, current_segment):
+                continue
+            previous_entities = by_segment.get(previous_segment.order, [])
+            current_entities = by_segment.get(current_segment.order, [])
+            if not previous_entities or not current_entities:
+                continue
+            tail = previous_entities[-1]
+            head = current_entities[0]
+            remainder = texts[previous_segment.order][tail.end :].strip()
+            if not remainder.startswith(","):
+                continue
+            head_text = texts[current_segment.order][head.start :]
+            if not _CONTINUATION_MARKER_RE.match(head_text):
+                continue
+            merged = f"{tail.normalized} {head.normalized}"
+            tail.normalized = merged
+            head.normalized = merged
+
     def detect(self, document: Document) -> list[Entity]:
         """Найти достаточные для маскирования адреса в каждом сегменте."""
         found: list[Entity] = []
@@ -334,4 +370,5 @@ class AddressDetector:
                     index = end_index + 1
                 else:
                     index += 1
+        self._link_paragraph_split(document, found)
         return found

@@ -793,3 +793,22 @@ def test_cli_still_rejects_txt(tmp_path: Path) -> None:
     source.write_text("test", encoding="utf-8")
     with pytest.raises(SystemExit, match="2"):
         main([str(source), "--out", str(tmp_path)])
+
+
+def test_cli_pdf_with_html_does_not_crash_and_skips_report_html(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--html`` на PDF раньше падал ``KeyError: 'body'`` внутри рендера отчёта.
+
+    Шаблон HTML читает покрытие DOCX (абзацы, таблицы, колонтитулы), а у PDF
+    структура покрытия другая. Прогон обязан дойти до конца, ``report.json``
+    остаться на месте, а пользователь — увидеть, почему HTML не создан.
+    """
+    src = tmp_path / "contract.pdf"
+    _make_pdf_with_inn(src)
+    code = main([str(src), "--out", str(tmp_path / "out"), "--rules-only", "--html"])
+    artifact_dir = tmp_path / "out" / "contract"
+    assert code == 0
+    assert (artifact_dir / "report.json").exists()
+    assert not (artifact_dir / "report.html").exists()
+    assert "--html поддержан только для DOCX" in capsys.readouterr().out

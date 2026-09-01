@@ -33,3 +33,20 @@ class State(TypedDict, total=False):
     #: Итоговое действие на каждую ``ref`` после разрешения конфликтов,
     #: включая проигравшие решения (``overridden``) — раздел 4 плана T1.5.1.
     final_actions: list[dict[str, Any]]
+    #: Покрытие документа (docx- или pdf-вариант) — раздел 4 плана T1.10.
+    coverage: dict[str, Any]
+    #: Покрытие запрошенных типов активными детекторами — раздел 4 плана T1.10.
+    detection_coverage: dict[str, list[str]]
+    #: Сериализованный ``MaskPlan`` (``graph.serde.plan_to_dict``) — раздел 4 плана T1.10.
+    plan: dict[str, Any]
+    #: Артефакты рендера: ``{"role", "name", "path", "redacting"}`` в фиксированном
+    #: порядке ролей (``preview``, ``masked_highlight``, ``masked_black``) — раздел 4
+    #: плана T1.10. ``path`` — абсолютный, в ``report`` не попадает.
+    artifacts: list[dict[str, Any]]
+    #: Итог ``ValidateAgent`` над редактирующими артефактами — раздел 5 плана T1.10.
+    validation: dict[str, Any]
+    #: Утечки (``dataclasses.asdict(Leak)``) — данные, не исключение, раздел 5 плана T1.10.
+    leaked: list[dict[str, Any]]
+    #: Итоговая структура report.json, собранная узлом ``report`` — раздел 7 плана T1.10.
+    #: Без абсолютных путей: ``artifacts[].path`` сюда не попадает.
+    report: dict[str, Any]

@@ -11,10 +11,14 @@ from masker.model import (
     Decision,
     Entity,
     EntityType,
+    MaskGroup,
+    MaskPlan,
     PolicyQuestion,
     Profile,
     ProfileMember,
     Question,
+    Replacement,
+    SkippedRef,
     Source,
     Verdict,
 )
@@ -261,3 +265,83 @@ def decisions_from_dicts(
         decisions.append(_decision_from_dict(ref, item))
         overridden[ref] = [_decision_from_dict(ref, entry) for entry in item.get("overridden", [])]
     return decisions, overridden
+
+
+def _replacement_to_dict(item: Replacement) -> dict[str, Any]:
+    return {
+        "ref": item.ref,
+        "entity": entity_to_dict(item.entity),
+        "marker": item.marker,
+        "group_id": item.group_id,
+        "profile_id": item.profile_id,
+        "anchor": anchor_to_dict(item.anchor),
+    }
+
+
+def _replacement_from_dict(data: dict[str, Any]) -> Replacement:
+    return Replacement(
+        ref=str(data["ref"]),
+        entity=entity_from_dict(data["entity"]),
+        marker=str(data["marker"]),
+        group_id=str(data["group_id"]),
+        profile_id=str(data["profile_id"]),
+        anchor=anchor_from_dict(data["anchor"]),
+    )
+
+
+def _mask_group_to_dict(item: MaskGroup) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "key": item.key,
+        "type": item.type.value,
+        "marker": item.marker,
+        "profile_id": item.profile_id,
+        "role_label": item.role_label,
+        "number": item.number,
+        "refs": list(item.refs),
+        "sample": item.sample,
+    }
+
+
+def _mask_group_from_dict(data: dict[str, Any]) -> MaskGroup:
+    return MaskGroup(
+        id=str(data["id"]),
+        key=str(data["key"]),
+        type=EntityType(str(data["type"])),
+        marker=str(data["marker"]),
+        profile_id=str(data["profile_id"]),
+        role_label=str(data["role_label"]),
+        number=int(data["number"]),
+        refs=tuple(str(value) for value in data["refs"]),
+        sample=str(data["sample"]),
+    )
+
+
+def _skipped_ref_to_dict(item: SkippedRef) -> dict[str, Any]:
+    return {"ref": item.ref, "type": item.type.value, "reason": item.reason}
+
+
+def _skipped_ref_from_dict(data: dict[str, Any]) -> SkippedRef:
+    return SkippedRef(
+        ref=str(data["ref"]), type=EntityType(str(data["type"])), reason=str(data["reason"])
+    )
+
+
+def plan_to_dict(plan: MaskPlan) -> dict[str, Any]:
+    """Сериализовать ``MaskPlan`` в состояние чекпойнтера (T1.10, шаг 4)."""
+    return {
+        "replacements": [_replacement_to_dict(item) for item in plan.replacements],
+        "groups": [_mask_group_to_dict(item) for item in plan.groups],
+        "skipped": [_skipped_ref_to_dict(item) for item in plan.skipped],
+        "requested_types": list(plan.requested_types),
+    }
+
+
+def plan_from_dict(data: dict[str, Any]) -> MaskPlan:
+    """Восстановить ``MaskPlan`` из состояния чекпойнтера (обратно ``plan_to_dict``)."""
+    return MaskPlan(
+        replacements=tuple(_replacement_from_dict(item) for item in data.get("replacements", [])),
+        groups=tuple(_mask_group_from_dict(item) for item in data.get("groups", [])),
+        skipped=tuple(_skipped_ref_from_dict(item) for item in data.get("skipped", [])),
+        requested_types=tuple(str(value) for value in data.get("requested_types", [])),
+    )

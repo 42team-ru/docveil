@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
@@ -45,6 +46,39 @@ class ThreadExistsError(Exception):
     """Явно заданный ``thread_id`` уже занят прогоном другого файла/опций."""
 
 
+#: LangGraph добавляет к исключению узла заметку вида «During task with
+#: name 'render' and id '...'» (PEP 678, ``__notes__``) перед тем, как
+#: поднять его выше по стеку — единственный способ узнать, какой узел упал,
+#: не трогая внутренности узлов.
+_TASK_NAME_RE = re.compile(r"During task with name '([^']+)'")
+
+
+def _node_hint(error: Exception) -> str:
+    """Имя узла-виновника из ``__notes__`` исключения; ``"unknown"``, если нет."""
+    for note in getattr(error, "__notes__", None) or ():
+        match = _TASK_NAME_RE.search(note)
+        if match:
+            return match.group(1)
+    return "unknown"
+
+
+class RunFailedError(Exception):
+    """``graph.invoke`` уронил ``OSError``/``ValueError`` изнутри узла графа.
+
+    Узлы графа ничего не глотают (``render_node`` — нет каталога/диска,
+    неизвестный стиль; см. раздел 5 плана T1.10). ``run.py`` — единственное
+    место, которое обязано превратить сырое исключение LangGraph в доменную
+    ошибку прогона, а не дать ``ValueError`` из недр графа всплыть до CLI
+    как загадочный трейсбек.
+    """
+
+    def __init__(self, thread_id: str, node_hint: str, cause: Exception) -> None:
+        super().__init__(f"прогон {thread_id} упал в узле {node_hint!r}: {cause}")
+        self.thread_id = thread_id
+        self.node_hint = node_hint
+        self.cause = cause
+
+
 @dataclass(frozen=True, slots=True)
 class RunOptions:
     """Опции одного прогона — то, из чего детерминированно считается ``thread_id``.
@@ -61,6 +95,14 @@ class RunOptions:
     unmask_critical: bool = False
     llm_config_id: str = ""
     interactive: bool = True
+    #: Подмножество ``("marker", "blackbox")`` — какие редактирующие рендеры
+    #: строит ``render_node``. Вне ``canonical()``: не меняет отбор PII,
+    #: поэтому повторный ``--ask`` того же документа обязан попасть в тот же
+    #: тред независимо от того, какие артефакты попросили на выходе
+    #: (раздел 4 плана T1.10).
+    styles: tuple[str, ...] = ()
+    #: Рендерить ли ``preview.*``. Вне ``canonical()`` по той же причине.
+    preview: bool = True
 
     def canonical(self) -> dict[str, Any]:
         """JSON-каноничная форма опций, влияющих на ``thread_id``."""
@@ -135,6 +177,8 @@ def _initial_state(
             **options.canonical(),
             "thread_id": thread_id,
             "interactive": options.interactive,
+            "styles": list(options.styles),
+            "preview": options.preview,
         },
     }
     if answers:
@@ -204,7 +248,10 @@ def start_run(
                 f"прогон {tid} уже завершён; для нового прогона используйте --fresh"
             )
 
-        result = graph.invoke(_initial_state(path, options, tid, answers), config)
+        try:
+            result = graph.invoke(_initial_state(path, options, tid, answers), config)
+        except (OSError, ValueError) as error:
+            raise RunFailedError(tid, _node_hint(error), error) from error
         return _outcome_from_invoke_result(tid, result)
 
 
@@ -236,7 +283,10 @@ def resume_run(
         # трактуется langgraph 1.2.11 как отсутствие значения, и узел ставится
         # на паузу заново вместо возобновления (проверено экспериментально).
         resume_value = {"schema_version": ANSWERS_SCHEMA_VERSION, "answers": dict(answers)}
-        result = graph.invoke(Command(resume=resume_value), config)
+        try:
+            result = graph.invoke(Command(resume=resume_value), config)
+        except (OSError, ValueError) as error:
+            raise RunFailedError(thread_id, _node_hint(error), error) from error
         return _outcome_from_invoke_result(thread_id, result)
 
 
@@ -256,3 +306,20 @@ def read_questions(
         if status == "done":
             raise AlreadyFinishedError(f"прогон {thread_id} уже завершён")
         return dict(snapshot.interrupts[0].value)
+
+
+def report_of(outcome: RunOutcome) -> dict[str, Any]:
+    """Структура ``report.json`` из состояния завершённого прогона.
+
+    Тонкий аксессор, не предметная логика: ``report_node`` уже собрал
+    структуру внутри графа (T1.10, шаг 7) — здесь только чтение поля.
+    На приостановленном прогоне (``status == "waiting"``) узел ``report``
+    ещё не выполнялся — возвращается пустой словарь.
+    """
+    return dict(outcome.state.get("report", {}))
+
+
+def artifacts_of(outcome: RunOutcome) -> list[dict[str, Any]]:
+    """Записанные на диск артефакты (``role``/``name``/``path``/``redacting``)
+    из состояния завершённого прогона — см. ``render_node`` (T1.10, шаг 5)."""
+    return list(outcome.state.get("artifacts", []))

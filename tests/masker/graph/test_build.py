@@ -19,7 +19,9 @@ from langgraph.types import Command
 from masker.detect.agent import DetectAgent
 from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
+from masker.graph.serde import plan_from_dict
 from masker.llm.fake import FakeProvider
+from masker.model import EntityType
 
 ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
@@ -95,7 +97,7 @@ def test_durable_resume_survives_new_graph_and_saver_objects(tmp_path: Path) -> 
 
     # Новый объект графа и новый SqliteSaver на том же файле — не тот же процесс.
     with SqliteSaver.from_conn_string(str(db)) as saver:
-        graph = compile_graph(RunDeps(), saver)
+        graph = compile_graph(RunDeps(artifact_dir=tmp_path / "artifacts"), saver)
         final = graph.invoke(Command(resume=resume_value), config)
 
     assert "__interrupt__" not in final
@@ -138,7 +140,7 @@ def test_non_interactive_run_finishes_in_one_invoke_without_interrupt(tmp_path: 
     config = {"configurable": {"thread_id": "t1"}}
 
     with SqliteSaver.from_conn_string(str(db)) as saver:
-        graph = compile_graph(RunDeps(), saver)
+        graph = compile_graph(RunDeps(artifact_dir=tmp_path / "artifacts"), saver)
         result = graph.invoke(_initial_state(interactive=False), config)
 
     assert "__interrupt__" not in result
@@ -155,12 +157,12 @@ def test_delete_thread_and_rerun_is_deterministic(tmp_path: Path) -> None:
     config = {"configurable": {"thread_id": "t1"}}
 
     with SqliteSaver.from_conn_string(str(db)) as saver:
-        graph = compile_graph(RunDeps(), saver)
+        graph = compile_graph(RunDeps(artifact_dir=tmp_path / "artifacts"), saver)
         first = graph.invoke(_initial_state(interactive=False), config)
 
     with SqliteSaver.from_conn_string(str(db)) as saver:
         saver.delete_thread("t1")
-        graph = compile_graph(RunDeps(), saver)
+        graph = compile_graph(RunDeps(artifact_dir=tmp_path / "artifacts"), saver)
         second = graph.invoke(_initial_state(interactive=False), config)
 
     assert first["final_actions"] == second["final_actions"]
@@ -177,3 +179,39 @@ def test_get_state_of_unknown_thread_has_no_interrupts(tmp_path: Path, thread_id
 
     assert snapshot.interrupts == ()
     assert snapshot.created_at is None
+
+
+def test_plan_node_applies_final_actions_kept_type_stays_out_but_critical_stays_in(
+    tmp_path: Path,
+) -> None:
+    """T1.10, шаг 4: ``plan`` строится из ``final_actions``, не из «маскировать всё».
+
+    ``profile: False`` (T1.10, шаг 3) убирает привязку сущностей к профилям —
+    иначе решение уровня «профиль» (по умолчанию «маскировать», раз вопрос не
+    задан персонально) перебило бы ответ на вопрос о типе (раздел 4 плана
+    T1.5.1: PROFILE сильнее TYPE), и тест перестал бы проверять именно
+    применение ответа на тип. ``TYPE-inn`` отвечен тем же «оставить», но ИНН
+    критичен: единственный доступный вариант для него — «маскировать»,
+    неверный ответ откатывается на умолчание — так проверяется, что
+    ``critical_guard`` не обойдён ответом человека.
+    """
+    db = tmp_path / "state.sqlite"
+    config = {"configurable": {"thread_id": "t-plan"}}
+    initial_state = _initial_state(interactive=True, thread_id="t-plan")
+    initial_state["options"]["profile"] = False
+    initial_state["answers"] = {"TYPE-phone": "оставить", "TYPE-inn": "оставить"}
+
+    with SqliteSaver.from_conn_string(str(db)) as saver:
+        graph = compile_graph(RunDeps(artifact_dir=tmp_path / "artifacts"), saver)
+        result = graph.invoke(initial_state, config)
+
+    assert "__interrupt__" not in result
+    plan = plan_from_dict(result["plan"])
+
+    phone_skipped = [item for item in plan.skipped if item.type == EntityType.PHONE]
+    assert phone_skipped
+    assert all(item.reason == "kept" for item in phone_skipped)
+    assert not any(repl.entity.type == EntityType.PHONE for repl in plan.replacements)
+
+    inn_replacements = [repl for repl in plan.replacements if repl.entity.type == EntityType.INN]
+    assert inn_replacements

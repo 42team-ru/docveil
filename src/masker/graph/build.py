@@ -22,8 +22,12 @@ from masker.graph.nodes import (
     finalize_node,
     make_judge_node,
     make_profile_node,
+    make_render_node,
+    make_report_node,
     needs_human,
+    plan_node,
     policy_node,
+    validate_node,
 )
 from masker.graph.state import State
 
@@ -31,10 +35,12 @@ __all__ = ["RunDeps", "build_graph", "compile_graph"]
 
 
 def build_graph(deps: RunDeps) -> StateGraph[State]:
-    """Собрать граф раздела 6:
+    """Собрать граф раздела 6 плана T1.5.1, дополненный ``plan``/``render``/
+    ``validate``/``report`` (T1.10, шаги 4—7):
 
     ``extract → detect → profile → judge → policy →`` (``ask_human`` при
-    необходимости) `` → apply_answers → finalize → END``.
+    необходимости) `` → apply_answers → finalize → plan → render → validate
+    → report → END``.
     """
     graph: StateGraph[State] = StateGraph(State)
     graph.add_node("extract", extract_node)
@@ -49,6 +55,10 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     graph.add_node("ask_human", ask_human_node)
     graph.add_node("apply_answers", apply_answers_node)
     graph.add_node("finalize", finalize_node)
+    graph.add_node("plan", plan_node)
+    graph.add_node("render", make_render_node(deps))  # type: ignore[arg-type]
+    graph.add_node("validate", validate_node)
+    graph.add_node("report", make_report_node(deps))  # type: ignore[arg-type]
 
     graph.add_edge(START, "extract")
     graph.add_edge("extract", "detect")
@@ -62,7 +72,11 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     )
     graph.add_edge("ask_human", "apply_answers")
     graph.add_edge("apply_answers", "finalize")
-    graph.add_edge("finalize", END)
+    graph.add_edge("finalize", "plan")
+    graph.add_edge("plan", "render")
+    graph.add_edge("render", "validate")
+    graph.add_edge("validate", "report")
+    graph.add_edge("report", END)
     return graph
 
 

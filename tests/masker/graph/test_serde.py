@@ -6,6 +6,8 @@ from masker.detect.agent import DetectAgent
 from masker.graph.serde import (
     decisions_from_dicts,
     decisions_to_dicts,
+    plan_from_dict,
+    plan_to_dict,
     policy_questions_from_dicts,
     policy_questions_to_dicts,
     profiles_from_dicts,
@@ -13,8 +15,10 @@ from masker.graph.serde import (
 )
 from masker.graph.state import State
 from masker.ingest.docx_ingest import ingest_docx
-from masker.model import Action, Anchor, Decision, DecisionSource, PolicyQuestion
+from masker.mask import PlanAgent
+from masker.model import Action, Anchor, Decision, DecisionSource, EntityType, PolicyQuestion
 from masker.profile import ProfileAgent
+from masker.refs import EntityIndex, entity_sort_key
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "labeled"
 
@@ -28,6 +32,44 @@ def test_profile_serde_round_trip_is_json_stable() -> None:
     assert profiles_from_dicts(serialized) == profiles
     assert json.dumps(serialized, ensure_ascii=False, sort_keys=True) == json.dumps(
         profiles_to_dicts(profiles_from_dicts(serialized)), ensure_ascii=False, sort_keys=True
+    )
+
+
+def test_plan_serde_round_trip_restores_tuples_and_skipped() -> None:
+    """``plan_from_dict(plan_to_dict(p)) == p`` — T1.10, шаг 4, критерий приёмки."""
+    document = ingest_docx(FIXTURES / "contract_01.docx")
+    entities = DetectAgent().detect(document).entities
+    found_types = sorted({entity.type.value for entity in entities})
+    assert len(found_types) > 1, "фикстура должна содержать хотя бы два типа сущностей"
+    requested_types = frozenset(EntityType(value) for value in found_types[:-1])
+
+    index = EntityIndex(entities)
+    ordered = sorted(entities, key=entity_sort_key)
+    kept_entity = next(entity for entity in ordered if entity.type in requested_types)
+    kept_ref = index.ref(kept_entity)
+
+    plan = PlanAgent().plan(
+        document,
+        entities,
+        requested_types=requested_types,
+        actions={kept_ref: Action.KEEP},
+    )
+    reasons = {item.reason for item in plan.skipped}
+    assert "type_not_requested" in reasons
+    assert "kept" in reasons
+    assert plan.groups
+    assert plan.replacements
+
+    serialized = plan_to_dict(plan)
+    restored = plan_from_dict(serialized)
+
+    assert restored == plan
+    assert isinstance(restored.requested_types, tuple)
+    assert isinstance(restored.groups, tuple)
+    assert isinstance(restored.replacements, tuple)
+    assert isinstance(restored.skipped, tuple)
+    assert json.dumps(serialized, ensure_ascii=False, sort_keys=True) == json.dumps(
+        plan_to_dict(restored), ensure_ascii=False, sort_keys=True
     )
 
 

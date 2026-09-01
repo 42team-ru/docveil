@@ -92,11 +92,11 @@ def test_two_cli_runs_give_byte_identical_report(tmp_path: Path) -> None:
     # (разрешение 2 секунды), это внешний артефакт библиотеки, а не наш
     # недетерминизм. Сравниваем распакованное содержимое частей архива —
     # то, что реально определяет обезличенный документ.
-    redacted_first = out_first / FIXTURE.stem / "redacted.docx"
-    redacted_second = out_second / FIXTURE.stem / "redacted.docx"
+    masked_first = out_first / FIXTURE.stem / "masked_highlight.docx"
+    masked_second = out_second / FIXTURE.stem / "masked_highlight.docx"
     with (
-        zipfile.ZipFile(redacted_first) as first_zip,
-        zipfile.ZipFile(redacted_second) as second_zip,
+        zipfile.ZipFile(masked_first) as first_zip,
+        zipfile.ZipFile(masked_second) as second_zip,
     ):
         assert first_zip.namelist() == second_zip.namelist()
         for name in first_zip.namelist():
@@ -117,12 +117,12 @@ def test_idempotent_second_pass_on_masked_document(tmp_path: Path) -> None:
         "--types",
         "all",
         "--redact-style",
-        "marker",
+        "blackbox",
         "--profile",
     ]
     first_out = tmp_path / "first"
     assert main([str(FIXTURE), "--out", str(first_out), *args]) == 0
-    masked = first_out / FIXTURE.stem / "redacted.docx"
+    masked = first_out / FIXTURE.stem / "masked_black.docx"
 
     second_out = tmp_path / "second"
     assert main([str(masked), "--out", str(second_out), *args]) == 0
@@ -132,7 +132,7 @@ def test_idempotent_second_pass_on_masked_document(tmp_path: Path) -> None:
     assert report["plan"]["groups"] == []
     assert report["plan"]["skipped"]["count"] == 0
 
-    twice_masked = second_out / masked.stem / "redacted.docx"
+    twice_masked = second_out / masked.stem / "masked_black.docx"
     with zipfile.ZipFile(masked) as once, zipfile.ZipFile(twice_masked) as twice:
         assert once.namelist() == twice.namelist()
         for name in once.namelist():

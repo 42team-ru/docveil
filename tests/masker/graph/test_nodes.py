@@ -18,6 +18,7 @@ ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
 )
 FIXTURE = ROOT / "fixtures" / "labeled" / "contract_02_hard.docx"
+PDF_FIXTURE = ROOT / "fixtures" / "labeled" / "contract_pdf_01.pdf"
 
 
 def _extracted_state(*, types: list[str] | None = None, rules_only: bool = True) -> State:
@@ -37,14 +38,56 @@ def test_extract_node_fills_segments_fmt_and_meta() -> None:
     assert state["meta"]["name"] == FIXTURE.name
 
 
-def test_detect_node_filters_by_selected_types() -> None:
+def test_extract_node_ingests_pdf_by_suffix(tmp_path: Path) -> None:
+    state: State = {
+        "path": str(PDF_FIXTURE),
+        "options": {"rules_only": True, "types": None, "interactive": False},
+    }
+
+    state.update(nodes.extract_node(state))
+
+    assert state["fmt"] == "pdf"
+    assert state["segments"]
+
+
+def test_extract_node_rejects_unsupported_suffix(tmp_path: Path) -> None:
+    unsupported = tmp_path / "document.txt"
+    unsupported.write_text("не документ", encoding="utf-8")
+    state: State = {
+        "path": str(unsupported),
+        "options": {"rules_only": True, "types": None, "interactive": False},
+    }
+
+    with pytest.raises(ValueError, match=r"document\.txt"):
+        nodes.extract_node(state)
+
+
+def test_detect_node_puts_detection_coverage_with_requested_types() -> None:
+    state = _extracted_state(types=["inn"])
+
+    state.update(nodes.detect_node(state))
+
+    assert state["detection_coverage"]["requested_types"] == ["inn"]
+
+
+def test_detect_node_does_not_filter_entities_by_selected_types() -> None:
+    """T1.6, шаг 6 (и T1.10, шаг 9): фильтр по типу — дело плана, не детектора.
+
+    Иначе ``ValidateAgent`` (T1.8) не смог бы искать утечки незапрошенных
+    типов в готовом артефакте — их бы просто не было среди сущностей.
+    """
     state = _extracted_state(types=["inn"])
 
     state.update(nodes.detect_node(state))
 
     entities = [entity_from_dict(item) for item in state["entities"]]
-    assert entities
-    assert {entity.type for entity in entities} == {EntityType.INN}
+    assert {entity.type for entity in entities} == {
+        EntityType.EMAIL,
+        EntityType.INN,
+        EntityType.PASSPORT,
+        EntityType.SNILS,
+    }
+    assert state["detection_coverage"]["requested_types"] == ["inn"]
 
 
 def test_detect_node_finds_all_types_when_none_selected() -> None:
@@ -80,6 +123,33 @@ def test_profile_node_factory_actually_calls_the_llm_provider() -> None:
     assert provider.calls > 0
     assert state["profiles"]
     assert state["llm_calls"] == provider.calls
+
+
+def test_profile_node_skips_llm_entirely_when_profile_option_is_false() -> None:
+    state = _extracted_state()
+    state.update(nodes.detect_node(state))
+    state["options"] = {**state["options"], "profile": False}
+    provider = FakeProvider([])
+    profile_node = nodes.make_profile_node(nodes.RunDeps(llm=provider))
+
+    state.update(profile_node(state))
+
+    assert provider.calls == 0
+    assert state["profiles"] == []
+    assert state["candidates"] == []
+    assert state["llm_calls"] == 0
+
+
+def test_judge_node_skips_when_profile_option_is_false() -> None:
+    state = _extracted_state()
+    state.update(nodes.detect_node(state))
+    state["options"] = {**state["options"], "profile": False}
+    judge_node = nodes.make_judge_node(nodes.RunDeps())
+
+    state.update(judge_node(state))
+
+    assert state["verdicts"] == []
+    assert state["questions"] == []
 
 
 def test_judge_node_factory_produces_verdicts_and_questions() -> None:

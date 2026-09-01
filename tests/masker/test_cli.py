@@ -754,20 +754,21 @@ def _make_simple_docx(path: Path) -> None:
 
 
 def test_cli_docx_redact_creates_file(tmp_path: Path) -> None:
+    """T1.10, шаг 9 (решение Р1): ``redacted.docx`` заменён на ``masked_highlight.docx``."""
     src = tmp_path / "contract.docx"
     _make_simple_docx(src)
     assert (
         main([str(src), "--out", str(tmp_path / "out"), "--rules-only", "--redact-style", "marker"])
         == 0
     )
-    assert (tmp_path / "out" / "contract" / "redacted.docx").exists()
+    assert (tmp_path / "out" / "contract" / "masked_highlight.docx").exists()
 
 
 def test_cli_docx_redact_permissions(tmp_path: Path) -> None:
     src = tmp_path / "contract.docx"
     _make_simple_docx(src)
     main([str(src), "--out", str(tmp_path / "out"), "--rules-only", "--redact-style", "marker"])
-    redacted = tmp_path / "out" / "contract" / "redacted.docx"
+    redacted = tmp_path / "out" / "contract" / "masked_highlight.docx"
     assert stat.S_IMODE(redacted.stat().st_mode) == 0o600
 
 
@@ -775,7 +776,8 @@ def test_cli_docx_no_redact_without_flag(tmp_path: Path) -> None:
     src = tmp_path / "contract.docx"
     _make_simple_docx(src)
     main([str(src), "--out", str(tmp_path / "out"), "--rules-only"])
-    assert not (tmp_path / "out" / "contract" / "redacted.docx").exists()
+    assert not (tmp_path / "out" / "contract" / "masked_highlight.docx").exists()
+    assert not (tmp_path / "out" / "contract" / "masked_black.docx").exists()
 
 
 def test_cli_docx_report_preview_only_false(tmp_path: Path) -> None:

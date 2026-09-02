@@ -1,10 +1,12 @@
-"""Детектор пользовательских типов из ``masker.types.yaml``.
+"""Детектор пользовательских типов, пришедших в теле запроса.
 
 Адаптер `CustomTypeSpec` (`masker.typeconfig`) к общему контракту
-`EntityDetector`. Литералы и регулярки — уже провалидированный,
-скомпилированный матчер из `load_type_config`; здесь только применение к
-документу и бюджет времени на пользовательские регулярки (план T1.13,
-раздел «2. Пользовательская регулярка»).
+`EntityDetector` — исполняет executor'ы `literals`, `regex` и
+`regex_context` (`docs/plans/T1.13-design-notes.md`, решение 2.4).
+Матчер уже провалидирован и скомпилирован в `load_type_config`; здесь
+только применение к документу и бюджет времени на пользовательские
+регулярки. Семантические executor'ы (`gliner_label`, `gliner_structure`,
+`regex_llm_filter`) — отдельные детекторы, здесь их нет.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from masker.typeconfig import CustomTypeError, CustomTypeSpec
 CUSTOM_REGEX_BUDGET_S = 2.0
 
 #: Окно контекста вокруг совпадения регулярки, в символах в каждую сторону
-#: (план T1.13, раздел «Формат», поле ``detect.context``).
+#: (executor ``regex_context``, поле ``detect.context`` спецификации).
 CONTEXT_WINDOW_CHARS = 80
 
 #: confidence для литералов — пользователь буквально указал строку.

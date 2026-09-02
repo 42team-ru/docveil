@@ -1,9 +1,15 @@
-"""Загрузка и валидация пользовательской конфигурации типов сущностей.
+"""Валидация пользовательских типов сущностей, пришедших в теле запроса.
 
-Формат — `docs/plans/T1.13-entity-type-registry.md`, раздел «Пользовательская
-конфигурация». Три источника опасности пользовательской регулярки — ReDoS,
-переопределение встроенного типа и молчаливое совпадение с пустой строкой —
-проверяются здесь же, до того как паттерн попадёт в `ConfigDetector`.
+Источник спецификации один — REST (`custom_types` в теле запроса на
+маскировку), см. `docs/plans/T1.13-design-notes.md`, решение 2.1. Файловой
+конфигурации (`masker.types.yaml`) в проекте нет намеренно: двойной source
+of truth разъезжается, а реальный вход — всегда API. Поэтому вход здесь —
+уже разобранный `dict`, а не путь к файлу; Pydantic-схема запроса кладёт
+сюда своё тело как есть.
+
+Три источника опасности пользовательской регулярки — ReDoS, переопределение
+встроенного типа и молчаливое совпадение с пустой строкой — проверяются
+здесь же, до того как паттерн попадёт в executor.
 
 Валидатор регулярок разбирает паттерн через `re._parser.parse` (приватный, но
 стабильный модуль стандартной библиотеки) и отклоняет конструкции, ведущие к
@@ -17,11 +23,8 @@ from __future__ import annotations
 import re
 import warnings
 from dataclasses import dataclass
-from pathlib import Path
 from re import _constants, _parser  # type: ignore[attr-defined]
 from typing import Any
-
-import yaml
 
 from masker.entity_types import EntityTypeSpec
 from masker.model import EntityType
@@ -58,17 +61,16 @@ class CustomTypeSpec:
     context: tuple[str, ...] = ()
 
 
-def load_type_config(source: Path | dict[str, Any]) -> list[CustomTypeSpec]:
-    """Загрузить и провалидировать пользовательскую конфигурацию типов.
+def load_type_config(source: dict[str, Any]) -> list[CustomTypeSpec]:
+    """Провалидировать пользовательские типы из тела запроса.
 
-    `source` — путь к YAML-файлу (`masker.types.yaml`) либо уже разобранный
-    словарь того же формата (используется в тестах и будет использован API,
-    план T1.13, раздел «Где лежит»). Любое нарушение схемы или небезопасная
-    регулярка останавливают загрузку целиком: `CustomTypeError` с id
-    проблемного типа в тексте сообщения.
+    `source` — разобранное тело запроса вида
+    ``{"version": 1, "types": [...]}``. Любое нарушение схемы или
+    небезопасная регулярка останавливают загрузку целиком: `CustomTypeError`
+    с id проблемного типа в тексте сообщения.
     """
-    raw = _load_raw(source)
-    _validate_top_level(raw)
+    _validate_top_level(source)
+    raw = source
 
     specs: list[CustomTypeSpec] = []
     seen_at: dict[str, int] = {}
@@ -84,17 +86,11 @@ def load_type_config(source: Path | dict[str, Any]) -> list[CustomTypeSpec]:
     return specs
 
 
-def _load_raw(source: Path | dict[str, Any]) -> dict[str, Any]:
-    if isinstance(source, dict):
-        return source
-    text = source.read_text(encoding="utf-8")
-    loaded = yaml.safe_load(text)
-    if not isinstance(loaded, dict):
-        raise CustomTypeError(f"Конфигурация типов {source}: верхний уровень должен быть словарём")
-    return loaded
-
-
-def _validate_top_level(raw: dict[str, Any]) -> None:
+def _validate_top_level(raw: Any) -> None:
+    if not isinstance(raw, dict):
+        raise CustomTypeError(
+            "Конфигурация типов: ожидался словарь вида {'version': 1, 'types': [...]}"
+        )
     if raw.get("version") != 1:
         raise CustomTypeError("Конфигурация типов: поддерживается только 'version: 1'")
     types = raw.get("types")

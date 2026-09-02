@@ -75,23 +75,14 @@ def test_valid_literals_type_loaded() -> None:
     assert spec.pattern.search("у нас Проект «Заря» стартовал") is not None
 
 
-def test_load_from_path(tmp_path: Any) -> None:
-    yaml_text = r"""
-version: 1
-types:
-  - id: contract_no
-    title: Номер договора
-    marker: "[ДОГОВОР-{n}]"
-    detect:
-      kind: regex
-      pattern: "№\\s?\\d+/\\d{4}"
-      ignorecase: false
-"""
-    path = tmp_path / "masker.types.yaml"
-    path.write_text(yaml_text, encoding="utf-8")
-    specs = load_type_config(path)
-    assert specs[0].spec.id == "contract_no"
-    assert specs[0].pattern.search("№ 44/2026") is not None
+def test_non_dict_source_rejected() -> None:
+    """Источник спецификации — тело запроса, а не файл (design notes, 2.1).
+
+    Файловая конфигурация в проекте отсутствует намеренно, поэтому вход
+    обязан быть уже разобранным словарём.
+    """
+    with pytest.raises(CustomTypeError):
+        load_type_config([{"id": "contract_no"}])  # type: ignore[arg-type]
 
 
 def test_two_regex_types_and_one_literal_all_loaded() -> None:

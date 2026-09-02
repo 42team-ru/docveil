@@ -247,7 +247,25 @@ extract→...→report проходит через граф с чекпойнт�
 `unzip -l` выходного файла не содержит частей, которых не было во входном —
 в частности, `header1.xml` не появляется у документа без колонтитулов.
 
-### T1.13 — Реестр типов сущностей и пользовательские типы — НЕ РЕАЛИЗОВАНО
+### T1.13 — Реестр типов сущностей и пользовательские типы — ЧАСТИЧНО
+
+**Сделано (ветка `feat/entity-type-registry`):** реестр `EntityTypeRegistry` /
+`EntityTypeSpec` со спеком на каждый член `EntityType`; `Entity.type: str`,
+валидация по реестру вместо `isinstance`, `Source.USER`, снятие `.type.value`
+у всех потребителей; `typeconfig.load_type_config(dict)` — схема
+пользовательского типа плюс AST-валидатор регулярок (ReDoS, обратные ссылки,
+пустое совпадение, флаги, длина); `ConfigDetector` — executor'ы `literals`,
+`regex`, `regex_context`; `mask/select.py` — `filter_by_types` и
+`resolve_requested_types`. Метрики не сдвинулись, тесты built-in типов
+не правились.
+
+**Осталось:** LLM-компилятор пользовательского ввода с `ask`-ветвью и live
+preview, executor'ы `gliner_label` / `gliner_structure` / `regex_llm_filter`,
+`GlinerDetector` на `fastino/gliner2.5-multi-v1`, Pydantic-схема
+`custom_types` в теле запроса и подключение `ConfigDetector` в пайплайн,
+маркеры пользовательских типов в отчёте, корпусная фикстура. Плана под эту
+часть ещё нет — писать от `docs/plans/T1.13-design-notes.md`.
+
 
 Открывает таксономию типов: пользователь тендера через REST-запрос описывает
 словами свой тип («замажь даты отгрузки»), LLM-компилятор превращает описание

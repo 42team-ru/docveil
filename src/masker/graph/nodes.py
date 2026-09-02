@@ -418,6 +418,10 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         styles = set(options.get("styles") or ())
 
         artifacts: list[dict[str, object]] = []
+        # Спуски по лестнице отступления маркера (план T2.2.1, пачка 5,
+        # решение заказчика) — не падение, факт для отчёта человеку: где
+        # узкое поле не вместило полный маркер и чем реально закрыт текст.
+        render_degradations: list[dict[str, object]] = []
         for role in _ARTIFACT_ROLE_ORDER:
             if role == "preview":
                 if not preview_enabled:
@@ -438,8 +442,19 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     continue
                 destination = artifact_dir / f"{role}{suffix}"
                 if fmt == "pdf":
-                    pdf_render_module.render_pdf_redacted(
+                    outcome = pdf_render_module.render_pdf_redacted(
                         source, destination, document, plan, style=style
+                    )
+                    render_degradations.extend(
+                        {
+                            "artifact": destination.name,
+                            "role": role,
+                            "page": item.page,
+                            "entity_type": item.entity_type,
+                            "marker": item.marker,
+                            "shown_as": item.shown_as,
+                        }
+                        for item in outcome.degradations
                     )
                 else:
                     docx_redact_module.render_docx_redacted(
@@ -454,7 +469,7 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     "redacting": redacting,
                 }
             )
-        return {"artifacts": artifacts}
+        return {"artifacts": artifacts, "render_degradations": render_degradations}
 
     return render_node
 
@@ -475,7 +490,7 @@ def validate_node(state: State) -> dict[str, object]:
             "leaked": [],
         }
     plan = plan_from_dict(state.get("plan", {}))
-    validation_report = ValidateAgent().validate(plan, redacting_paths)
+    validation_report = ValidateAgent().validate(plan, redacting_paths, source=Path(state["path"]))
     return {
         "validation": _validation_record(validation_report),
         "leaked": [_leak_record(leak) for leak in validation_report.leaked],
@@ -591,4 +606,9 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
         "validation", _validation_skipped("preview_only: --redact-style не задан")
     )
     report["leaked"] = state.get("leaked", [])
+    report["render_degradations"] = state.get("render_degradations", [])
+    # Дубль report["validation"]["layout"] на верхнем уровне — план T2.2.2,
+    # шаг 5: сохранность вёрстки PDF читается тем же взглядом, что и
+    # leaked/render_degradations, а не через вложенный validation.layout.
+    report["layout"] = report["validation"].get("layout", [])
     return {"report": report}

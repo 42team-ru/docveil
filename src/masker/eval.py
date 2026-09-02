@@ -18,12 +18,73 @@ from typing import Any
 
 from masker.detect.agent import DetectAgent
 from masker.ingest.docx_ingest import ingest_docx
+from masker.ingest.pdf_ingest import ingest_pdf
 from masker.judge import JudgeAgent
-from masker.model import CRITICAL_TYPES, EntityType, is_critical
+from masker.model import CRITICAL_TYPES, Document, EntityType, MaskPlan, is_critical
 from masker.policy.agent import PolicyAgent
 from masker.profile import ProfileAgent
+from masker.run import RunFailedError
+from masker.validate.parts import docx_parts, pdf_parts
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "labeled"
+
+#: Расширение файла → его ingest. Единственное место, которое решает, каким
+#: парсером читать документ корпуса — раньше решение было спрятано в
+#: `if path.suffix != ".docx": continue` (Д7 плана T2.2.1): PDF физически не
+#: попадал в метрики, и идеальные цифры по DOCX маскировали провал по PDF.
+_INGEST_BY_SUFFIX: dict[str, Any] = {".docx": ingest_docx, ".pdf": ingest_pdf}
+
+
+def _ingest(path: pathlib.Path) -> Document:
+    ingest = _INGEST_BY_SUFFIX.get(path.suffix.casefold())
+    if ingest is None:
+        raise ValueError(f"eval не умеет читать формат {path.suffix!r}: {path}")
+    doc: Document = ingest(path)
+    return doc
+
+
+def _collapse(text: str) -> str:
+    """Схлопнуть пробелы для сравнения — разметка не должна зависеть от
+    того, режет ingest документ по строкам или по блокам (см. схему
+    разметки PDF-корпуса, план T2.2.1, пункт 1)."""
+    return " ".join(text.split())
+
+
+def _artifact_text(path: pathlib.Path) -> str:
+    """Видимый текст артефакта целиком — по всем частям контейнера.
+
+    Та же независимая от production-детекции читалка, что использует
+    ``ValidateAgent`` (``masker.validate.parts``): достаточно видимого
+    текста, дублей маркера в бинарных частях (картинки) не бывает.
+    """
+    suffix = path.suffix.casefold()
+    if suffix == ".docx":
+        return "\n".join(part.text for part in docx_parts(path))
+    if suffix == ".pdf":
+        return "\n".join(part.text for part in pdf_parts(path))
+    raise ValueError(f"eval не умеет читать формат {path.suffix!r}: {path}")
+
+
+def duplicate_marker_count(plan: MaskPlan, artifacts: tuple[pathlib.Path, ...]) -> int:
+    """Сколько лишних вхождений маркера набралось по всем группам и артефактам.
+
+    Для каждой группы плана маркер обязан встретиться в тексте артефакта
+    ровно столько раз, сколько у неё ``Replacement`` (``len(group.refs)``).
+    Разница больше нуля — дубль (Д1 плана T2.2.1: маркер вставлен не один
+    раз на замену). Отрицательная разница — пропуск вставки, это ловит
+    ``leaked_total``/recall, а не эта метрика, поэтому в сумму не идёт.
+    """
+    total = 0
+    for artifact in artifacts:
+        text = _artifact_text(artifact)
+        for group in plan.groups:
+            if not group.marker:
+                continue
+            diff = text.count(group.marker) - len(group.refs)
+            if diff > 0:
+                total += diff
+    return total
+
 
 #: Пороги ворот. Пропуск критичного реквизита — утечка, поэтому recall = 1.0.
 MIN_RECALL_CRITICAL = 1.0
@@ -44,6 +105,27 @@ MAX_POLICY_QUESTIONS = 10
 #: Критичный тип/профиль, снятый без двойного подтверждения, — утечка.
 #: Порог жёсткий и не подлежит пересмотру без решения о варианте A (раздел 3).
 MAX_CRITICAL_UNMASKED = 0
+#: Утечка в редактирующем артефакте — провал прогона, порог нулевой
+#: (T2.2.1, шаг 3): раньше эта цифра существовала внутри ``ValidateAgent``,
+#: но ворота её не читали (Д7).
+MAX_LEAKED_TOTAL = 0
+#: Маркер должен встречаться в артефакте ровно по разу на ``Replacement``
+#: своей группы — дубль (Д1) означает, что исходный текст под ним уже
+#: удалён, а замена продублирована поверх пустого места.
+MAX_DUPLICATE_MARKERS = 0
+#: Прогон корпуса — измерительный инструмент: одна аномальная сущность на
+#: одном документе (план T2.2.1, пачка 4) не имеет права ослепить ворота
+#: целиком и скрыть leaked_total/duplicate_markers по остальным документам.
+#: Порог всё равно нулевой — «не ослеплять» не значит «прощать»: любой
+#: падший рендер обязан быть виден в отчёте с именем документа и маркером.
+#: Прямой вызов рендера на одном документе (CLI) при этом продолжает падать
+#: громко — здесь ловится только агрегирующий прогон по корпусу.
+MAX_RENDER_FAILURES = 0
+#: Текстовый слой PDF вне замен обязан остаться посимвольно на месте (Д10,
+#: план T2.2.2, шаг 5): прямоугольник редакции не имеет права стереть текст
+#: соседней строки. Порог нулевой — как и у leaked_total, «немного вёрстки
+#: потеряно» не бывает мелочью.
+MAX_LAYOUT_REMOVED_CHARS = 0
 
 
 def load_corpus() -> list[tuple[pathlib.Path, dict[str, Any]]]:
@@ -63,7 +145,7 @@ def load_corpus() -> list[tuple[pathlib.Path, dict[str, Any]]]:
     return corpus
 
 
-def score(expected: set[tuple[str, str]], found: set[tuple[str, str]]) -> dict[str, float]:
+def score(expected: set[tuple[str, ...]], found: set[tuple[str, ...]]) -> dict[str, float]:
     tp = len(expected & found)
     fp = len(found - expected)
     fn = len(expected - found)
@@ -90,19 +172,17 @@ def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) ->
         json.loads(synonyms_path.read_text(encoding="utf-8")) if synonyms_path.exists() else {}
     )
     for path, labels in corpus:
-        if path.suffix != ".docx":
-            continue
-        document = ingest_docx(path)
+        document = _ingest(path)
         detection = DetectAgent().detect(document)
         profiles = ProfileAgent().profile(document, detection)
         judge = JudgeAgent().judge(detection, profiles)
         profile_by_value = {
-            (member.entity.type.value, member.entity.text): profile
+            (member.entity.type.value, _collapse(member.entity.text)): profile
             for profile in profiles.profiles
             for member in profile.members
         }
         for item in labels["entities"]:
-            profile = profile_by_value.get((item["type"], item["text"]))
+            profile = profile_by_value.get((item["type"], _collapse(item["text"])))
             if profile is None:
                 continue
             matched += 1
@@ -116,7 +196,7 @@ def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) ->
                     for member in profile.members
                     if any(
                         candidate["type"] == member.entity.type.value
-                        and candidate["text"] == member.entity.text
+                        and _collapse(candidate["text"]) == _collapse(member.entity.text)
                         and candidate.get("party") == party
                         for candidate in labels["entities"]
                     )
@@ -186,7 +266,7 @@ def run(gate: bool) -> int:
     corpus = load_corpus()
     profile_failures = _print_profile_judge(_profile_judge_metrics(corpus)) if corpus else []
     try:
-        from masker.pipeline import mask_document
+        from masker.pipeline import mask_and_validate
     except ImportError:
         print("МЕТРИКИ ПРОПУЩЕНЫ: masker.pipeline ещё не реализован.")
         print("После T1.10 этот пропуск обязан исчезнуть — иначе ворота декоративны.")
@@ -196,15 +276,53 @@ def run(gate: bool) -> int:
         print("МЕТРИКИ ПРОПУЩЕНЫ: в fixtures/labeled нет размеченных документов.")
         return 1
 
-    by_type: dict[str, dict[str, set[tuple[str, str]]]] = defaultdict(
+    by_type: dict[str, dict[str, set[tuple[str, ...]]]] = defaultdict(
         lambda: {"expected": set(), "found": set()}
     )
+    # Разрез по форматам (шаг 2 плана T2.2.1): без него идеальные цифры по
+    # DOCX маскируют провал по PDF — ровно то, что случилось в Д7.
+    by_format: dict[str, dict[str, set[tuple[str, ...]]]] = defaultdict(
+        lambda: {"expected": set(), "found": set()}
+    )
+    # Гейт на утечки и дубли маркеров по всему корпусу (шаг 3 плана T2.2.1):
+    # оба редактирующих артефакта строятся и проверяются ``ValidateAgent``
+    # здесь же, одним прогоном с планом — не отдельным вторым вызовом графа.
+    leaked_total = 0
+    duplicate_markers = 0
+    # Сохранность вёрстки PDF вне замен (Д10, план T2.2.2, шаг 5) — сумма
+    # ``removed_chars`` по всем PDF-артефактам корпуса; для DOCX-документов
+    # ``result.validation.layout`` пуст (`ValidateAgent` считает layout
+    # только для PDF), поэтому сумма не искажается посторонним форматом.
+    layout_removed_chars = 0
+    layout_failures: list[str] = []
+    render_failures: list[str] = []
     for path, labels in corpus:
-        result = mask_document(path, types=list(EntityType))
-        for item in labels["entities"]:
-            by_type[item["type"]]["expected"].add((path.name, item["text"]))
-        for repl in result.replacements:
-            by_type[repl.entity.type.value]["found"].add((path.name, repl.entity.text))
+        fmt = path.suffix.casefold().lstrip(".")
+        try:
+            with mask_and_validate(path, types=list(EntityType)) as result:
+                for item in labels["entities"]:
+                    key = (path.name, item["type"], _collapse(item["text"]))
+                    by_type[item["type"]]["expected"].add(key)
+                    by_format[fmt]["expected"].add(key)
+                for repl in result.plan.replacements:
+                    key = (path.name, repl.entity.type.value, _collapse(repl.entity.text))
+                    by_type[repl.entity.type.value]["found"].add(key)
+                    by_format[fmt]["found"].add(key)
+                leaked_total += len(result.validation.leaked)
+                duplicate_markers += duplicate_marker_count(result.plan, result.artifacts)
+                for layout in result.validation.layout:
+                    layout_removed_chars += layout.removed_chars
+                    if layout.removed_chars:
+                        layout_failures.append(
+                            f"{path.name}/{layout.artifact}: removed={layout.removed_chars} "
+                            f"pages={list(layout.pages)} {layout.first_diff}"
+                        )
+        except RunFailedError as error:
+            # Не глотать тихо: документ выпадает из P/R/F1 (план на него не
+            # посчитан), но факт и место падения обязаны остаться видимыми —
+            # иначе один аномальный документ маскировал бы метрики по всем
+            # остальным, ровно то, чего требовалось избежать (Д7 наоборот).
+            render_failures.append(f"{path.name}: {error}")
 
     print(f"{'тип':<18}{'P':>7}{'R':>7}{'F1':>7}{'FN':>5}{'FP':>5}")
     failures: list[str] = []
@@ -220,6 +338,40 @@ def run(gate: bool) -> int:
             failures.append(f"{name}: recall {m['recall']:.3f} < {min_recall}")
         if m["precision"] < MIN_PRECISION:
             failures.append(f"{name}: precision {m['precision']:.3f} < {MIN_PRECISION}")
+
+    print(f"\nФОРМАТЫ\n{'формат':<18}{'P':>7}{'R':>7}{'F1':>7}{'FN':>5}{'FP':>5}")
+    for fmt in sorted(by_format):
+        m = score(by_format[fmt]["expected"], by_format[fmt]["found"])
+        print(
+            f"{fmt:<18}{m['precision']:>7.3f}{m['recall']:>7.3f}"
+            f"{m['f1']:>7.3f}{m['fn']:>5}{m['fp']:>5}"
+        )
+
+    print(f"\nleaked_total{leaked_total:>22}")
+    print(f"duplicate_markers{duplicate_markers:>17}")
+    print(f"layout_removed_chars{layout_removed_chars:>14}")
+    for failure in layout_failures:
+        print(f"  {failure}")
+    print(f"render_failures{len(render_failures):>19}")
+    for failure in render_failures:
+        print(f"  {failure}")
+    if leaked_total > MAX_LEAKED_TOTAL:
+        failures.append(f"leaked_total {leaked_total} > {MAX_LEAKED_TOTAL} — утечка в артефактах")
+    if duplicate_markers > MAX_DUPLICATE_MARKERS:
+        failures.append(
+            f"duplicate_markers {duplicate_markers} > {MAX_DUPLICATE_MARKERS} — "
+            "маркер вставлен не один раз на Replacement"
+        )
+    if layout_removed_chars > MAX_LAYOUT_REMOVED_CHARS:
+        failures.append(
+            f"layout_removed_chars {layout_removed_chars} > {MAX_LAYOUT_REMOVED_CHARS} — "
+            "прямоугольник редакции стёр текст вне своих замен (Д10): " + "; ".join(layout_failures)
+        )
+    if len(render_failures) > MAX_RENDER_FAILURES:
+        failures.append(
+            f"render_failures {len(render_failures)} > {MAX_RENDER_FAILURES} — "
+            "рендер упал на документе(ах) корпуса: " + "; ".join(render_failures)
+        )
 
     failures.extend(profile_failures)
     if failures and gate:

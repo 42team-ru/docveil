@@ -62,6 +62,35 @@ def test_critical_unmasked_metric_can_fail(monkeypatch) -> None:  # type: ignore
     assert eval_module.run(gate=True) != 0, "ворота не заметили снятую маску с критичного типа"
 
 
+def test_layout_step_can_fail(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    """План T2.2.2, шаг 5: ворота обязаны заметить, что прямоугольник
+    редакции стёр текст соседней строки (Д10) — метрика ``layout_removed_chars``
+    обязана назвать провал по имени, а не просто вернуть ненулевой код.
+
+    Ломаем ``_trim_to_own_line`` так, чтобы обрезка по соседней строке не
+    применялась вовсе — ровно поведение до шага 3 плана T2.2.2, которое и
+    породило Д10 на реальном документе.
+    """
+    import masker.eval as eval_module
+    import masker.render.pdf_render as pdf_render_module
+
+    def _no_trim(rect, own_line_id, line_boxes):  # type: ignore[no-untyped-def]
+        return rect, False
+
+    monkeypatch.setattr(pdf_render_module, "_trim_to_own_line", _no_trim)
+
+    code = eval_module.run(gate=True)
+    output = capsys.readouterr().out
+    assert code != 0, "ворота не заметили потерю текстового слоя вне замен (Д10)"
+    metric_line = next(
+        line for line in output.splitlines() if line.startswith("layout_removed_chars")
+    )
+    assert int(metric_line.split()[-1]) > 0, metric_line
+    assert any("layout_removed_chars" in line for line in output.splitlines() if "> 0" in line), (
+        output
+    )
+
+
 def test_validate_step_can_fail(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
     """T1.8, шаг 11: ворота обязаны краснеть, когда рендер пропустил замену.
 

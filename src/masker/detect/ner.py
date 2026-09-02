@@ -16,8 +16,16 @@ from masker.detect.orgforms import (
     is_organization_form_only,
     is_partial_org_form,
     is_public_body,
+    is_role_phrase,
     is_role_stopword,
     shrink_span,
+)
+from masker.detect.persons import (
+    drop_role_prefix,
+    expand_person_left,
+    person_stem,
+    preceded_by_address_marker,
+    single_token_person_is_confirmed,
 )
 from masker.model import Document, Entity, EntityType, Source
 
@@ -127,19 +135,40 @@ class NatashaDetector:
                 bounds = shrink_span(segment.text, *bounds)
                 if bounds is None:
                     continue
+                if entity_type is EntityType.PERSON:
+                    # Должность прочь, фамилия слева — план T2.2.1, шаг 6, Д4.
+                    bounds = drop_role_prefix(segment.text, *bounds)
+                    if bounds is None:
+                        continue
+                    bounds = expand_person_left(segment.text, *bounds)
                 start, end = bounds
                 value = segment.text[start:end]
+                org_evidence = entity_type is EntityType.ORG_NAME and has_organization_evidence(
+                    value
+                )
                 if (
                     is_role_stopword(value)
-                    or is_landmark_place(value)
+                    # is_landmark_place «применяется только к спанам без
+                    # признаков организации» по своему же докстрингу — без
+                    # этой защиты «Школьно-базовая столовая № 11» (стем
+                    # landmark_stems «школ») дропалась бы даже с оргформой
+                    # и кавычками рядом (план T2.2.1, шаг 5, Д5).
+                    or (is_landmark_place(value) and not org_evidence)
                     or (
                         entity_type is EntityType.ORG_NAME
                         and (
                             is_organization_form_only(value)
                             or is_partial_org_form(value)
                             or is_public_body(value)
+                            or is_role_phrase(value)
                             or (not has_organization_evidence(value) and len(value.split()) == 1)
                         )
+                    )
+                    # «ул. Банникова» — Банникова улица, не фамилия (Д4
+                    # наоборот, план T2.2.1, шаг 7).
+                    or (
+                        entity_type is EntityType.PERSON
+                        and preceded_by_address_marker(segment.text, start)
                     )
                 ):
                     continue
@@ -155,4 +184,30 @@ class NatashaDetector:
                         normalized=normalize_value(entity_type, value),
                     )
                 )
-        return found
+        return self._require_person_evidence(found, document)
+
+    @staticmethod
+    def _require_person_evidence(found: list[Entity], document: Document) -> list[Entity]:
+        """Однотокенный PER выпускается только с независимым подтверждением
+        (план T2.2.1, шаг 7): та же фамилия встречается с инициалами/именем
+        в другом месте документа, либо рядом стоит триггер («директор»,
+        «в лице», ...). Без этой защиты расширение границ (шаг 6) сделало
+        бы шире и существующие ложные срабатывания («Мармит», «Суп»,
+        «Амортизац», «Корректировочных»).
+        """
+        confirmed_stems = frozenset(
+            stem
+            for entity in found
+            if entity.type is EntityType.PERSON and len(entity.text.split()) > 1
+            for stem in person_stem(entity.text).split()
+            if stem
+        )
+        texts = {segment.order: segment.text for segment in document.segments}
+        return [
+            entity
+            for entity in found
+            if entity.type is not EntityType.PERSON
+            or single_token_person_is_confirmed(
+                entity.text, texts[entity.segment_order], entity.start, confirmed_stems
+            )
+        ]

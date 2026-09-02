@@ -39,6 +39,10 @@ _REFERENCE_KEYS = frozenset(
         "validation",
         "leaked",
         "decisions",
+        #: Спуски по лестнице отступления маркера PDF (план T2.2.1, пачка 5).
+        "render_degradations",
+        #: Сохранность текстового слоя PDF вне замен (план T2.2.2, шаг 5).
+        "layout",
     }
 )
 

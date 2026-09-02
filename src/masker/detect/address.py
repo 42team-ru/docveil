@@ -187,14 +187,34 @@ class AddressDetector:
             is_stop = any(label in value.casefold() for label in self._stop_labels) or bool(
                 re.search(r"\d{6}", value)
             )
+            # Ничего после «жёсткой» границы (кавычка, скобка, перенос строки)
+            # не считается маркером адреса вовсе — иначе `value_start` может
+            # уйти за маркер, найденный только там (например, случайное
+            # 6-значное совпадение с индексом внутри номера договора после
+            # открывающей кавычки), а `_component_end` его туда не пустит:
+            # получился бы `end < start` и падение в `DetectAgent._validate`
+            # (найдено на реальном PDF-блоке после шага 8 плана T2.2.1).
+            limit = self._hard_boundary(value)
             index = self._index.search(value)
+            if index is not None and index.end() > limit:
+                index = None
             if index is not None:
                 is_stop = False
             region_start = _marker_start(value, self._region)
+            if region_start is not None and region_start >= limit:
+                region_start = None
             settlement_start = _marker_start(value, self._settlement, requires_name=True)
+            if settlement_start is not None and settlement_start >= limit:
+                settlement_start = None
             street_start = _marker_start(value, self._street, requires_name=True)
+            if street_start is not None and street_start >= limit:
+                street_start = None
             building_start = _marker_start(value, self._building, requires_number=True)
+            if building_start is not None and building_start >= limit:
+                building_start = None
             premises_start = _marker_start(value, self._premises, requires_number=True)
+            if premises_start is not None and premises_start >= limit:
+                premises_start = None
             kinds = frozenset(
                 kind
                 for kind, marker_start in (
@@ -228,6 +248,11 @@ class AddressDetector:
                 kinds=kinds,
                 previous_kinds=previous_kinds,
             )
+            # Инвариант, а не оптимистичное допущение: конец компонента не
+            # имеет права оказаться раньше его начала — `Entity`/`_Chunk` с
+            # `end < start` роняет `DetectAgent._validate` (см. комментарий
+            # у `limit` выше).
+            value_end = max(value_end, value_start)
             chunks.append(
                 _Chunk(
                     start=start,

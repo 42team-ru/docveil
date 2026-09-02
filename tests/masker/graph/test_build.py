@@ -31,10 +31,15 @@ FIXTURE = ROOT / "fixtures" / "labeled" / "contract_01.docx"
 #: Ни одна сущность в contract_01.docx не набирает уверенность ниже порога
 #: судьи (все правила/NER дают >= 0.8) — вопрос "entity" естественным путём
 #: не возникает. Кандидат от LLM (Source.LLM, confidence <= 0.6) даёт его
-#: детерминированно, без сети — FakeProvider.
+#: детерминированно, без сети — FakeProvider. Тип — "date": для него, в
+#: отличие от "contract_number" (план T2.2.1, шаг 10, Д6 — у типа
+#: появился детектор), в проекте по-прежнему нет ни правила, ни NER, а
+#: сегмент 1 ("г. Воронеж, 15 января 2026 г.") свободен от других сущностей,
+#: значит кандидат не столкнётся с уже принятой сущностью того же сегмента
+#: (`profile/candidates.py::build_candidates` отбрасывает такие пересечения).
 _CANDIDATE_RESPONSE = (
     '{"profiles": [], "candidates": ['
-    '{"segment_order": 0, "text": "44/2026", "type": "contract_number", "confidence": 0.6}'
+    '{"segment_order": 1, "text": "15 января 2026", "type": "date", "confidence": 0.6}'
     "]}"
 )
 

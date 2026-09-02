@@ -323,6 +323,27 @@ class Leak:
 
 
 @dataclass(frozen=True, slots=True)
+class ArtifactLayout:
+    """Диагностика сохранности текстового слоя вне замен одного PDF-артефакта
+    (план T2.2.2, шаг 4). Только PDF: DOCX не редактируется вырезанием
+    глифов по прямоугольнику, там нет геометрии, которую можно перепутать.
+
+    ``removed_chars`` — непробельные символы ожидаемого текста (страница
+    минус диапазоны ``Replacement``), которых не нашлось в артефакте: Д10 —
+    редакция стёрла что-то за пределами своей замены. ``inserted_chars`` —
+    непробельные символы артефакта сверх ожидаемого (не считая вхождений
+    маркеров плана). ``pages`` и ``first_diff`` — где смотреть глазами,
+    чтобы не гадать по одной цифре.
+    """
+
+    artifact: str
+    removed_chars: int
+    inserted_chars: int
+    pages: tuple[int, ...]  # номера страниц (0-based) с расхождением
+    first_diff: str
+
+
+@dataclass(frozen=True, slots=True)
 class ValidationReport:
     """Итог проверки обезличенных артефактов ``ValidateAgent``."""
 
@@ -331,3 +352,7 @@ class ValidationReport:
     checked_artifacts: tuple[str, ...]
     checked_parts: tuple[str, ...]
     ok: bool
+    #: Сохранность вёрстки PDF вне замен (план T2.2.2, шаг 4) — пусто для
+    #: прогонов, где ``source`` не передан ``ValidateAgent.validate`` или
+    #: артефакты не PDF.
+    layout: tuple[ArtifactLayout, ...] = ()

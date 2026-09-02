@@ -1,0 +1,172 @@
+{
+  "entities": [
+    {
+      "type": "contract_number",
+      "text": "2025.334807"
+    },
+    {
+      "type": "contract_number",
+      "text": "32515504247-01"
+    },
+    {
+      "type": "org_name",
+      "text": "Муниципальное автономное общеобразовательное учреждение гимназия № 144",
+      "party": "customer"
+    },
+    {
+      "type": "org_name",
+      "text": "МАОУ гимназия №144",
+      "party": "customer"
+    },
+    {
+      "type": "org_name",
+      "text": "МАОУ гимназия № 144",
+      "party": "customer"
+    },
+    {
+      "type": "org_name",
+      "text": "МАОУ гимназии № 144",
+      "party": "customer"
+    },
+    {
+      "type": "org_name",
+      "text": "МУНИЦИПАЛЬНОЕ АВТОНОМНОЕ ОБЩЕОБРАЗОВАТЕЛЬНОЕ УЧРЕЖДЕНИЕ ГИМНАЗИЯ № 144",
+      "party": "customer"
+    },
+    {
+      "type": "person",
+      "text": "Мокина Светлана Владимировна",
+      "party": "customer"
+    },
+    {
+      "type": "person",
+      "text": "Мокиной Светланы Владимировны",
+      "party": "customer"
+    },
+    {
+      "type": "person",
+      "text": "С.В. Мокина",
+      "party": "customer"
+    },
+    {
+      "type": "inn",
+      "text": "6663057404",
+      "party": "customer"
+    },
+    {
+      "type": "ogrn",
+      "text": "1026605615475",
+      "party": "customer"
+    },
+    {
+      "type": "kpp",
+      "text": "668601001",
+      "party": "customer"
+    },
+    {
+      "type": "address",
+      "text": "620088, г. Екатеринбург, ул. Банникова, д. 2",
+      "party": "customer"
+    },
+    {
+      "type": "bik",
+      "text": "016577551",
+      "party": "customer"
+    },
+    {
+      "type": "bank_account",
+      "text": "40102810645370000054",
+      "party": "customer"
+    },
+    {
+      "type": "bank_account",
+      "text": "03234643657010006200",
+      "party": "customer"
+    },
+    {
+      "type": "phone",
+      "text": "+7(343)360-62-27",
+      "party": "customer"
+    },
+    {
+      "type": "phone",
+      "text": "+7(343)360-62-28",
+      "party": "customer"
+    },
+    {
+      "type": "email",
+      "text": "gimnaziya144@eduekb.ru",
+      "party": "customer"
+    },
+    {
+      "type": "org_name",
+      "text": "Общество с Ограниченной Ответственностью «Школьно-базовая столовая № 11»",
+      "party": "contractor"
+    },
+    {
+      "type": "org_name",
+      "text": "ООО «ШБС № 11»",
+      "party": "contractor"
+    },
+    {
+      "type": "org_name",
+      "text": "ШБС № 11",
+      "party": "contractor"
+    },
+    {
+      "type": "person",
+      "text": "Зубрицкой Татьяны Ивановны",
+      "party": "contractor"
+    },
+    {
+      "type": "person",
+      "text": "Зубрицкая Татьяна Ивановна",
+      "party": "contractor"
+    },
+    {
+      "type": "person",
+      "text": "Т.И. Зубрицкая",
+      "party": "contractor"
+    },
+    {
+      "type": "person",
+      "text": "ЗУБРИЦКАЯ ТАТЬЯНА ИВАНОВНА",
+      "party": "contractor"
+    },
+    {
+      "type": "inn",
+      "text": "6686164522",
+      "party": "contractor"
+    },
+    {
+      "type": "ogrn",
+      "text": "1246600058990",
+      "party": "contractor"
+    },
+    {
+      "type": "address",
+      "text": "620091, г. Екатеринбург, ул. Баумана, 25",
+      "party": "contractor"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810910010459307",
+      "party": "contractor"
+    },
+    {
+      "type": "bank_account",
+      "text": "30101810500000000904",
+      "party": "contractor"
+    },
+    {
+      "type": "bik",
+      "text": "046577904",
+      "party": "contractor"
+    },
+    {
+      "type": "email",
+      "text": "emyp11@mail.ru",
+      "party": "contractor"
+    }
+  ]
+}

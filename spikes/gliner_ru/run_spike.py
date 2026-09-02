@@ -731,6 +731,101 @@ def write_report(
     print(f"\nОтчёт: {out_path}", flush=True)
 
 
+NATASHA_TYPES = ["person", "org_name", "location"]
+
+
+def run_natasha_variants(phrases: list[dict[str, Any]]) -> dict[str, Any]:
+    """Три виртуальных прогонa: чистая Natasha, Natasha без постобработки,
+    Natasha + GLiNER (M2) для расширения границ ORG (combo B)."""
+    from natasha_adapter import NatashaGlinerCombo, NatashaOnly, NatashaRaw
+
+    gt_by_phrase = [[s for s in p["spans"] if s["type"] in NATASHA_TYPES] for p in phrases]
+    texts = [p["text"] for p in phrases]
+
+    def _eval_only_natasha_types(preds_by_phrase):
+        # evaluate() пересчитывает по всем TYPES; сохраняем только NATASHA_TYPES.
+        m = evaluate(gt_by_phrase, preds_by_phrase)
+        return {mode: {t: m[mode][t] for t in NATASHA_TYPES} for mode in m}
+
+    runs = []
+
+    def _run(name: str, predictor) -> None:
+        preds = []
+        t0 = time.perf_counter()
+        for text in texts:
+            ents = predictor.predict(text)
+            preds.append([e for e in ents if e["type"] in NATASHA_TYPES])
+        elapsed = (time.perf_counter() - t0) / max(1, len(texts)) * 1000
+        metrics = _eval_only_natasha_types(preds)
+        avg_f1 = sum(metrics["overlap"][t]["f1"] for t in NATASHA_TYPES) / len(NATASHA_TYPES)
+        print(f"  {name}: avg_f1_overlap={avg_f1:.3f} ({elapsed:.0f}ms/фраза)", flush=True)
+        runs.append({"name": name, "metrics": metrics, "inference_ms": round(elapsed, 1)})
+
+    print("\n=== Natasha variants (person/org_name/location) ===", flush=True)
+    _run("NatashaOnly (с постобработкой проекта)", NatashaOnly())
+    _run("NatashaRaw  (без постобработки)", NatashaRaw())
+
+    # combo — нужна GLiNER M2
+    print("  Загружаю GLiNER M2 для combo...", flush=True)
+    from gliner2 import AutoExtractor
+
+    gliner_m2 = AutoExtractor.from_pretrained("fastino/gliner2.5-multi-v1")
+    _run("NatashaGlinerCombo (M2 boundary extension)", NatashaGlinerCombo(gliner_m2))
+
+    return {"runs": runs}
+
+
+def write_natasha_report(
+    phrases: list[dict[str, Any]],
+    natasha_results: dict[str, Any],
+    out_path: Path,
+) -> None:
+    now = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    lines: list[str] = []
+    lines.append(f"# Natasha vs Natasha+GLiNER — сравнение {now}\n")
+    total_spans = sum(len([s for s in p["spans"] if s["type"] in NATASHA_TYPES]) for p in phrases)
+    lines.append(f"- фраз: {len(phrases)}, спанов классa Natasha: {total_spans}\n")
+
+    lines.append("## F1 по типам (overlap, порог модели по умолчанию)\n")
+    lines.append("| Вариант | person | org_name | location | AVG | ms/фраза |")
+    lines.append("|---|---|---|---|---|---|")
+    for run in natasha_results["runs"]:
+        f1s = [run["metrics"]["overlap"][t]["f1"] for t in NATASHA_TYPES]
+        avg = sum(f1s) / len(f1s)
+        row = (
+            f"| {run['name']} | "
+            + " | ".join(f"{x:.3f}" for x in f1s)
+            + f" | {avg:.3f} | {run['inference_ms']:.1f} |"
+        )
+        lines.append(row)
+    lines.append("")
+
+    lines.append("## Precision / Recall / F1 (overlap)\n")
+    lines.append("| Вариант | Type | P | R | F1 | TP | FP | FN |")
+    lines.append("|---|---|---|---|---|---|---|---|")
+    for run in natasha_results["runs"]:
+        for t in NATASHA_TYPES:
+            m = run["metrics"]["overlap"][t]
+            lines.append(
+                f"| {run['name']} | {t} | {m['p']:.3f} | {m['r']:.3f} | "
+                f"{m['f1']:.3f} | {m['tp']} | {m['fp']} | {m['fn']} |"
+            )
+    lines.append("")
+
+    lines.append("## Вывод — что делать в T1.13\n")
+    lines.append("- Если NatashaGlinerCombo обходит NatashaOnly на org_name без сильной")
+    lines.append("  просадки person/location — combo B оправдан. Ставим GLiNER-Detector")
+    lines.append("  рядом с Natasha, post-processor расширяет её ORG-границы.")
+    lines.append("- Если NatashaRaw >> NatashaOnly — постобработка сама себе злая, чинить")
+    lines.append("  её прежде, чем строить combo.")
+    lines.append("- Если NatashaOnly >= NatashaGlinerCombo — combo не нужен, оставляем")
+    lines.append("  Natasha как есть, GLiNER только для пользовательских типов T1.13.")
+    lines.append("")
+
+    out_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"Отчёт Natasha comparison: {out_path}", flush=True)
+
+
 def main() -> int:
     try:
         import torch
@@ -750,6 +845,16 @@ def main() -> int:
     ts = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H%M%SZ")
     out_path = results_dir / f"{ts}.md"
     write_report(phrases, results, out_path)
+
+    # Дополнительный прогон: сравнение Natasha alone vs combo B
+    try:
+        natasha_results = run_natasha_variants(phrases)
+        natasha_out = results_dir / f"{ts}-natasha.md"
+        write_natasha_report(phrases, natasha_results, natasha_out)
+    except Exception as e:
+        print(f"Natasha comparison пропущено: {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
+
     return 0
 
 

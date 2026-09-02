@@ -42,4 +42,4 @@ def group_key(entity: Entity) -> str:
     normalized = normalize_value(entity.type, entity.text)
     if not normalized:
         normalized = f"{_RAW_PREFIX}{entity.text.casefold()}"
-    return f"{entity.type.value}:{normalized}"
+    return f"{entity.type}:{normalized}"

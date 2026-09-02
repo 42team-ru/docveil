@@ -228,7 +228,7 @@ def _overlaps(a: Entity, b: Entity) -> bool:
 
 def resolve_overlaps(found: Iterable[Entity]) -> list[Entity]:
     """Убрать пересечения по приоритету типов, затем по длине."""
-    rank = {t: i for i, t in enumerate(PRIORITY)}
+    rank: dict[str, int] = {t: i for i, t in enumerate(PRIORITY)}
     ordered = sorted(
         found,
         key=lambda e: (rank.get(e.type, len(PRIORITY)), -(e.end - e.start), e.start),
@@ -298,7 +298,7 @@ class RuleDetector:
     name = "rules"
     source = Source.RULE
     priority = 100
-    types = frozenset(PATTERNS)
+    types: frozenset[str] = frozenset(PATTERNS)
 
     def detect(self, document: Document) -> list[Entity]:
         """Найти формальные сущности с checksum-валидацией."""

@@ -37,7 +37,7 @@ def _entity_record(
 ) -> dict[str, Any]:
     segment = document.segments[entity.segment_order]
     record: dict[str, Any] = {
-        "type": entity.type.value,
+        "type": entity.type,
         "text": entity.text,
         "normalized": entity.normalized,
         "source": entity.source.value,
@@ -111,13 +111,13 @@ def _annotate_chunk(text: str, chunk: PiiChunk) -> str:
     for entity in sorted(chunk.entities, key=lambda item: item.start, reverse=True):
         start = entity.start - chunk.start
         end = entity.end - chunk.start
-        replacement = f"⟦{entity.type.value.upper()}:{value[start:end]}⟧"
+        replacement = f"⟦{entity.type.upper()}:{value[start:end]}⟧"
         value = value[:start] + replacement + value[end:]
     return value
 
 
 def _summary(entities: list[Entity]) -> dict[str, Any]:
-    by_type = Counter(entity.type.value for entity in entities)
+    by_type = Counter(entity.type for entity in entities)
     by_source = Counter(entity.source.value for entity in entities)
     return {
         "entities_total": len(entities),
@@ -172,7 +172,7 @@ def _plan_record(plan: MaskPlan) -> dict[str, Any]:
             {
                 "id": group.id,
                 "marker": group.marker,
-                "type": group.type.value,
+                "type": group.type,
                 "profile_id": group.profile_id,
                 "ref_count": len(group.refs),
                 "sample": group.sample,

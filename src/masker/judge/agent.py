@@ -56,7 +56,7 @@ class JudgeAgent:
         for item in raw:
             entity = item[0]
             if not is_critical(entity.type) and item[3] < self._ask_below:
-                key = f"{entity.type.value}:{entity.normalized or entity.text.casefold()}"
+                key = f"{entity.type}:{entity.normalized or entity.text.casefold()}"
                 groups.setdefault(key, []).append(item)
         questions: list[Question] = []
         question_for_ref: dict[str, str] = {}
@@ -68,7 +68,7 @@ class JudgeAgent:
                 id=question_id,
                 kind="entity",
                 key=key,
-                prompt=f"Маскировать «{first.text}» как {first.type.value}?",
+                prompt=f"Маскировать «{first.text}» как {first.type}?",
                 options=(MASK_OPTION, KEEP_OPTION),
                 default=MASK_OPTION,
                 refs=tuple(item[1] for item in items),

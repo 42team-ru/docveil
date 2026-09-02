@@ -7,7 +7,7 @@ from masker.model import Entity
 
 def entity_sort_key(entity: Entity) -> tuple[int, int, int, str]:
     """Порядок сущностей в тексте, независимый от порядка входного списка."""
-    return (entity.segment_order, entity.start, entity.end, entity.type.value)
+    return (entity.segment_order, entity.start, entity.end, entity.type)
 
 
 class EntityIndex:

@@ -163,7 +163,7 @@ class OrgFormDetector:
     name = "org_form"
     source = Source.RULE
     priority = 60
-    types = frozenset({EntityType.ORG_NAME})
+    types: frozenset[str] = frozenset({EntityType.ORG_NAME})
 
     def detect(self, document: Document) -> list[Entity]:
         pattern = _form_pattern()

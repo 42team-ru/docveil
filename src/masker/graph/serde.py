@@ -10,7 +10,6 @@ from masker.model import (
     Anchor,
     Decision,
     Entity,
-    EntityType,
     MaskGroup,
     MaskPlan,
     PolicyQuestion,
@@ -34,7 +33,7 @@ def anchor_from_dict(data: dict[str, Any]) -> Anchor:
 
 def entity_to_dict(entity: Entity) -> dict[str, Any]:
     return {
-        "type": entity.type.value,
+        "type": entity.type,
         "text": entity.text,
         "segment_order": entity.segment_order,
         "start": entity.start,
@@ -47,7 +46,7 @@ def entity_to_dict(entity: Entity) -> dict[str, Any]:
 
 def entity_from_dict(data: dict[str, Any]) -> Entity:
     return Entity(
-        EntityType(str(data["type"])),
+        str(data["type"]),
         str(data["text"]),
         int(data["segment_order"]),
         int(data["start"]),
@@ -293,7 +292,7 @@ def _mask_group_to_dict(item: MaskGroup) -> dict[str, Any]:
     return {
         "id": item.id,
         "key": item.key,
-        "type": item.type.value,
+        "type": item.type,
         "marker": item.marker,
         "profile_id": item.profile_id,
         "role_label": item.role_label,
@@ -307,7 +306,7 @@ def _mask_group_from_dict(data: dict[str, Any]) -> MaskGroup:
     return MaskGroup(
         id=str(data["id"]),
         key=str(data["key"]),
-        type=EntityType(str(data["type"])),
+        type=str(data["type"]),
         marker=str(data["marker"]),
         profile_id=str(data["profile_id"]),
         role_label=str(data["role_label"]),
@@ -318,12 +317,12 @@ def _mask_group_from_dict(data: dict[str, Any]) -> MaskGroup:
 
 
 def _skipped_ref_to_dict(item: SkippedRef) -> dict[str, Any]:
-    return {"ref": item.ref, "type": item.type.value, "reason": item.reason}
+    return {"ref": item.ref, "type": item.type, "reason": item.reason}
 
 
 def _skipped_ref_from_dict(data: dict[str, Any]) -> SkippedRef:
     return SkippedRef(
-        ref=str(data["ref"]), type=EntityType(str(data["type"])), reason=str(data["reason"])
+        ref=str(data["ref"]), type=str(data["type"]), reason=str(data["reason"])
     )
 
 

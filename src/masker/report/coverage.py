@@ -121,9 +121,9 @@ def detection_coverage(
     active_types = {entity_type for item in detector.detectors for entity_type in item.types}
     available_types = active_types | NatashaDetector.types
     return {
-        "requested_types": sorted(entity_type.value for entity_type in selected_types),
-        "active_detector_types": sorted(entity_type.value for entity_type in active_types),
+        "requested_types": sorted(str(entity_type) for entity_type in selected_types),
+        "active_detector_types": sorted(str(entity_type) for entity_type in active_types),
         "requested_without_detector": sorted(
-            entity_type.value for entity_type in selected_types - available_types
+            str(entity_type) for entity_type in selected_types - available_types
         ),
     }

@@ -51,6 +51,7 @@ class Source(StrEnum):
     RULE = "rule"  # регулярка + контрольная сумма
     NER = "ner"  # локальная модель
     LLM = "llm"  # арбитр
+    USER = "user"  # пользовательский детектор (custom types, T1.13)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +80,7 @@ class Segment:
 class Entity:
     """Найденная сущность: что, где, кем найдено, насколько уверенно."""
 
-    type: EntityType
+    type: str  # id из EntityTypeRegistry; встроенные перечислены в EntityType
     text: str  # исходное значение как в документе
     segment_order: int
     start: int  # смещения внутри Segment.text, [start, end)
@@ -161,7 +162,7 @@ class Question:
     anchors: tuple[Anchor, ...]
 
 
-def is_critical(entity_type: EntityType) -> bool:
+def is_critical(entity_type: str) -> bool:
     """Вернуть, относится ли тип к типам, которые маскируются без вопроса."""
     return entity_type in CRITICAL_TYPES
 
@@ -257,7 +258,7 @@ class MaskGroup:
 
     id: str  # "G1", по порядку первого вхождения в документе
     key: str  # ключ согласованности, см. mask/keys.py::group_key
-    type: EntityType
+    type: str  # id из EntityTypeRegistry
     marker: str  # "[ПОСТАВЩИК-ИНН-2]"
     profile_id: str  # "" — сущность без профиля
     role_label: str  # "ПОСТАВЩИК" | "СТОРОНА-2" | "" (без профиля)
@@ -271,7 +272,7 @@ class Replacement:
     """Одна замена: что, где, на что.
 
     Поля ``entity`` и ``marker`` — контракт, на который уже написан
-    ``eval.py`` (``result.replacements``, ``repl.entity.type.value``,
+    ``eval.py`` (``result.replacements``, ``repl.entity.type``,
     ``repl.entity.text``): переименовывать их нельзя, иначе сломается ещё
     не подключённая метрика.
     """
@@ -289,7 +290,7 @@ class SkippedRef:
     """Сущность, не попавшая в план, и почему."""
 
     ref: str
-    type: EntityType
+    type: str  # id из EntityTypeRegistry
     reason: str  # "type_not_requested" | "kept" | "no_anchor"
 
 

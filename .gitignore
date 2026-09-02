@@ -2,13 +2,15 @@
 # Главная опасность этого проекта: случайно закоммитить реальный договор
 # с живыми ИНН, счетами и паспортами. Каталоги для реальных документов
 # игнорируются целиком; в репозиторий попадает только синтетика с разметкой
-# из fixtures/labeled/.
-fixtures/real/
-fixtures/private/
-fixtures/incoming/
+# из fixtures/labeled/. Фикстуры лежат в backend/fixtures/, поэтому правила
+# не привязаны к корню (**/) — иначе backend/fixtures/real/ не игнорировался бы.
+**/fixtures/real/
+**/fixtures/private/
+**/fixtures/incoming/
 /data/
-!fixtures/labeled/
-!fixtures/labeled/**
+backend/data/
+!**/fixtures/labeled/
+!**/fixtures/labeled/**
 
 # ─── Секреты ──────────────────────────────────────────────────────────────
 .env
@@ -20,12 +22,15 @@ credentials.yaml
 secrets.yaml
 gigachat_*.key
 *.pem
+backend/masker.llm.local.yaml
 
 # ─── Результаты работы пайплайна ──────────────────────────────────────────
 # Обезличенные документы и отчёты воспроизводятся из fixtures командой make demo.
 /out/
 /output/
-spikes/out/
+backend/out/
+backend/output/
+**/spikes/out/
 *.masked.docx
 *.masked.xlsx
 *.masked.pdf
@@ -35,6 +40,7 @@ spikes/out/
 *.sqlite3
 *.db
 /checkpoints/
+backend/checkpoints/
 .langgraph_api/
 
 # ─── Python ───────────────────────────────────────────────────────────────
@@ -45,6 +51,8 @@ __pycache__/
 .Python
 /build/
 /dist/
+backend/build/
+backend/dist/
 *.egg-info/
 .eggs/
 wheels/
@@ -71,6 +79,7 @@ coverage.xml
 # ─── Модели и кеши распознавания ──────────────────────────────────────────
 # Веса Natasha и промежуточные изображения OCR: большие, скачиваются заново.
 /models/
+backend/models/
 *.tar
 *.navec
 *.slovnet

@@ -1,0 +1,30 @@
+# Виртуальное окружение и кеши инструментов — пересобираются в образе.
+.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Секреты и локальные оверрайды.
+.env
+.env.*
+!.env.example
+masker.llm.local.yaml
+
+# Не нужно в рантайме: тесты, фикстуры, spikes, результаты прогонов.
+tests/
+fixtures/
+spikes/
+out/
+output/
+
+# Состояние графа/сессий.
+*.sqlite
+*.sqlite3
+*.db
+checkpoints/
+
+# Прочее.
+*.log
+.DS_Store

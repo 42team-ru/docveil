@@ -12,6 +12,20 @@
 Полная постановка — `docs/BRIEF.md`. Архитектура и контракты — `ARCHITECTURE.md`.
 Задачи с критериями приёмки — `TASKS.md`.
 
+## Раскладка репозитория
+
+Весь Python живёт в `backend/` (`src/`, `tests/`, `migrations/`, `spikes/`,
+`fixtures/`, `pyproject.toml`, `uv.lock`, `alembic.ini`, `Dockerfile`).
+Веб-интерфейс — в `frontend/` (пока только каркас). В корне остались общие
+документы, `docker-compose.yml`, обёртки агентов (`scripts/codex.sh`,
+`scripts/dsh.sh`) и тонкий `Makefile`.
+
+Корневой `Makefile` проксирует питон-цели в `backend/Makefile`
+(`make gate`, `make test`, …) и сам держит инфраструктуру
+(`make up/down/logs/db-shell`). Пути в тексте ниже даны относительно
+`backend/`, если не сказано иное; `make` можно звать как из корня, так и
+из `backend/`.
+
 ## Движок
 
 Пайплайн целиком собран на **LangGraph**. Логика живёт в узлах графа,
@@ -47,9 +61,10 @@ make eval      # метрики precision/recall по размеченному �
 make demo      # прогон на fixtures/labeled/*, результат в out/
 ```
 
-Питон только из `.venv`: `.venv/bin/python`. Пакеты ставить через
-`uv pip install --python .venv/bin/python <pkg>` и сразу дописывать в
-`pyproject.toml`.
+Питон только из `.venv`: `backend/.venv/bin/python` (из `backend/` —
+`.venv/bin/python`). Пакеты ставить через
+`uv pip install --python .venv/bin/python <pkg>` из `backend/` и сразу
+дописывать в `backend/pyproject.toml`.
 
 ## Агенты
 

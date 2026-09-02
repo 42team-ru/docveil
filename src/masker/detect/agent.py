@@ -14,6 +14,7 @@ from masker.detect.orgforms import (
     shrink_span,
 )
 from masker.detect.result import DetectionResult, build_pii_chunks
+from masker.detect.sweep import sweep
 from masker.model import Document, Entity, EntityType, Source
 
 MIN_FRAGMENT_LEN = 2
@@ -159,12 +160,21 @@ class DetectAgent:
         )
 
     def detect(self, document: Document) -> DetectionResult:
-        """Запустить детекторы и вернуть проверенный, объединённый результат."""
+        """Запустить детекторы и вернуть проверенный, объединённый результат.
+
+        Сквозной досмотр (``sweep``, план T2.2.2, шаг 8, Д13) — последний
+        проход, после разрешения перекрытий: расширяет уже принятые
+        значения по всему документу, а не ищет новые типы сущностей.
+        """
         found: list[tuple[EntityDetector, Entity]] = []
         for detector in self._detectors:
             entities = detector.detect(document)
             self._validate(detector, document, entities)
             found.extend((detector, entity) for entity in entities)
         entities = self._resolve_overlaps(found)
+        entities = sorted(
+            [*entities, *sweep(document, entities)],
+            key=lambda item: (item.segment_order, item.start, item.end, item.type.value),
+        )
         chunks = build_pii_chunks(document.segments, entities)
         return DetectionResult(entities=entities, chunks=chunks)

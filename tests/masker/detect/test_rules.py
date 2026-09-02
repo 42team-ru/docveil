@@ -144,7 +144,16 @@ def test_overlaps_resolution_priority() -> None:
 
 
 def test_golden_snapshot_contract_01() -> None:
-    """Общий нормализатор не изменил контракт слоя правил."""
+    """Общий нормализатор не изменил контракт слоя правил.
+
+    Первая запись — `contract_number` из шага 10 плана T2.2.1 (Д6):
+    `document.segments[0].text == "ДОГОВОР ПОСТАВКИ № 44/2026"`, триггер
+    «ДОГОВОР» слева от «№», тело «44/2026» без самого «№». Реальный номер
+    договора в тексте — не значение из `contract_01.labels.json`
+    (`"ДП-2024/117"`, которого в документе не встречается ни разу) —
+    расхождение разметки и текста существовало до этого шага и им не
+    введено; отдельная находка, не эта задача.
+    """
     root = Path(__file__).resolve().parents[3]
     document = ingest_docx(root / "fixtures/labeled/contract_01.docx")
 
@@ -154,6 +163,7 @@ def test_golden_snapshot_contract_01() -> None:
     ]
 
     assert actual == [
+        (EntityType.CONTRACT_NUMBER, "44/2026", 0, 19, 26, "44/2026"),
         (EntityType.INN, "3662103003", 2, 35, 45, "3662103003"),
         (EntityType.KPP, "366201001", 2, 51, 60, "366201001"),
         (EntityType.OGRN, "1023601546902", 2, 67, 80, "1023601546902"),
@@ -186,6 +196,90 @@ def test_real_phones_still_detected() -> None:
     assert any("8-910-347-51-07" in e.text for e in phones)
 
 
+def test_treasury_bik_wins_over_kpp() -> None:
+    """Д8, план T2.2.1: `016577551` — казначейский БИК, а не КПП.
+
+    Формат совпадает с обоими типами (девять цифр), но `PRIORITY` ставит
+    BIK выше KPP, а без метки «КПП»/ИНН рядом KPP-кандидат вообще не
+    выпускается — победитель однозначен.
+    """
+    segments = [
+        Segment(
+            text="БИК 016577551",
+            anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+            order=0,
+        ),
+    ]
+
+    entities = detect_by_rules(segments)
+
+    assert len(entities) == 1
+    assert entities[0].type is EntityType.BIK
+    assert entities[0].text == "016577551"
+
+
+def test_account_is_kept_when_valid_bik_is_in_same_segment() -> None:
+    """Регрессия под Р9 (план T2.2.1, риск шага 8): когда БИК и счёт
+    окажутся в одном сегменте (после будущего укрупнения сегментов PDF),
+    казначейский счёт не должен пропасть из-за старой болезни ключа (Д8) —
+    до шага 4 он был бы отброшен, потому что `near` уже не пуст, а старый
+    `is_valid_account` считал его недействительным."""
+    segments = [
+        Segment(
+            text="БИК 016577551 р/с 03234643657010006200",
+            anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+            order=0,
+        ),
+    ]
+
+    entities = detect_by_rules(segments)
+
+    accounts = [e for e in entities if e.type is EntityType.BANK_ACCOUNT]
+    assert len(accounts) == 1
+    assert accounts[0].text == "03234643657010006200"
+    assert accounts[0].confidence == 1.0
+
+
+def test_kpp_requires_label_or_inn_context() -> None:
+    """КПП перестаёт быть пылесосом (Д8, план T2.2.1, шаг 4)."""
+    # Голое девятизначное число из таблицы питания — не КПП.
+    no_context = [
+        Segment(
+            text="101260292",
+            anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+            order=0,
+        ),
+    ]
+    assert not any(e.type is EntityType.KPP for e in detect_by_rules(no_context))
+
+    # Метка «КПП» вплотную — выпускается.
+    with_label = [
+        Segment(
+            text="КПП: 668601001",
+            anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+            order=0,
+        ),
+    ]
+    kpps = [e for e in detect_by_rules(with_label) if e.type is EntityType.KPP]
+    assert len(kpps) == 1
+    assert kpps[0].text == "668601001"
+
+
+def test_kpp_accepted_via_valid_inn_in_same_segment_without_label() -> None:
+    """Второй путь принятия КПП — валидный ИНН рядом, метка не обязательна."""
+    segments = [
+        Segment(
+            text="6663057404 668601001",
+            anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+            order=0,
+        ),
+    ]
+
+    kpps = [e for e in detect_by_rules(segments) if e.type is EntityType.KPP]
+    assert len(kpps) == 1
+    assert kpps[0].text == "668601001"
+
+
 def test_landline_phone_without_country_code() -> None:
     """Городской номер в формате (код) XXX-XX-XX без +7/8 должен детектироваться."""
     segments = [
@@ -198,3 +292,79 @@ def test_landline_phone_without_country_code() -> None:
     phones = [e for e in detect_by_rules(segments) if e.type == EntityType.PHONE]
     assert len(phones) == 1
     assert "(812) 411-11-22" in phones[0].text
+
+
+# ---------------------------------------------------------------------------
+# Номер договора/закупки: контекстное правило без контрольной суммы (Д6).
+# ---------------------------------------------------------------------------
+
+
+def test_contract_number_double_space() -> None:
+    """Реальная строка со страницы 1 `contract_pdf_02_school.pdf`: два
+    пробела между «№» и телом номера, триггер «закупочной» слева."""
+    segments = [
+        Segment(
+            text=(
+                "во исполнение протокола закупочной комиссии от 24.12.2025г. "
+                "№  32515504247-01, заключили настоящий договор"
+            ),
+            anchor=Anchor(fmt="pdf", locator=("page", 0, 0, 10)),
+            order=0,
+        ),
+    ]
+    numbers = [e for e in detect_by_rules(segments) if e.type is EntityType.CONTRACT_NUMBER]
+    assert len(numbers) == 1
+    assert numbers[0].text == "32515504247-01"
+
+
+def test_contract_number_zero_space() -> None:
+    """Реальная строка футера `contract_pdf_02_school.pdf`: «№» вплотную
+    к телу номера, без пробела, триггер «Договор» слева."""
+    segments = [
+        Segment(
+            text='Документ подписан на ЭП "РТС-тендер" Договор №2025.334807 Страница 5 из 44',
+            anchor=Anchor(fmt="pdf", locator=("page", 0, 0, 10)),
+            order=0,
+        ),
+    ]
+    numbers = [e for e in detect_by_rules(segments) if e.type is EntityType.CONTRACT_NUMBER]
+    assert len(numbers) == 1
+    assert numbers[0].text == "2025.334807"
+
+
+def test_contract_number_requires_trigger() -> None:
+    """Без триггера слева «№ + число» не становится номером договора —
+    иначе номер гимназии и номер приложения тоже стали бы contract_number."""
+    segments = [
+        Segment(
+            text="Муниципальное автономное учреждение гимназия № 144",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+        Segment(
+            text="Техническое задание (приложение № 1) прилагается",
+            anchor=Anchor(fmt="docx", locator=("body", 1), label=""),
+            order=1,
+        ),
+        Segment(
+            text="Товар соответствует требованиям ТР ТС 021/2011",
+            anchor=Anchor(fmt="docx", locator=("body", 2), label=""),
+            order=2,
+        ),
+    ]
+    numbers = [e for e in detect_by_rules(segments) if e.type is EntityType.CONTRACT_NUMBER]
+    assert numbers == []
+
+
+def test_contract_number_short_body_is_not_enough_even_with_trigger() -> None:
+    """Тело короче пяти символов не становится номером договора, даже
+    рядом с триггером — «гимназия» здесь намеренно не единственная защита."""
+    segments = [
+        Segment(
+            text="Договор № 5 вступает в силу",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+    numbers = [e for e in detect_by_rules(segments) if e.type is EntityType.CONTRACT_NUMBER]
+    assert numbers == []

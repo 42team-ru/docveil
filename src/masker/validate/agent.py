@@ -39,9 +39,10 @@ from masker.detect.agent import DetectAgent
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.mask.keys import group_key
-from masker.model import Document, Leak, MaskPlan, ValidationReport
+from masker.model import ArtifactLayout, Document, Leak, MaskPlan, ValidationReport
 from masker.refs import entity_sort_key
 from masker.validate.parts import DocPart, docx_parts, pdf_parts
+from masker.validate.pdf_layout import artifact_layout
 
 
 def _collapse(value: str) -> str:
@@ -128,6 +129,8 @@ class ValidateAgent:
         self,
         plan: MaskPlan,
         artifacts: Sequence[Path],
+        *,
+        source: Path | None = None,
     ) -> ValidationReport:
         """Проверить перечисленные артефакты на утечки значений из `plan`.
 
@@ -137,13 +140,22 @@ class ValidateAgent:
         (решение «оставить», незапрошенный тип, новая находка), никогда не
         формирует группу плана и поэтому естественным образом попадает в
         `residual` без дополнительного параметра-фильтра.
+
+        ``source`` — путь к исходному документу (план T2.2.2, шаг 4):
+        нужен только для ``ArtifactLayout`` (сохранность текстового слоя
+        PDF вне замен) и опционален — без него ``layout`` в отчёте пуст, а
+        не падает. Считается только для артефактов и источника с
+        расширением ``.pdf``: DOCX не редактируется вырезанием глифов по
+        прямоугольнику, там нет геометрии, которую можно перепутать.
         """
         leaked: list[Leak] = []
         residual: list[Leak] = []
         checked_parts: list[str] = []
+        layout: list[ArtifactLayout] = []
 
         group_id_by_key: dict[str, str] = {group.key: group.id for group in plan.groups}
         markers = tuple(group.marker for group in plan.groups)
+        source_is_pdf = source is not None and source.suffix.lower() == ".pdf"
 
         for artifact in artifacts:
             fmt, parts = _artifact_parts(artifact)
@@ -155,12 +167,17 @@ class ValidateAgent:
             leaked.extend(hard)
             residual.extend(soft)
 
+            if fmt == "pdf" and source_is_pdf:
+                assert source is not None  # source_is_pdf гарантирует не-None
+                layout.append(artifact_layout(source, artifact, plan, markers=markers))
+
         return ValidationReport(
             leaked=_sorted_unique(leaked),
             residual=_sorted_unique(residual),
             checked_artifacts=tuple(artifact.name for artifact in artifacts),
             checked_parts=tuple(sorted(set(checked_parts))),
             ok=not leaked,
+            layout=tuple(layout),
         )
 
     def _search_values(

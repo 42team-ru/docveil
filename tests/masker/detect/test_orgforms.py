@@ -1,11 +1,27 @@
+from masker.detect.ner import NatashaDetector
 from masker.detect.orgforms import (
     expand_org_span,
     fix_person_initials,
+    is_organization_form_only,
     is_public_body,
     is_role_stopword,
     org_forms,
     shrink_span,
 )
+from masker.model import Anchor, Document, EntityType, Segment
+
+
+def _org_names(text: str) -> list[str]:
+    document = Document(
+        path="x.pdf",
+        fmt="pdf",
+        segments=[Segment(text=text, anchor=Anchor(fmt="pdf", locator=("page", 0)), order=0)],
+    )
+    return [
+        entity.text
+        for entity in NatashaDetector().detect(document)
+        if entity.type is EntityType.ORG_NAME
+    ]
 
 
 def test_full_form_expanded() -> None:
@@ -112,3 +128,67 @@ def test_public_body_is_dropped_without_prefix_collisions() -> None:
 def test_person_initial_gets_trailing_dot() -> None:
     text = "ИП Сидоров С.С."
     assert fix_person_initials(text, 3, len(text) - 1) == (3, len(text))
+
+
+# ---------------------------------------------------------------------------
+# Границы ORG вправо, в кавычки после оргформы (план T2.2.1, шаг 5, Д5).
+# ---------------------------------------------------------------------------
+
+
+def test_org_span_expands_right_into_quoted_name() -> None:
+    """Модель отдаёт только форму и обрывается ровно перед открывающей
+    кавычкой с названием (реальный обрыв Natasha со страницы 1: спан
+    `'Ограниченной Ответственностью'`, без ведущего «Общество с» и без
+    названия справа) — спан обязан продлиться вправо до конца названия."""
+    text = "и Общество с Ограниченной Ответственностью «Вектор», зарегистрированное в ЕГРЮЛ."
+    start = text.index("Ограниченной")
+    end = start + len("Ограниченной Ответственностью")
+    assert expand_org_span(text, start, end) == (
+        start,
+        text.index("«Вектор»") + len("«Вектор»"),
+    )
+
+
+def test_org_span_stops_at_first_closing_quote() -> None:
+    """«Ближайшая» закрывающая кавычка обязательна: иначе `ООО «X»,
+    именуемое в дальнейшем «Потребитель»` схлопнется в один спан. Модель
+    отдаёт только аббревиатуру («ООО»), без кавычек вовсе — ровно тот
+    случай, когда расширение вправо обязано найти название само."""
+    text = "ООО «X», именуемое в дальнейшем «Потребитель», заключило договор."
+    assert expand_org_span(text, 0, len("ООО")) == (0, len("ООО «X»"))
+
+
+def test_org_form_without_name_is_dropped() -> None:
+    """Формы, которые Natasha возвращает отдельным спаном без имени
+    (`Ограниченной Ответственностью`, `Муниципальное автономное
+    общеобразовательное учреждение`), не несут ПДн, если справа нет
+    названия — их обязана отбрасывать `is_organization_form_only`."""
+    assert is_organization_form_only("Ограниченной Ответственностью")
+    assert is_organization_form_only("Муниципальное автономное общеобразовательное учреждение")
+    assert not is_organization_form_only("Ограниченной Ответственностью «Вектор»")
+
+
+def test_org_span_recovers_full_name_on_real_pdf_page_blocks() -> None:
+    """Регрессия на реальном документе (`contract_pdf_02_school.pdf`,
+    страницы 1, 27, 36): строки блока склеены одним пробелом — так, как их
+    отдаст `page_chars` после шага 8, — и на всех трёх текст ЕГРЮЛ-формы
+    сходится с полным названием, а не обрывается на форме."""
+    page_blocks = {
+        1: (
+            "и Общество с  Ограниченной Ответственностью «Школьно-базовая "
+            "столовая № 11»  , в лице Директора Зубрицкой Татьяны."
+        ),
+        27: (
+            "с одной стороны,  и Общество с Ограниченной Ответственностью "
+            "«Школьно-базовая столовая № 11», в лице Директора Зубрицкой."
+        ),
+        36: (
+            "с одной стороны, и Общество с Ограниченной Ответственностью "
+            "«Школьно-базовая  столовая № 11», именуемое в дальнейшем "
+            "«Потребитель», в лице Директора Зубрицкой Татьяны Ивановны."
+        ),
+    }
+    expected = "Общество с Ограниченной Ответственностью «Школьно-базовая столовая № 11»"
+    for page, text in page_blocks.items():
+        orgs = [" ".join(value.split()) for value in _org_names(text)]
+        assert expected in orgs, f"страница {page}: {orgs!r}"

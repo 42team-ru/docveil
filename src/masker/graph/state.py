@@ -47,6 +47,10 @@ class State(TypedDict, total=False):
     validation: dict[str, Any]
     #: Утечки (``dataclasses.asdict(Leak)``) — данные, не исключение, раздел 5 плана T1.10.
     leaked: list[dict[str, Any]]
+    #: Спуски по лестнице отступления маркера PDF (план T2.2.1, пачка 5):
+    #: узкое поле не вместило полный маркер, показана короткая метка типа
+    #: или прямоугольник вовсе без текста — не падение, факт для отчёта.
+    render_degradations: list[dict[str, Any]]
     #: Итоговая структура report.json, собранная узлом ``report`` — раздел 7 плана T1.10.
     #: Без абсолютных путей: ``artifacts[].path`` сюда не попадает.
     report: dict[str, Any]

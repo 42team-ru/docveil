@@ -12,11 +12,16 @@ import zipfile
 from pathlib import Path
 
 from masker.cli import main
+from masker.eval import duplicate_marker_count
+from masker.model import MaskPlan
 
 ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
 )
 FIXTURE = ROOT / "fixtures" / "labeled" / "contract_01.docx"
+#: PDF-фикстура для шага 11 плана T2.2.1 — меньше `contract_pdf_02_school.pdf`,
+#: детерминизм/идемпотентность не зависят от размера документа.
+PDF_FIXTURE = ROOT / "fixtures" / "labeled" / "contract_pdf_01.pdf"
 
 
 def _full_run(out: Path, *, fresh: bool) -> tuple[bytes, bytes]:
@@ -137,3 +142,51 @@ def test_idempotent_second_pass_on_masked_document(tmp_path: Path) -> None:
         assert once.namelist() == twice.namelist()
         for name in once.namelist():
             assert once.read(name) == twice.read(name), name
+
+
+# ── шаг 11 плана T2.2.1: идемпотентность и детерминизм на PDF ─────────────────
+
+
+def test_pdf_report_is_byte_identical_across_runs(tmp_path: Path) -> None:
+    """Два прогона PDF-фикстуры дают побайтово одинаковый ``report.json``.
+
+    Переход на сегмент=блок (шаг 8) и локализацию рендера по символьным
+    смещениям (шаг 9) не имеет права внести недетерминизм — риск явно
+    назван в плане («by_page … зафиксировать явной сортировкой по
+    (page, char_start), а не полагаться на dict»).
+    """
+    out_first = tmp_path / "first"
+    out_second = tmp_path / "second"
+    args = [str(PDF_FIXTURE), "--redact-style", "marker", "--profile", "--types", "all"]
+    assert main([*args, "--out", str(out_first)]) == 0
+    assert main([*args, "--out", str(out_second)]) == 0
+
+    report_first = (out_first / PDF_FIXTURE.stem / "report.json").read_bytes()
+    report_second = (out_second / PDF_FIXTURE.stem / "report.json").read_bytes()
+    assert report_first == report_second
+
+
+def test_pdf_second_pass_changes_nothing(tmp_path: Path) -> None:
+    """Инвариант идемпотентности на PDF: повторный прогон по уже
+    обезличенному ``masked_black.pdf`` не находит ни одной сущности типов
+    первого прохода — маркеры (или короткие метки лестницы отступления,
+    пачка 5) не похожи на исходные ПДн, значит второй проход не должен
+    ничего переписывать.
+    """
+    args = ["--types", "all", "--redact-style", "blackbox", "--profile"]
+    first_out = tmp_path / "first"
+    assert main([str(PDF_FIXTURE), "--out", str(first_out), *args]) == 0
+    masked = first_out / PDF_FIXTURE.stem / "masked_black.pdf"
+
+    second_out = tmp_path / "second"
+    assert main([str(masked), "--out", str(second_out), *args]) == 0
+    report = json.loads((second_out / masked.stem / "report.json").read_text(encoding="utf-8"))
+
+    assert report["entity_count"] == 0, f"второй проход нашёл сущности: {report['entities']}"
+    assert report["plan"]["groups"] == []
+    assert report["plan"]["skipped"]["count"] == 0
+
+    # duplicate_markers == 0 на втором прогоне: пустой план (нет ни одной
+    # группы — уже проверено строкой выше) не может дать дубль маркера.
+    empty_plan = MaskPlan(replacements=(), groups=(), skipped=(), requested_types=())
+    assert duplicate_marker_count(empty_plan, (masked,)) == 0

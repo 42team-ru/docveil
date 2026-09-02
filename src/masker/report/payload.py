@@ -199,7 +199,9 @@ def _validation_record(report: ValidationReport) -> dict[str, Any]:
     ``checked_parts``, счётчики. Полный список ``residual`` намеренно не
     дублируется здесь: он не провал прогона и не относится к тому, что
     ``TASKS.md``/``T1.9`` называют по имени (``leaked`` — единственный
-    список, обязанный быть top-level ключом).
+    список, обязанный быть top-level ключом). ``layout`` — сохранность
+    вёрстки PDF вне замен (план T2.2.2, шаг 4), пуст для DOCX и для
+    прогонов без переданного ``source``.
     """
     return {
         "status": "checked",
@@ -208,6 +210,7 @@ def _validation_record(report: ValidationReport) -> dict[str, Any]:
         "checked_parts": list(report.checked_parts),
         "leaked_count": len(report.leaked),
         "residual_count": len(report.residual),
+        "layout": [dataclasses.asdict(item) for item in report.layout],
     }
 
 

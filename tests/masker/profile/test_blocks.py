@@ -97,6 +97,10 @@ def test_contract_01_blocks_keep_labels_on_own_heading() -> None:
 
     labeled = {block.id: block.label for block in blocks if block.entities}
     assert labeled == {
+        # "ДОГОВОР ПОСТАВКИ № 44/2026" (сегмент 0) — план T2.2.1, шаг 10:
+        # contract_number раньше не детектировался вовсе, блок B1 был без
+        # сущностей и в этот словарь не попадал.
+        "B1": "",
         "B2": "поставщик",
         "B3": "покупатель",
         "B4": "поставщик",

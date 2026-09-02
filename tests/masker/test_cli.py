@@ -365,6 +365,8 @@ def test_cli_requires_explicit_consent_for_remote_pii(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("rules_only", [False, True])
 def test_detection_coverage_follows_detector_set(tmp_path: Path, rules_only: bool) -> None:
+    """`contract_number` ушёл из списка (план T2.2.1, шаг 10, Д6): тип
+    объявлен, доезжает до отчёта и теперь детектируется — `detect/rules.py`."""
     args = [str(FIXTURE), "--out", str(tmp_path), "--types", "all"]
     if rules_only:
         args.append("--rules-only")
@@ -374,7 +376,6 @@ def test_detection_coverage_follows_detector_set(tmp_path: Path, rules_only: boo
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
     assert report["detection_coverage"]["requested_without_detector"] == [
         "bank_name",
-        "contract_number",
         "date",
         "money",
     ]
@@ -544,13 +545,17 @@ def _write_answers(tmp_path: Path, thread_id: str, answers: dict[str, str]) -> P
 def test_decisions_block_reflects_type_keep_and_preview_excludes_it(tmp_path: Path) -> None:
     """Групповой ответ на TYPE-* доходит до отчёта и preview, когда он и
 
-    побеждает по приоритету. В contract_01.docx каждая сущность структурно
-    кластеризуется в профиль (Поставщик/Покупатель) — ``PolicyAgent.apply``
+    побеждает по приоритету. В contract_01.docx сущности сторон структурно
+    кластеризуются в профиль (Поставщик/Покупатель) — ``PolicyAgent.apply``
     уже проверен на «голом» TYPE-победе без профиля юнит-тестом
     (``tests/masker/policy/test_apply.py::test_type_keep_answer_masks_only_that_type``);
     здесь достаточно снять оба профиля ответом «оставить», чтобы TYPE-ответ
     по некритичному типу реально долетел до keep, а критичный остался
-    замаскирован гвардией.
+    замаскирован гвардией. `contract_number` («ДОГОВОР ПОСТАВКИ № 44/2026»,
+    план T2.2.1, шаг 10) не образует своего профиля — это факт о документе,
+    не о стороне (`profile/agent.py::_DOCUMENT_LEVEL_TYPES`), уходит в
+    отдельный вопрос `PROFILE-UNASSIGNED`, P1/P2 остаются
+    Поставщиком/Покупателем, как и до появления детектора.
     """
     payload = _ask_contract_01(tmp_path)
     thread_id = payload["thread_id"]

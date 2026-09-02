@@ -190,10 +190,13 @@ def _finish(
     report = report_of(outcome)
     report_path = artifact_dir / "report.json"
     _write_json(report_path, report)
-    html_path = artifact_dir / "report.html" if args.html else None
+    # Шаблон HTML читает покрытие DOCX; у PDF оно другой формы, рендер упал бы.
+    html_wanted = bool(args.html) and report["format"] == "docx"
+    if args.html and not html_wanted:
+        print(f"{source}: --html поддержан только для DOCX, report.html не создан")
+    html_path = artifact_dir / "report.html" if html_wanted else None
     if html_path is not None:
         render_html_report(report, source, html_path)
-
     print(f"{source}: прогон завершён, thread_id {outcome.thread_id}")
     print(f"  отчёт: {report_path}")
     for item in artifacts_of(outcome):

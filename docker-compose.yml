@@ -34,6 +34,30 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      # Внутри compose-сети адресуемся по именам сервисов, а не по localhost.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-masker}:${POSTGRES_PASSWORD:-masker}@postgres:5432/${POSTGRES_DB:-masker}
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-masker}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-masker123}
+      MINIO_SECURE: "false"
+      MINIO_BUCKET: ${MINIO_BUCKET:-documents}
+    ports:
+      - "8000:8000"
+
 volumes:
   pgdata:
   miniodata:

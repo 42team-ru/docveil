@@ -1,3 +1,5 @@
+import dataclasses
+import json
 import subprocess
 import sys
 from dataclasses import FrozenInstanceError
@@ -12,10 +14,19 @@ from masker.model import (
     KEEP_OPTION,
     MASK_OPTION,
     Action,
+    Anchor,
     Decision,
     DecisionSource,
+    Entity,
     EntityType,
+    Leak,
+    MaskGroup,
+    MaskPlan,
     PolicyQuestion,
+    Replacement,
+    SkippedRef,
+    Source,
+    ValidationReport,
     is_critical,
 )
 
@@ -134,3 +145,160 @@ def test_judge_agent_imports_options_instead_of_redefining_them() -> None:
     lines = grep.stdout.splitlines()
     assert lines, "MASK_OPTION должен встречаться в judge/agent.py как импорт"
     assert not any(line.split(":", 1)[1].lstrip().startswith("MASK_OPTION =") for line in lines)
+
+
+def _sample_entity() -> Entity:
+    return Entity(
+        type=EntityType.INN,
+        text="3662103003",
+        segment_order=0,
+        start=0,
+        end=10,
+        source=Source.RULE,
+    )
+
+
+def _sample_anchor() -> Anchor:
+    return Anchor(fmt="docx", locator=("body", 0), label="абзац 1")
+
+
+def _sample_replacement() -> Replacement:
+    return Replacement(
+        ref="E1",
+        entity=_sample_entity(),
+        marker="[ПОСТАВЩИК-ИНН]",
+        group_id="G1",
+        profile_id="P1",
+        anchor=_sample_anchor(),
+    )
+
+
+def _sample_group() -> MaskGroup:
+    return MaskGroup(
+        id="G1",
+        key="inn:3662103003",
+        type=EntityType.INN,
+        marker="[ПОСТАВЩИК-ИНН]",
+        profile_id="P1",
+        role_label="ПОСТАВЩИК",
+        number=1,
+        refs=("E1",),
+        sample="3662103003",
+    )
+
+
+def _sample_skipped() -> SkippedRef:
+    return SkippedRef(ref="E2", type=EntityType.PERSON, reason="type_not_requested")
+
+
+def _sample_plan() -> MaskPlan:
+    return MaskPlan(
+        replacements=(_sample_replacement(),),
+        groups=(_sample_group(),),
+        skipped=(_sample_skipped(),),
+        requested_types=("inn",),
+    )
+
+
+def _sample_leak() -> Leak:
+    return Leak(
+        kind="raw",
+        artifact="redacted.docx",
+        part="word/document.xml",
+        entity_type="inn",
+        value="3662103003",
+        ref="E1",
+        group_id="G1",
+        detail="исходная строка найдена побайтово",
+    )
+
+
+def _sample_validation_report() -> ValidationReport:
+    return ValidationReport(
+        leaked=(_sample_leak(),),
+        residual=(),
+        checked_artifacts=("redacted.docx",),
+        checked_parts=("word/document.xml",),
+        ok=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "instance,frozen_attr,frozen_value",
+    [
+        (_sample_group(), "marker", "[X]"),
+        (_sample_replacement(), "marker", "[X]"),
+        (_sample_skipped(), "reason", "kept"),
+        (_sample_plan(), "requested_types", ()),
+        (_sample_leak(), "kind", "detector"),
+        (_sample_validation_report(), "ok", True),
+    ],
+)
+def test_mask_plan_is_frozen_and_ordered(
+    instance: object, frozen_attr: str, frozen_value: object
+) -> None:
+    """`MaskPlan` и все его элементы неизменяемы, коллекции — кортежи.
+
+    Без `frozen=True, slots=True` согласованность псевдонимов (T1.6) ничем
+    не защищена от случайной мутации плана между Plan и Render/Validate.
+    """
+    assert dataclasses.is_dataclass(instance)
+    with pytest.raises(FrozenInstanceError):
+        setattr(instance, frozen_attr, frozen_value)
+    # slots=True → нет __dict__, произвольный новый атрибут не добавить.
+    with pytest.raises(AttributeError):
+        _ = instance.__dict__
+
+
+def test_mask_plan_collection_fields_are_tuples() -> None:
+    plan = _sample_plan()
+    assert isinstance(plan.replacements, tuple)
+    assert isinstance(plan.groups, tuple)
+    assert isinstance(plan.skipped, tuple)
+    assert isinstance(plan.requested_types, tuple)
+    group = plan.groups[0]
+    assert isinstance(group.refs, tuple)
+    report = _sample_validation_report()
+    assert isinstance(report.leaked, tuple)
+    assert isinstance(report.residual, tuple)
+    assert isinstance(report.checked_artifacts, tuple)
+    assert isinstance(report.checked_parts, tuple)
+
+
+def test_replacement_exposes_entity_and_marker() -> None:
+    """Контракт `eval.py:207` (`repl.entity.type.value`, `repl.entity.text`).
+
+    Переименование этих полей молча ломает ещё не подключённую метрику —
+    тест защищает именно имена, а не только наличие данных.
+    """
+    repl = _sample_replacement()
+    assert repl.entity.type.value == "inn"
+    assert repl.entity.text == "3662103003"
+    assert repl.marker == "[ПОСТАВЩИК-ИНН]"
+
+
+def test_mask_plan_round_trips_through_json_via_asdict() -> None:
+    """Отчёт и сериализатор графа опираются на `dataclasses.asdict` + json.
+
+    Тест не про сам план как таковой, а про то, что вложенные `Entity`
+    (не frozen) и `EntityType` (StrEnum) не ломают сериализацию, которую
+    предполагает раздел «Детерминизм» плана T1.6/T1.8.
+    """
+    plan = _sample_plan()
+    payload = dataclasses.asdict(plan)
+    dumped = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
+    assert "[ПОСТАВЩИК-ИНН]" in dumped
+    assert "type_not_requested" in dumped
+
+
+def test_leak_defaults_are_empty_strings() -> None:
+    leak = Leak(
+        kind="detector",
+        artifact="redacted.docx",
+        part="",
+        entity_type="person",
+        value="Иванов И.И.",
+    )
+    assert leak.ref == ""
+    assert leak.group_id == ""
+    assert leak.detail == ""

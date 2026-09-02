@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
 from masker.detect import DetectAgent
 from masker.detect.ner import NER_CONFIDENCE
@@ -13,6 +15,16 @@ from masker.ingest.docx_ingest import ingest_docx
 from masker.model import CRITICAL_TYPES, EntityType
 
 
+def _docx_corpus() -> list[tuple[Path, dict[str, Any]]]:
+    """Только DOCX часть корпуса — этот файл проверяет пороги `DetectAgent`
+    напрямую через `ingest_docx` (докстринг модуля: «до появления полного
+    пайплайна»). `load_corpus()` с T2.2.1 (шаг 1/2) видит и PDF-фикстуры;
+    у PDF свой ingest и свои, отдельно измеренные пороги (`make eval`,
+    секция «ФОРМАТЫ»), сюда их подмешивать не нужно.
+    """
+    return [(path, labels) for path, labels in load_corpus() if path.suffix == ".docx"]
+
+
 @lru_cache(maxsize=1)
 def _corpus_metrics() -> tuple[
     dict[str, dict[str, set[tuple[str, str]]]], dict[str, dict[str, float]]
@@ -20,7 +32,7 @@ def _corpus_metrics() -> tuple[
     by_type: dict[str, dict[str, set[tuple[str, str]]]] = defaultdict(
         lambda: {"expected": set(), "found": set()}
     )
-    for path, labels in load_corpus():
+    for path, labels in _docx_corpus():
         for item in labels["entities"]:
             by_type[item["type"]]["expected"].add((path.name, item["text"]))
         for entity in DetectAgent().detect(ingest_docx(path)).entities:
@@ -64,7 +76,7 @@ def test_address_meets_corpus_thresholds() -> None:
 
 
 def test_address_never_swallows_person() -> None:
-    for path, labels in load_corpus():
+    for path, labels in _docx_corpus():
         addresses = [
             entity.text
             for entity in DetectAgent().detect(ingest_docx(path)).entities
@@ -84,7 +96,7 @@ def test_address_never_swallows_person() -> None:
 def test_every_occurrence_of_critical_value_is_detected() -> None:
     failures: list[str] = []
     checked: set[tuple[str, EntityType, str]] = set()
-    for path, labels in load_corpus():
+    for path, labels in _docx_corpus():
         document = ingest_docx(path)
         entities = DetectAgent().detect(document).entities
         text = document.text()

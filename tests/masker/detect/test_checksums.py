@@ -43,6 +43,19 @@ def test_bik() -> None:
     assert not is_valid_bik("142007681")
 
 
+@pytest.mark.parametrize("bik", ["016577551", "046577904"])
+def test_treasury_bik_is_valid(bik: str) -> None:
+    """Д8, план T2.2.1: с 2022 года казначейские БИК выдаются с префиксом
+    01 — `016577551` не должен отбрасываться как «неправильный БИК», у
+    него просто раньше не было принятого префикса в коде."""
+    assert is_valid_bik(bik)
+
+
+def test_bik_rejects_unknown_prefix() -> None:
+    # Заведомо битый вариант — префикс не 01 и не 04.
+    assert not is_valid_bik("996577551")
+
+
 def test_kpp() -> None:
     assert is_valid_kpp("366201001")
     assert not is_valid_kpp("36620100")
@@ -63,3 +76,17 @@ def test_account_valid_with_correct_bik() -> None:
 
     # Старый синтетический счёт не должен проходить
     assert not is_valid_account("40702810100000000001", "042007681")
+
+
+def test_treasury_account_key_uses_cbr_prefix() -> None:
+    """Д8, план T2.2.1: и единый казначейский счёт (40102...), и
+    казначейский счёт (0323...) проверяются вторым ключом («0» + разряды
+    5-6 БИК) — раньше этот ключ применялся только к счетам на 301..."""
+    treasury_bik = "016577551"
+    assert is_valid_account("03234643657010006200", treasury_bik)
+    assert is_valid_account("40102810645370000054", treasury_bik)
+
+
+def test_account_still_rejects_mismatched_treasury_bik() -> None:
+    # Заведомо битый вариант: тот же счёт, но БИК от другого учреждения.
+    assert not is_valid_account("03234643657010006200", "049205603")

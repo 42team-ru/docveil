@@ -78,8 +78,34 @@ def _expand_quotes(text: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
+def _expand_right_into_quoted_name(text: str, start: int, end: int) -> int:
+    """Продлить спан вправо в кавычки, если он заканчивается оргформой.
+
+    «После формы идёт кавычка — значит следующее за ней и есть название»
+    (план T2.2.1, Д5): Natasha систематически отдаёт только форму
+    (`Ограниченной Ответственностью`) и обрывается ровно перед открывающей
+    кавычкой с названием. Продление — до **ближайшей** парной закрывающей,
+    а не до последней в строке: `ООО «X», именуемое в дальнейшем
+    «Потребитель»` не должно схлопнуться в один спан.
+    """
+    folded_value = text[start:end].casefold()
+    if not any(folded_value.endswith(form.casefold()) for form in org_forms().forms):
+        return end
+    cursor = end
+    while cursor < len(text) and text[cursor] in " \t ":
+        cursor += 1
+    for opening, closing in org_forms().quote_pairs:
+        if cursor < len(text) and text[cursor] == opening:
+            closing_pos = text.find(closing, cursor + 1)
+            if closing_pos != -1:
+                return closing_pos + 1
+    return end
+
+
 def expand_org_span(text: str, start: int, end: int) -> tuple[int, int] | None:
-    """Расширить имя организации влево на форму и парные кавычки."""
+    """Расширить имя организации влево на форму и парные кавычки, а если
+    спан заканчивается оргформой и сразу за ней открывающая кавычка —
+    вправо до ближайшей парной закрывающей (план T2.2.1, шаг 5, Д5)."""
     start, end = _trim_bounds(text, start, end)
     if start == end:
         return None
@@ -101,7 +127,26 @@ def expand_org_span(text: str, start: int, end: int) -> tuple[int, int] | None:
             continue
         start = candidate_start
         break
+
+    end = _expand_right_into_quoted_name(text, start, end)
     return start, end
+
+
+def is_role_token(token: str) -> bool:
+    """Проверить, что один токен (уже без пунктуации) — ролевое/должностное слово.
+
+    Общий предикат для ``is_role_stopword`` (спан целиком) и
+    ``persons.drop_role_prefix`` (только ведущие токены спана PERSON,
+    план T2.2.1, шаг 6, Д4) — раньше он проверял только спан целиком и
+    не мог отрезать «Директора» от «Директора Зубрицкой».
+    """
+    folded = token.casefold()
+    if not folded:
+        return False
+    data = org_forms()
+    return folded in data.role_words or any(
+        folded.startswith(stem) and len(folded) - len(stem) <= 3 for stem in data.role_stems
+    )
 
 
 def is_role_stopword(text: str, start: int = 0, end: int | None = None) -> bool:
@@ -112,12 +157,7 @@ def is_role_stopword(text: str, start: int = 0, end: int | None = None) -> bool:
     tokens = [token for token in value.replace("-", " ").split() if token]
     if not tokens:
         return True
-    data = org_forms()
-    return all(
-        token in data.role_words
-        or any(token.startswith(stem) and len(token) - len(stem) <= 3 for stem in data.role_stems)
-        for token in tokens
-    )
+    return all(is_role_token(token) for token in tokens)
 
 
 def is_public_body(text: str) -> bool:
@@ -179,6 +219,19 @@ def has_organization_evidence(text: str) -> bool:
         or (opening != closing and opening in text and closing in text)
         for opening, closing in org_forms().quote_pairs
     )
+
+
+def is_role_phrase(text: str) -> bool:
+    """ORG без кавычек и без оргформы, содержащий хотя бы один ролевой
+    токен, — не организация, а часть текста договора («Заказчика
+    информации», «Исполнителем услуг», «Объект Арендодателю», «Заказчик
+    направляет Исполнителю»). ``is_role_stopword`` требует, чтобы РОЛЕВЫМИ
+    были ВСЕ токены, — здесь достаточно одного, но только когда в спане
+    нет ни формы, ни кавычек (план T2.2.1, шаг 7)."""
+    if has_organization_evidence(text):
+        return False
+    tokens = [token.strip(TRIM_CHARS) for token in text.casefold().replace("-", " ").split()]
+    return any(is_role_token(token) for token in tokens if token)
 
 
 def _quotes_balanced(text: str) -> bool:

@@ -105,7 +105,14 @@ def test_invalid_plugin_span_fails_with_detector_name() -> None:
 def test_default_detectors_include_rules_then_natasha() -> None:
     agent = DetectAgent()
 
-    assert [detector.name for detector in agent.detectors] == ["rules", "address", "natasha"]
+    # `org_form` (план T2.2.2, шаг 6, Д11) — между `address` и `natasha`:
+    # приоритет 60 ниже правил/адреса, выше локальной NER-модели.
+    assert [detector.name for detector in agent.detectors] == [
+        "rules",
+        "address",
+        "org_form",
+        "natasha",
+    ]
 
 
 def test_explicit_rules_do_not_load_natasha() -> None:

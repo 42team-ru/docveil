@@ -7,13 +7,27 @@ from dataclasses import dataclass, field
 from masker.detect.result import DetectionResult
 from masker.llm import LLMError, LLMProvider
 from masker.llm.trace import ProfileOutcome, TracingProvider
-from masker.model import Anchor, Document, Entity, Profile, Source
+from masker.model import Anchor, Document, Entity, EntityType, Profile, Source
 from masker.profile.blocks import ContextBlock, build_context_blocks
 from masker.profile.candidates import build_candidates
 from masker.profile.cluster import cluster
 from masker.profile.labels import marker_label, role_title, slugify
 from masker.profile.prompt import build_request, parse_response, valid_decision
 from masker.refs import EntityIndex
+
+#: Типы, которые не принадлежат ни одной стороне договора — факт о самом
+#: документе, не о субъекте (план T2.2.1, шаг 10, найдено на реальном PDF:
+#: до появления детектора `contract_number` этот путь был непроверен).
+#: Такие сущности не идут в блоки/кластеризацию вовсе — иначе номер
+#: договора, повторённый в футере без контекста стороны на каждой
+#: странице, получает на каждом вхождении свой синтетический профиль
+#: («СТОРОНА-N» либо метка, унаследованная из соседнего раздела) и,
+#: следовательно, свой маркер — нарушение согласованности псевдонимов
+#: (AGENTS.md): одно и то же значение обязано получать один и тот же
+#: маркер по всему документу. Оставленные без профиля, они попадают в
+#: ``unassigned`` и получают общий маркер через ``mask/keys.py::group_key``
+#: наравне с любой другой непрофилированной сущностью.
+_DOCUMENT_LEVEL_TYPES = frozenset({EntityType.CONTRACT_NUMBER})
 
 
 @dataclass(slots=True)
@@ -36,7 +50,10 @@ class ProfileAgent:
     def profile(self, document: Document, detection: DetectionResult) -> ProfileResult:
         """Вернуть профильный результат, не меняя ``detection``."""
         index = EntityIndex(detection.entities)
-        blocks = build_context_blocks(document.segments, detection.entities)
+        profilable = [
+            entity for entity in detection.entities if entity.type not in _DOCUMENT_LEVEL_TYPES
+        ]
+        blocks = build_context_blocks(document.segments, profilable)
         profiles = cluster(document, blocks, index)
         assigned = {member.ref for profile in profiles for member in profile.members}
         result = ProfileResult(

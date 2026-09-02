@@ -71,7 +71,7 @@ def test_render_node_redacted_files_do_not_contain_source_inn(tmp_path: Path) ->
     source_inns = [
         replacement.entity.text
         for replacement in plan.replacements
-        if replacement.entity.type.value == "inn"
+        if replacement.entity.type == "inn"
     ]
     assert source_inns  # фикстура обязана содержать хотя бы один ИНН
 

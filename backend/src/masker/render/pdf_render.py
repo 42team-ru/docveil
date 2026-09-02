@@ -348,7 +348,7 @@ def render_pdf_redacted(
                     RenderCollision(
                         page=page_num,
                         line_id=line_id,
-                        entity_type=replacement.entity.type.value,
+                        entity_type=replacement.entity.type,
                         marker=replacement.marker,
                     )
                 )
@@ -416,13 +416,13 @@ def _insert_marker_ladder(
                 return None
             return MarkerDegradation(
                 page=page.number,
-                entity_type=replacement.entity.type.value,
+                entity_type=replacement.entity.type,
                 marker=replacement.marker,
                 shown_as=shown_as,
             )
     return MarkerDegradation(
         page=page.number,
-        entity_type=replacement.entity.type.value,
+        entity_type=replacement.entity.type,
         marker=replacement.marker,
         shown_as="blank",
     )

@@ -65,7 +65,7 @@ def sweep(document: Document, entities: list[Entity]) -> list[Entity]:
     досмотра (вызывающий, ``DetectAgent.detect``, зовёт это последним
     проходом).
     """
-    value_confidence: dict[tuple[EntityType, str], float] = {}
+    value_confidence: dict[tuple[str, str], float] = {}
     covered_by_segment: dict[int, list[tuple[int, int]]] = {}
     for entity in entities:
         covered_by_segment.setdefault(entity.segment_order, []).append((entity.start, entity.end))
@@ -79,7 +79,7 @@ def sweep(document: Document, entities: list[Entity]) -> list[Entity]:
     segments_by_order = sorted(document.segments, key=lambda segment: segment.order)
 
     found: list[Entity] = []
-    for entity_type, value in sorted(value_confidence, key=lambda item: (item[0].value, item[1])):
+    for entity_type, value in sorted(value_confidence, key=lambda item: (item[0], item[1])):
         confidence = value_confidence[(entity_type, value)]
         pattern = re.compile(rf"(?<!\w){re.escape(value)}(?!\w)")
         for segment in segments_by_order:

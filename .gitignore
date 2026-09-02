@@ -31,6 +31,7 @@ backend/masker.llm.local.yaml
 backend/out/
 backend/output/
 **/spikes/out/
+**/spikes/gliner_ru/results/
 *.masked.docx
 *.masked.xlsx
 *.masked.pdf

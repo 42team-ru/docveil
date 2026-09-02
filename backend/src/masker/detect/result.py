@@ -47,7 +47,7 @@ def _desired_window(text_length: int, entity: Entity) -> tuple[int, int]:
 def _deduplicate_entities(entities: list[Entity]) -> list[Entity]:
     seen: set[tuple[int, int, int, object]] = set()
     result: list[Entity] = []
-    for entity in sorted(entities, key=lambda item: (item.start, item.end, item.type.value)):
+    for entity in sorted(entities, key=lambda item: (item.start, item.end, item.type)):
         key = (entity.segment_order, entity.start, entity.end, entity.type)
         if key not in seen:
             seen.add(key)

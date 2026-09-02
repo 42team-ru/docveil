@@ -177,7 +177,7 @@ def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) ->
         profiles = ProfileAgent().profile(document, detection)
         judge = JudgeAgent().judge(detection, profiles)
         profile_by_value = {
-            (member.entity.type.value, _collapse(member.entity.text)): profile
+            (member.entity.type, _collapse(member.entity.text)): profile
             for profile in profiles.profiles
             for member in profile.members
         }
@@ -195,7 +195,7 @@ def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) ->
                     member
                     for member in profile.members
                     if any(
-                        candidate["type"] == member.entity.type.value
+                        candidate["type"] == member.entity.type
                         and _collapse(candidate["text"]) == _collapse(member.entity.text)
                         and candidate.get("party") == party
                         for candidate in labels["entities"]
@@ -305,8 +305,8 @@ def run(gate: bool) -> int:
                     by_type[item["type"]]["expected"].add(key)
                     by_format[fmt]["expected"].add(key)
                 for repl in result.plan.replacements:
-                    key = (path.name, repl.entity.type.value, _collapse(repl.entity.text))
-                    by_type[repl.entity.type.value]["found"].add(key)
+                    key = (path.name, repl.entity.type, _collapse(repl.entity.text))
+                    by_type[repl.entity.type]["found"].add(key)
                     by_format[fmt]["found"].add(key)
                 leaked_total += len(result.validation.leaked)
                 duplicate_markers += duplicate_marker_count(result.plan, result.artifacts)
@@ -332,7 +332,7 @@ def run(gate: bool) -> int:
             f"{name:<18}{m['precision']:>7.3f}{m['recall']:>7.3f}"
             f"{m['f1']:>7.3f}{m['fn']:>5}{m['fp']:>5}"
         )
-        critical = name in {t.value for t in CRITICAL_TYPES}
+        critical = name in CRITICAL_TYPES
         min_recall = MIN_RECALL_CRITICAL if critical else MIN_RECALL_OTHER
         if m["recall"] < min_recall:
             failures.append(f"{name}: recall {m['recall']:.3f} < {min_recall}")

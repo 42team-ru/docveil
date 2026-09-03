@@ -37,7 +37,9 @@ MAX_CUSTOM_TYPES_PER_REQUEST = 20
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
 _BUILTIN_IDS = frozenset(t.value for t in EntityType)
 _ALLOWED_FLAG_MASK = re.IGNORECASE | re.UNICODE
-_DETECT_KINDS = frozenset({"literals", "regex", "gliner_label", "gliner_structure"})
+_DETECT_KINDS = frozenset(
+    {"literals", "regex", "regex_llm_filter", "gliner_label", "gliner_structure"}
+)
 _MATCH_MODES = frozenset({"whole_word", "substring"})
 
 
@@ -53,11 +55,14 @@ class CustomTypeSpec:
     `"literals"` — только `pattern` (одна альтернация экранированных
     значений с приоритетом длинного совпадения), для `"regex"` — `pattern`
     и, если задан, `context` — обязательные слова в окне ±80 символов
-    вокруг совпадения (проверяется в `ConfigDetector`, не здесь).
+    вокруг совпадения (проверяется в `ConfigDetector`, не здесь). Для
+    `"regex_llm_filter"` (T1.13, шаг 13) — тот же `pattern`, что и у
+    `"regex"`, но кандидатов фильтрует не `context`, а `LlmFilterDetector`
+    решением LLM по автоматически построенному окну.
     """
 
     spec: EntityTypeSpec
-    kind: str  # "literals" | "regex"
+    kind: str  # "literals" | "regex" | "regex_llm_filter"
     pattern: re.Pattern[str] | None = None
     context: tuple[str, ...] = ()
     label: str = ""
@@ -175,7 +180,7 @@ def _build_type(item: Any, index: int) -> CustomTypeSpec:
         return CustomTypeSpec(spec=spec, kind="literals", pattern=pattern)
     if kind in {"gliner_label", "gliner_structure"}:
         return _build_gliner_type(spec, detect, type_id, kind)
-    return _build_regex_type(spec, detect, type_id)
+    return _build_regex_type(spec, detect, type_id, kind)
 
 
 def _build_gliner_type(
@@ -268,7 +273,17 @@ def _build_literal_pattern(detect: dict[str, Any], type_id: str) -> re.Pattern[s
     return re.compile(body, flags)
 
 
-def _build_regex_type(spec: EntityTypeSpec, detect: dict[str, Any], type_id: str) -> CustomTypeSpec:
+def _build_regex_type(
+    spec: EntityTypeSpec, detect: dict[str, Any], type_id: str, kind: str = "regex"
+) -> CustomTypeSpec:
+    """Построить `CustomTypeSpec` для `kind in {"regex", "regex_llm_filter"}`.
+
+    Обе формы делят один и тот же валидатор регулярки (тот же риск
+    катастрофического бэктрекинга) и одно и то же поле `context` —
+    `ConfigDetector` использует его как якорные слова, `LlmFilterDetector`
+    (T1.13, шаг 13) его не читает вовсе: его контекст — окно вокруг
+    совпадения, построенное автоматически, а не список слов пользователя.
+    """
     pattern_str = detect.get("pattern")
     if not isinstance(pattern_str, str) or not pattern_str:
         raise CustomTypeError(f"Тип {type_id!r}: 'detect.pattern' должен быть непустой строкой")
@@ -282,7 +297,7 @@ def _build_regex_type(spec: EntityTypeSpec, detect: dict[str, Any], type_id: str
     context = tuple(context_raw)
 
     compiled = _compile_safe_regex(pattern_str, ignorecase, type_id)
-    return CustomTypeSpec(spec=spec, kind="regex", pattern=compiled, context=context)
+    return CustomTypeSpec(spec=spec, kind=kind, pattern=compiled, context=context)
 
 
 def _compile_safe_regex(pattern_str: str, ignorecase: bool, type_id: str) -> re.Pattern[str]:

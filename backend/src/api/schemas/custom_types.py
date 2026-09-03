@@ -128,10 +128,20 @@ class PreviewOut(BaseModel):
 
 
 class CompiledTypeOut(BaseModel):
-    """Один успешно обработанный элемент `CompileRequest.descriptions`."""
+    """Один успешно обработанный элемент `CompileRequest.descriptions`.
 
-    spec: CustomTypeSpecIn
+    ``outcome == "compile"``: заполнен ``spec`` — готовая спека. ``outcome
+    == "use_builtin"``: спеки нет (тип уже покрыт встроенным детектором,
+    компилировать нечего) — заполнены ``type_id`` и, если пользователь
+    попросил другую метку маркера, ``marker_override`` (design notes T1.13,
+    раздел 2.6). Ровно один из ``spec``/``type_id`` осмыслен для данного
+    ``outcome`` — второй остаётся ``None``.
+    """
+
     outcome: Literal["compile", "use_builtin"]
+    spec: CustomTypeSpecIn | None = None
+    type_id: str | None = None
+    marker_override: str | None = None
     preview: PreviewOut | None = None
 
 

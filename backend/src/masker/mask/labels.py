@@ -9,12 +9,13 @@
 
 from __future__ import annotations
 
+from masker.entity_types import EntityTypeRegistry
 from masker.model import EntityType
 
 #: Короткая метка типа для маркера. Обязана покрывать все члены `EntityType`
 #: — иначе новый тип получит вместо метки KeyError при сборке плана, а не
 #: тихую заглушку.
-MARKER_TYPE_LABELS: dict[EntityType, str] = {
+MARKER_TYPE_LABELS: dict[str, str] = {
     EntityType.ORG_NAME: "ОРГАНИЗАЦИЯ",
     EntityType.PERSON: "ФИО",
     EntityType.INN: "ИНН",
@@ -35,13 +36,20 @@ MARKER_TYPE_LABELS: dict[EntityType, str] = {
 }
 
 
-def type_marker_label(entity_type: EntityType) -> str:
+def type_marker_label(
+    entity_type: str,
+    registry: EntityTypeRegistry | None = None,
+) -> str:
     """Вернуть короткую метку типа для маркера.
 
-    Падает `KeyError`, если тип не заведён в `MARKER_TYPE_LABELS` — тихая
-    заглушка здесь хуже падения, см. докстринг словаря.
+    Для встроенных типов — из MARKER_TYPE_LABELS. Для пользовательских —
+    из registry.spec().marker_label. Падает KeyError, если тип неизвестен.
     """
-    return MARKER_TYPE_LABELS[entity_type]
+    if entity_type in MARKER_TYPE_LABELS:
+        return MARKER_TYPE_LABELS[entity_type]
+    if registry is not None and entity_type in registry:
+        return registry.spec(entity_type).marker_label
+    raise KeyError(f"Unknown entity type: {entity_type!r}")
 
 
 def compose_marker(role_label: str, type_label: str, number: int | None) -> str:

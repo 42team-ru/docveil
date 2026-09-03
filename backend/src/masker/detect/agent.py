@@ -15,6 +15,7 @@ from masker.detect.orgforms import (
 )
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.detect.sweep import sweep
+from masker.entity_types import EntityTypeRegistry
 from masker.model import Document, Entity, EntityType, Source
 
 MIN_FRAGMENT_LEN = 2
@@ -31,27 +32,37 @@ def _overlaps(first: Entity, second: Entity) -> bool:
 class DetectAgent:
     """Объединяет детекторы, проверяет их контракт и строит общие чанки."""
 
-    def __init__(self, detectors: Iterable[EntityDetector] | None = None) -> None:
+    def __init__(
+        self,
+        detectors: Iterable[EntityDetector] | None = None,
+        registry: EntityTypeRegistry | None = None,
+    ) -> None:
         if detectors is None:
             from masker.detect import default_detectors
 
             detectors = default_detectors()
         self._detectors = list(detectors)
+        self._registry = registry if registry is not None else EntityTypeRegistry.builtin()
 
     @property
     def detectors(self) -> tuple[EntityDetector, ...]:
         """Подключённые детекторы в порядке их запуска."""
         return tuple(self._detectors)
 
-    @staticmethod
-    def _validate(detector: EntityDetector, document: Document, entities: list[Entity]) -> None:
+    def _validate(
+        self, detector: EntityDetector, document: Document, entities: list[Entity]
+    ) -> None:
         segments = {segment.order: segment for segment in document.segments}
         for entity in entities:
             segment = segments.get(entity.segment_order)
             if segment is None:
                 raise ValueError(f"Detector {detector.name!r} returned an unknown segment_order")
-            if not isinstance(entity.type, EntityType):
-                raise ValueError(f"Detector {detector.name!r} returned an invalid entity type")
+            if entity.type not in self._registry:
+                known = ", ".join(self._registry.ids())
+                raise ValueError(
+                    f"Detector {detector.name!r} returned unknown entity type {entity.type!r}."
+                    f" Known: {known}"
+                )
             if not isinstance(entity.source, Source):
                 raise ValueError(f"Detector {detector.name!r} returned an invalid entity source")
             if not 0 <= entity.start < entity.end <= len(segment.text):
@@ -69,7 +80,7 @@ class DetectAgent:
                 -item[0].priority,
                 -item[1].confidence,
                 -(item[1].end - item[1].start),
-                item[1].type.value,
+                item[1].type,
                 item[1].segment_order,
                 item[1].start,
                 item[1].end,
@@ -87,7 +98,7 @@ class DetectAgent:
             accepted.extend(DetectAgent._carve(entity, overlaps))
         return sorted(
             accepted,
-            key=lambda item: (item.segment_order, item.start, item.end, item.type.value),
+            key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
 
     @staticmethod
@@ -147,10 +158,10 @@ class DetectAgent:
         return carved
 
     @staticmethod
-    def _has_fragment_evidence(entity_type: EntityType, text: str) -> bool:
-        if entity_type is EntityType.ORG_NAME:
+    def _has_fragment_evidence(entity_type: str, text: str) -> bool:
+        if entity_type == EntityType.ORG_NAME:
             return has_organization_evidence(text)
-        if entity_type is not EntityType.PERSON:
+        if entity_type != EntityType.PERSON:
             return False
         tokens = [token.strip(".,;:()[]{}«»\"'“”„") for token in text.split()]
         return bool(tokens) and all(
@@ -172,9 +183,14 @@ class DetectAgent:
             self._validate(detector, document, entities)
             found.extend((detector, entity) for entity in entities)
         entities = self._resolve_overlaps(found)
+        extra_sweep_types = frozenset(
+            entity_type
+            for detector in self._detectors
+            for entity_type in getattr(detector, "sweep_types", frozenset())
+        )
         entities = sorted(
-            [*entities, *sweep(document, entities)],
-            key=lambda item: (item.segment_order, item.start, item.end, item.type.value),
+            [*entities, *sweep(document, entities, extra_sweep_types)],
+            key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
         chunks = build_pii_chunks(document.segments, entities)
         return DetectionResult(entities=entities, chunks=chunks)

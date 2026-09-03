@@ -83,7 +83,7 @@ def build_request(
         "entities": [
             {
                 "ref": ref,
-                "type": index.entity(ref).type.value,
+                "type": index.entity(ref).type,
                 "text": index.entity(ref).text,
                 "segment_order": index.entity(ref).segment_order,
             }

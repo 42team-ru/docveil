@@ -1,0 +1,379 @@
+"""Валидация пользовательских типов сущностей, пришедших в теле запроса.
+
+Источник спецификации один — REST (`custom_types` в теле запроса на
+маскировку), см. `docs/plans/T1.13-design-notes.md`, решение 2.1. Файловой
+конфигурации (`masker.types.yaml`) в проекте нет намеренно: двойной source
+of truth разъезжается, а реальный вход — всегда API. Поэтому вход здесь —
+уже разобранный `dict`, а не путь к файлу; Pydantic-схема запроса кладёт
+сюда своё тело как есть.
+
+Три источника опасности пользовательской регулярки — ReDoS, переопределение
+встроенного типа и молчаливое совпадение с пустой строкой — проверяются
+здесь же, до того как паттерн попадёт в executor.
+
+Валидатор регулярок разбирает паттерн через `re._parser.parse` (приватный, но
+стабильный модуль стандартной библиотеки) и отклоняет конструкции, ведущие к
+катастрофическому бэктрекингу: вложенный квантификатор (`(a+)+`) и
+альтернация внутри повторения (`(a|a)*`) дают одну и ту же комбинаторную
+неоднозначность движка `re`, поэтому проверяются одним правилом обхода.
+"""
+
+from __future__ import annotations
+
+import re
+import warnings
+from dataclasses import dataclass
+from re import _constants, _parser  # type: ignore[attr-defined]
+from typing import Any
+
+from masker.entity_types import EntityTypeSpec, builtin_specs
+from masker.model import EntityType
+
+#: Пользовательская регулярка длиннее этого — уже не «номер договора»,
+#: а конструкция, которую невозможно проверить глазами при код-ревью.
+MAX_PATTERN_LEN = 200
+MAX_CUSTOM_TYPES_PER_REQUEST = 20
+
+_ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
+_BUILTIN_IDS = frozenset(t.value for t in EntityType)
+_ALLOWED_FLAG_MASK = re.IGNORECASE | re.UNICODE
+_DETECT_KINDS = frozenset(
+    {"literals", "regex", "regex_llm_filter", "gliner_label", "gliner_structure"}
+)
+_MATCH_MODES = frozenset({"whole_word", "substring"})
+
+
+class CustomTypeError(Exception):
+    """Ошибка в пользовательской конфигурации типов — файл не загружается целиком."""
+
+
+@dataclass(frozen=True, slots=True)
+class CustomTypeSpec:
+    """`EntityTypeSpec` пользовательского типа плюс скомпилированный матчер.
+
+    `kind` определяет, какие поля матчера заполнены содержательно: для
+    `"literals"` — только `pattern` (одна альтернация экранированных
+    значений с приоритетом длинного совпадения), для `"regex"` — `pattern`
+    и, если задан, `context` — обязательные слова в окне ±80 символов
+    вокруг совпадения (проверяется в `ConfigDetector`, не здесь). Для
+    `"regex_llm_filter"` (T1.13, шаг 13) — тот же `pattern`, что и у
+    `"regex"`, но кандидатов фильтрует не `context`, а `LlmFilterDetector`
+    решением LLM по автоматически построенному окну.
+    """
+
+    spec: EntityTypeSpec
+    kind: str  # "literals" | "regex" | "regex_llm_filter"
+    pattern: re.Pattern[str] | None = None
+    context: tuple[str, ...] = ()
+    label: str = ""
+    description: str = ""
+    threshold: float = 0.3
+    structure: str = ""
+    field: str = ""
+
+
+def load_type_config(source: dict[str, Any]) -> list[CustomTypeSpec]:
+    """Провалидировать пользовательские типы из тела запроса.
+
+    `source` — разобранное тело запроса вида
+    ``{"version": 1, "types": [...]}``. Любое нарушение схемы или
+    небезопасная регулярка останавливают загрузку целиком: `CustomTypeError`
+    с id проблемного типа в тексте сообщения.
+    """
+    _validate_top_level(source)
+    raw = source
+    if len(raw["types"]) > MAX_CUSTOM_TYPES_PER_REQUEST:
+        raise CustomTypeError(
+            f"Конфигурация типов: получено {len(raw['types'])}, максимум "
+            f"{MAX_CUSTOM_TYPES_PER_REQUEST} типов на запрос"
+        )
+
+    specs: list[CustomTypeSpec] = []
+    seen_at: dict[str, int] = {}
+    for index, item in enumerate(raw["types"], start=1):
+        custom = _build_type(item, index)
+        type_id = custom.spec.id
+        if type_id in seen_at:
+            raise CustomTypeError(
+                f"Тип {type_id!r} объявлен дважды: запись #{seen_at[type_id]} и запись #{index}"
+            )
+        seen_at[type_id] = index
+        specs.append(custom)
+    labels: dict[str, str] = {spec.marker_label: spec.id for spec in builtin_specs()}
+    for custom in specs:
+        label = custom.spec.marker_label
+        previous = labels.get(label)
+        if previous is not None:
+            raise CustomTypeError(
+                f"Тип {custom.spec.id!r}: метка маркера {label!r} уже используется "
+                f"типом {previous!r}"
+            )
+        labels[label] = custom.spec.id
+    return specs
+
+
+def _validate_top_level(raw: Any) -> None:
+    if not isinstance(raw, dict):
+        raise CustomTypeError(
+            "Конфигурация типов: ожидался словарь вида {'version': 1, 'types': [...]}"
+        )
+    if raw.get("version") != 1:
+        raise CustomTypeError("Конфигурация типов: поддерживается только 'version: 1'")
+    types = raw.get("types")
+    if not isinstance(types, list) or not types:
+        raise CustomTypeError("Конфигурация типов: поле 'types' должно быть непустым списком")
+
+
+def _build_type(item: Any, index: int) -> CustomTypeSpec:
+    if not isinstance(item, dict):
+        raise CustomTypeError(f"Запись #{index} в 'types' должна быть словарём")
+
+    type_id = item.get("id")
+    if not isinstance(type_id, str) or not _ID_RE.match(type_id):
+        raise CustomTypeError(
+            f"Запись #{index}: id {type_id!r} не соответствует формату "
+            r"^[a-z][a-z0-9_]{2,31}$"
+        )
+    if type_id in _BUILTIN_IDS:
+        raise CustomTypeError(
+            f"Тип {type_id!r}: совпадает со встроенным типом EntityType, "
+            f"переопределение встроенных типов запрещено"
+        )
+
+    title = item.get("title")
+    if not isinstance(title, str) or not title.strip():
+        raise CustomTypeError(f"Тип {type_id!r}: поле 'title' должно быть непустой строкой")
+
+    marker = item.get("marker")
+    if not isinstance(marker, str) or ("{n}" not in marker and "{role}" not in marker):
+        raise CustomTypeError(
+            f"Тип {type_id!r}: поле 'marker' должно содержать плейсхолдер {{n}} или {{role}}"
+        )
+
+    critical = bool(item.get("critical", False))
+    if critical:
+        warnings.warn(
+            f"Тип {type_id!r} объявлен критичным (critical: true): порог recall в "
+            f"воротах поднимается до 1.0, пользовательская регулярка обязана его "
+            f"держать",
+            stacklevel=2,
+        )
+
+    detect = item.get("detect")
+    if not isinstance(detect, dict):
+        raise CustomTypeError(f"Тип {type_id!r}: поле 'detect' должно быть словарём")
+
+    kind = detect.get("kind")
+    if kind not in _DETECT_KINDS:
+        raise CustomTypeError(f"Тип {type_id!r}: неизвестный 'detect.kind' {kind!r}")
+
+    spec = EntityTypeSpec(
+        id=type_id,
+        title=title,
+        marker_label=_marker_label_from_template(marker),
+        critical=critical,
+        builtin=False,
+    )
+
+    if kind == "literals":
+        pattern = _build_literal_pattern(detect, type_id)
+        return CustomTypeSpec(spec=spec, kind="literals", pattern=pattern)
+    if kind in {"gliner_label", "gliner_structure"}:
+        return _build_gliner_type(spec, detect, type_id, kind)
+    return _build_regex_type(spec, detect, type_id, kind)
+
+
+def _build_gliner_type(
+    spec: EntityTypeSpec, detect: dict[str, Any], type_id: str, kind: str
+) -> CustomTypeSpec:
+    label = detect.get("label")
+    description = detect.get("description")
+    if not isinstance(label, str) or not label.strip():
+        raise CustomTypeError(f"Тип {type_id!r}: 'detect.label' должен быть непустой строкой")
+    if not isinstance(description, str) or not description.strip():
+        raise CustomTypeError(f"Тип {type_id!r}: 'detect.description' должен быть непустой строкой")
+    threshold = detect.get("threshold", 0.3)
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+        raise CustomTypeError(f"Тип {type_id!r}: 'detect.threshold' должен быть числом")
+    threshold = float(threshold)
+    if not 0.0 <= threshold <= 1.0:
+        raise CustomTypeError(f"Тип {type_id!r}: 'detect.threshold' должен быть в диапазоне [0, 1]")
+    structure = ""
+    field = ""
+    if kind == "gliner_structure":
+        structure = detect.get("structure", "")
+        field = detect.get("field", "")
+        if not isinstance(structure, str) or not structure.strip():
+            raise CustomTypeError(
+                f"Тип {type_id!r}: 'detect.structure' должен быть непустой строкой"
+            )
+        if not isinstance(field, str) or not field.strip():
+            raise CustomTypeError(f"Тип {type_id!r}: 'detect.field' должен быть непустой строкой")
+    return CustomTypeSpec(
+        spec=spec,
+        kind=kind,
+        label=label.strip(),
+        description=description.strip(),
+        threshold=threshold,
+        structure=structure.strip(),
+        field=field.strip(),
+    )
+
+
+def _marker_label_from_template(marker: str) -> str:
+    """Извлечь короткую метку типа из шаблона маркера конфигурации.
+
+    Итоговый маркер собирает `compose_marker` (`mask/labels.py`) из ролевой
+    части и номера — этот код заполняет только `EntityTypeSpec.marker_label`,
+    текстовую часть без квадратных скобок и плейсхолдеров `{role}`/`{n}`.
+    """
+    inner = marker.strip()
+    if inner.startswith("[") and inner.endswith("]"):
+        inner = inner[1:-1]
+    for placeholder in ("{role}", "{n}"):
+        inner = inner.replace(placeholder, "")
+    inner = re.sub(r"-{2,}", "-", inner)
+    return inner.strip("-")
+
+
+def _build_literal_pattern(detect: dict[str, Any], type_id: str) -> re.Pattern[str]:
+    values = detect.get("values")
+    if (
+        not isinstance(values, list)
+        or not values
+        or not all(isinstance(v, str) and v for v in values)
+    ):
+        raise CustomTypeError(
+            f"Тип {type_id!r}: 'detect.values' должен быть непустым списком строк"
+        )
+
+    match_mode = detect.get("match", "whole_word")
+    if match_mode not in _MATCH_MODES:
+        raise CustomTypeError(
+            f"Тип {type_id!r}: 'detect.match' должен быть 'whole_word' или 'substring'"
+        )
+    ignorecase = bool(detect.get("ignorecase", False))
+
+    # Дедуп с сохранением порядка первого вхождения — set() тут запрещён:
+    # порядок итерации str-множества не детерминирован между процессами
+    # (рандомизация хэша), а сортировка ниже стабильна только при
+    # детерминированном входе.
+    unique: list[str] = []
+    for value in values:
+        if value not in unique:
+            unique.append(value)
+    ordered = sorted(unique, key=len, reverse=True)
+
+    alternation = "|".join(re.escape(v) for v in ordered)
+    if match_mode == "whole_word":
+        body = f"(?<![\\w])(?:{alternation})(?![\\w])"
+    else:
+        body = f"(?:{alternation})"
+    flags = re.IGNORECASE if ignorecase else 0
+    return re.compile(body, flags)
+
+
+def _build_regex_type(
+    spec: EntityTypeSpec, detect: dict[str, Any], type_id: str, kind: str = "regex"
+) -> CustomTypeSpec:
+    """Построить `CustomTypeSpec` для `kind in {"regex", "regex_llm_filter"}`.
+
+    Обе формы делят один и тот же валидатор регулярки (тот же риск
+    катастрофического бэктрекинга) и одно и то же поле `context` —
+    `ConfigDetector` использует его как якорные слова, `LlmFilterDetector`
+    (T1.13, шаг 13) его не читает вовсе: его контекст — окно вокруг
+    совпадения, построенное автоматически, а не список слов пользователя.
+    """
+    pattern_str = detect.get("pattern")
+    if not isinstance(pattern_str, str) or not pattern_str:
+        raise CustomTypeError(f"Тип {type_id!r}: 'detect.pattern' должен быть непустой строкой")
+    ignorecase = bool(detect.get("ignorecase", False))
+
+    context_raw = detect.get("context", [])
+    if not isinstance(context_raw, list) or not all(isinstance(c, str) and c for c in context_raw):
+        raise CustomTypeError(
+            f"Тип {type_id!r}: 'detect.context' должен быть списком непустых строк"
+        )
+    context = tuple(context_raw)
+
+    compiled = _compile_safe_regex(pattern_str, ignorecase, type_id)
+    return CustomTypeSpec(spec=spec, kind=kind, pattern=compiled, context=context)
+
+
+def _compile_safe_regex(pattern_str: str, ignorecase: bool, type_id: str) -> re.Pattern[str]:
+    if len(pattern_str) > MAX_PATTERN_LEN:
+        raise CustomTypeError(
+            f"Тип {type_id!r}: регулярное выражение длиннее {MAX_PATTERN_LEN} символов"
+        )
+    try:
+        parsed = _parser.parse(pattern_str)
+    except re.error as exc:
+        raise CustomTypeError(
+            f"Тип {type_id!r}: не удалось разобрать регулярное выражение: {exc}"
+        ) from exc
+
+    if parsed.state.flags & ~_ALLOWED_FLAG_MASK:
+        raise CustomTypeError(
+            f"Тип {type_id!r}: во встроенных флагах регулярного выражения разрешён "
+            f"только IGNORECASE"
+        )
+    _check_pattern_safety(parsed, type_id, pattern_str, inside_repeat=False)
+
+    flags = re.IGNORECASE if ignorecase else 0
+    compiled = re.compile(pattern_str, flags)
+    if compiled.fullmatch("") is not None:
+        raise CustomTypeError(f"Тип {type_id!r}: регулярное выражение сопоставимо с пустой строкой")
+    return compiled
+
+
+def _check_pattern_safety(sub: Any, type_id: str, pattern_str: str, *, inside_repeat: bool) -> None:
+    """Обойти AST паттерна и отклонить конструкции, опасные для `re`.
+
+    Отклоняются: обратные ссылки (`GROUPREF`/`GROUPREF_EXISTS`, механизм не
+    прогонит их через быстрый DFA), вложенный квантификатор и альтернация
+    внутри повторения — обе дают одну и ту же комбинаторную неоднозначность
+    (`(a+)+$` и `(a|a)*b` — оба взрывные, хотя только в первом есть буквально
+    два вложенных `MAX_REPEAT`).
+    """
+    for op, av in sub:
+        if op in (_constants.GROUPREF, _constants.GROUPREF_EXISTS):
+            raise CustomTypeError(
+                f"Тип {type_id!r}: обратные ссылки в регулярном выражении запрещены "
+                f"(риск катастрофического бэктрекинга): {pattern_str!r}"
+            )
+        if op in (_constants.MAX_REPEAT, _constants.MIN_REPEAT):
+            if inside_repeat:
+                raise CustomTypeError(
+                    f"Тип {type_id!r}: вложенный квантификатор в регулярном "
+                    f"выражении запрещён (риск катастрофического бэктрекинга): "
+                    f"{pattern_str!r}"
+                )
+            _min_count, _max_count, body = av
+            _check_pattern_safety(body, type_id, pattern_str, inside_repeat=True)
+            continue
+        if op == _constants.BRANCH:
+            if inside_repeat:
+                raise CustomTypeError(
+                    f"Тип {type_id!r}: альтернация внутри повторения запрещена "
+                    f"(даёт ту же неоднозначность бэктрекинга, что и вложенный "
+                    f"квантификатор): {pattern_str!r}"
+                )
+            _dummy, branches = av
+            for branch in branches:
+                _check_pattern_safety(branch, type_id, pattern_str, inside_repeat=inside_repeat)
+            continue
+        if op == _constants.SUBPATTERN:
+            _group, add_flags, del_flags, body = av
+            if (add_flags | del_flags) & ~re.IGNORECASE:
+                raise CustomTypeError(
+                    f"Тип {type_id!r}: во встроенных флагах регулярного выражения "
+                    f"разрешён только IGNORECASE"
+                )
+            _check_pattern_safety(body, type_id, pattern_str, inside_repeat=inside_repeat)
+            continue
+        if op in (_constants.ASSERT, _constants.ASSERT_NOT):
+            _direction, body = av
+            _check_pattern_safety(body, type_id, pattern_str, inside_repeat=inside_repeat)
+            continue
+        # LITERAL, NOT_LITERAL, IN, AT, ANY и подобные — терминальные узлы,
+        # вложенных квантификаторов или альтернации содержать не могут.

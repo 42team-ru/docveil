@@ -38,6 +38,7 @@ from masker.detect.checksums import (
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.model import EntityType
+from masker.typeconfig import load_type_config
 
 #: Ролевые и должностные слова: с них не имеет права начинаться `person`.
 #: Пункт 6 схемы разметки — «Директора Зубрицкой» это должность плюс фамилия.
@@ -227,23 +228,42 @@ def _dedup(candidates: list[Candidate]) -> list[Candidate]:
     return list(seen.values())
 
 
-def load_labels(labels_path: Path) -> list[dict[str, Any]]:
-    """Существующая разметка или пустой список, если её ещё нет."""
+def load_labels(labels_path: Path) -> dict[str, Any]:
+    """Существующая разметка целиком (``entities`` + ``custom_types``) или пустой словарь."""
     if not labels_path.exists():
-        return []
-    payload = json.loads(labels_path.read_text(encoding="utf-8"))
-    entities: list[dict[str, Any]] = payload.get("entities", [])
-    return entities
+        return {}
+    payload: dict[str, Any] = json.loads(labels_path.read_text(encoding="utf-8"))
+    return payload
 
 
-def check_labels(entities: list[dict[str, Any]], text: str) -> list[str]:
+def custom_type_ids(payload: dict[str, Any]) -> frozenset[str]:
+    """Id пользовательских типов из секции ``custom_types`` разметки (T1.13, шаг 6).
+
+    Секция хранит уже скомпилированные спеки — тот же формат, что и тело
+    запроса на маскировку (``{"version": 1, "types": [...]}`` для
+    ``load_type_config``). Корпус никогда не зовёт LLM-компилятор: спеки в
+    разметке считаются готовыми, и невалидная запись здесь — дефект
+    фикстуры, а не повод для мягкой деградации.
+    """
+    raw = payload.get("custom_types", [])
+    if not raw:
+        return frozenset()
+    specs = load_type_config({"version": 1, "types": raw})
+    return frozenset(spec.spec.id for spec in specs)
+
+
+def check_labels(
+    entities: list[dict[str, Any]], text: str, known_extra: frozenset[str] = frozenset()
+) -> list[str]:
     """Проверки формы разметки, не требующие суждения.
 
     Ловит ровно те ошибки, которые уже случались: два пробела внутри
     значения, должность внутри ФИО, неизвестный тип и значение, которого
-    нет в тексте документа (опечатка разметчика).
+    нет в тексте документа (опечатка разметчика). ``known_extra`` —
+    id пользовательских типов документа (T1.13, шаг 6): без него любой
+    custom-тип в разметке считался бы опечаткой.
     """
-    known = {entity_type.value for entity_type in EntityType}
+    known = {entity_type.value for entity_type in EntityType} | known_extra
     problems: list[str] = []
     for entity in entities:
         value = entity.get("text", "")
@@ -276,7 +296,8 @@ def audit(path: Path) -> Audit:
     if labels_path.suffix != ".json":  # у файла без второго суффикса
         labels_path = path.parent / f"{path.stem}.labels.json"
     text = read_text(path)
-    entities = load_labels(labels_path)
+    payload = load_labels(labels_path)
+    entities = payload.get("entities", [])
     labelled = {
         _key(str(entity.get("text", "")), str(entity.get("type", ""))) for entity in entities
     }
@@ -290,7 +311,7 @@ def audit(path: Path) -> Audit:
         has_labels=labels_path.exists(),
         candidates=certain + hints,
         missing=[c for c in certain if _key(c.value, c.type) not in labelled],
-        problems=check_labels(entities, text),
+        problems=check_labels(entities, text, custom_type_ids(payload)),
     )
 
 

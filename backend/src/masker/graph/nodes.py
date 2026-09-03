@@ -14,8 +14,11 @@ from pathlib import Path
 
 from langgraph.types import interrupt
 
-from masker.detect import AddressDetector, DetectAgent, RuleDetector
+from masker.detect import AddressDetector, DetectAgent, RuleDetector, default_detectors
+from masker.detect.base import EntityDetector
+from masker.detect.config_detector import ConfigDetector
 from masker.detect.result import DetectionResult, build_pii_chunks
+from masker.entity_types import EntityTypeRegistry
 from masker.graph.questions import build_ask_payload, parse_answers
 from masker.graph.serde import (
     anchor_from_dict,
@@ -40,7 +43,8 @@ from masker.judge import JudgeAgent
 from masker.judge.agent import JudgeResult
 from masker.llm import LLMProvider, TracingProvider
 from masker.mask import PlanAgent
-from masker.model import Action, Document, EntityType, Question, Segment
+from masker.mask.select import resolve_requested_types
+from masker.model import Action, Document, Question, Segment
 from masker.policy.agent import CriticalUnmask, GroupAnswer, PolicyAgent
 from masker.profile import ProfileAgent
 from masker.profile.agent import ProfileResult
@@ -55,6 +59,7 @@ from masker.report.payload import (
     _validation_skipped,
     build_report_payload,
 )
+from masker.typeconfig import CustomTypeSpec, load_type_config
 from masker.validate import ValidateAgent
 
 
@@ -84,6 +89,16 @@ def _document(state: State) -> Document:
             for item in state["segments"]
         ],
     )
+
+
+def _registry_and_specs(
+    state: State,
+) -> tuple[EntityTypeRegistry, list[CustomTypeSpec]]:
+    """Собрать иммутабельный реестр из JSON-спеков текущего прогона."""
+    raw = state.get("options", {}).get("custom_types", [])
+    specs = load_type_config({"version": 1, "types": list(raw)}) if raw else []
+    registry = EntityTypeRegistry.builtin().extend(item.spec for item in specs)
+    return registry, specs
 
 
 def extract_node(state: State) -> dict[str, object]:
@@ -133,13 +148,18 @@ def detect_node(state: State) -> dict[str, object]:
     """
     document = _document(state)
     options = state.get("options", {})
+    registry, specs = _registry_and_specs(state)
     rules_only = bool(options.get("rules_only", False))
-    detector = DetectAgent([RuleDetector(), AddressDetector()]) if rules_only else DetectAgent()
+    if rules_only:
+        detectors: list[EntityDetector] = [RuleDetector(), AddressDetector()]
+        if specs:
+            detectors.append(ConfigDetector(specs))
+    else:
+        detectors = default_detectors(specs)
+    detector = DetectAgent(detectors, registry)
     raw_types = options.get("types")
-    selected_types = (
-        frozenset(EntityType(str(value)) for value in raw_types)
-        if raw_types
-        else frozenset(EntityType)
+    selected_types = resolve_requested_types(
+        tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
     )
     entities = detector.detect(document).entities
     return {
@@ -207,7 +227,8 @@ def make_judge_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
             return {"verdicts": [], "questions": []}
         document = _document(state)
         entities = [entity_from_dict(item) for item in state["entities"]]
-        result = JudgeAgent().judge(
+        registry, _ = _registry_and_specs(state)
+        result = JudgeAgent(registry=registry).judge(
             DetectionResult(entities, build_pii_chunks(document.segments, entities)),
             _profile_result(state, document),
         )
@@ -226,7 +247,8 @@ def policy_node(state: State) -> dict[str, object]:
     detection = DetectionResult(entities, build_pii_chunks(document.segments, entities))
     profiles = _profile_result(state, document)
     allow_unmask_critical = bool(state.get("options", {}).get("unmask_critical", False))
-    questions = PolicyAgent().questions(
+    registry, _ = _registry_and_specs(state)
+    questions = PolicyAgent(registry).questions(
         detection, profiles, allow_unmask_critical=allow_unmask_critical
     )
     return {"policy_questions": policy_questions_to_dicts(questions)}
@@ -256,7 +278,11 @@ def apply_answers_node(state: State) -> dict[str, object]:
         questions_from_dicts(state.get("questions", [])),
     )
     return {
-        "verdicts": verdicts_to_dicts(JudgeAgent().apply_answers(result, state.get("answers", {})))
+        "verdicts": verdicts_to_dicts(
+            JudgeAgent(registry=_registry_and_specs(state)[0]).apply_answers(
+                result, state.get("answers", {})
+            )
+        )
     }
 
 
@@ -304,7 +330,8 @@ def finalize_node(state: State) -> dict[str, object]:
     )
     answers = state.get("answers", {})
 
-    result = PolicyAgent().apply(
+    registry, _ = _registry_and_specs(state)
+    result = PolicyAgent(registry).apply(
         detection,
         profiles,
         verdicts,
@@ -360,14 +387,17 @@ def plan_node(state: State) -> dict[str, object]:
     entities = [entity_from_dict(item) for item in state["entities"]]
     profiles = profiles_from_dicts(state.get("profiles", []))
     options = state.get("options", {})
+    registry, _ = _registry_and_specs(state)
     raw_types = options.get("types")
     requested_types = (
-        frozenset(EntityType(str(value)) for value in raw_types) if raw_types else None
+        resolve_requested_types(tuple(str(value) for value in raw_types), registry)
+        if raw_types
+        else None
     )
     actions = {
         str(item["ref"]): Action(str(item["action"])) for item in state.get("final_actions", [])
     }
-    plan = PlanAgent().plan(
+    plan = PlanAgent(registry).plan(
         document,
         entities,
         profiles=profiles,
@@ -543,11 +573,10 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
     entities = [entity_from_dict(item) for item in state.get("entities", [])]
     chunks = build_pii_chunks(document.segments, entities)
     options = state.get("options", {})
+    registry, _ = _registry_and_specs(state)
     raw_types = options.get("types")
-    selected_types = (
-        frozenset(EntityType(str(value)) for value in raw_types)
-        if raw_types
-        else frozenset(EntityType)
+    selected_types = resolve_requested_types(
+        tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
     )
 
     profile_enabled = bool(options.get("profile", True))
@@ -600,6 +629,7 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
         decisions=decisions,
         ref_by_entity_id=ref_by_entity_id,
         plan=plan,
+        registry=registry,
     )
     report["preview_only"] = preview_only
     report["validation"] = state.get(

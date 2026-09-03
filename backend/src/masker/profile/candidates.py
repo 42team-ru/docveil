@@ -50,5 +50,5 @@ def build_candidates(
         )
     return sorted(
         accepted,
-        key=lambda entity: (entity.segment_order, entity.start, entity.end, entity.type.value),
+        key=lambda entity: (entity.segment_order, entity.start, entity.end, entity.type),
     )

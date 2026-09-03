@@ -5,6 +5,8 @@ set -uo pipefail
 
 PY=.venv/bin/python
 export PYTHONPATH=src
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 FAILED=()
 
 # Тесты гоняются в несколько процессов (pytest-xdist). Замерено на этом
@@ -29,7 +31,7 @@ step "линт"     $PY -m ruff check src tests
 step "формат"   $PY -m ruff format --check src tests
 step "типы"     $PY -m mypy src
 step "лок"      uv lock --check
-step "тесты"    $PY -m pytest -q -n "$WORKERS"
+step "тесты"    $PY -m pytest -q -n "$WORKERS" -m "not gliner and not e2e"
 step "метрики"  $PY -m masker.eval --gate
 
 echo

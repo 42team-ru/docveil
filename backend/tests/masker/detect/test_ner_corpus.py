@@ -14,6 +14,10 @@ from masker.eval import MIN_PRECISION, MIN_RECALL_OTHER, load_corpus, score
 from masker.ingest.docx_ingest import ingest_docx
 from masker.model import CRITICAL_TYPES, EntityType
 
+#: Пользовательские типы (T1.13) в разметке не входят в `EntityType` —
+#: `EntityType(item["type"])` падает `ValueError` на них.
+_BUILTIN_TYPE_VALUES = frozenset(entity_type.value for entity_type in EntityType)
+
 
 def _docx_corpus() -> list[tuple[Path, dict[str, Any]]]:
     """Только DOCX часть корпуса — этот файл проверяет пороги `DetectAgent`
@@ -101,6 +105,13 @@ def test_every_occurrence_of_critical_value_is_detected() -> None:
         entities = DetectAgent().detect(document).entities
         text = document.text()
         for item in labels["entities"]:
+            # T1.13, шаг 6: у документов с пользовательскими типами (не
+            # входят в `EntityType`) этот файл проверяет только встроенные
+            # критичные типы — DetectAgent() здесь вызван без ConfigDetector
+            # (докстринг модуля: «до появления полного пайплайна»), поэтому
+            # ловить пользовательский тип этим тестом бессмысленно.
+            if item["type"] not in _BUILTIN_TYPE_VALUES:
+                continue
             entity_type = EntityType(item["type"])
             if entity_type not in CRITICAL_TYPES:
                 continue

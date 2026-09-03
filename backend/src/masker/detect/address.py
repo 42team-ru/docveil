@@ -109,7 +109,7 @@ class AddressDetector:
     name = "address"
     source = Source.RULE
     priority = 90
-    types = frozenset({EntityType.ADDRESS})
+    types: frozenset[str] = frozenset({EntityType.ADDRESS})
 
     def __init__(self, tagger: NerTagger | None = None) -> None:
         markers = address_markers()

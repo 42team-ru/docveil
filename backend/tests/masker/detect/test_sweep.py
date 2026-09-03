@@ -22,7 +22,7 @@ def _entity(
     segment_order: int,
     text: str,
     *,
-    etype: EntityType = EntityType.CONTRACT_NUMBER,
+    etype: str = EntityType.CONTRACT_NUMBER,
     confidence: float = 0.8,
 ) -> Entity:
     seg = document.segments[segment_order]
@@ -129,3 +129,14 @@ def test_sweep_is_deterministic() -> None:
     assert [(e.segment_order, e.start) for e in first] == sorted(
         (e.segment_order, e.start) for e in first
     )
+
+
+def test_sweep_accepts_explicit_custom_literal_type_only() -> None:
+    document = _document(["Код товара SKU-ABC-42", "Повтор SKU-ABC-42"])
+    accepted = [_entity(document, 0, "SKU-ABC-42", etype="product_code")]
+
+    assert sweep(document, accepted) == []
+    found = sweep(document, accepted, frozenset({"product_code"}))
+    assert [(item.type, item.segment_order, item.text) for item in found] == [
+        ("product_code", 1, "SKU-ABC-42")
+    ]

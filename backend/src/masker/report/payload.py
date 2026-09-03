@@ -18,9 +18,10 @@ from pathlib import Path
 from typing import Any
 
 from masker.detect.result import PiiChunk
+from masker.entity_types import EntityTypeRegistry
 from masker.graph.serde import judge_to_dicts, profiles_to_dicts
 from masker.judge.agent import JudgeResult
-from masker.model import Document, Entity, EntityType, Leak, MaskPlan, ValidationReport
+from masker.model import Document, Entity, Leak, MaskPlan, ValidationReport
 from masker.profile.agent import ProfileResult
 
 REPORT_VERSION = 3
@@ -37,7 +38,7 @@ def _entity_record(
 ) -> dict[str, Any]:
     segment = document.segments[entity.segment_order]
     record: dict[str, Any] = {
-        "type": entity.type.value,
+        "type": entity.type,
         "text": entity.text,
         "normalized": entity.normalized,
         "source": entity.source.value,
@@ -111,13 +112,13 @@ def _annotate_chunk(text: str, chunk: PiiChunk) -> str:
     for entity in sorted(chunk.entities, key=lambda item: item.start, reverse=True):
         start = entity.start - chunk.start
         end = entity.end - chunk.start
-        replacement = f"⟦{entity.type.value.upper()}:{value[start:end]}⟧"
+        replacement = f"⟦{entity.type.upper()}:{value[start:end]}⟧"
         value = value[:start] + replacement + value[end:]
     return value
 
 
 def _summary(entities: list[Entity]) -> dict[str, Any]:
-    by_type = Counter(entity.type.value for entity in entities)
+    by_type = Counter(entity.type for entity in entities)
     by_source = Counter(entity.source.value for entity in entities)
     return {
         "entities_total": len(entities),
@@ -163,7 +164,7 @@ def _limitations_pdf(coverage: dict[str, Any]) -> list[str]:
     ]
 
 
-def _plan_record(plan: MaskPlan) -> dict[str, Any]:
+def _plan_record(plan: MaskPlan, registry: EntityTypeRegistry) -> dict[str, Any]:
     """Сериализовать план масок для report.json — раздел «Проводка плана в CLI»."""
     skipped_by_reason: Counter[str] = Counter(item.reason for item in plan.skipped)
     return {
@@ -172,7 +173,8 @@ def _plan_record(plan: MaskPlan) -> dict[str, Any]:
             {
                 "id": group.id,
                 "marker": group.marker,
-                "type": group.type.value,
+                "type": group.type,
+                "type_title": registry.spec(group.type).title,
                 "profile_id": group.profile_id,
                 "ref_count": len(group.refs),
                 "sample": group.sample,
@@ -229,7 +231,7 @@ def build_report_payload(
     document: Document,
     entities: list[Entity],
     chunks: list[PiiChunk],
-    selected_types: frozenset[EntityType],
+    selected_types: frozenset[str],
     document_coverage: dict[str, Any],
     detection_coverage: dict[str, list[str]],
     profile_result: ProfileResult | None = None,
@@ -238,6 +240,7 @@ def build_report_payload(
     decisions: dict[str, Any] | None = None,
     ref_by_entity_id: dict[int, str] | None = None,
     plan: MaskPlan | None = None,
+    registry: EntityTypeRegistry | None = None,
 ) -> dict[str, Any]:
     """Собрать структуру ``report.json`` из результатов агентов.
 
@@ -271,7 +274,7 @@ def build_report_payload(
         "input": source.name,
         "format": document.fmt,
         "preview_only": True,
-        "selected_types": sorted(entity_type.value for entity_type in selected_types),
+        "selected_types": sorted(selected_types),
         "entity_count": len(entities),
         "chunk_count": len(chunks),
         "summary": _summary(entities),
@@ -302,7 +305,7 @@ def build_report_payload(
         "limitations": limitations,
     }
     if plan is not None:
-        report["plan"] = _plan_record(plan)
+        report["plan"] = _plan_record(plan, registry or EntityTypeRegistry.builtin())
     if profile_result is not None and judge_result is not None:
         # Сериализаторы графа задают единый публичный JSON-формат для CLI и State.
         report["profile_judge"] = {

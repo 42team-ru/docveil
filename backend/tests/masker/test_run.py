@@ -58,6 +58,23 @@ def test_thread_id_for_changes_with_types() -> None:
     assert a != b
 
 
+def test_thread_id_for_custom_types_is_order_independent() -> None:
+    first = {"id": "shipment_date", "detect": {"kind": "regex", "pattern": "x"}}
+    second = {"detect": {"values": ["SKU-42"], "kind": "literals"}, "id": "product_code"}
+    a = thread_id_for(FIXTURE, RunOptions(custom_types=(first, second)))
+    b = thread_id_for(
+        FIXTURE,
+        RunOptions(
+            custom_types=(
+                {"id": "product_code", "detect": {"kind": "literals", "values": ["SKU-42"]}},
+                {"detect": {"pattern": "x", "kind": "regex"}, "id": "shipment_date"},
+            )
+        ),
+    )
+    assert a == b
+    assert a != thread_id_for(FIXTURE, RunOptions(custom_types=(first,)))
+
+
 def test_thread_id_for_changes_with_rules_only() -> None:
     a = thread_id_for(FIXTURE, RunOptions(rules_only=True))
     b = thread_id_for(FIXTURE, RunOptions(rules_only=False))

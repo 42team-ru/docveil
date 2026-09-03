@@ -57,7 +57,11 @@ def _covered(ranges: list[tuple[int, int]], start: int, end: int) -> bool:
     )
 
 
-def sweep(document: Document, entities: list[Entity]) -> list[Entity]:
+def sweep(
+    document: Document,
+    entities: list[Entity],
+    extra_types: frozenset[str] = frozenset(),
+) -> list[Entity]:
     """Найти непокрытые точные вхождения уже принятых значений (Д13).
 
     ``entities`` — уже объединённый и разрешённый по перекрытиям результат
@@ -65,11 +69,13 @@ def sweep(document: Document, entities: list[Entity]) -> list[Entity]:
     досмотра (вызывающий, ``DetectAgent.detect``, зовёт это последним
     проходом).
     """
-    value_confidence: dict[tuple[EntityType, str], float] = {}
+    value_confidence: dict[tuple[str, str], float] = {}
     covered_by_segment: dict[int, list[tuple[int, int]]] = {}
     for entity in entities:
         covered_by_segment.setdefault(entity.segment_order, []).append((entity.start, entity.end))
-        if entity.type not in SWEEP_TYPES or len(entity.text) < MIN_VALUE_LEN:
+        if entity.type not in SWEEP_TYPES and entity.type not in extra_types:
+            continue
+        if len(entity.text) < MIN_VALUE_LEN:
             continue
         key = (entity.type, entity.text)
         # Первое встреченное значение выигрывает — `entities` уже
@@ -79,7 +85,7 @@ def sweep(document: Document, entities: list[Entity]) -> list[Entity]:
     segments_by_order = sorted(document.segments, key=lambda segment: segment.order)
 
     found: list[Entity] = []
-    for entity_type, value in sorted(value_confidence, key=lambda item: (item[0].value, item[1])):
+    for entity_type, value in sorted(value_confidence, key=lambda item: (item[0], item[1])):
         confidence = value_confidence[(entity_type, value)]
         pattern = re.compile(rf"(?<!\w){re.escape(value)}(?!\w)")
         for segment in segments_by_order:

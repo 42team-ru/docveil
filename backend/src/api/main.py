@@ -9,7 +9,7 @@ from fastapi import APIRouter, FastAPI
 from starlette.concurrency import run_in_threadpool
 
 from api.core.storage import ensure_bucket
-from api.routers import auth, files, users
+from api.routers import auth, custom_types, files, users
 
 
 @asynccontextmanager
@@ -24,4 +24,5 @@ api_router = APIRouter(prefix="/api")
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(files.router)
+api_router.include_router(custom_types.router)
 app.include_router(api_router)

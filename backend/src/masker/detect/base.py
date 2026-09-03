@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from masker.model import Document, Entity, EntityType, Source
+from masker.model import Document, Entity, Source
 
 
 class EntityDetector(Protocol):
@@ -13,7 +13,7 @@ class EntityDetector(Protocol):
     name: str
     source: Source
     priority: int
-    types: frozenset[EntityType]
+    types: frozenset[str]  # id из EntityTypeRegistry (встроенные — EntityType.value)
 
     def detect(self, document: Document) -> list[Entity]:
         """Вернуть сущности с локальными смещениями в сегментах документа."""

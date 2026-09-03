@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
 from masker.detect.result import DetectionResult
+from masker.entity_types import EntityTypeRegistry
 from masker.model import (
     DECISION_PRECEDENCE,
     KEEP_CRITICAL_OPTION,
@@ -21,7 +22,6 @@ from masker.model import (
     Profile,
     Question,
     Verdict,
-    is_critical,
 )
 from masker.profile.agent import ProfileResult
 from masker.profile.keys import merge_key
@@ -39,7 +39,7 @@ SAMPLE_TRUNCATE = 60
 #: критичные реквизиты плюс ФИО, см. раздел 8 плана T1.5.1.
 _LINK_TYPES = frozenset({EntityType.INN, EntityType.OGRN, EntityType.SNILS, EntityType.PERSON})
 
-_TYPE_TITLES: dict[EntityType, str] = {
+_TYPE_TITLES: dict[str, str] = {
     EntityType.ORG_NAME: "Название организации",
     EntityType.PERSON: "ФИО",
     EntityType.INN: "ИНН",
@@ -60,8 +60,10 @@ _TYPE_TITLES: dict[EntityType, str] = {
 }
 
 
-def _title(entity_type: EntityType) -> str:
-    return _TYPE_TITLES.get(entity_type, entity_type.value)
+def _title(entity_type: str, registry: EntityTypeRegistry) -> str:
+    if entity_type in registry:
+        return registry.spec(entity_type).title
+    return _TYPE_TITLES.get(entity_type, entity_type)
 
 
 def _truncate(value: str) -> str:
@@ -180,6 +182,9 @@ class PolicyAgent:
     типу. См. раздел 4 плана T1.5.1.
     """
 
+    def __init__(self, registry: EntityTypeRegistry | None = None) -> None:
+        self._registry = registry or EntityTypeRegistry.builtin()
+
     def questions(
         self,
         detection: DetectionResult,
@@ -275,7 +280,7 @@ class PolicyAgent:
                     _group_reason(source, "профиль"),
                 )
 
-            type_question_id = f"TYPE-{entity.type.value}"
+            type_question_id = f"TYPE-{entity.type}"
             if type_question_id in resolved:
                 option, source = resolved[type_question_id]
                 applicable[DecisionSource.TYPE] = Decision(
@@ -294,7 +299,7 @@ class PolicyAgent:
                 applicable.values(), key=lambda item: DECISION_PRECEDENCE.index(item.decided_by)
             )
 
-            if is_critical(entity.type):
+            if self._registry.is_critical(entity.type):
                 # Обычное «оставить» на профиль или тип не снимает маску с
                 # критичного реквизита — только явный KEEP_CRITICAL_OPTION при
                 # запущенном --unmask-critical, раздел 3 плана T1.5.1.
@@ -305,7 +310,7 @@ class PolicyAgent:
                     and winning_option == KEEP_CRITICAL_OPTION
                 )
                 if confirmed:
-                    key = (winner.question_id, entity.type.value)
+                    key = (winner.question_id, entity.type)
                     critical_events[key] = critical_events.get(key, 0) + 1
                 else:
                     guard = Decision(
@@ -316,7 +321,7 @@ class PolicyAgent:
                         "критичный тип: снятие требует явного подтверждения",
                     )
                     diagnostics.append(
-                        f"{ref}: критичный тип «{entity.type.value}» — снятие маски "
+                        f"{ref}: критичный тип «{entity.type}» — снятие маски "
                         "требует двойного подтверждения (--unmask-critical и осознанный ответ)"
                     )
                     applicable[DecisionSource.CRITICAL_GUARD] = guard
@@ -390,19 +395,19 @@ class PolicyAgent:
         anchors: dict[int, Anchor],
         allow_unmask_critical: bool,
     ) -> list[PolicyQuestion]:
-        by_type: dict[EntityType, list[Entity]] = defaultdict(list)
+        by_type: dict[str, list[Entity]] = defaultdict(list)
         for entity in entities:
             by_type[entity.type].append(entity)
         questions: list[PolicyQuestion] = []
-        for entity_type in sorted(by_type, key=lambda item: item.value):
+        for entity_type in sorted(by_type):
             items = by_type[entity_type]
-            critical = is_critical(entity_type)
-            title = _title(entity_type)
+            critical = self._registry.is_critical(entity_type)
+            title = _title(entity_type, self._registry)
             questions.append(
                 PolicyQuestion(
-                    id=f"TYPE-{entity_type.value}",
+                    id=f"TYPE-{entity_type}",
                     kind="type",
-                    target=entity_type.value,
+                    target=entity_type,
                     title=title,
                     prompt=f"Маскировать все «{title}» (найдено {len(items)})?",
                     options=_type_mask_options(
@@ -468,8 +473,8 @@ class PolicyAgent:
         linked: tuple[str, ...],
         allow_unmask_critical: bool,
     ) -> PolicyQuestion:
-        critical = any(is_critical(entity.type) for entity in entities)
-        counter = Counter(entity.type.value for entity in entities)
+        critical = any(self._registry.is_critical(entity.type) for entity in entities)
+        counter = Counter(entity.type for entity in entities)
         role_suffix = f" ({role_title})" if role_title else ""
         return PolicyQuestion(
             id=question_id,

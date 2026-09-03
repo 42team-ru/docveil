@@ -33,4 +33,4 @@ def merge_key(entity: Entity) -> str:
         value = " ".join(value.casefold().split())
     else:
         value = " ".join(value.casefold().split())
-    return f"{entity.type.value}:{value}"
+    return f"{entity.type}:{value}"

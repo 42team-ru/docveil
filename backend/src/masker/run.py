@@ -103,15 +103,26 @@ class RunOptions:
     styles: tuple[str, ...] = ()
     #: Рендерить ли ``preview.*``. Вне ``canonical()`` по той же причине.
     preview: bool = True
+    #: Скомпилированные JSON-спеки пользовательских типов. Объекты с
+    #: ``re.Pattern`` в State не кладём: они не сериализуются чекпойнтером.
+    custom_types: tuple[dict[str, Any], ...] = ()
 
     def canonical(self) -> dict[str, Any]:
         """JSON-каноничная форма опций, влияющих на ``thread_id``."""
+        custom_types = sorted(
+            (
+                json.loads(json.dumps(item, sort_keys=True, ensure_ascii=False))
+                for item in self.custom_types
+            ),
+            key=lambda item: str(item.get("id", "")),
+        )
         return {
             "types": sorted(self.types) if self.types else None,
             "rules_only": self.rules_only,
             "profile": self.profile,
             "unmask_critical": self.unmask_critical,
             "llm_config_id": self.llm_config_id,
+            "custom_types": custom_types,
         }
 
 

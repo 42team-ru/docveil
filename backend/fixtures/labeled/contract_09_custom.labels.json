@@ -1,0 +1,90 @@
+{
+  "entities": [
+    {
+      "type": "contract_number",
+      "text": "9/2026"
+    },
+    {
+      "type": "org_name",
+      "text": "Общество с ограниченной ответственностью «Техноснаб»",
+      "party": "supplier"
+    },
+    {
+      "type": "inn",
+      "text": "5001007311",
+      "party": "supplier"
+    },
+    {
+      "type": "person",
+      "text": "Смирнова Олега Викторовича",
+      "party": "supplier"
+    },
+    {
+      "type": "org_name",
+      "text": "Акционерное общество «Стройимпульс»",
+      "party": "buyer"
+    },
+    {
+      "type": "inn",
+      "text": "9102003303",
+      "party": "buyer"
+    },
+    {
+      "type": "person",
+      "text": "Ковалёвой Ирины Николаевны",
+      "party": "buyer"
+    },
+    {
+      "type": "person",
+      "text": "О.В. Смирнов",
+      "party": "supplier"
+    },
+    {
+      "type": "person",
+      "text": "И.Н. Ковалёва",
+      "party": "buyer"
+    },
+    {
+      "type": "product_code",
+      "text": "SKU-ABC-42"
+    },
+    {
+      "type": "product_code",
+      "text": "SKU-XYZ-77"
+    },
+    {
+      "type": "shipment_date",
+      "text": "20.03.2026"
+    }
+  ],
+  "custom_types": [
+    {
+      "id": "shipment_date",
+      "title": "Дата отгрузки",
+      "marker": "[ДАТА-ОТГРУЗКИ-{n}]",
+      "critical": false,
+      "detect": {
+        "kind": "regex",
+        "pattern": "\\d{2}\\.\\d{2}\\.\\d{4}",
+        "context": [
+          "отгрузк",
+          "поставк"
+        ]
+      }
+    },
+    {
+      "id": "product_code",
+      "title": "Код товара",
+      "marker": "[КОД-ТОВАРА-{n}]",
+      "critical": true,
+      "detect": {
+        "kind": "literals",
+        "values": [
+          "SKU-ABC-42",
+          "SKU-XYZ-77"
+        ],
+        "match": "whole_word"
+      }
+    }
+  ]
+}

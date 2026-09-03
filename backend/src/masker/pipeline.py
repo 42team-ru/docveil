@@ -23,10 +23,11 @@ T1.5.1) и вызов детерминированно завершается з
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -91,7 +92,12 @@ class MaskResult:
 
 
 @contextmanager
-def mask_and_validate(path: str | Path, *, types: Iterable[EntityType]) -> Iterator[MaskResult]:
+def mask_and_validate(
+    path: str | Path,
+    *,
+    types: Iterable[EntityType],
+    custom_types: Iterable[Mapping[str, Any]] = (),
+) -> Iterator[MaskResult]:
     """Построить план, отрендерить оба редактирующих артефакта и проверить их.
 
     В отличие от ``mask_document``, каталог артефактов не выбрасывается
@@ -99,12 +105,18 @@ def mask_and_validate(path: str | Path, *, types: Iterable[EntityType]) -> Itera
     вызывающий (``masker.eval``, метрики ``leaked_total``/
     ``duplicate_markers``, T2.2.1 шаг 3) мог прочитать содержимое файлов,
     а не только пересчитанные вручную числа.
+
+    ``custom_types`` — уже скомпилированные JSON-спеки пользовательских
+    типов (T1.13, шаг 6), тот же формат, что и в ``RunOptions.custom_types``:
+    сырые словари, а не ``CustomTypeSpec``. Пустой по умолчанию — обычный
+    прогон без пользовательских типов не меняет поведение.
     """
     options = RunOptions(
         types=_types_tuple(types),
         interactive=False,
         preview=False,
         styles=("marker", "blackbox"),
+        custom_types=tuple(dict(item) for item in custom_types),
     )
 
     with tempfile.TemporaryDirectory(prefix="masker-pipeline-") as scratch:

@@ -17,13 +17,15 @@ from collections import defaultdict
 from typing import Any
 
 from masker.detect.agent import DetectAgent
+from masker.entity_types import EntityTypeRegistry
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.judge import JudgeAgent
-from masker.model import CRITICAL_TYPES, Document, EntityType, MaskPlan, is_critical
+from masker.model import Document, EntityType, MaskPlan, is_critical
 from masker.policy.agent import PolicyAgent
 from masker.profile import ProfileAgent
 from masker.run import RunFailedError
+from masker.typeconfig import load_type_config
 from masker.validate.parts import docx_parts, pdf_parts
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "labeled"
@@ -126,6 +128,24 @@ MAX_RENDER_FAILURES = 0
 #: соседней строки. Порог нулевой — как и у leaked_total, «немного вёрстки
 #: потеряно» не бывает мелочью.
 MAX_LAYOUT_REMOVED_CHARS = 0
+
+
+def corpus_registry(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> EntityTypeRegistry:
+    """Реестр встроенных типов, расширенный пользовательскими типами всего корпуса.
+
+    Нужен только для того, чтобы порог recall по типу (шаг 6, design notes
+    6.8) читался из реестра, а не из ``CRITICAL_TYPES`` — иначе пользовательский
+    ``critical: true`` не проверялся бы по-настоящему. Корпус никогда не зовёт
+    LLM-компилятор: ``custom_types`` в разметке — уже готовые спеки.
+    """
+    registry = EntityTypeRegistry.builtin()
+    for _path, labels in corpus:
+        raw = labels.get("custom_types", [])
+        if not raw:
+            continue
+        specs = load_type_config({"version": 1, "types": raw})
+        registry = registry.extend(spec.spec for spec in specs)
+    return registry
 
 
 def load_corpus() -> list[tuple[pathlib.Path, dict[str, Any]]]:
@@ -276,6 +296,7 @@ def run(gate: bool) -> int:
         print("МЕТРИКИ ПРОПУЩЕНЫ: в fixtures/labeled нет размеченных документов.")
         return 1
 
+    registry = corpus_registry(corpus)
     by_type: dict[str, dict[str, set[tuple[str, ...]]]] = defaultdict(
         lambda: {"expected": set(), "found": set()}
     )
@@ -298,8 +319,11 @@ def run(gate: bool) -> int:
     render_failures: list[str] = []
     for path, labels in corpus:
         fmt = path.suffix.casefold().lstrip(".")
+        custom_types = labels.get("custom_types", [])
         try:
-            with mask_and_validate(path, types=list(EntityType)) as result:
+            with mask_and_validate(
+                path, types=list(EntityType), custom_types=custom_types
+            ) as result:
                 for item in labels["entities"]:
                     key = (path.name, item["type"], _collapse(item["text"]))
                     by_type[item["type"]]["expected"].add(key)
@@ -332,7 +356,7 @@ def run(gate: bool) -> int:
             f"{name:<18}{m['precision']:>7.3f}{m['recall']:>7.3f}"
             f"{m['f1']:>7.3f}{m['fn']:>5}{m['fp']:>5}"
         )
-        critical = name in CRITICAL_TYPES
+        critical = registry.is_critical(name)
         min_recall = MIN_RECALL_CRITICAL if critical else MIN_RECALL_OTHER
         if m["recall"] < min_recall:
             failures.append(f"{name}: recall {m['recall']:.3f} < {min_recall}")

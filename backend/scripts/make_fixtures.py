@@ -367,6 +367,101 @@ def contract_08_roles() -> tuple[DocxDocument, list[dict[str, str]]]:
     return doc, labels
 
 
+def contract_09_custom() -> tuple[DocxDocument, list[dict[str, str]], list[dict[str, object]]]:
+    """Договор с пользовательскими типами (T1.13, шаг 6).
+
+    Два типа, исполнимых офлайн и без LLM: `shipment_date` (`regex` +
+    `context`, не критичный) и `product_code` (`literals`, критичный —
+    порог recall 1.0 для пользовательского типа обязан проверяться реально,
+    design notes 6.8). Стороны и реквизиты — обычные встроенные типы, чтобы
+    документ оставался реалистичным договором, а не голым списком custom-полей.
+    """
+    doc = DocxDocument()
+    doc.core_properties.author = "Синтетический корпус"
+    doc.core_properties.title = "Договор поставки с пользовательскими типами"
+
+    doc.add_heading("ДОГОВОР ПОСТАВКИ № 9/2026", level=1)
+    doc.add_paragraph("г. Воронеж, 5 марта 2026 г.")
+    doc.add_paragraph(
+        "Общество с ограниченной ответственностью «Техноснаб», ИНН 5001007311, "
+        "именуемое в дальнейшем «Поставщик», в лице директора Смирнова Олега "
+        "Викторовича, с одной стороны, и"
+    )
+    doc.add_paragraph(
+        "Акционерное общество «Стройимпульс», ИНН 9102003303, именуемое в "
+        "дальнейшем «Покупатель», в лице директора Ковалёвой Ирины Николаевны, "
+        "с другой стороны, заключили договор о нижеследующем."
+    )
+
+    doc.add_heading("1. Спецификация", level=2)
+    table = doc.add_table(rows=3, cols=2)
+    table.style = "Table Grid"
+    for i, row in enumerate(
+        [
+            ("Код товара", "Наименование"),
+            ("SKU-ABC-42", "Резистор МЛТ-0,25"),
+            ("SKU-XYZ-77", "Конденсатор К73-17"),
+        ]
+    ):
+        for j, val in enumerate(row):
+            table.rows[i].cells[j].text = val
+
+    doc.add_heading("2. Сроки поставки", level=2)
+    doc.add_paragraph("Дата отгрузки: 20.03.2026. Поставка осуществляется силами Поставщика.")
+
+    doc.add_heading("3. Подписи", level=2)
+    doc.add_paragraph("Поставщик: ______________ О.В. Смирнов")
+    doc.add_paragraph("Покупатель: ______________ И.Н. Ковалёва")
+
+    labels = [
+        {"type": "contract_number", "text": "9/2026"},
+        {
+            "type": "org_name",
+            "text": "Общество с ограниченной ответственностью «Техноснаб»",
+            "party": "supplier",
+        },
+        {"type": "inn", "text": "5001007311", "party": "supplier"},
+        {"type": "person", "text": "Смирнова Олега Викторовича", "party": "supplier"},
+        {
+            "type": "org_name",
+            "text": "Акционерное общество «Стройимпульс»",
+            "party": "buyer",
+        },
+        {"type": "inn", "text": "9102003303", "party": "buyer"},
+        {"type": "person", "text": "Ковалёвой Ирины Николаевны", "party": "buyer"},
+        {"type": "person", "text": "О.В. Смирнов", "party": "supplier"},
+        {"type": "person", "text": "И.Н. Ковалёва", "party": "buyer"},
+        {"type": "product_code", "text": "SKU-ABC-42"},
+        {"type": "product_code", "text": "SKU-XYZ-77"},
+        {"type": "shipment_date", "text": "20.03.2026"},
+    ]
+    custom_types: list[dict[str, object]] = [
+        {
+            "id": "shipment_date",
+            "title": "Дата отгрузки",
+            "marker": "[ДАТА-ОТГРУЗКИ-{n}]",
+            "critical": False,
+            "detect": {
+                "kind": "regex",
+                "pattern": r"\d{2}\.\d{2}\.\d{4}",
+                "context": ["отгрузк", "поставк"],
+            },
+        },
+        {
+            "id": "product_code",
+            "title": "Код товара",
+            "marker": "[КОД-ТОВАРА-{n}]",
+            "critical": True,
+            "detect": {
+                "kind": "literals",
+                "values": ["SKU-ABC-42", "SKU-XYZ-77"],
+                "match": "whole_word",
+            },
+        },
+    ]
+    return doc, labels, custom_types
+
+
 def _set_cell_paragraphs(cell, lines: list[str]) -> None:
     cell.paragraphs[0].text = lines[0]
     for line in lines[1:]:
@@ -383,14 +478,27 @@ def main() -> int:
         ("contract_05_tables", contract_05_tables),
         ("contract_06_address", contract_06_address),
         ("contract_08_roles", contract_08_roles),
+        ("contract_09_custom", contract_09_custom),
     ):
-        doc, labels = builder()
+        result = builder()
+        # Большинство генераторов возвращают (doc, labels); контракты с
+        # пользовательскими типами (T1.13, шаг 6) — тройку с готовой
+        # секцией `custom_types`, отдельный список не заводим ради одного
+        # файла.
+        if len(result) == 3:
+            doc, labels, custom_types = result
+        else:
+            doc, labels = result
+            custom_types = None
         for p in doc.paragraphs:
             for run in p.runs:
                 run.font.size = run.font.size or Pt(11)
         save_deterministic(doc, OUT / f"{name}.docx")
+        payload: dict[str, object] = {"entities": labels}
+        if custom_types is not None:
+            payload["custom_types"] = custom_types
         (OUT / f"{name}.labels.json").write_text(
-            json.dumps({"entities": labels}, ensure_ascii=False, indent=2) + "\n",
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
         print(f"{name}.docx — сущностей в разметке: {len(labels)}")

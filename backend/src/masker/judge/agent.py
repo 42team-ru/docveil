@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from masker.detect.result import DetectionResult
+from masker.entity_types import EntityTypeRegistry
 from masker.judge.scoring import ASK_BELOW, score
 from masker.model import (
     KEEP_OPTION,
@@ -14,7 +15,6 @@ from masker.model import (
     Profile,
     Question,
     Verdict,
-    is_critical,
 )
 from masker.profile.agent import ProfileResult
 from masker.refs import EntityIndex, entity_sort_key
@@ -29,8 +29,13 @@ class JudgeResult:
 class JudgeAgent:
     """Принимает решения, не меняя ни детекцию, ни профили."""
 
-    def __init__(self, ask_below: float = ASK_BELOW) -> None:
+    def __init__(
+        self,
+        ask_below: float = ASK_BELOW,
+        registry: EntityTypeRegistry | None = None,
+    ) -> None:
         self._ask_below = ask_below
+        self._registry = registry or EntityTypeRegistry.builtin()
 
     def judge(self, detection: DetectionResult, profiles: ProfileResult) -> JudgeResult:
         """Выдать вердикт для каждой сущности и дедуплицированные вопросы."""
@@ -55,7 +60,7 @@ class JudgeAgent:
         groups: dict[str, list[tuple[Entity, str, Profile | None, float]]] = {}
         for item in raw:
             entity = item[0]
-            if not is_critical(entity.type) and item[3] < self._ask_below:
+            if not self._registry.is_critical(entity.type) and item[3] < self._ask_below:
                 key = f"{entity.type}:{entity.normalized or entity.text.casefold()}"
                 groups.setdefault(key, []).append(item)
         questions: list[Question] = []
@@ -86,7 +91,7 @@ class JudgeAgent:
         verdicts: list[Verdict] = []
         for entity, ref, profile, confidence in raw:
             question_id = question_for_ref.get(ref, "")
-            if is_critical(entity.type):
+            if self._registry.is_critical(entity.type):
                 action, reason = Action.MASK, "критичный тип маскируется без вопроса"
             elif question_id:
                 action, reason = Action.ASK, "низкая уверенность, требуется решение человека"

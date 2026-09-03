@@ -45,6 +45,9 @@ class ConfigDetector:
     def __init__(self, specs: Sequence[CustomTypeSpec]) -> None:
         self._specs = list(specs)
         self.types: frozenset[str] = frozenset(custom.spec.id for custom in self._specs)
+        self.sweep_types: frozenset[str] = frozenset(
+            custom.spec.id for custom in self._specs if custom.kind == "literals"
+        )
 
     def detect(self, document: Document) -> list[Entity]:
         """Найти сущности всех объявленных пользовательских типов.
@@ -58,6 +61,8 @@ class ConfigDetector:
         for custom in self._specs:
             if custom.kind == "literals":
                 entities.extend(self._detect_literals(custom, document))
+                continue
+            if custom.kind != "regex":
                 continue
             started = perf_counter()
             entities.extend(self._detect_regex(custom, document))
@@ -74,6 +79,7 @@ class ConfigDetector:
 
     def _detect_literals(self, custom: CustomTypeSpec, document: Document) -> list[Entity]:
         found: list[Entity] = []
+        assert custom.pattern is not None
         for segment in document.segments:
             for match in custom.pattern.finditer(segment.text):
                 text = match.group()
@@ -93,6 +99,7 @@ class ConfigDetector:
 
     def _detect_regex(self, custom: CustomTypeSpec, document: Document) -> list[Entity]:
         found: list[Entity] = []
+        assert custom.pattern is not None
         for segment in document.segments:
             for match in custom.pattern.finditer(segment.text):
                 if custom.context and not _context_present(

@@ -26,17 +26,18 @@ from dataclasses import dataclass
 from re import _constants, _parser  # type: ignore[attr-defined]
 from typing import Any
 
-from masker.entity_types import EntityTypeSpec
+from masker.entity_types import EntityTypeSpec, builtin_specs
 from masker.model import EntityType
 
 #: Пользовательская регулярка длиннее этого — уже не «номер договора»,
 #: а конструкция, которую невозможно проверить глазами при код-ревью.
 MAX_PATTERN_LEN = 200
+MAX_CUSTOM_TYPES_PER_REQUEST = 20
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
 _BUILTIN_IDS = frozenset(t.value for t in EntityType)
 _ALLOWED_FLAG_MASK = re.IGNORECASE | re.UNICODE
-_DETECT_KINDS = frozenset({"literals", "regex"})
+_DETECT_KINDS = frozenset({"literals", "regex", "gliner_label", "gliner_structure"})
 _MATCH_MODES = frozenset({"whole_word", "substring"})
 
 
@@ -57,8 +58,13 @@ class CustomTypeSpec:
 
     spec: EntityTypeSpec
     kind: str  # "literals" | "regex"
-    pattern: re.Pattern[str]
+    pattern: re.Pattern[str] | None = None
     context: tuple[str, ...] = ()
+    label: str = ""
+    description: str = ""
+    threshold: float = 0.3
+    structure: str = ""
+    field: str = ""
 
 
 def load_type_config(source: dict[str, Any]) -> list[CustomTypeSpec]:
@@ -71,6 +77,11 @@ def load_type_config(source: dict[str, Any]) -> list[CustomTypeSpec]:
     """
     _validate_top_level(source)
     raw = source
+    if len(raw["types"]) > MAX_CUSTOM_TYPES_PER_REQUEST:
+        raise CustomTypeError(
+            f"Конфигурация типов: получено {len(raw['types'])}, максимум "
+            f"{MAX_CUSTOM_TYPES_PER_REQUEST} типов на запрос"
+        )
 
     specs: list[CustomTypeSpec] = []
     seen_at: dict[str, int] = {}
@@ -83,6 +94,16 @@ def load_type_config(source: dict[str, Any]) -> list[CustomTypeSpec]:
             )
         seen_at[type_id] = index
         specs.append(custom)
+    labels: dict[str, str] = {spec.marker_label: spec.id for spec in builtin_specs()}
+    for custom in specs:
+        label = custom.spec.marker_label
+        previous = labels.get(label)
+        if previous is not None:
+            raise CustomTypeError(
+                f"Тип {custom.spec.id!r}: метка маркера {label!r} уже используется "
+                f"типом {previous!r}"
+            )
+        labels[label] = custom.spec.id
     return specs
 
 
@@ -139,9 +160,7 @@ def _build_type(item: Any, index: int) -> CustomTypeSpec:
 
     kind = detect.get("kind")
     if kind not in _DETECT_KINDS:
-        raise CustomTypeError(
-            f"Тип {type_id!r}: 'detect.kind' должен быть 'literals' или 'regex', получено {kind!r}"
-        )
+        raise CustomTypeError(f"Тип {type_id!r}: неизвестный 'detect.kind' {kind!r}")
 
     spec = EntityTypeSpec(
         id=type_id,
@@ -154,7 +173,46 @@ def _build_type(item: Any, index: int) -> CustomTypeSpec:
     if kind == "literals":
         pattern = _build_literal_pattern(detect, type_id)
         return CustomTypeSpec(spec=spec, kind="literals", pattern=pattern)
+    if kind in {"gliner_label", "gliner_structure"}:
+        return _build_gliner_type(spec, detect, type_id, kind)
     return _build_regex_type(spec, detect, type_id)
+
+
+def _build_gliner_type(
+    spec: EntityTypeSpec, detect: dict[str, Any], type_id: str, kind: str
+) -> CustomTypeSpec:
+    label = detect.get("label")
+    description = detect.get("description")
+    if not isinstance(label, str) or not label.strip():
+        raise CustomTypeError(f"Тип {type_id!r}: 'detect.label' должен быть непустой строкой")
+    if not isinstance(description, str) or not description.strip():
+        raise CustomTypeError(f"Тип {type_id!r}: 'detect.description' должен быть непустой строкой")
+    threshold = detect.get("threshold", 0.3)
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+        raise CustomTypeError(f"Тип {type_id!r}: 'detect.threshold' должен быть числом")
+    threshold = float(threshold)
+    if not 0.0 <= threshold <= 1.0:
+        raise CustomTypeError(f"Тип {type_id!r}: 'detect.threshold' должен быть в диапазоне [0, 1]")
+    structure = ""
+    field = ""
+    if kind == "gliner_structure":
+        structure = detect.get("structure", "")
+        field = detect.get("field", "")
+        if not isinstance(structure, str) or not structure.strip():
+            raise CustomTypeError(
+                f"Тип {type_id!r}: 'detect.structure' должен быть непустой строкой"
+            )
+        if not isinstance(field, str) or not field.strip():
+            raise CustomTypeError(f"Тип {type_id!r}: 'detect.field' должен быть непустой строкой")
+    return CustomTypeSpec(
+        spec=spec,
+        kind=kind,
+        label=label.strip(),
+        description=description.strip(),
+        threshold=threshold,
+        structure=structure.strip(),
+        field=field.strip(),
+    )
 
 
 def _marker_label_from_template(marker: str) -> str:

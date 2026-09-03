@@ -14,9 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from api.core.db import async_session_maker  # noqa: E402
-from api.schemas.user import Role, UserCreate  # noqa: E402
-from api.services.user_service import create_user, email_exists  # noqa: E402
+from api.core.db import async_session_maker
+from api.schemas.user import Role, UserCreate
+from api.services.user_service import create_user, email_exists
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,9 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--full-name", default=os.environ.get("ADMIN_FULL_NAME", "Admin"))
     args = parser.parse_args()
     if not args.email or not args.password:
-        parser.error(
-            "нужны --email и --password (или ADMIN_EMAIL/ADMIN_PASSWORD в .env)"
-        )
+        parser.error("нужны --email и --password (или ADMIN_EMAIL/ADMIN_PASSWORD в .env)")
     return args
 
 

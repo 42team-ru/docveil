@@ -81,3 +81,9 @@ def test_critical_custom_type() -> None:
     custom = EntityTypeSpec("secret_code", "Секретный код", "КОД", critical=True, builtin=False)
     r2 = r.extend([custom])
     assert "secret_code" in r2.critical_ids()
+    assert r2.is_critical("secret_code")
+
+
+def test_is_critical_rejects_unknown_type() -> None:
+    with pytest.raises(KeyError, match="unknown_custom"):
+        EntityTypeRegistry.builtin().is_critical("unknown_custom")

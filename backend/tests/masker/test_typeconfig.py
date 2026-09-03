@@ -14,7 +14,7 @@ def _type(id_: str = "contract_no", **overrides: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "id": id_,
         "title": "Номер договора",
-        "marker": "[ДОГОВОР-{n}]",
+        "marker": "[КОНТРАКТ-{n}]",
         "detect": {"kind": "regex", "pattern": r"№\s?\d+/\d{4}", "ignorecase": False},
     }
     base.update(overrides)
@@ -36,7 +36,7 @@ def test_valid_regex_type_loaded() -> None:
     spec = specs[0]
     assert spec.spec.id == "contract_no"
     assert spec.kind == "regex"
-    assert spec.spec.marker_label == "ДОГОВОР"
+    assert spec.spec.marker_label == "КОНТРАКТ"
     assert spec.context == ()
     assert spec.pattern.search("№ 44/2026") is not None
 
@@ -160,12 +160,66 @@ def test_missing_title_rejected() -> None:
 
 def test_marker_without_placeholder_rejected() -> None:
     with pytest.raises(CustomTypeError, match="marker"):
-        load_type_config(_config(_type(marker="[ДОГОВОР]")))
+        load_type_config(_config(_type(marker="[КОНТРАКТ]")))
 
 
 def test_marker_with_role_placeholder_accepted() -> None:
-    specs = load_type_config(_config(_type(marker="[{role}-ДОГОВОР]")))
-    assert specs[0].spec.marker_label == "ДОГОВОР"
+    specs = load_type_config(_config(_type(marker="[{role}-КОНТРАКТ]")))
+    assert specs[0].spec.marker_label == "КОНТРАКТ"
+
+
+def test_more_than_twenty_types_rejected() -> None:
+    items = [
+        _type(id_=f"custom_type_{index}", marker=f"[ТИП-{index}-{{n}}]") for index in range(21)
+    ]
+    with pytest.raises(CustomTypeError, match="21"):
+        load_type_config(_config(*items))
+
+
+def test_duplicate_marker_label_rejected() -> None:
+    with pytest.raises(CustomTypeError, match="ТОВАР"):
+        load_type_config(
+            _config(
+                _type(id_="product_name", marker="[ТОВАР-{n}]"),
+                _type(id_="product_code", marker="[ТОВАР-{n}]"),
+            )
+        )
+
+
+def test_gliner_label_requires_description_and_valid_threshold() -> None:
+    detect = {"kind": "gliner_label", "label": "должность", "description": ""}
+    with pytest.raises(CustomTypeError, match="description"):
+        load_type_config(_config(_type(id_="job_title", marker="[ДОЛЖНОСТЬ-{n}]", detect=detect)))
+
+    detect["description"] = "Название должности сотрудника"
+    detect["threshold"] = 1.1
+    with pytest.raises(CustomTypeError, match=r"\[0, 1\]"):
+        load_type_config(_config(_type(id_="job_title", marker="[ДОЛЖНОСТЬ-{n}]", detect=detect)))
+
+
+def test_gliner_structure_fields_are_preserved() -> None:
+    specs = load_type_config(
+        _config(
+            _type(
+                id_="shipment_date",
+                title="Дата отгрузки",
+                marker="[ДАТА-ОТГРУЗКИ-{n}]",
+                detect={
+                    "kind": "gliner_structure",
+                    "label": "дата отгрузки",
+                    "description": "Дата, относящаяся именно к отгрузке товара",
+                    "structure": "поставка",
+                    "field": "дата_отгрузки",
+                    "threshold": 0.7,
+                },
+            )
+        )
+    )
+    assert (specs[0].structure, specs[0].field, specs[0].threshold) == (
+        "поставка",
+        "дата_отгрузки",
+        0.7,
+    )
 
 
 # ---------------------------------------------------------------------------

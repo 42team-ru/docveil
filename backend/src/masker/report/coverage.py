@@ -22,7 +22,7 @@ from masker.ingest.docx_ingest import (
     count_skipped_body_blocks,
     iter_body_blocks,
 )
-from masker.model import Document, EntityType
+from masker.model import Document
 
 WORD_TEXT_TAG = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
 
@@ -115,7 +115,7 @@ def pdf_coverage(source: Path, document: Document) -> dict[str, Any]:
 
 
 def detection_coverage(
-    selected_types: frozenset[EntityType], detector: DetectAgent
+    selected_types: frozenset[str], detector: DetectAgent
 ) -> dict[str, list[str]]:
     """Какие из запрошенных типов реально покрыты активными детекторами."""
     active_types = {entity_type for item in detector.detectors for entity_type in item.types}

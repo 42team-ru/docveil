@@ -155,7 +155,7 @@ def _groups(report: dict[str, Any]) -> str:
         rows.append(
             "<tr>"
             f'<td><span class="type">{escape(str(group["marker"]))}</span></td>'
-            f"<td>{escape(str(group['type']))}</td>"
+            f"<td>{escape(str(group.get('type_title', group['type'])))}</td>"
             f"<td>{escape(str(group['profile_id']))}</td>"
             f"<td>{int(group['ref_count'])}</td>"
             f"<td>{escape(str(group['sample']))}</td>"

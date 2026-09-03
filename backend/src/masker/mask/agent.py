@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from masker.entity_types import EntityTypeRegistry
 from masker.mask.keys import group_key
 from masker.mask.labels import compose_marker, type_marker_label
 from masker.model import (
@@ -18,7 +19,6 @@ from masker.model import (
     Anchor,
     Document,
     Entity,
-    EntityType,
     MaskGroup,
     MaskPlan,
     Profile,
@@ -53,6 +53,9 @@ class _PendingEntity:
 
 class PlanAgent:
     """Строит `MaskPlan` — единственный источник маркеров для рендера и отчёта."""
+
+    def __init__(self, registry: EntityTypeRegistry | None = None) -> None:
+        self._registry = registry or EntityTypeRegistry.builtin()
 
     def plan(
         self,
@@ -93,7 +96,9 @@ class PlanAgent:
             pending.append(_PendingEntity(ref, entity, profile_id, anchor))
 
         buckets = _bucket_by_first_occurrence(pending)
-        marker_by_bucket, number_by_bucket = _assign_markers(buckets, role_label_by_profile_id)
+        marker_by_bucket, number_by_bucket = _assign_markers(
+            buckets, role_label_by_profile_id, self._registry
+        )
 
         groups: list[MaskGroup] = []
         group_id_by_bucket: dict[_BucketKey, str] = {}
@@ -128,9 +133,7 @@ class PlanAgent:
         )
 
         effective_types: frozenset[str] = (
-            requested_types
-            if requested_types is not None
-            else frozenset(t.value for t in EntityType)
+            requested_types if requested_types is not None else frozenset(self._registry.ids())
         )
         return MaskPlan(
             replacements=replacements,
@@ -174,6 +177,7 @@ def _bucket_by_first_occurrence(
 def _assign_markers(
     buckets: dict[_BucketKey, list[_PendingEntity]],
     role_label_by_profile_id: dict[str, str],
+    registry: EntityTypeRegistry,
 ) -> tuple[dict[_BucketKey, str], dict[_BucketKey, int]]:
     """Пронумеровать группы внутри пары (роль, тип) и собрать маркеры.
 
@@ -192,7 +196,7 @@ def _assign_markers(
     marker_by_bucket: dict[_BucketKey, str] = {}
     number_by_bucket: dict[_BucketKey, int] = {}
     for (role_label, entity_type), bucket_keys in pair_order.items():
-        type_label = type_marker_label(entity_type)
+        type_label = type_marker_label(entity_type, registry)
         show_suffix = len(bucket_keys) > 1
         for number, bucket in enumerate(bucket_keys, start=1):
             number_by_bucket[bucket] = number

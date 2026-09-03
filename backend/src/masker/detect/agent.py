@@ -183,8 +183,13 @@ class DetectAgent:
             self._validate(detector, document, entities)
             found.extend((detector, entity) for entity in entities)
         entities = self._resolve_overlaps(found)
+        extra_sweep_types = frozenset(
+            entity_type
+            for detector in self._detectors
+            for entity_type in getattr(detector, "sweep_types", frozenset())
+        )
         entities = sorted(
-            [*entities, *sweep(document, entities)],
+            [*entities, *sweep(document, entities, extra_sweep_types)],
             key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
         chunks = build_pii_chunks(document.segments, entities)

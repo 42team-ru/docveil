@@ -88,6 +88,10 @@ class EntityTypeRegistry:
     def critical_ids(self) -> frozenset[str]:
         return frozenset(s.id for s in self._specs.values() if s.critical)
 
+    def is_critical(self, type_id: str) -> bool:
+        """Вернуть критичность известного типа; неизвестный id считается ошибкой."""
+        return self.spec(type_id).critical
+
     def extend(self, custom: Iterable[EntityTypeSpec]) -> EntityTypeRegistry:
         """Вернуть новый реестр с добавленными пользовательскими спеками."""
         merged = {**self._specs, **{s.id: s for s in custom}}

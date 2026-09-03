@@ -17,6 +17,12 @@ from docx import Document as DocxDocument
 from docx.shared import Pt
 
 OUT = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "labeled"
+#: Фикстуры, детекция которых требует опционального extra `[gliner]`.
+#: В общий корпус они попасть не могут: `make gate` обязан проходить на
+#: машине без torch и без 1.1 ГБ весов, а `default_detectors` на спеке с
+#: `kind="gliner_*"` там падает `RuntimeError`. Замер по ним делает
+#: отдельный тест с маркером `gliner`.
+OUT_GLINER = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "gliner"
 ZIP_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
 
 
@@ -462,14 +468,154 @@ def contract_09_custom() -> tuple[DocxDocument, list[dict[str, str]], list[dict[
     return doc, labels, custom_types
 
 
+def contract_10_roles_dates() -> tuple[
+    DocxDocument, list[dict[str, str]], list[dict[str, object]], list[dict[str, str]]
+]:
+    """Класс D (T1.13.1, шаг 17): роль поверх одинакового формата.
+
+    Одна и та же дата `dd.mm.yyyy` стоит внутри одного абзаца дважды — один
+    раз как дата подписания, другой раз как дата отгрузки. Формат обеих
+    ролей неразличим, только контекст (соседние слова) говорит, какая
+    дата — какая. Четыре пары, а не одна: единственная пара даёт только
+    F1 в {0, 0.5, 1.0} и не может ни подтвердить, ни опровергнуть порог 0.9.
+
+    `class_d` в возврате — точный текст каждого абзаца и дата внутри него:
+    тест находит нужный `Segment` по точному совпадению текста и вычисляет
+    ожидаемые смещения через `str.find` сам, а не хранит их руками (смещения
+    разъедутся при любой правке формулировки, а сам текст — нет смысла
+    дублировать он и так уже здесь).
+
+    Намеренно без строки «г. Воронеж, DD месяц YYYY г.» вначале, как у других
+    фикстур: в реальном договоре эта строка почти всегда и есть дата
+    подписания, и включение её сюда без даты рядом (`text.date`-парой) сделало
+    бы её нелегитимной ловушкой для `gliner_structure` — модель, пометившая её
+    `signing_date`, была бы права по смыслу, а не ошибалась.
+    """
+    doc = DocxDocument()
+    doc.core_properties.author = "Синтетический корпус"
+    doc.core_properties.title = "Договор поставки — роли поверх одинакового формата"
+
+    doc.add_heading("ДОГОВОР ПОСТАВКИ № 10/2026", level=1)
+    doc.add_paragraph("г. Воронеж")
+    doc.add_paragraph(
+        "Общество с ограниченной ответственностью «Полюс», ИНН 6317053059, "
+        "именуемое в дальнейшем «Поставщик», в лице директора Фёдорова Павла "
+        "Сергеевича, с одной стороны, и"
+    )
+    doc.add_paragraph(
+        "Акционерное общество «Меридиан», ИНН 7810123451, именуемое в "
+        "дальнейшем «Покупатель», в лице директора Никитиной Елены Олеговны, "
+        "с другой стороны, заключили договор о нижеследующем."
+    )
+
+    doc.add_heading("1. Даты подписания и отгрузки", level=2)
+    class_d_pairs = [
+        (
+            "Договор считается подписанным сторонами 12.02.2026, а отгрузка "
+            "товара по настоящему договору осуществляется также 12.02.2026 — "
+            "в тот же день, что и подписание.",
+            "12.02.2026",
+        ),
+        (
+            "Стороны подтверждают, что подписание настоящего приложения "
+            "состоялось 05.03.2026; фактическая отгрузка партии товара "
+            "происходит день в день — 05.03.2026, прямо со склада Поставщика.",
+            "05.03.2026",
+        ),
+        (
+            "Датой подписания настоящего договора считается 18.04.2026 года. "
+            "Отгрузка первой партии товара назначена на ту же дату — "
+            "18.04.2026, без права переноса.",
+            "18.04.2026",
+        ),
+        (
+            "Подписание договора сторонами состоялось 09.05.2026. Отгрузка "
+            "товара производится в дату подписания, то есть 09.05.2026, без "
+            "отсрочки поставки.",
+            "09.05.2026",
+        ),
+    ]
+    for text, _date in class_d_pairs:
+        doc.add_paragraph(text)
+
+    doc.add_heading("2. Подписи", level=2)
+    doc.add_paragraph("Поставщик: ______________ П.С. Фёдоров")
+    doc.add_paragraph("Покупатель: ______________ Е.О. Никитина")
+
+    labels: list[dict[str, str]] = [
+        {"type": "contract_number", "text": "10/2026"},
+        {
+            "type": "org_name",
+            "text": "Общество с ограниченной ответственностью «Полюс»",
+            "party": "supplier",
+        },
+        {"type": "inn", "text": "6317053059", "party": "supplier"},
+        {"type": "person", "text": "Фёдорова Павла Сергеевича", "party": "supplier"},
+        {"type": "org_name", "text": "Акционерное общество «Меридиан»", "party": "buyer"},
+        {"type": "inn", "text": "7810123451", "party": "buyer"},
+        {"type": "person", "text": "Никитиной Елены Олеговны", "party": "buyer"},
+        {"type": "person", "text": "П.С. Фёдоров", "party": "supplier"},
+        {"type": "person", "text": "Е.О. Никитина", "party": "buyer"},
+    ]
+    for _text, date in class_d_pairs:
+        # Одна и та же строка даты дважды — по разу на роль (см. докстринг).
+        labels.append({"type": "shipment_date", "text": date})
+        labels.append({"type": "signing_date", "text": date})
+
+    custom_types: list[dict[str, object]] = [
+        {
+            "id": "shipment_date",
+            "title": "Дата отгрузки",
+            "marker": "[ДАТА-ОТГРУЗКИ-{n}]",
+            "critical": False,
+            "detect": {
+                "kind": "gliner_structure",
+                "label": "дата отгрузки",
+                "description": (
+                    "Дата фактической отгрузки или поставки товара покупателю, "
+                    "а не дата подписания договора"
+                ),
+                "structure": "поставка",
+                "field": "дата_отгрузки",
+                "threshold": 0.3,
+            },
+        },
+        {
+            "id": "signing_date",
+            "title": "Дата подписания",
+            "marker": "[ДАТА-ПОДПИСАНИЯ-{n}]",
+            "critical": False,
+            "detect": {
+                "kind": "gliner_structure",
+                "label": "дата подписания",
+                "description": (
+                    "Дата подписания или заключения договора сторонами, а не дата отгрузки товара"
+                ),
+                "structure": "подписание",
+                "field": "дата_подписания",
+                "threshold": 0.3,
+            },
+        },
+    ]
+
+    class_d = [{"text": text, "date": date} for text, date in class_d_pairs]
+
+    return doc, labels, custom_types, class_d
+
+
 def _set_cell_paragraphs(cell, lines: list[str]) -> None:
     cell.paragraphs[0].text = lines[0]
     for line in lines[1:]:
         cell.add_paragraph(line)
 
 
+#: Имена фикстур, которые пишутся в `OUT_GLINER`, а не в общий корпус.
+_GLINER_ONLY = frozenset({"contract_10_roles_dates"})
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
+    OUT_GLINER.mkdir(parents=True, exist_ok=True)
     for name, builder in (
         ("contract_01", contract_01),
         ("contract_02_hard", contract_02_hard),
@@ -479,25 +625,35 @@ def main() -> int:
         ("contract_06_address", contract_06_address),
         ("contract_08_roles", contract_08_roles),
         ("contract_09_custom", contract_09_custom),
+        ("contract_10_roles_dates", contract_10_roles_dates),
     ):
         result = builder()
         # Большинство генераторов возвращают (doc, labels); контракты с
         # пользовательскими типами (T1.13, шаг 6) — тройку с готовой
         # секцией `custom_types`, отдельный список не заводим ради одного
-        # файла.
-        if len(result) == 3:
+        # файла. Класс D (T1.13.1, шаг 17) добавляет четвёртый элемент —
+        # позиционную разметку `class_d` для теста-замера F1.
+        class_d: list[dict[str, str]] | None
+        if len(result) == 4:
+            doc, labels, custom_types, class_d = result
+        elif len(result) == 3:
             doc, labels, custom_types = result
+            class_d = None
         else:
             doc, labels = result
             custom_types = None
+            class_d = None
         for p in doc.paragraphs:
             for run in p.runs:
                 run.font.size = run.font.size or Pt(11)
-        save_deterministic(doc, OUT / f"{name}.docx")
+        out_dir = OUT_GLINER if name in _GLINER_ONLY else OUT
+        save_deterministic(doc, out_dir / f"{name}.docx")
         payload: dict[str, object] = {"entities": labels}
         if custom_types is not None:
             payload["custom_types"] = custom_types
-        (OUT / f"{name}.labels.json").write_text(
+        if class_d is not None:
+            payload["class_d"] = class_d
+        (out_dir / f"{name}.labels.json").write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )

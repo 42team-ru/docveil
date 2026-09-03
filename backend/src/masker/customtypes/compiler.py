@@ -6,16 +6,18 @@
 безопасности; здесь он не дублируется, только вызывается на исходе
 `compile`.
 
-`gliner_label`/`gliner_structure` в `available_executors()` не попадают
-никогда в этой версии модуля: GLiNER физически не подключён (T1.13.1,
-решение Р2 плана T1.13 — «без мягкой деградации», паспорт строится из
-фактически доступного). `regex_llm_filter` появится здесь шагом 13, когда
-executor будет физически реализован.
+`gliner_label`/`gliner_structure` попадают в `available_executors()` только
+если extra `[gliner]` физически установлен (пакет `gliner2` импортируется) —
+T1.13.1, решение Р2 плана T1.13: «без мягкой деградации», паспорт строится
+из фактически доступного, а не из того, что теоретически можно подключить.
+`regex_llm_filter` появится здесь шагом 13, когда executor будет физически
+реализован.
 """
 
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -30,16 +32,34 @@ from masker.typeconfig import CustomTypeError, load_type_config
 #: (design notes T1.13, вопрос 4: «отдать последнее лучшее» отвергнуто).
 MAX_ASK_ROUNDS = 3
 
-#: Executor'ы, которые компилятор физически может использовать сегодня.
-#: Пополняется по мере подключения детекторов (шаг 13 добавит
-#: `regex_llm_filter`); `gliner_label`/`gliner_structure` — задача T1.13.1,
-#: шаг 16, здесь их нет намеренно.
-_AVAILABLE_EXECUTORS: frozenset[str] = frozenset({"literals", "regex", "regex_context"})
+#: Executor'ы, доступные компилятору всегда — без внешних зависимостей.
+_BASE_EXECUTORS: frozenset[str] = frozenset({"literals", "regex", "regex_context"})
+
+#: Executor'ы GLiNER2 (T1.13.1) — доступны, только если extra `[gliner]`
+#: физически установлен, см. `_gliner_installed`.
+_GLINER_EXECUTORS: frozenset[str] = frozenset({"gliner_label", "gliner_structure"})
+
+
+def _gliner_installed() -> bool:
+    """extra `[gliner]` установлен, если пакет `gliner2` физически импортируется.
+
+    Проверка через `importlib.util.find_spec`, не `import gliner2` —
+    компилятору не нужно платить загрузкой `torch` (527 МБ, `GlinerDetector`
+    импортирует его лениво внутри `__init__`) ради вычисления паспорта.
+    """
+    return importlib.util.find_spec("gliner2") is not None
 
 
 def available_executors() -> frozenset[str]:
-    """Паспорт executor'ов, физически доступных компилятору прямо сейчас."""
-    return _AVAILABLE_EXECUTORS
+    """Паспорт executor'ов, физически доступных компилятору прямо сейчас.
+
+    Без установленного extra `[gliner]` `gliner_label`/`gliner_structure`
+    не возвращаются — ни в промпт компилятора, ни в `engine_capabilities`
+    REST-ответа: мягкой деградации нет, молча непоискаемый тип есть утечка.
+    """
+    if _gliner_installed():
+        return _BASE_EXECUTORS | _GLINER_EXECUTORS
+    return _BASE_EXECUTORS
 
 
 class CompilerParseError(Exception):

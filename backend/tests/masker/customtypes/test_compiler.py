@@ -17,7 +17,6 @@ from masker.customtypes.compiler import (
     CannotCompileOutcome,
     CompileOutcome,
     UseBuiltinOutcome,
-    available_executors,
     clear_cache,
     compile_type,
 )
@@ -67,12 +66,54 @@ _SHIPMENT_DATE_SPEC: dict[str, object] = {
 }
 
 
-def test_available_executors_excludes_gliner() -> None:
-    """T1.13.1 не подключён — паспорт компилятора не содержит gliner_*."""
-    executors = available_executors()
+def test_available_executors_excludes_gliner_without_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Без extra `[gliner]` паспорт компилятора не содержит gliner_* — ни
+    один executor не предлагается модели, если физически недоступен (T1.13.1,
+    шаг 16, решение Р2: без мягкой деградации)."""
+    import masker.customtypes.compiler as compiler_module
+
+    monkeypatch.setattr(compiler_module, "_gliner_installed", lambda: False)
+    executors = compiler_module.available_executors()
     assert "gliner_label" not in executors
     assert "gliner_structure" not in executors
     assert {"literals", "regex", "regex_context"} <= executors
+
+
+def test_available_executors_includes_gliner_when_extra_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Паспорт строится из фактически доступного: если extra `[gliner]`
+    физически установлен, gliner_label/gliner_structure появляются, не
+    дожидаясь ручного изменения списка (T1.13.1, шаг 16, решение Р2)."""
+    import masker.customtypes.compiler as compiler_module
+
+    monkeypatch.setattr(compiler_module, "_gliner_installed", lambda: True)
+    executors = compiler_module.available_executors()
+    assert {"gliner_label", "gliner_structure"} <= executors
+    assert {"literals", "regex", "regex_context"} <= executors
+
+
+def test_gliner_executors_appear_in_prompt_only_when_in_passport() -> None:
+    """Промпт видит gliner_label/gliner_structure, только если они пришли в
+    паспорте — компилятор без extra не должен предлагать модели то, чего
+    физически нет."""
+    from masker.customtypes.prompt import build_messages
+
+    without_gliner = build_messages(
+        "замажь даты отгрузки", executors=frozenset({"literals", "regex"}), builtin_types=()
+    )
+    assert "gliner_label" not in without_gliner[0].content
+    assert "gliner_structure" not in without_gliner[0].content
+
+    with_gliner = build_messages(
+        "замажь даты отгрузки",
+        executors=frozenset({"literals", "regex", "gliner_label", "gliner_structure"}),
+        builtin_types=(),
+    )
+    assert "gliner_label" in with_gliner[0].content
+    assert "gliner_structure" in with_gliner[0].content
 
 
 def test_use_builtin_outcome() -> None:

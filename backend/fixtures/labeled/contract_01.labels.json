@@ -92,6 +92,10 @@
       "type": "person",
       "text": "А.П. Сидорова",
       "party": "buyer"
+    },
+    {
+      "type": "date",
+      "text": "15 января 2026"
     }
   ]
 }

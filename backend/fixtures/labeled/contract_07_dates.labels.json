@@ -1,0 +1,43 @@
+{
+  "entities": [
+    {
+      "type": "date",
+      "text": "14.10.1986"
+    },
+    {
+      "type": "date",
+      "text": "12/02/2025"
+    },
+    {
+      "type": "date",
+      "text": "2025-02-12"
+    },
+    {
+      "type": "date",
+      "text": "10 марта 2025"
+    },
+    {
+      "type": "date",
+      "text": "«12» февраля 2025"
+    },
+    {
+      "type": "person",
+      "text": "Сидорова Анна Петровна",
+      "party": "seller"
+    },
+    {
+      "type": "birth_date",
+      "text": "15 февраля 1982",
+      "party": "seller"
+    },
+    {
+      "type": "date",
+      "text": "10 марта 2025"
+    },
+    {
+      "type": "birth_date",
+      "text": "15 февраля 1982",
+      "party": "seller"
+    }
+  ]
+}

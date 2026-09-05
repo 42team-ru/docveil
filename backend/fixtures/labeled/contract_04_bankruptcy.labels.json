@@ -6,6 +6,11 @@
       "party": "seller"
     },
     {
+      "type": "birth_date",
+      "text": "15 февраля 1982",
+      "party": "seller"
+    },
+    {
       "type": "snils",
       "text": "112-233-445 95",
       "party": "seller"

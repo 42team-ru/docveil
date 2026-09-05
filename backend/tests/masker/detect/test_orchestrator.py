@@ -115,6 +115,58 @@ def test_default_detectors_include_rules_then_natasha() -> None:
     ]
 
 
+def test_default_detectors_add_llm_filter_when_specs_have_it() -> None:
+    """Если среди пользовательских спеков есть `regex_llm_filter`, в набор
+    добавляется `LlmFilterDetector` — иначе спека физически не отработает."""
+    from masker.detect import default_detectors
+    from masker.llm import FakeProvider
+    from masker.typeconfig import load_type_config
+
+    specs = load_type_config(
+        {
+            "version": 1,
+            "types": [
+                {
+                    "id": "internal_code",
+                    "title": "Внутренний код",
+                    "marker": "[КОД-{n}]",
+                    "critical": False,
+                    "detect": {"kind": "regex_llm_filter", "pattern": r"\d{4}"},
+                }
+            ],
+        }
+    )
+    detectors = default_detectors(specs, llm=FakeProvider([]))
+
+    assert any(detector.name == "llm_filter" for detector in detectors)
+
+
+def test_default_detectors_reject_llm_filter_specs_without_llm() -> None:
+    """Тихий пропуск `regex_llm_filter`-спеки без LLM — та же утечка, что и
+    молча непоискаемый GLiNER-тип (T1.13.1, решение Р2). Требуем явную
+    ошибку с именами затронутых типов."""
+    from masker.detect import default_detectors
+    from masker.typeconfig import load_type_config
+
+    specs = load_type_config(
+        {
+            "version": 1,
+            "types": [
+                {
+                    "id": "internal_code",
+                    "title": "Внутренний код",
+                    "marker": "[КОД-{n}]",
+                    "critical": False,
+                    "detect": {"kind": "regex_llm_filter", "pattern": r"\d{4}"},
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError, match="internal_code"):
+        default_detectors(specs, llm=None)
+
+
 def test_explicit_rules_do_not_load_natasha() -> None:
     import subprocess
     import sys

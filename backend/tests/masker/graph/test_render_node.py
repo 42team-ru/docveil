@@ -36,7 +36,7 @@ def _planned_state(*, styles: tuple[str, ...] = (), preview: bool = True) -> Sta
         },
     }
     state.update(nodes.extract_node(state))
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     state.update(nodes.plan_node(state))
     return state
 
@@ -134,7 +134,7 @@ def test_render_node_surfaces_pdf_marker_degradations(tmp_path: Path) -> None:
         },
     }
     state.update(nodes.extract_node(state))
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     state.update(nodes.plan_node(state))
     render_node = nodes.make_render_node(nodes.RunDeps(artifact_dir=tmp_path))
 
@@ -164,7 +164,7 @@ def test_render_node_blackbox_never_surfaces_degradations(tmp_path: Path) -> Non
         },
     }
     state.update(nodes.extract_node(state))
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     state.update(nodes.plan_node(state))
     render_node = nodes.make_render_node(nodes.RunDeps(artifact_dir=tmp_path))
 

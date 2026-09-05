@@ -136,38 +136,50 @@ def extract_node(state: State) -> dict[str, object]:
     }
 
 
-def detect_node(state: State) -> dict[str, object]:
-    """Трёхслойная детекция без фильтра по ``options.types`` — фильтр применяет план.
+def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
+    """Собрать ``detect_node``, замыкающий ``LLMProvider`` из ``deps``.
 
-    ``options.types`` сужает только ``detection_coverage`` (что реально
-    покрыто активными детекторами из запрошенного) и позже — ``PlanAgent``
-    (T1.6, шаг 6). Сама детекция ничего не выбрасывает: незапрошенный тип
-    обязан остаться среди найденных сущностей, иначе ``ValidateAgent``
-    (T1.8) не смог бы искать в готовом артефакте утечки типов, которые
-    человек не просил маскировать, но которые всё равно не должны читаться.
+    LLM нужен только `regex_llm_filter` executor'у (шаг 13 T1.13), поэтому
+    в ``rules_only`` пути и в детекции без пользовательских спеков он не
+    используется. Тем же приёмом, что и ``make_profile_node``, замыкание
+    держит зависимость вне ``State`` (только JSON) — раздел 6 плана T1.5.1.
     """
-    document = _document(state)
-    options = state.get("options", {})
-    registry, specs = _registry_and_specs(state)
-    rules_only = bool(options.get("rules_only", False))
-    if rules_only:
-        detectors: list[EntityDetector] = [RuleDetector(), AddressDetector()]
-        if specs:
-            detectors.append(ConfigDetector(specs))
-    else:
-        detectors = default_detectors(specs)
-    detector = DetectAgent(detectors, registry)
-    raw_types = options.get("types")
-    selected_types = resolve_requested_types(
-        tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
-    )
-    entities = detector.detect(document).entities
-    return {
-        "entities": [entity_to_dict(entity) for entity in entities],
-        # Тот же ``detector``, которым только что детектировали — второй
-        # DetectAgent() поднял бы Natasha ещё раз ради двух списков строк.
-        "detection_coverage": detection_coverage(selected_types, detector),
-    }
+
+    def detect_node(state: State) -> dict[str, object]:
+        """Трёхслойная детекция без фильтра по ``options.types`` — фильтр применяет план.
+
+        ``options.types`` сужает только ``detection_coverage`` (что реально
+        покрыто активными детекторами из запрошенного) и позже — ``PlanAgent``
+        (T1.6, шаг 6). Сама детекция ничего не выбрасывает: незапрошенный
+        тип обязан остаться среди найденных сущностей, иначе ``ValidateAgent``
+        (T1.8) не смог бы искать в готовом артефакте утечки типов, которые
+        человек не просил маскировать, но которые всё равно не должны
+        читаться.
+        """
+        document = _document(state)
+        options = state.get("options", {})
+        registry, specs = _registry_and_specs(state)
+        rules_only = bool(options.get("rules_only", False))
+        if rules_only:
+            detectors: list[EntityDetector] = [RuleDetector(), AddressDetector()]
+            if specs:
+                detectors.append(ConfigDetector(specs))
+        else:
+            detectors = default_detectors(specs, llm=deps.llm)
+        detector = DetectAgent(detectors, registry)
+        raw_types = options.get("types")
+        selected_types = resolve_requested_types(
+            tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
+        )
+        entities = detector.detect(document).entities
+        return {
+            "entities": [entity_to_dict(entity) for entity in entities],
+            # Тот же ``detector``, которым только что детектировали — второй
+            # DetectAgent() поднял бы Natasha ещё раз ради двух списков строк.
+            "detection_coverage": detection_coverage(selected_types, detector),
+        }
+
+    return detect_node
 
 
 def make_profile_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:

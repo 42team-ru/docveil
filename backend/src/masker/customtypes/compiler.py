@@ -10,8 +10,9 @@
 если extra `[gliner]` физически установлен (пакет `gliner2` импортируется) —
 T1.13.1, решение Р2 плана T1.13: «без мягкой деградации», паспорт строится
 из фактически доступного, а не из того, что теоретически можно подключить.
-`regex_llm_filter` появится здесь шагом 13, когда executor будет физически
-реализован.
+`regex_llm_filter` (шаг 13) доступен всегда — executor `LlmFilterDetector`
+физически реализован и подключается в `default_detectors`, если среди
+пользовательских спеков есть хотя бы одна с этим `kind`.
 """
 
 from __future__ import annotations
@@ -32,8 +33,13 @@ from masker.typeconfig import CustomTypeError, load_type_config
 #: (design notes T1.13, вопрос 4: «отдать последнее лучшее» отвергнуто).
 MAX_ASK_ROUNDS = 3
 
-#: Executor'ы, доступные компилятору всегда — без внешних зависимостей.
-_BASE_EXECUTORS: frozenset[str] = frozenset({"literals", "regex", "regex_context"})
+#: Executor'ы, доступные компилятору всегда: `regex_llm_filter` тоже здесь,
+#: потому что `LlmFilterDetector` реализован и зависит только от
+#: пользовательского `LLMProvider`, который в проекте есть всегда (fake или
+#: реальный) — в отличие от GLiNER, которого может не быть физически.
+_BASE_EXECUTORS: frozenset[str] = frozenset(
+    {"literals", "regex", "regex_context", "regex_llm_filter"}
+)
 
 #: Executor'ы GLiNER2 (T1.13.1) — доступны, только если extra `[gliner]`
 #: физически установлен, см. `_gliner_installed`.

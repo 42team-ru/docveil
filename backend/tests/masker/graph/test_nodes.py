@@ -65,7 +65,7 @@ def test_extract_node_rejects_unsupported_suffix(tmp_path: Path) -> None:
 def test_detect_node_puts_detection_coverage_with_requested_types() -> None:
     state = _extracted_state(types=["inn"])
 
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
 
     assert state["detection_coverage"]["requested_types"] == ["inn"]
 
@@ -78,7 +78,7 @@ def test_detect_node_does_not_filter_entities_by_selected_types() -> None:
     """
     state = _extracted_state(types=["inn"])
 
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
 
     entities = [entity_from_dict(item) for item in state["entities"]]
     assert {entity.type for entity in entities} == {
@@ -93,7 +93,7 @@ def test_detect_node_does_not_filter_entities_by_selected_types() -> None:
 def test_detect_node_finds_all_types_when_none_selected() -> None:
     state = _extracted_state(types=None)
 
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
 
     entities = [entity_from_dict(item) for item in state["entities"]]
     assert {entity.type for entity in entities} == {
@@ -106,7 +106,7 @@ def test_detect_node_finds_all_types_when_none_selected() -> None:
 
 def _profiled_state() -> State:
     state = _extracted_state()
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     deps = nodes.RunDeps(llm=FakeProvider())
     state.update(nodes.make_profile_node(deps)(state))
     return state
@@ -114,7 +114,7 @@ def _profiled_state() -> State:
 
 def test_profile_node_factory_actually_calls_the_llm_provider() -> None:
     state = _extracted_state()
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     provider = FakeProvider()
     profile_node = nodes.make_profile_node(nodes.RunDeps(llm=provider))
 
@@ -127,7 +127,7 @@ def test_profile_node_factory_actually_calls_the_llm_provider() -> None:
 
 def test_profile_node_skips_llm_entirely_when_profile_option_is_false() -> None:
     state = _extracted_state()
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     state["options"] = {**state["options"], "profile": False}
     provider = FakeProvider([])
     profile_node = nodes.make_profile_node(nodes.RunDeps(llm=provider))
@@ -142,7 +142,7 @@ def test_profile_node_skips_llm_entirely_when_profile_option_is_false() -> None:
 
 def test_judge_node_skips_when_profile_option_is_false() -> None:
     state = _extracted_state()
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     state["options"] = {**state["options"], "profile": False}
     judge_node = nodes.make_judge_node(nodes.RunDeps())
 

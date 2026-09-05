@@ -93,7 +93,13 @@ class DateDetector:
 
     name = "dates"
     source = Source.RULE
-    priority = 95
+    #: 94 (не 95), чтобы `ConfigDetector` (95) и его пользовательские
+    #: `regex_context`/`gliner_structure` даты (shipment_date, signing_date)
+    #: побеждали при пересечении спанов: специфичный тип семантически важнее
+    #: общего `date`, а `resolve_overlaps` рулит по приоритету → уверенности →
+    #: длине → имени типа (`date` < `shipment_date` лексикографически, поэтому
+    #: без разницы приоритетов общий `date` съедал бы кастомные даты).
+    priority = 94
     types: frozenset[str] = frozenset({EntityType.DATE, EntityType.BIRTH_DATE})
 
     def detect(self, document: Document) -> list[Entity]:

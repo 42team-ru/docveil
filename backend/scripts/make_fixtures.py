@@ -511,6 +511,10 @@ def contract_09_custom() -> tuple[DocxDocument, list[dict[str, str]], list[dict[
         {"type": "product_code", "text": "SKU-ABC-42"},
         {"type": "product_code", "text": "SKU-XYZ-77"},
         {"type": "shipment_date", "text": "20.03.2026"},
+        # T1.15: дата подписания «5 марта 2026» — общий `date`,
+        # без контекста «отгрузка/поставка» rain пользовательский тип не
+        # покрывает.
+        {"type": "date", "text": "5 марта 2026"},
     ]
     custom_types: list[dict[str, object]] = [
         {

@@ -55,6 +55,10 @@
     {
       "type": "shipment_date",
       "text": "20.03.2026"
+    },
+    {
+      "type": "date",
+      "text": "5 марта 2026"
     }
   ],
   "custom_types": [

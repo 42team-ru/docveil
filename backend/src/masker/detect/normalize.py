@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from masker.detect.dateparse import parse_literal
 from masker.detect.orgforms import org_forms
 from masker.model import EntityType
 
@@ -113,4 +114,20 @@ def normalize_value(entity_type: EntityType | str, text: str) -> str:
         return _normalize_org(text)
     if entity is EntityType.PERSON:
         return _normalize_person(text)
+    if entity in {EntityType.DATE, EntityType.BIRTH_DATE}:
+        return _normalize_date(text)
     return _base(text)
+
+
+def _normalize_date(text: str) -> str:
+    """ISO-ключ: `14.10.1986` и `14 октября 1986` дают один маркер.
+
+    Разбор не удался — возвращаем `_base(text)`: неразобранный литерал
+    получит свой маркер и не сольётся с чужой датой. Падать нормализация
+    не должна, иначе плановая согласованность псевдонимов превратится в
+    ошибку прогона.
+    """
+    parsed = parse_literal(text)
+    if parsed is None:
+        return _base(text)
+    return parsed.isoformat()

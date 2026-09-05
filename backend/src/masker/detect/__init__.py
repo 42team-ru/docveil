@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from masker.detect.address import AddressDetector
 from masker.detect.agent import DetectAgent
 from masker.detect.base import EntityDetector
+from masker.detect.dates import DateDetector
 from masker.detect.ner import NatashaDetector, memoize_tagger, natasha_tagger
 from masker.detect.org_rules import OrgFormDetector
 from masker.detect.result import DetectionResult, PiiChunk, build_pii_chunks
@@ -29,6 +30,7 @@ def default_detectors(
     detectors: list[EntityDetector] = [
         RuleDetector(),
         AddressDetector(tagger),
+        DateDetector(),
         OrgFormDetector(),
         NatashaDetector(tagger),
     ]
@@ -57,6 +59,7 @@ def default_detectors(
 
 __all__ = [
     "AddressDetector",
+    "DateDetector",
     "DetectAgent",
     "DetectionResult",
     "EntityDetector",

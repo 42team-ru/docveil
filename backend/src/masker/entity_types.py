@@ -43,6 +43,7 @@ def builtin_specs() -> list[EntityTypeSpec]:
         EntityType.CONTRACT_NUMBER: ("Номер договора", "ДОГОВОР"),
         EntityType.MONEY: ("Сумма", "СУММА"),
         EntityType.DATE: ("Дата", "ДАТА"),
+        EntityType.BIRTH_DATE: ("Дата рождения", "РОЖДЕНИЕ"),
         EntityType.SITE: ("Сайт", "САЙТ"),
     }
     return [

@@ -11,6 +11,7 @@ def test_entity_refs_are_stable_for_reordered_input() -> None:
     entities = DetectAgent().detect(ingest_docx(FIXTURES / "contract_01.docx")).entities
     first = EntityIndex(entities)
     second = EntityIndex(list(reversed(entities)))
-    assert first.refs() == [f"E{number}" for number in range(1, 21)]
+    # 21 сущность после T1.15: добавилась «15 января 2026» как `date`.
+    assert first.refs() == [f"E{number}" for number in range(1, 22)]
     assert [second.ref(entity) for entity in entities] == [first.ref(entity) for entity in entities]
     assert all(first.entity(first.ref(entity)) is entity for entity in entities)

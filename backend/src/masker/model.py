@@ -29,6 +29,7 @@ class EntityType(StrEnum):
     CONTRACT_NUMBER = "contract_number"
     MONEY = "money"
     DATE = "date"
+    BIRTH_DATE = "birth_date"
     SITE = "site"
 
 

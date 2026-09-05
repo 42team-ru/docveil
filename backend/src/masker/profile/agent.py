@@ -27,7 +27,11 @@ from masker.refs import EntityIndex
 #: маркер по всему документу. Оставленные без профиля, они попадают в
 #: ``unassigned`` и получают общий маркер через ``mask/keys.py::group_key``
 #: наравне с любой другой непрофилированной сущностью.
-_DOCUMENT_LEVEL_TYPES = frozenset({EntityType.CONTRACT_NUMBER})
+#: `date` — тоже документ-уровневый: дата подписания, срок оплаты, срок
+#: поставки не принадлежат ни одной стороне. `birth_date` — исключение: она
+#: принадлежит конкретному субъекту и обязана получить `[ПРОДАВЕЦ-РОЖДЕНИЕ]`
+#: (план T1.15, раздел «Два типа»), поэтому в этот список не входит.
+_DOCUMENT_LEVEL_TYPES = frozenset({EntityType.CONTRACT_NUMBER, EntityType.DATE})
 
 
 @dataclass(slots=True)

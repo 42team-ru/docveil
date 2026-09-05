@@ -14,7 +14,13 @@ from pathlib import Path
 
 from langgraph.types import interrupt
 
-from masker.detect import AddressDetector, DetectAgent, RuleDetector, default_detectors
+from masker.detect import (
+    AddressDetector,
+    DateDetector,
+    DetectAgent,
+    RuleDetector,
+    default_detectors,
+)
 from masker.detect.base import EntityDetector
 from masker.detect.config_detector import ConfigDetector
 from masker.detect.result import DetectionResult, build_pii_chunks
@@ -161,7 +167,14 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         registry, specs = _registry_and_specs(state)
         rules_only = bool(options.get("rules_only", False))
         if rules_only:
-            detectors: list[EntityDetector] = [RuleDetector(), AddressDetector()]
+            # DateDetector — тоже правило (regex + `datetime.date`-валидация),
+            # его место в rules-only, чтобы `date`/`birth_date` не оказывались
+            # в `requested_without_detector` только из-за --rules-only.
+            detectors: list[EntityDetector] = [
+                RuleDetector(),
+                AddressDetector(),
+                DateDetector(),
+            ]
             if specs:
                 detectors.append(ConfigDetector(specs))
         else:

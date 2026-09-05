@@ -86,6 +86,7 @@ def test_detect_node_does_not_filter_entities_by_selected_types() -> None:
         EntityType.INN,
         EntityType.PASSPORT,
         EntityType.SNILS,
+        EntityType.DATE,
     }
     assert state["detection_coverage"]["requested_types"] == ["inn"]
 
@@ -101,6 +102,7 @@ def test_detect_node_finds_all_types_when_none_selected() -> None:
         EntityType.INN,
         EntityType.PASSPORT,
         EntityType.SNILS,
+        EntityType.DATE,
     }
 
 

@@ -39,6 +39,8 @@ def test_contract_01_expected_model_output() -> None:
         # "ДОГОВОР ПОСТАВКИ № 44/2026" — план T2.2.1, шаг 10 (Д6): детектор
         # contract_number до этого шага не существовал вовсе.
         (EntityType.CONTRACT_NUMBER, "44/2026"),
+        # «15 января 2026» — план T1.15: детектор дат.
+        (EntityType.DATE, "15 января 2026"),
         (EntityType.ORG_NAME, "Акционерное общество «Триема»"),
         (EntityType.INN, "3662103003"),
         (EntityType.KPP, "366201001"),

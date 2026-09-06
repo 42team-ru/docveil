@@ -161,7 +161,9 @@ class NatashaDetector:
                         and (
                             is_organization_form_only(value)
                             or is_partial_org_form(value)
-                            or is_public_body(value)
+                            # орг. форма (ООО, МАОУ…) — достаточное свидетельство того,
+                            # что это организация, а не госорган: не фильтруем.
+                            or (not org_evidence and is_public_body(value))
                             or is_regulatory_code(value)
                             or is_role_phrase(value)
                             or (not has_organization_evidence(value) and len(value.split()) == 1)

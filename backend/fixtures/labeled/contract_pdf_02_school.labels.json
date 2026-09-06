@@ -110,7 +110,22 @@
     },
     {
       "type": "org_name",
+      "text": "ООО «ШБС №11»",
+      "party": "contractor"
+    },
+    {
+      "type": "org_name",
+      "text": "ООО \"ШБС №11\"",
+      "party": "contractor"
+    },
+    {
+      "type": "org_name",
       "text": "ШБС № 11",
+      "party": "contractor"
+    },
+    {
+      "type": "org_name",
+      "text": "ПАО «Контур.Банк»",
       "party": "contractor"
     },
     {

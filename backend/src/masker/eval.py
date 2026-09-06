@@ -96,7 +96,7 @@ MIN_PRECISION = 0.90
 #: поднять до глобального MIN_PRECISION/MIN_RECALL_OTHER после замены Natasha
 #: на GLiNER2 (план T3.2, Фаза 0 п.6).
 _MIN_PRECISION_OVERRIDE: dict[str, float] = {
-    "org_name": 0.45,  # 21 FP Natasha на school.pdf: публ. органы, заголовки таблиц
+    "org_name": 0.90,  # T5: поднято с 0.45 → 0.90 после фильтров публ. органов/таблиц
     "address": 0.50,  # PDF span-boundary FP: слипание смежных адресов в одном сегменте
     # Фаза 1: новые типы, корпус пока не размечен — поднять до 0.90 после
     # добавления labels в fixtures/labeled/*.labels.json (план Фаза 1).

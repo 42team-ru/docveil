@@ -108,13 +108,14 @@ def test_default_detectors_include_rules_then_natasha() -> None:
     # `org_form` (план T2.2.2, шаг 6, Д11) — между `address` и `natasha`:
     # приоритет 60 ниже правил/адреса, выше локальной NER-модели.
     # `dates` (план T1.15) — рядом, приоритет 95, до `org_form`.
-    # `contract_amount` / `delivery_period` (Фаза 1) — приоритет 85, между dates и org_form.
+    # `contract_amount` / `delivery_period` / `payment_terms` (Фаза 1-2) — приоритет 85.
     assert [detector.name for detector in agent.detectors] == [
         "rules",
         "address",
         "dates",
         "contract_amount",
         "delivery_period",
+        "payment_terms",
         "org_form",
         "natasha",
     ]

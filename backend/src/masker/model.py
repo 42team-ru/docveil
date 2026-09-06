@@ -34,6 +34,7 @@ class EntityType(StrEnum):
     FEDERAL_LAW = "federal_law"
     CONTRACT_AMOUNT = "contract_amount"
     DELIVERY_PERIOD = "delivery_period"
+    PAYMENT_TERMS = "payment_terms"
 
 
 #: Типы, пропуск которых — утечка персональных/платёжных данных.

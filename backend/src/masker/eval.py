@@ -103,6 +103,8 @@ _MIN_PRECISION_OVERRIDE: dict[str, float] = {
     "federal_law": 0.50,
     "contract_amount": 0.50,
     "delivery_period": 0.50,
+    # Фаза 2: payment_terms, корпус не размечен.
+    "payment_terms": 0.50,
 }
 _MIN_RECALL_OVERRIDE: dict[str, float] = {
     "address": 0.80,  # 2 FN на school.pdf: граница span не совпадает с разметкой

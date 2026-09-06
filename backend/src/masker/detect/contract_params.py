@@ -23,6 +23,10 @@ from masker.detect.normalize import normalize_value
 from masker.model import Document, Entity, EntityType, Segment, Source
 
 # ---------------------------------------------------------------------------
+# PaymentTermsDetector — «Условия оплаты»
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
 # ContractAmountDetector
 # ---------------------------------------------------------------------------
 
@@ -140,6 +144,59 @@ _DELIVERY_PATTERNS = [
 ]
 
 
+_PAYMENT_CONTEXT_RADIUS = 400
+
+#: Маркеры разделов об оплате.
+_PAYMENT_SECTION_KEYWORDS = (
+    "порядок расчётов",
+    "порядок расчетов",
+    "условия оплаты",
+    "порядок оплаты",
+    "оплата производится",
+    "оплата осуществляется",
+    "расчёты по договору",
+    "расчеты по договору",
+)
+
+#: Паттерны условий оплаты (конкретные фразы, а не заголовки разделов).
+_PAYMENT_PATTERNS = [
+    # «100% предоплата», «авансовый платёж 30%», «аванс 50%»
+    re.compile(
+        r"(?:\d+\s*%\s*(?:авансовый\s+платёж|авансовый\s+платеж|аванс[а-я]*|предоплат[а-я]+|оплат[а-я]+)"
+        r"|(?:авансовый\s+платёж|авансовый\s+платеж|аванс[а-я]*|предоплат[а-я]+)\s*[-—–:]*\s*\d+\s*%)",
+        re.IGNORECASE,
+    ),
+    # «оплата в течение N (рабочих|банковских|календарных) дней»
+    # (?<!\w) не допускает совпадение «оплата» внутри «постоплата»
+    re.compile(
+        r"(?<!\w)оплат[а-я]*\s+в\s+течение\s+\d+\s*(?:\([^)]+\)\s*)?(?:рабочих|банковских|календарных)?\s*(?:дн[её]й|дня|суток)",
+        re.IGNORECASE,
+    ),
+    # «не позднее N (рабочих|банковских|календарных) дней»
+    re.compile(
+        r"не\s+позднее\s+\d+\s*(?:\([^)]+\)\s*)?(?:рабочих|банковских|календарных)?\s*(?:дн[её]й|дня|суток)"
+        r"(?!\s+(?:с\s+момента\s+)?(?:поставки|отгрузки|передачи|выполнения|подписания\s+акта\s+приёмки"
+        r"|подписания\s+акта\s+приемки|сдачи|оказания))",
+        re.IGNORECASE,
+    ),
+    # «в течение N банковских дней (со дня|с момента) (получения счёта|подписания акта|оплаты)»
+    re.compile(
+        r"в\s+течение\s+\d+\s*(?:\([^)]+\)\s*)?(?:банковских|рабочих|календарных)?\s*(?:дн[её]й|дня)\s+"
+        r"(?:со?\s+(?:дня|момента|даты)\s+(?:получения\s+счёт|получения\s+счет|подписания|оплаты|выставления)|после\s+подписания)",
+        re.IGNORECASE,
+    ),
+    # «постоплата», «100% постоплата»
+    re.compile(
+        r"(?:\d+\s*%\s*)?постоплат[а-я]+",
+        re.IGNORECASE,
+    ),
+]
+
+
+def _has_payment_context(context: str) -> bool:
+    return any(kw in context for kw in _PAYMENT_SECTION_KEYWORDS)
+
+
 class DeliveryPeriodDetector:
     """Срок поставки/выполнения по regex-шаблонам (Фаза 1, план)."""
 
@@ -172,3 +229,60 @@ class DeliveryPeriodDetector:
                         )
                     )
         return found
+
+
+class PaymentTermsDetector:
+    """Условия оплаты: regex-паттерны с контекстным фильтром (Фаза 2, план).
+
+    Контекстный фильтр (±400 символов + соседние сегменты) требует, чтобы
+    рядом с найденной фразой был маркер раздела об оплате — «Порядок расчётов»,
+    «Условия оплаты» и т.д. Это отсекает сроки оплаты в других разделах (напр.,
+    штрафные санкции), которые синтаксически похожи, но семантически отличаются.
+    """
+
+    name = "payment_terms"
+    source = Source.RULE
+    priority = 85
+    types: frozenset[str] = frozenset({EntityType.PAYMENT_TERMS})
+
+    def detect(self, document: Document) -> list[Entity]:
+        segments_sorted = sorted(document.segments, key=lambda s: s.order)
+        seg_texts = {seg.order: seg.text for seg in segments_sorted}
+        found: list[Entity] = []
+        for seg in segments_sorted:
+            for pattern in _PAYMENT_PATTERNS:
+                for m in pattern.finditer(seg.text):
+                    context = _payment_context(seg_texts, seg.order, m.start(), m.end())
+                    if not _has_payment_context(context):
+                        continue
+                    value = m.group()
+                    if any(
+                        e.segment_order == seg.order and e.start < m.end() and m.start() < e.end
+                        for e in found
+                    ):
+                        continue
+                    found.append(
+                        Entity(
+                            type=EntityType.PAYMENT_TERMS,
+                            text=value,
+                            segment_order=seg.order,
+                            start=m.start(),
+                            end=m.end(),
+                            source=Source.RULE,
+                            confidence=CONFIDENCE,
+                            normalized=normalize_value(EntityType.PAYMENT_TERMS, value),
+                        )
+                    )
+        return found
+
+
+def _payment_context(seg_texts: dict[int, str], seg_order: int, start: int, end: int) -> str:
+    own = seg_texts.get(seg_order, "")
+    parts = [own[max(0, start - _PAYMENT_CONTEXT_RADIUS) : end + _PAYMENT_CONTEXT_RADIUS]]
+    for delta in range(-2, 3):
+        if delta == 0:
+            continue
+        neighbour = seg_texts.get(seg_order + delta)
+        if neighbour:
+            parts.append(neighbour)
+    return " ".join(parts).casefold()

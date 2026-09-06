@@ -26,7 +26,11 @@ def default_detectors(
     типа — та же утечка, что и молча непоискаемый GLiNER-тип (T1.13.1,
     решение Р2 — без мягкой деградации).
     """
-    from masker.detect.contract_params import ContractAmountDetector, DeliveryPeriodDetector
+    from masker.detect.contract_params import (
+        ContractAmountDetector,
+        DeliveryPeriodDetector,
+        PaymentTermsDetector,
+    )
 
     tagger = memoize_tagger(natasha_tagger())
     detectors: list[EntityDetector] = [
@@ -35,6 +39,7 @@ def default_detectors(
         DateDetector(),
         ContractAmountDetector(),
         DeliveryPeriodDetector(),
+        PaymentTermsDetector(),
         OrgFormDetector(),
         NatashaDetector(tagger),
     ]

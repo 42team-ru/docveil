@@ -23,7 +23,11 @@ from masker.detect import (
 )
 from masker.detect.base import EntityDetector
 from masker.detect.config_detector import ConfigDetector
-from masker.detect.contract_params import ContractAmountDetector, DeliveryPeriodDetector
+from masker.detect.contract_params import (
+    ContractAmountDetector,
+    DeliveryPeriodDetector,
+    PaymentTermsDetector,
+)
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.entity_types import EntityTypeRegistry
 from masker.graph.questions import build_ask_payload, parse_answers
@@ -177,6 +181,7 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                 DateDetector(),
                 ContractAmountDetector(),
                 DeliveryPeriodDetector(),
+                PaymentTermsDetector(),
             ]
             if specs:
                 detectors.append(ConfigDetector(specs))

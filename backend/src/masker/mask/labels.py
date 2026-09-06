@@ -37,6 +37,7 @@ MARKER_TYPE_LABELS: dict[str, str] = {
     EntityType.FEDERAL_LAW: "ФЗ",
     EntityType.CONTRACT_AMOUNT: "СУММА-ДОГОВОРА",
     EntityType.DELIVERY_PERIOD: "СРОК-ПОСТАВКИ",
+    EntityType.PAYMENT_TERMS: "УСЛОВИЯ-ОПЛАТЫ",
 }
 
 

@@ -70,8 +70,8 @@ def build_summary(
 ) -> ContractSummary:
     """Собрать карточку договора из результатов детекции и профилирования.
 
-    Вызывается детерминированно: LLM не трогает. ``payment_terms`` (Фаза 2)
-    остаётся ``None`` до реализации ``regex_llm_filter`` executor.
+    Вызывается детерминированно: LLM не трогает. ``payment_terms`` заполняется
+    из детектора ``PaymentTermsDetector`` (Фаза 2) — regex без LLM.
     ``generated_at=None`` → текущий UTC-момент; передать пустую строку,
     чтобы получить детерминированный вывод (граф, тесты).
     """
@@ -83,6 +83,10 @@ def build_summary(
     delivery_periods = _unique_ordered(
         [e.text for e in entities if e.type == EntityType.DELIVERY_PERIOD]
     )
+    payment_terms_list = _unique_ordered(
+        [e.text for e in entities if e.type == EntityType.PAYMENT_TERMS]
+    )
+    payment_terms = "; ".join(payment_terms_list) if payment_terms_list else None
     contract_number = next((e.text for e in entities if e.type == EntityType.CONTRACT_NUMBER), None)
 
     return ContractSummary(
@@ -91,7 +95,7 @@ def build_summary(
         federal_law=federal_laws,
         contract_amount=contract_amount,
         delivery_periods=delivery_periods,
-        payment_terms=None,
+        payment_terms=payment_terms,
         contract_number=contract_number,
         generated_at=datetime.now(UTC).isoformat() if generated_at is None else generated_at,
         llm_calls=llm_calls,

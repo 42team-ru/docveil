@@ -379,7 +379,7 @@ def test_detection_coverage_follows_detector_set(tmp_path: Path, rules_only: boo
 
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
     # После T1.15 `date`/`birth_date` перешли в активные детекторы.
-    # После Фаза 1 `contract_amount`/`delivery_period` тоже — остались только bank_name и money.
+    # Фаза 1-2: contract_amount/delivery_period/payment_terms покрыты — остались bank_name и money.
     assert report["detection_coverage"]["requested_without_detector"] == [
         "bank_name",
         "money",

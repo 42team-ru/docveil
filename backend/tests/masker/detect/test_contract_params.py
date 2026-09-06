@@ -1,10 +1,17 @@
-"""Тесты детекторов коммерческих параметров: federal_law, contract_amount, delivery_period."""
+"""Тесты детекторов коммерческих параметров.
+
+Покрывает: federal_law, contract_amount, delivery_period, payment_terms.
+"""
 
 from __future__ import annotations
 
 import pytest
 
-from masker.detect.contract_params import ContractAmountDetector, DeliveryPeriodDetector
+from masker.detect.contract_params import (
+    ContractAmountDetector,
+    DeliveryPeriodDetector,
+    PaymentTermsDetector,
+)
 from masker.detect.rules import RuleDetector
 from masker.model import Anchor, Document, EntityType, Segment, Source
 
@@ -32,6 +39,11 @@ def _detect_amount(text: str) -> list[str]:
 
 def _detect_delivery(*texts: str) -> list[str]:
     entities = DeliveryPeriodDetector().detect(_doc(*texts))
+    return [e.text for e in entities]
+
+
+def _detect_payment(*texts: str) -> list[str]:
+    entities = PaymentTermsDetector().detect(_doc(*texts))
     return [e.text for e in entities]
 
 
@@ -143,3 +155,45 @@ def test_delivery_period_no_duplicates_same_span() -> None:
     text = "Срок поставки — 30 рабочих дней."
     starts = [e.start for e in DeliveryPeriodDetector().detect(_doc(text))]
     assert len(starts) == len(set(starts)), "Дублирующихся сущностей по одному спану быть не должно"
+
+
+# ---------------------------------------------------------------------------
+# payment_terms
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "texts",
+    [
+        (
+            "Порядок расчётов.",
+            "Оплата производится в течение 30 рабочих дней с момента подписания акта приёмки.",
+        ),
+        (
+            "Условия оплаты.",
+            "Аванс 30% вносится в течение 5 банковских дней с даты подписания договора.",
+        ),
+        ("Порядок расчётов.", "100% постоплата в течение 90 дней."),
+        ("Расчёты по договору.", "не позднее 15 банковских дней со дня получения счёта."),
+    ],
+)
+def test_payment_terms_detected_with_context(texts: tuple[str, ...]) -> None:
+    result = _detect_payment(*texts)
+    assert result, f"Условия оплаты не найдены в: {texts!r}"
+
+
+def test_payment_terms_requires_payment_context() -> None:
+    """Срок поставки без ключевых слов раздела оплаты не детектируется."""
+    assert _detect_payment("Сроки поставки.", "Товар поставляется в течение 10 рабочих дней.") == []
+
+
+def test_payment_terms_not_triggered_without_context() -> None:
+    """Произвольные числа без контекста раздела оплаты не попадают в payment_terms."""
+    assert _detect_payment("Количество: 30 единиц товара.") == []
+
+
+def test_payment_terms_type_and_source() -> None:
+    entities = PaymentTermsDetector().detect(_doc("Порядок расчётов.", "100% постоплата."))
+    assert entities
+    assert entities[0].type == EntityType.PAYMENT_TERMS
+    assert entities[0].source == Source.RULE

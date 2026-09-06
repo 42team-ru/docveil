@@ -27,6 +27,7 @@ from masker.graph.nodes import (
     needs_human,
     plan_node,
     policy_node,
+    summary_node,
     validate_node,
 )
 from masker.graph.state import State
@@ -56,6 +57,7 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     graph.add_node("apply_answers", apply_answers_node)
     graph.add_node("finalize", finalize_node)
     graph.add_node("plan", plan_node)
+    graph.add_node("summary", summary_node)
     graph.add_node("render", make_render_node(deps))  # type: ignore[arg-type]
     graph.add_node("validate", validate_node)
     graph.add_node("report", make_report_node(deps))  # type: ignore[arg-type]
@@ -73,7 +75,8 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     graph.add_edge("ask_human", "apply_answers")
     graph.add_edge("apply_answers", "finalize")
     graph.add_edge("finalize", "plan")
-    graph.add_edge("plan", "render")
+    graph.add_edge("plan", "summary")
+    graph.add_edge("summary", "render")
     graph.add_edge("render", "validate")
     graph.add_edge("validate", "report")
     graph.add_edge("report", END)

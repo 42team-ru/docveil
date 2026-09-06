@@ -435,6 +435,21 @@ def plan_node(state: State) -> dict[str, object]:
     return {"plan": plan_to_dict(plan)}
 
 
+def summary_node(state: State) -> dict[str, object]:
+    """Собрать карточку договора из entities + profiles — детерминированно, без LLM."""
+    from masker.summary import build_summary
+
+    entities = [entity_from_dict(item) for item in state.get("entities", [])]
+    profiles = profiles_from_dicts(state.get("profiles", []))
+    llm_calls = int(state.get("llm_calls", 0))
+    # generated_at фиксируется пустой строкой: отчёт должен быть детерминированным
+    # (AGENTS.md: «два прогона на одном файле дают побайтово одинаковый отчёт»).
+    # Временная метка сборки хранится в артефактах файловой системы, не в отчёте.
+    # Пустая строка (не None) → детерминированный вывод без datetime.now().
+    summary = build_summary(entities, profiles, llm_calls=llm_calls, generated_at="")
+    return {"contract_summary": summary.model_dump()}
+
+
 #: Порядок ролей артефактов — фиксированный, не по обходу множества стилей
 #: (раздел 6 плана T1.10, пункт 2): детерминизм отчёта не должен зависеть от
 #: порядка, в котором вызывающий перечислил ``options.styles``.
@@ -669,4 +684,7 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
     # шаг 5: сохранность вёрстки PDF читается тем же взглядом, что и
     # leaked/render_degradations, а не через вложенный validation.layout.
     report["layout"] = report["validation"].get("layout", [])
+    contract_summary = state.get("contract_summary")
+    if contract_summary:
+        report["contract_summary"] = contract_summary
     return {"report": report}

@@ -207,7 +207,12 @@ def test_label_in_previous_paragraph_of_the_same_cell() -> None:
 
     entities = AddressDetector().detect(document)
 
-    assert [(entity.segment_order, entity.text) for entity in entities] == [(1, "г. Воронеж")]
+    # Пропагация: «г. Воронеж» обнаружено в сег 1 через метку «Адрес:» из сег 2,
+    # затем _propagate_to_occurrences добавляет непокрытое вхождение в сег 3.
+    assert [(entity.segment_order, entity.text) for entity in entities] == [
+        (1, "г. Воронеж"),
+        (3, "г. Воронеж"),
+    ]
 
 
 @pytest.mark.parametrize(

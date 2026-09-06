@@ -396,4 +396,46 @@ class AddressDetector:
                 else:
                     index += 1
         self._link_paragraph_split(document, found)
+        self._propagate_to_occurrences(document, found)
         return found
+
+    @staticmethod
+    def _propagate_to_occurrences(document: Document, found: list[Entity]) -> None:
+        """Добавить сущности для всех вхождений уже найденного текста адреса.
+
+        Если детектор нашёл «г. Воронеж» в сегменте 4, а в сегменте 5 оно
+        же встречается как часть датостроки («г. Воронеж, 15 января 2026 г.»),
+        маска обязана покрыть оба вхождения — иначе ValidateAgent найдёт
+        утечку в том сегменте, где детектор промолчал.
+        """
+        covered_by_seg: dict[int, list[tuple[int, int]]] = {}
+        for entity in found:
+            covered_by_seg.setdefault(entity.segment_order, []).append((entity.start, entity.end))
+
+        def _overlaps_any(seg_order: int, start: int, end: int) -> bool:
+            return any(s < end and start < e for s, e in covered_by_seg.get(seg_order, []))
+
+        existing_texts: set[str] = {e.text for e in found}
+        for segment in document.segments:
+            for addr_text in existing_texts:
+                search_start = 0
+                while True:
+                    pos = segment.text.find(addr_text, search_start)
+                    if pos == -1:
+                        break
+                    end = pos + len(addr_text)
+                    if not _overlaps_any(segment.order, pos, end):
+                        found.append(
+                            Entity(
+                                type=EntityType.ADDRESS,
+                                text=addr_text,
+                                segment_order=segment.order,
+                                start=pos,
+                                end=end,
+                                source=Source.RULE,
+                                confidence=0.7,
+                                normalized=normalize_value(EntityType.ADDRESS, addr_text),
+                            )
+                        )
+                        covered_by_seg.setdefault(segment.order, []).append((pos, end))
+                    search_start = pos + 1

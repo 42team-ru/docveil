@@ -160,6 +160,15 @@ def is_role_stopword(text: str, start: int = 0, end: int | None = None) -> bool:
     return all(is_role_token(token) for token in tokens)
 
 
+_RE_REGULATORY_CODE = re.compile(r"^[А-ЯЁA-Z]{2,4}(\s+[А-ЯЁA-Z]{1,4}){1,3}$")
+
+
+def is_regulatory_code(text: str) -> bool:
+    """Вернуть True для строк вида «ТР ТС», «ГОСТ Р», «СНиП» — технические
+    нормативные аббревиатуры, не названия организаций."""
+    return bool(_RE_REGULATORY_CODE.match(text.strip(TRIM_CHARS)))
+
+
 def is_public_body(text: str) -> bool:
     """Проверить, что название целиком обозначает публичное учреждение."""
     value = text.strip(TRIM_CHARS).casefold()

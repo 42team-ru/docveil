@@ -81,13 +81,24 @@ def sweep(
         # Первое встреченное значение выигрывает — `entities` уже
         # детерминированно отсортирован вызывающим (`DetectAgent`).
         value_confidence.setdefault(key, entity.confidence)
+        # Нормализованный пробел: «Иванова Светлана  Петровна» (двойной
+        # пробел из PDF-потоков) должна найти «Иванова Светлана Петровна»
+        # в другом сегменте (Д13, PDF-специфика, вариант пробела).
+        collapsed = " ".join(entity.text.split())
+        if collapsed != entity.text and len(collapsed) >= MIN_VALUE_LEN:
+            value_confidence.setdefault((entity.type, collapsed), entity.confidence)
 
     segments_by_order = sorted(document.segments, key=lambda segment: segment.order)
 
     found: list[Entity] = []
     for entity_type, value in sorted(value_confidence, key=lambda item: (item[0], item[1])):
         confidence = value_confidence[(entity_type, value)]
-        pattern = re.compile(rf"(?<!\w){re.escape(value)}(?!\w)")
+        # Для многословных значений пробелы между словами допускаем гибко:
+        # PDF-потоки могут вставлять двойной пробел там, где в DOCX один
+        # (Д13, T2.2.2). «\s+» не влияет на ИНН/ОГРН — там нет пробелов.
+        words = value.split()
+        flexible = r"\s+".join(re.escape(w) for w in words) if len(words) > 1 else re.escape(value)
+        pattern = re.compile(rf"(?<!\w){flexible}(?!\w)")
         for segment in segments_by_order:
             ranges = covered_by_segment.setdefault(segment.order, [])
             for match in pattern.finditer(segment.text):

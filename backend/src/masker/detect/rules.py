@@ -43,14 +43,17 @@ _L = r"(?<![\d\w])"
 _R = r"(?![\d\w])"
 
 PATTERNS: dict[EntityType, re.Pattern[str]] = {
-    EntityType.INN: re.compile(rf"{_L}(?:{_d(12)}|{_d(10)}){_R}"),
+    # ИНН не использует _d() — межцифровые пробелы дают ложные срабатывания
+    # на числовые таблицы (цены и даты через пробел образуют 10-значный ИНН
+    # с правильной контрольной цифрой — статистическое совпадение).
+    EntityType.INN: re.compile(rf"{_L}(?:\d{{12}}|\d{{10}}){_R}"),
     EntityType.OGRN: re.compile(rf"{_L}(?:{_d(15)}|{_d(13)}){_R}"),
     EntityType.SNILS: re.compile(rf"{_L}{_d(11)}{_R}"),
     EntityType.BANK_ACCOUNT: re.compile(rf"{_L}{_d(20)}{_R}"),
     EntityType.BIK: re.compile(rf"{_L}{_d(9)}{_R}"),
     EntityType.KPP: re.compile(rf"{_L}\d{{4}}[\dA-Z]{{2}}\d{{3}}{_R}"),
     EntityType.PASSPORT: re.compile(rf"{_L}\d{{2}}{_DIGIT_SEP}\d{{2}}{_DIGIT_SEP}\d{{6}}{_R}"),
-    EntityType.EMAIL: re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"),
+    EntityType.EMAIL: re.compile(r"[\w.+-]+@[\w-]+\.[\w]+(?:\.[\w]+)*"),
     EntityType.PHONE: re.compile(
         r"(?:(?:\+7|8)[\s\-]?\(?\d{3,4}\)?|(?<!\d)\(\d{3,4}\))[\s\-]?\d{2,3}[\s\-]?\d{2}[\s\-]?\d{2}"
     ),
@@ -60,7 +63,9 @@ PATTERNS: dict[EntityType, re.Pattern[str]] = {
     # сущности лишь потому, что рядом оказалась цифра (план T2.2.1, Д6).
     # Длина тела ≥5 уже отсекает оба случая сама по себе — контекстный
     # триггер (см. `_has_contract_trigger`) фильтрует остальное.
-    EntityType.CONTRACT_NUMBER: re.compile(r"№\s*(\d[\d./-]{4,})"),
+    # Опциональный кириллический префикс перед первой цифрой покрывает
+    # формат «ДП-2024/117» из «ДОГОВОР ПОСТАВКИ № ДП-2024/117».
+    EntityType.CONTRACT_NUMBER: re.compile(r"№\s*((?:[А-ЯЁA-Za-z]{1,4}[-])?(?:\d[\d./-]{4,}))"),
 }
 
 #: Валидаторы контрольных сумм. Тип без валидатора принимается по формату.
@@ -202,6 +207,16 @@ def _has_contract_number_trigger(text: str, start: int) -> bool:
     return any(trigger in context for trigger in _CONTRACT_NUMBER_TRIGGERS)
 
 
+#: Домены PDF-генераторов: их URL в нижних колонтитулах — не пользовательские данные.
+_PDF_GENERATOR_HOSTS = frozenset({"tcpdf.org", "fpdf.org", "wkhtmltopdf.org", "pdfmake.org"})
+
+
+def _is_pdf_generator_url(url: str) -> bool:
+    host = url.lower().removeprefix("https://").removeprefix("http://").removeprefix("www.")
+    host = host.split("/")[0].split("?")[0]
+    return host in _PDF_GENERATOR_HOSTS
+
+
 def _accept(etype: EntityType, raw: str, seg: Segment, biks: dict[int, list[str]]) -> bool:
     """Проходит ли кандидат проверку своего типа."""
     if etype is EntityType.BANK_ACCOUNT:
@@ -209,6 +224,8 @@ def _accept(etype: EntityType, raw: str, seg: Segment, biks: dict[int, list[str]
         # но такой счёт получит пониженную уверенность.
         near = _nearby_biks(biks, seg.order)
         return not near or any(is_valid_account(raw, b) for b in near)
+    if etype is EntityType.SITE:
+        return not _is_pdf_generator_url(raw)
     validator = VALIDATORS.get(etype)
     return validator is None or validator(raw)
 
@@ -257,6 +274,12 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                 else:
                     value = m.group()
                     start, end = m.start(), m.end()
+                # HTTP-ссылки нередко заканчиваются точкой конца предложения,
+                # которая не является частью URL.
+                if etype is EntityType.SITE and value.startswith("http"):
+                    stripped = value.rstrip(".,;!?")
+                    end -= len(value) - len(stripped)
+                    value = stripped
                 if not _accept(etype, value, seg, biks):
                     continue
 

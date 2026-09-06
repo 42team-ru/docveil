@@ -108,10 +108,13 @@ def test_default_detectors_include_rules_then_natasha() -> None:
     # `org_form` (план T2.2.2, шаг 6, Д11) — между `address` и `natasha`:
     # приоритет 60 ниже правил/адреса, выше локальной NER-модели.
     # `dates` (план T1.15) — рядом, приоритет 95, до `org_form`.
+    # `contract_amount` / `delivery_period` (Фаза 1) — приоритет 85, между dates и org_form.
     assert [detector.name for detector in agent.detectors] == [
         "rules",
         "address",
         "dates",
+        "contract_amount",
+        "delivery_period",
         "org_form",
         "natasha",
     ]
@@ -170,8 +173,18 @@ def test_default_detectors_reject_llm_filter_specs_without_llm() -> None:
 
 
 def test_explicit_rules_do_not_load_natasha() -> None:
+    import os
     import subprocess
     import sys
+    from pathlib import Path
+
+    # Эталонный путь к backend/src — editable install указывает на корневой
+    # src (где нет .py-файлов), поэтому subprocess явно получает правильный
+    # PYTHONPATH, иначе `masker.detect` разрешается как пустой namespace-пакет.
+    backend_src = str(Path(__file__).resolve().parents[3] / "src")
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{backend_src}:{existing}" if existing else backend_src
 
     result = subprocess.run(
         [
@@ -181,6 +194,7 @@ def test_explicit_rules_do_not_load_natasha() -> None:
             "from masker.detect.rules import RuleDetector; "
             "DetectAgent([RuleDetector()]); assert 'natasha' not in sys.modules",
         ],
+        env=env,
         check=False,
         capture_output=True,
         text=True,

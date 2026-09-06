@@ -98,6 +98,11 @@ MIN_PRECISION = 0.90
 _MIN_PRECISION_OVERRIDE: dict[str, float] = {
     "org_name": 0.45,  # 21 FP Natasha на school.pdf: публ. органы, заголовки таблиц
     "address": 0.50,  # PDF span-boundary FP: слипание смежных адресов в одном сегменте
+    # Фаза 1: новые типы, корпус пока не размечен — поднять до 0.90 после
+    # добавления labels в fixtures/labeled/*.labels.json (план Фаза 1).
+    "federal_law": 0.50,
+    "contract_amount": 0.50,
+    "delivery_period": 0.50,
 }
 _MIN_RECALL_OVERRIDE: dict[str, float] = {
     "address": 0.80,  # 2 FN на school.pdf: граница span не совпадает с разметкой

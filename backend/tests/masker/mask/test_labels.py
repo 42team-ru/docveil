@@ -17,7 +17,9 @@ def test_marker_labels_are_upper_case_cyrillic_without_spaces() -> None:
         assert label == label.upper()
         assert " " not in label
         assert "." not in label
-        assert re.fullmatch(r"[А-ЯЁ]+", label), label
+        # Допускаем дефис внутри метки для составных меток («СУММА-ДОГОВОРА»),
+        # но не в начале/конце — иначе маркер «[-ИНН]» или «[ИНН-]» сломан.
+        assert re.fullmatch(r"[А-ЯЁ][А-ЯЁ-]*[А-ЯЁ]|[А-ЯЁ]", label), label
 
 
 def test_type_marker_label_matches_dict() -> None:

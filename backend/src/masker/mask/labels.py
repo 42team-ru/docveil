@@ -34,6 +34,9 @@ MARKER_TYPE_LABELS: dict[str, str] = {
     EntityType.DATE: "ДАТА",
     EntityType.BIRTH_DATE: "РОЖДЕНИЕ",
     EntityType.SITE: "САЙТ",
+    EntityType.FEDERAL_LAW: "ФЗ",
+    EntityType.CONTRACT_AMOUNT: "СУММА-ДОГОВОРА",
+    EntityType.DELIVERY_PERIOD: "СРОК-ПОСТАВКИ",
 }
 
 

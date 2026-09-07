@@ -117,6 +117,8 @@ def contract_01() -> tuple[DocxDocument, list[dict[str, str]]]:
         {"type": "address", "text": "101000, г. Москва, ул. Мясницкая, д. 26"},
         {"type": "person", "text": "И.И. Иванов", "party": "supplier"},
         {"type": "person", "text": "А.П. Сидорова", "party": "buyer"},
+        # T1.15: дата подписания договора — документ-уровневый `date`.
+        {"type": "date", "text": "15 января 2026"},
     ]
     return doc, labels
 
@@ -148,6 +150,9 @@ def contract_02_hard() -> tuple[DocxDocument, list[dict[str, str]]]:
         {"type": "snils", "text": "112-233-445 95", "party": "third_party"},
         {"type": "passport", "text": "20 04 123456", "party": "third_party"},
         {"type": "email", "text": "pkuznetsov@example.org", "party": "third_party"},
+        # T1.15: обе даты в теле — документ-уровневый `date`.
+        {"type": "date", "text": "12.02.2026"},
+        {"type": "date", "text": "10.05.2018"},
     ]
     return doc, labels
 
@@ -236,9 +241,11 @@ def contract_04_bankruptcy() -> tuple[DocxDocument, list[dict[str, str]]]:
         ],
     )
 
-    # Дата, место рождения и адрес намеренно не размечены: их детекторы — T1.13/T1.14.
+    # Место рождения намеренно не размечено: его детектор — T1.16.
     labels = [
         {"type": "person", "text": "Сидоровой Анны Петровны", "party": "seller"},
+        # T1.15: дата рождения — субъектная birth_date, принадлежит продавцу.
+        {"type": "birth_date", "text": "15 февраля 1982", "party": "seller"},
         {"type": "snils", "text": "112-233-445 95", "party": "seller"},
         {"type": "inn", "text": "500100732259", "party": "seller"},
         {"type": "org_name", "text": "ООО «Север»", "party": "seller"},
@@ -336,6 +343,70 @@ def contract_06_address() -> tuple[DocxDocument, list[dict[str, str]]]:
         {"type": "inn", "text": "3662103003", "party": "supplier"},
         {"type": "inn", "text": "312822458000", "party": "seller"},
         {"type": "person", "text": "Атараев Б.М", "party": "seller"},
+        # T1.15: «15 января 2026» встречается и в contract_01, и здесь.
+        {"type": "date", "text": "15 января 2026"},
+    ]
+    return doc, labels
+
+
+def contract_07_dates() -> tuple[DocxDocument, list[dict[str, str]]]:
+    """«Зоопарк дат» для T1.15: все пять форм, шаблон подписи, birth_date
+    в теле и в ячейке таблицы, контрпример со словом «рождении» вдалеке,
+    двузначный год и период — как отрицательные примеры (не должны ловиться).
+    """
+    doc = DocxDocument()
+    doc.core_properties.author = "Синтетический корпус"
+    doc.core_properties.title = "Проверка дат"
+
+    doc.add_heading("ПРОВЕРКА ДАТ", level=1)
+    # Пять поддерживаемых форм — по одной в разных абзацах, чтобы
+    # проверить и текстовую, и числовые ветки детектора.
+    doc.add_paragraph("Договор от 14.10.1986 действует бессрочно.")
+    doc.add_paragraph("Отгрузка запланирована на 12/02/2025.")
+    doc.add_paragraph("Дата регистрации в системе: 2025-02-12.")
+    doc.add_paragraph("Утверждено 10 марта 2025 года.")
+    doc.add_paragraph("Дата составления: «12» февраля 2025 г.")
+
+    # Дата рождения в теле — левый триггер «рождения» вплотную к дате.
+    doc.add_paragraph(
+        "Продавец: Сидорова Анна Петровна, 15 февраля 1982 года рождения, "
+        "паспорт РФ."
+    )
+    # Контрпример: слово «рождении» стоит правее, но не как триггер даты
+    # рождения — сама дата 10 марта 2025 остаётся `date`, а не `birth_date`.
+    doc.add_paragraph(
+        "Договор от 10 марта 2025 г., свидетельство о рождении выдано ранее."
+    )
+    # Отрицательные примеры — не должны попасть ни в один тип.
+    doc.add_paragraph(
+        'Незаполненный шаблон подписи: «____» __________ 202__ года — не дата.'
+    )
+    doc.add_paragraph("Двузначный год не поддерживается: 12.02.25.")
+    doc.add_paragraph("Периоды тоже не даты: в марте 2025 года составлен акт.")
+
+    # Дата рождения ещё раз — в ячейке таблицы (проверка ключа
+    # согласованности: тот же ISO-ключ 1982-02-15 → один маркер).
+    table = doc.add_table(rows=1, cols=1)
+    table.style = "Table Grid"
+    _set_cell_paragraphs(
+        table.cell(0, 0),
+        [
+            "Продавец: Сидорова Анна Петровна",
+            "Год рождения: 15 февраля 1982",
+        ],
+    )
+
+    labels = [
+        {"type": "date", "text": "14.10.1986"},
+        {"type": "date", "text": "12/02/2025"},
+        {"type": "date", "text": "2025-02-12"},
+        {"type": "date", "text": "10 марта 2025"},
+        {"type": "date", "text": "«12» февраля 2025"},
+        {"type": "person", "text": "Сидорова Анна Петровна", "party": "seller"},
+        {"type": "birth_date", "text": "15 февраля 1982", "party": "seller"},
+        {"type": "date", "text": "10 марта 2025"},
+        # Ячейка таблицы (T1.11): та же birth_date в другом сегменте.
+        {"type": "birth_date", "text": "15 февраля 1982", "party": "seller"},
     ]
     return doc, labels
 
@@ -440,6 +511,10 @@ def contract_09_custom() -> tuple[DocxDocument, list[dict[str, str]], list[dict[
         {"type": "product_code", "text": "SKU-ABC-42"},
         {"type": "product_code", "text": "SKU-XYZ-77"},
         {"type": "shipment_date", "text": "20.03.2026"},
+        # T1.15: дата подписания «5 марта 2026» — общий `date`,
+        # без контекста «отгрузка/поставка» rain пользовательский тип не
+        # покрывает.
+        {"type": "date", "text": "5 марта 2026"},
     ]
     custom_types: list[dict[str, object]] = [
         {
@@ -623,6 +698,7 @@ def main() -> int:
         ("contract_04_bankruptcy", contract_04_bankruptcy),
         ("contract_05_tables", contract_05_tables),
         ("contract_06_address", contract_06_address),
+        ("contract_07_dates", contract_07_dates),
         ("contract_08_roles", contract_08_roles),
         ("contract_09_custom", contract_09_custom),
         ("contract_10_roles_dates", contract_10_roles_dates),

@@ -34,6 +34,10 @@
       "type": "person",
       "text": "Атараев Б.М",
       "party": "seller"
+    },
+    {
+      "type": "date",
+      "text": "15 января 2026"
     }
   ]
 }

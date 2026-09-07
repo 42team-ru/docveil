@@ -57,6 +57,9 @@ _TYPE_TITLES: dict[str, str] = {
     EntityType.MONEY: "Сумма",
     EntityType.DATE: "Дата",
     EntityType.SITE: "Сайт",
+    EntityType.FEDERAL_LAW: "Федеральный закон",
+    EntityType.CONTRACT_AMOUNT: "Сумма договора",
+    EntityType.DELIVERY_PERIOD: "Срок поставки",
 }
 
 

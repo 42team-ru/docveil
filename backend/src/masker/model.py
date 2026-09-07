@@ -29,7 +29,12 @@ class EntityType(StrEnum):
     CONTRACT_NUMBER = "contract_number"
     MONEY = "money"
     DATE = "date"
+    BIRTH_DATE = "birth_date"
     SITE = "site"
+    FEDERAL_LAW = "federal_law"
+    CONTRACT_AMOUNT = "contract_amount"
+    DELIVERY_PERIOD = "delivery_period"
+    PAYMENT_TERMS = "payment_terms"
 
 
 #: Типы, пропуск которых — утечка персональных/платёжных данных.

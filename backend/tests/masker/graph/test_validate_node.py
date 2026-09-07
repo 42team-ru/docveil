@@ -29,7 +29,7 @@ def _rendered_state(tmp_path: Path, *, styles: tuple[str, ...]) -> State:
         },
     }
     state.update(nodes.extract_node(state))
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     state.update(nodes.plan_node(state))
     render_node = nodes.make_render_node(nodes.RunDeps(artifact_dir=tmp_path))
     state.update(render_node(state))

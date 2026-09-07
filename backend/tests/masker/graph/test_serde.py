@@ -39,7 +39,7 @@ def test_plan_serde_round_trip_restores_tuples_and_skipped() -> None:
     """``plan_from_dict(plan_to_dict(p)) == p`` — T1.10, шаг 4, критерий приёмки."""
     document = ingest_docx(FIXTURES / "contract_01.docx")
     entities = DetectAgent().detect(document).entities
-    found_types = sorted({entity.type.value for entity in entities})
+    found_types = sorted({entity.type for entity in entities})
     assert len(found_types) > 1, "фикстура должна содержать хотя бы два типа сущностей"
     requested_types = frozenset(EntityType(value) for value in found_types[:-1])
 

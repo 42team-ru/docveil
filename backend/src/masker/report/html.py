@@ -82,6 +82,13 @@ th { color: #4b5056; background: #f0f2f4; font-weight: 700; }
   background: #fff; }
 .supplement dt { margin-top: 8px; font-weight: 700; }
 .supplement dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.contract-card { background: #fff; border: 1px solid #dfe1e5; border-radius: 6px;
+  overflow: hidden; margin-top: 4px; }
+.contract-card table { width: 100%; }
+.contract-card td:first-child { width: 200px; color: #4b5056; font-weight: 700; }
+.contract-party { display: flex; flex-direction: column; gap: 2px; }
+.contract-party .party-name { font-weight: 700; }
+.contract-party .party-meta { font-size: 12px; color: #5f6368; }
 @media (max-width: 700px) {
   header, main { padding-left: 16px; padding-right: 16px; }
   .chunk-head { display: block; }
@@ -360,6 +367,55 @@ def _metadata(report: dict[str, Any], source: Path) -> str:
     return f'<dl class="supplement"><strong>Метаданные · НЕ ОБРАБОТАНЫ</strong>{"".join(rows)}</dl>'
 
 
+def _contract_party_cell(party: dict[str, Any] | None) -> str:
+    if not party:
+        return "—"
+    parts: list[str] = []
+    name = str(party.get("name") or "")
+    role = str(party.get("role_title") or "")
+    inn = str(party.get("inn") or "")
+    ogrn = str(party.get("ogrn") or "")
+    if name:
+        parts.append(f'<span class="party-name">{escape(name)}</span>')
+    meta: list[str] = []
+    if role:
+        meta.append(escape(role))
+    if inn:
+        meta.append(f"ИНН {escape(inn)}")
+    if ogrn:
+        meta.append(f"ОГРН {escape(ogrn)}")
+    if meta:
+        parts.append(f'<span class="party-meta">{" · ".join(meta)}</span>')
+    return f'<div class="contract-party">{"".join(parts)}</div>' if parts else "—"
+
+
+def _contract_summary_card(report: dict[str, Any]) -> str:
+    cs = report.get("contract_summary")
+    if not cs or not isinstance(cs, dict):
+        return ""
+    rows: list[str] = []
+
+    def row(label: str, value: str) -> str:
+        return f"<tr><td>{escape(label)}</td><td>{value}</td></tr>"
+
+    rows.append(row("Заказчик", _contract_party_cell(cs.get("customer"))))
+    rows.append(row("Поставщик", _contract_party_cell(cs.get("supplier"))))
+
+    laws = cs.get("federal_law") or []
+    rows.append(row("Федеральный закон", escape(", ".join(laws)) if laws else "—"))
+
+    amount = str(cs.get("contract_amount") or "") or "—"
+    rows.append(row("Сумма договора", escape(amount)))
+
+    periods = cs.get("delivery_periods") or []
+    rows.append(row("Сроки поставки", escape("; ".join(periods)) if periods else "—"))
+
+    number = str(cs.get("contract_number") or "") or "—"
+    rows.append(row("Номер договора", escape(number)))
+
+    return f'<div class="contract-card"><table><tbody>{"".join(rows)}</tbody></table></div>'
+
+
 def _critical_unmasked_banner(report: dict[str, Any]) -> str:
     """Красный баннер, если человек осознанно снял маску с критичного типа.
 
@@ -386,6 +442,8 @@ def render_html_report(report: dict[str, Any], source: Path, destination: Path) 
             f"{escape(', '.join(missing))}</p>"
         )
     critical_banner = _critical_unmasked_banner(report)
+    contract_card = _contract_summary_card(report)
+    contract_section = f"<h2>Карточка договора</h2>{contract_card}" if contract_card else ""
     html = f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -397,6 +455,7 @@ def render_html_report(report: dict[str, Any], source: Path, destination: Path) 
 <p class="danger">НЕ БЕЗОПАСЕН ДЛЯ ЭКСПОРТА: это диагностический отчёт с исходными PII.</p>
 {critical_banner}
 </header><main>{missing_warning}
+{contract_section}
 <h2>Покрытие документа</h2><table><thead><tr><th>Область</th><th>Обработана</th>
 <th>Фактическое содержимое</th></tr></thead><tbody>{_coverage(report)}</tbody></table>
 <h2>Группы согласованности</h2>{_groups(report)}

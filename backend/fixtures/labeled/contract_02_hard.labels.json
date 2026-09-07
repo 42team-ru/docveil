@@ -24,6 +24,14 @@
       "type": "email",
       "text": "pkuznetsov@example.org",
       "party": "third_party"
+    },
+    {
+      "type": "date",
+      "text": "12.02.2026"
+    },
+    {
+      "type": "date",
+      "text": "10.05.2018"
     }
   ]
 }

@@ -110,7 +110,22 @@
     },
     {
       "type": "org_name",
+      "text": "ООО «ШБС №11»",
+      "party": "contractor"
+    },
+    {
+      "type": "org_name",
+      "text": "ООО \"ШБС №11\"",
+      "party": "contractor"
+    },
+    {
+      "type": "org_name",
       "text": "ШБС № 11",
+      "party": "contractor"
+    },
+    {
+      "type": "org_name",
+      "text": "ПАО «Контур.Банк»",
       "party": "contractor"
     },
     {
@@ -167,6 +182,40 @@
       "type": "email",
       "text": "emyp11@mail.ru",
       "party": "contractor"
-    }
+    },
+    {"type": "date", "text": "24.12.2025"},
+    {"type": "date", "text": "10.12.2008"},
+    {"type": "date", "text": "1 марта 1995"},
+    {"type": "date", "text": "06.04.2011"},
+    {"type": "date", "text": "12 января 2026"},
+    {"type": "date", "text": "31 декабря 2027"},
+    {"type": "date", "text": "«31» декабря 2027"},
+    {"type": "date", "text": "«12 января 2026"},
+    {"type": "date", "text": "27 марта 2014"},
+    {"type": "date", "text": "20 марта 2008"},
+    {"type": "date", "text": "02.01.2000"},
+    {"type": "date", "text": "06.04.2011"},
+    {"type": "date", "text": "30.03.1999"},
+    {"type": "date", "text": "23.12.2021"},
+    {"type": "date", "text": "18.05.2020"},
+    {"type": "date", "text": "06.03.2006"},
+    {"type": "date", "text": "27.03.2014"},
+    {"type": "date", "text": "20.03.2008"},
+    {"type": "date", "text": "31.12.2027"},
+    {"type": "date", "text": "29.12.2025"},
+    {"type": "date", "text": "14.01.2025"},
+    {"type": "date", "text": "14.04.2026"},
+    {"type": "date", "text": "05.01.2026"},
+    {"type": "date", "text": "26.03.2025"},
+    {"type": "date", "text": "19.06.2026"},
+    {"type": "site", "text": "https://екатеринбург.рф/жителям/образование/школы/документыОО/питание/техтребования"},
+    {"type": "delivery_period", "text": "в течение 10 дней"},
+    {"type": "delivery_period", "text": "в течение 30 дней"},
+    {"type": "delivery_period", "text": "не позднее 10 рабочих дней"},
+    {"type": "delivery_period", "text": "5 рабочих дней с даты"},
+    {"type": "delivery_period", "text": "не позднее 5 рабочих дней"},
+    {"type": "delivery_period", "text": "в течение 10 рабочих дней"},
+    {"type": "delivery_period", "text": "в течение 5 рабочих дней"},
+    {"type": "delivery_period", "text": "не позднее 15 рабочих дней"}
   ]
 }

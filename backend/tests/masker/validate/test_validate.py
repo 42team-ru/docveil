@@ -114,26 +114,14 @@ def test_broken_render_is_caught(tmp_path: pathlib.Path, monkeypatch: pytest.Mon
     assert any(leak.kind == "detector" for leak in report.leaked)
 
 
-_KNOWN_ADDRESS_DATELINE_LEAK = ("contract_06_address.docx", "raw", "address", "г. Воронеж")
-
-
 def test_clean_render_has_no_leaks(tmp_path: pathlib.Path) -> None:
     """Честный прогон по всем фикстурам `fixtures/labeled/*.docx` с
-    `--types all`: `leaked == ()` — с одним измеренным, именованным и
-    объяснённым исключением, а не тихим допуском на весь корпус.
+    `--types all`: `leaked == ()`.
 
-    `contract_06_address.docx` содержит строку места подписания «г.
-    Воронеж, 15 января 2026 г.» — `AddressDetector` не распознаёт формат
-    «город + дата» как адрес, поэтому это упоминание никогда не попадает
-    в план и не маскируется. Побайтовый поиск честно ловит это как утечку
-    (та же строка «г. Воронеж» замаскирована в реквизитах чуть выше по
-    документу, поэтому у совпадения есть `group_id`) — это дефект слоя
-    Detect (недостаточный recall `AddressDetector` на формате «город,
-    дата»), не дефект Render или Validate: рендер замаскировал ровно то,
-    что ему передал план. Порог не ослаблен — тест по-прежнему требует
-    пустой `leaked` для всех ОСТАЛЬНЫХ шести фикстур и упадёт, если
-    появится любая утечка сверх этой одной, именованной. Устранение —
-    отдельная задача на детекцию адресов (не часть T1.8).
+    После добавления `_propagate_to_occurrences` в `AddressDetector` утечка
+    «г. Воронеж» в датостроке (`contract_06_address.docx`) устранена —
+    пропагация покрывает все вхождения уже найденного адреса.
+    Тест возвращён к инварианту «ноль утечек», без именованных исключений.
     """
     detector = DetectAgent()
     plan_agent = PlanAgent()
@@ -153,10 +141,7 @@ def test_clean_render_has_no_leaks(tmp_path: pathlib.Path) -> None:
         for leak in report.leaked:
             all_leaks.append((source.name, leak.kind, leak.entity_type, leak.value))
 
-    assert all_leaks == [_KNOWN_ADDRESS_DATELINE_LEAK], (
-        "Появилась утечка сверх известного исключения (или оно пропало) — "
-        f"актуальный список утечек по корпусу: {all_leaks}"
-    )
+    assert all_leaks == [], f"Появилась утечка — актуальный список: {all_leaks}"
 
 
 def test_author_left_in_core_xml_is_a_leak(tmp_path: pathlib.Path) -> None:

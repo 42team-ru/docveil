@@ -49,18 +49,21 @@ def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
 
     assert report["preview_only"] is True
     assert report["report_version"] == 3
-    assert report["entity_count"] == 4
-    assert report["chunk_count"] == 3
+    # 4 → 6 после T1.15: две даты в фикстуре (12.02.2026, 10.05.2018).
+    assert report["entity_count"] == 6
+    # chunk_count тоже растёт: даты в отдельных абзацах — новые PII-чанки.
+    assert report["chunk_count"] == 4
     assert {item["type"] for item in report["entities"]} == {
         "email",
         "inn",
         "passport",
         "snils",
+        "date",
     }
     assert report["summary"] == {
-        "entities_total": 4,
-        "by_type": {"email": 1, "inn": 1, "passport": 1, "snils": 1},
-        "by_source": {"rule": 4},
+        "entities_total": 6,
+        "by_type": {"email": 1, "inn": 1, "passport": 1, "snils": 1, "date": 2},
+        "by_source": {"rule": 6},
         "minimum_confidence": 0.9,
     }
     first_chunk = report["chunks"][0]
@@ -215,11 +218,11 @@ def test_cli_filters_entity_types(tmp_path: Path) -> None:
     )
 
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
-    # Детекция rules-only находит все 4 типа с контрольной суммой/regex —
-    # inn, snils, passport, email; person доступен только через NER.
-    assert report["entity_count"] == 4
+    # Детекция rules-only находит все типы с контрольной суммой/regex/regex+date —
+    # inn, snils, passport, email, date (T1.15); person доступен только через NER.
+    assert report["entity_count"] == 6
     entities_by_type = {item["type"]: item for item in report["entities"]}
-    assert set(entities_by_type) == {"inn", "snils", "passport", "email"}
+    assert set(entities_by_type) == {"inn", "snils", "passport", "email", "date"}
     # Запрошенные типы дошли до плана и получили маркер.
     assert entities_by_type["inn"]["marker"] == "[ИНН]"
     assert entities_by_type["snils"]["marker"] == "[СНИЛС]"
@@ -228,7 +231,8 @@ def test_cli_filters_entity_types(tmp_path: Path) -> None:
     assert entities_by_type["passport"]["marker"] == ""
     assert entities_by_type["email"]["marker"] == ""
     assert report["plan"]["requested_types"] == ["inn", "snils"]
-    assert report["plan"]["skipped"] == {"count": 2, "by_reason": {"type_not_requested": 2}}
+    # После T1.15: 4 сущности незапрошенных типов (passport, email, 2×date).
+    assert report["plan"]["skipped"] == {"count": 4, "by_reason": {"type_not_requested": 4}}
     assert report["detection_coverage"]["requested_without_detector"] == []
 
 
@@ -253,16 +257,16 @@ def test_cli_uses_ner_by_default(tmp_path: Path) -> None:
     assert main([str(FIXTURE), "--out", str(tmp_path), "--types", "person"]) == 0
 
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
-    # Детекция больше не режется по --types: report.json видит все 5 меток
-    # фикстуры (person + inn/snils/passport/email), но маркер в плане
-    # получает только запрошенный person.
+    # Детекция больше не режется по --types: report.json видит все метки
+    # фикстуры (person + inn/snils/passport/email, +date после T1.15),
+    # но маркер в плане получает только запрошенный person.
     entities_by_type = {item["type"]: item for item in report["entities"]}
-    assert set(entities_by_type) == {"person", "inn", "snils", "passport", "email"}
+    assert set(entities_by_type) == {"person", "inn", "snils", "passport", "email", "date"}
     assert entities_by_type["person"]["text"] == "Кузнецов Пётр Алексеевич"
     assert entities_by_type["person"]["marker"] == "[ФИО]"
-    for other in ("inn", "snils", "passport", "email"):
+    for other in ("inn", "snils", "passport", "email", "date"):
         assert entities_by_type[other]["marker"] == ""
-    assert report["plan"]["skipped"]["by_reason"] == {"type_not_requested": 4}
+    assert report["plan"]["skipped"]["by_reason"] == {"type_not_requested": 6}
 
 
 def test_cli_records_profile_and_judge_with_fake_llm(tmp_path: Path) -> None:
@@ -374,9 +378,10 @@ def test_detection_coverage_follows_detector_set(tmp_path: Path, rules_only: boo
     assert main(args) == 0
 
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
+    # После T1.15 `date`/`birth_date` перешли в активные детекторы.
+    # Фаза 1-2: contract_amount/delivery_period/payment_terms покрыты — остались bank_name и money.
     assert report["detection_coverage"]["requested_without_detector"] == [
         "bank_name",
-        "date",
         "money",
     ]
 

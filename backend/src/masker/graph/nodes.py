@@ -14,9 +14,20 @@ from pathlib import Path
 
 from langgraph.types import interrupt
 
-from masker.detect import AddressDetector, DetectAgent, RuleDetector, default_detectors
+from masker.detect import (
+    AddressDetector,
+    DateDetector,
+    DetectAgent,
+    RuleDetector,
+    default_detectors,
+)
 from masker.detect.base import EntityDetector
 from masker.detect.config_detector import ConfigDetector
+from masker.detect.contract_params import (
+    ContractAmountDetector,
+    DeliveryPeriodDetector,
+    PaymentTermsDetector,
+)
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.entity_types import EntityTypeRegistry
 from masker.graph.questions import build_ask_payload, parse_answers
@@ -136,38 +147,60 @@ def extract_node(state: State) -> dict[str, object]:
     }
 
 
-def detect_node(state: State) -> dict[str, object]:
-    """Трёхслойная детекция без фильтра по ``options.types`` — фильтр применяет план.
+def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
+    """Собрать ``detect_node``, замыкающий ``LLMProvider`` из ``deps``.
 
-    ``options.types`` сужает только ``detection_coverage`` (что реально
-    покрыто активными детекторами из запрошенного) и позже — ``PlanAgent``
-    (T1.6, шаг 6). Сама детекция ничего не выбрасывает: незапрошенный тип
-    обязан остаться среди найденных сущностей, иначе ``ValidateAgent``
-    (T1.8) не смог бы искать в готовом артефакте утечки типов, которые
-    человек не просил маскировать, но которые всё равно не должны читаться.
+    LLM нужен только `regex_llm_filter` executor'у (шаг 13 T1.13), поэтому
+    в ``rules_only`` пути и в детекции без пользовательских спеков он не
+    используется. Тем же приёмом, что и ``make_profile_node``, замыкание
+    держит зависимость вне ``State`` (только JSON) — раздел 6 плана T1.5.1.
     """
-    document = _document(state)
-    options = state.get("options", {})
-    registry, specs = _registry_and_specs(state)
-    rules_only = bool(options.get("rules_only", False))
-    if rules_only:
-        detectors: list[EntityDetector] = [RuleDetector(), AddressDetector()]
-        if specs:
-            detectors.append(ConfigDetector(specs))
-    else:
-        detectors = default_detectors(specs)
-    detector = DetectAgent(detectors, registry)
-    raw_types = options.get("types")
-    selected_types = resolve_requested_types(
-        tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
-    )
-    entities = detector.detect(document).entities
-    return {
-        "entities": [entity_to_dict(entity) for entity in entities],
-        # Тот же ``detector``, которым только что детектировали — второй
-        # DetectAgent() поднял бы Natasha ещё раз ради двух списков строк.
-        "detection_coverage": detection_coverage(selected_types, detector),
-    }
+
+    def detect_node(state: State) -> dict[str, object]:
+        """Трёхслойная детекция без фильтра по ``options.types`` — фильтр применяет план.
+
+        ``options.types`` сужает только ``detection_coverage`` (что реально
+        покрыто активными детекторами из запрошенного) и позже — ``PlanAgent``
+        (T1.6, шаг 6). Сама детекция ничего не выбрасывает: незапрошенный
+        тип обязан остаться среди найденных сущностей, иначе ``ValidateAgent``
+        (T1.8) не смог бы искать в готовом артефакте утечки типов, которые
+        человек не просил маскировать, но которые всё равно не должны
+        читаться.
+        """
+        document = _document(state)
+        options = state.get("options", {})
+        registry, specs = _registry_and_specs(state)
+        rules_only = bool(options.get("rules_only", False))
+        if rules_only:
+            # DateDetector — тоже правило (regex + `datetime.date`-валидация),
+            # его место в rules-only, чтобы `date`/`birth_date` не оказывались
+            # в `requested_without_detector` только из-за --rules-only.
+            detectors: list[EntityDetector] = [
+                RuleDetector(),
+                AddressDetector(),
+                DateDetector(),
+                ContractAmountDetector(),
+                DeliveryPeriodDetector(),
+                PaymentTermsDetector(),
+            ]
+            if specs:
+                detectors.append(ConfigDetector(specs))
+        else:
+            detectors = default_detectors(specs, llm=deps.llm)
+        detector = DetectAgent(detectors, registry)
+        raw_types = options.get("types")
+        selected_types = resolve_requested_types(
+            tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
+        )
+        entities = detector.detect(document).entities
+        return {
+            "entities": [entity_to_dict(entity) for entity in entities],
+            # Тот же ``detector``, которым только что детектировали — второй
+            # DetectAgent() поднял бы Natasha ещё раз ради двух списков строк.
+            "detection_coverage": detection_coverage(selected_types, detector),
+        }
+
+    return detect_node
 
 
 def make_profile_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
@@ -407,6 +440,21 @@ def plan_node(state: State) -> dict[str, object]:
     return {"plan": plan_to_dict(plan)}
 
 
+def summary_node(state: State) -> dict[str, object]:
+    """Собрать карточку договора из entities + profiles — детерминированно, без LLM."""
+    from masker.summary import build_summary
+
+    entities = [entity_from_dict(item) for item in state.get("entities", [])]
+    profiles = profiles_from_dicts(state.get("profiles", []))
+    llm_calls = int(state.get("llm_calls", 0))
+    # generated_at фиксируется пустой строкой: отчёт должен быть детерминированным
+    # (AGENTS.md: «два прогона на одном файле дают побайтово одинаковый отчёт»).
+    # Временная метка сборки хранится в артефактах файловой системы, не в отчёте.
+    # Пустая строка (не None) → детерминированный вывод без datetime.now().
+    summary = build_summary(entities, profiles, llm_calls=llm_calls, generated_at="")
+    return {"contract_summary": summary.model_dump()}
+
+
 #: Порядок ролей артефактов — фиксированный, не по обходу множества стилей
 #: (раздел 6 плана T1.10, пункт 2): детерминизм отчёта не должен зависеть от
 #: порядка, в котором вызывающий перечислил ``options.styles``.
@@ -641,4 +689,7 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
     # шаг 5: сохранность вёрстки PDF читается тем же взглядом, что и
     # leaked/render_degradations, а не через вложенный validation.layout.
     report["layout"] = report["validation"].get("layout", [])
+    contract_summary = state.get("contract_summary")
+    if contract_summary:
+        report["contract_summary"] = contract_summary
     return {"report": report}

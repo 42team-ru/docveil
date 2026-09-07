@@ -16,8 +16,10 @@ from masker.detect.orgforms import (
     is_organization_form_only,
     is_partial_org_form,
     is_public_body,
+    is_regulatory_code,
     is_role_phrase,
     is_role_stopword,
+    is_role_token,
     shrink_span,
 )
 from masker.detect.persons import (
@@ -159,7 +161,10 @@ class NatashaDetector:
                         and (
                             is_organization_form_only(value)
                             or is_partial_org_form(value)
-                            or is_public_body(value)
+                            # орг. форма (ООО, МАОУ…) — достаточное свидетельство того,
+                            # что это организация, а не госорган: не фильтруем.
+                            or (not org_evidence and is_public_body(value))
+                            or is_regulatory_code(value)
                             or is_role_phrase(value)
                             or (not has_organization_evidence(value) and len(value.split()) == 1)
                         )
@@ -202,12 +207,48 @@ class NatashaDetector:
             for stem in person_stem(entity.text).split()
             if stem
         )
+        # Нормализованные тексты всех многотокенных имён — для подавления
+        # частичных имён, возникших из-за двойного пробела в PDF-тексте
+        # (Д13: «Зубрицкой  Татьяны Ивановны» → два спана «Зубрицкой» и
+        # «Татьяны Ивановны» вместо одного).
+        full_person_texts = frozenset(
+            " ".join(e.text.split())
+            for e in found
+            if e.type is EntityType.PERSON and len(e.text.split()) > 1
+        )
+
+        def _is_partial_person(entity: Entity) -> bool:
+            if entity.type is not EntityType.PERSON:
+                return False
+            normalized = " ".join(entity.text.split())
+            return any(
+                full != normalized
+                and (full.startswith(normalized + " ") or full.endswith(" " + normalized))
+                for full in full_person_texts
+            )
+
+        def _is_nonperson_multitoken(entity: Entity) -> bool:
+            """Многотокенный спан, у которого последний токен — ролевое слово
+            или первый токен оканчивается на суффикс нарицательного существительного."""
+            if entity.type is not EntityType.PERSON or len(entity.text.split()) <= 1:
+                return False
+            tokens = entity.text.split()
+            if is_role_token(tokens[-1]):
+                return True
+            # Суффиксы нарицательных существительных-неодушевлённых: -ник, -тор, -чик, -щик, -лка
+            first = tokens[0].casefold()
+            return first.endswith(("ник", "тор", "чик", "щик", "лка"))
+
         texts = {segment.order: segment.text for segment in document.segments}
         return [
             entity
             for entity in found
             if entity.type is not EntityType.PERSON
-            or single_token_person_is_confirmed(
-                entity.text, texts[entity.segment_order], entity.start, confirmed_stems
+            or (
+                not _is_partial_person(entity)
+                and not _is_nonperson_multitoken(entity)
+                and single_token_person_is_confirmed(
+                    entity.text, texts[entity.segment_order], entity.start, confirmed_stems
+                )
             )
         ]

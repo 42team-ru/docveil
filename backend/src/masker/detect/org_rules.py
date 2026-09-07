@@ -54,6 +54,7 @@ import re
 from masker.detect.normalize import normalize_value
 from masker.detect.orgforms import (
     _expand_right_into_quoted_name,
+    has_organization_evidence,
     is_organization_form_only,
     is_public_body,
     is_role_token,
@@ -197,7 +198,11 @@ class OrgFormDetector:
                 value = text[start:new_end]
                 if is_organization_form_only(value):
                     continue
-                if is_public_body(value):
+                # Детектор сам предоставляет org_evidence (нашёл оргформу) — фильтровать
+                # только те значения, где в тексте нет явного признака организации помимо
+                # найденной формы; иначе «УЧРЕЖДЕНИЕ» в полном названии МАОУ ошибочно
+                # срабатывает на стем public_bodies и отфильтровывает легитимный орг-спан.
+                if is_public_body(value) and not has_organization_evidence(value):
                     continue
                 found.append(
                     Entity(

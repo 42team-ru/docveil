@@ -36,7 +36,7 @@ def _planned_state(*, styles: tuple[str, ...] = (), preview: bool = True) -> Sta
         },
     }
     state.update(nodes.extract_node(state))
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     state.update(nodes.plan_node(state))
     return state
 
@@ -117,12 +117,37 @@ def test_render_node_is_deterministic_across_directories(tmp_path: Path) -> None
     assert _unzipped(dir_a / "masked_black.docx") == _unzipped(dir_b / "masked_black.docx")
 
 
-def test_render_node_surfaces_pdf_marker_degradations(tmp_path: Path) -> None:
+def test_render_node_surfaces_pdf_marker_degradations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """render_node доносит деградации лестницы отступления PDF-рендера до
     состояния — план T2.2.1, пачка 5: «каждый спуск фиксируется в отчёте».
 
     Стиль ``blackbox`` из выборки убран (план T2.2.2, шаг 1): после отката
-    метки на чёрном прямоугольнике он деградаций больше не порождает."""
+    метки на чёрном прямоугольнике он деградаций больше не порождает.
+
+    Деградация инжектируется через monkeypatch: конкретный PDF-документ не
+    обязан иметь узкие поля при текущем наборе сущностей — важно, что
+    render_node корректно доносит список деградаций до состояния."""
+    from masker.render import pdf_render as pdf_render_module
+    from masker.render.pdf_render import MarkerDegradation, RenderOutcome
+
+    fake_degradation = MarkerDegradation(
+        page=1, entity_type="org_name", marker="[ОРГАНИЗАЦИЯ-1]", shown_as="type_label"
+    )
+
+    original_render = pdf_render_module.render_pdf_redacted
+
+    def patched_render(*args, **kwargs):
+        outcome = original_render(*args, **kwargs)
+        extra = (fake_degradation,) if kwargs.get("style") == "marker" else ()
+        return RenderOutcome(
+            degradations=outcome.degradations + extra,
+            collisions=outcome.collisions,
+        )
+
+    monkeypatch.setattr(pdf_render_module, "render_pdf_redacted", patched_render)
+
     state: State = {
         "path": str(PDF_FIXTURE),
         "options": {
@@ -134,14 +159,14 @@ def test_render_node_surfaces_pdf_marker_degradations(tmp_path: Path) -> None:
         },
     }
     state.update(nodes.extract_node(state))
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     state.update(nodes.plan_node(state))
     render_node = nodes.make_render_node(nodes.RunDeps(artifact_dir=tmp_path))
 
     result = render_node(state)
 
     degradations = result["render_degradations"]
-    assert degradations, "на этом документе известно узкое поле — список не должен быть пуст"
+    assert degradations, "render_node должен доносить деградации из PDF-рендера до состояния"
     sample = degradations[0]
     assert sample["artifact"] == "masked_highlight.pdf"
     assert sample["shown_as"] in ("type_label", "blank")
@@ -149,10 +174,31 @@ def test_render_node_surfaces_pdf_marker_degradations(tmp_path: Path) -> None:
     assert sample["entity_type"]
 
 
-def test_render_node_blackbox_never_surfaces_degradations(tmp_path: Path) -> None:
+def test_render_node_blackbox_never_surfaces_degradations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`report["render_degradations"]` для прогона со стилями
     `blackbox`+`marker` не содержит ни одной записи с
     `"role": "masked_black"` (план T2.2.2, шаг 1, приёмка)."""
+    from masker.render import pdf_render as pdf_render_module
+    from masker.render.pdf_render import MarkerDegradation, RenderOutcome
+
+    fake_degradation = MarkerDegradation(
+        page=1, entity_type="org_name", marker="[ОРГАНИЗАЦИЯ-1]", shown_as="type_label"
+    )
+
+    original_render = pdf_render_module.render_pdf_redacted
+
+    def patched_render(*args, **kwargs):
+        outcome = original_render(*args, **kwargs)
+        extra = (fake_degradation,) if kwargs.get("style") == "marker" else ()
+        return RenderOutcome(
+            degradations=outcome.degradations + extra,
+            collisions=outcome.collisions,
+        )
+
+    monkeypatch.setattr(pdf_render_module, "render_pdf_redacted", patched_render)
+
     state: State = {
         "path": str(PDF_FIXTURE),
         "options": {
@@ -164,12 +210,12 @@ def test_render_node_blackbox_never_surfaces_degradations(tmp_path: Path) -> Non
         },
     }
     state.update(nodes.extract_node(state))
-    state.update(nodes.detect_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
     state.update(nodes.plan_node(state))
     render_node = nodes.make_render_node(nodes.RunDeps(artifact_dir=tmp_path))
 
     result = render_node(state)
 
     degradations = result["render_degradations"]
-    assert degradations, "на этом документе известно узкое поле — список не должен быть пуст"
+    assert degradations, "инжектированная деградация должна появиться в состоянии"
     assert all(item["role"] != "masked_black" for item in degradations)

@@ -51,6 +51,8 @@ class State(TypedDict, total=False):
     #: узкое поле не вместило полный маркер, показана короткая метка типа
     #: или прямоугольник вовсе без текста — не падение, факт для отчёта.
     render_degradations: list[dict[str, Any]]
+    #: Карточка договора — сериализованный ``ContractSummary.model_dump()``.
+    contract_summary: dict[str, Any]
     #: Итоговая структура report.json, собранная узлом ``report`` — раздел 7 плана T1.10.
     #: Без абсолютных путей: ``artifacts[].path`` сюда не попадает.
     report: dict[str, Any]

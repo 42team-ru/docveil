@@ -78,7 +78,22 @@ def test_available_executors_excludes_gliner_without_extra(
     executors = compiler_module.available_executors()
     assert "gliner_label" not in executors
     assert "gliner_structure" not in executors
-    assert {"literals", "regex", "regex_context"} <= executors
+    assert {"literals", "regex", "regex_context", "regex_llm_filter"} <= executors
+
+
+def test_available_executors_always_includes_regex_llm_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`regex_llm_filter` (шаг 13 T1.13) — базовый executor: `LLMProvider`
+    в проекте есть всегда (fake или реальный), физически недостающих
+    зависимостей у него нет — паспорт возвращает его даже без extra
+    `[gliner]`."""
+    import masker.customtypes.compiler as compiler_module
+
+    monkeypatch.setattr(compiler_module, "_gliner_installed", lambda: False)
+    assert "regex_llm_filter" in compiler_module.available_executors()
+    monkeypatch.setattr(compiler_module, "_gliner_installed", lambda: True)
+    assert "regex_llm_filter" in compiler_module.available_executors()
 
 
 def test_available_executors_includes_gliner_when_extra_installed(

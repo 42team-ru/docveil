@@ -107,17 +107,85 @@ def test_default_detectors_include_rules_then_natasha() -> None:
 
     # `org_form` (план T2.2.2, шаг 6, Д11) — между `address` и `natasha`:
     # приоритет 60 ниже правил/адреса, выше локальной NER-модели.
+    # `dates` (план T1.15) — рядом, приоритет 95, до `org_form`.
+    # `contract_amount` / `delivery_period` / `payment_terms` (Фаза 1-2) — приоритет 85.
     assert [detector.name for detector in agent.detectors] == [
         "rules",
         "address",
+        "dates",
+        "contract_amount",
+        "delivery_period",
+        "payment_terms",
         "org_form",
         "natasha",
     ]
 
 
+def test_default_detectors_add_llm_filter_when_specs_have_it() -> None:
+    """Если среди пользовательских спеков есть `regex_llm_filter`, в набор
+    добавляется `LlmFilterDetector` — иначе спека физически не отработает."""
+    from masker.detect import default_detectors
+    from masker.llm import FakeProvider
+    from masker.typeconfig import load_type_config
+
+    specs = load_type_config(
+        {
+            "version": 1,
+            "types": [
+                {
+                    "id": "internal_code",
+                    "title": "Внутренний код",
+                    "marker": "[КОД-{n}]",
+                    "critical": False,
+                    "detect": {"kind": "regex_llm_filter", "pattern": r"\d{4}"},
+                }
+            ],
+        }
+    )
+    detectors = default_detectors(specs, llm=FakeProvider([]))
+
+    assert any(detector.name == "llm_filter" for detector in detectors)
+
+
+def test_default_detectors_reject_llm_filter_specs_without_llm() -> None:
+    """Тихий пропуск `regex_llm_filter`-спеки без LLM — та же утечка, что и
+    молча непоискаемый GLiNER-тип (T1.13.1, решение Р2). Требуем явную
+    ошибку с именами затронутых типов."""
+    from masker.detect import default_detectors
+    from masker.typeconfig import load_type_config
+
+    specs = load_type_config(
+        {
+            "version": 1,
+            "types": [
+                {
+                    "id": "internal_code",
+                    "title": "Внутренний код",
+                    "marker": "[КОД-{n}]",
+                    "critical": False,
+                    "detect": {"kind": "regex_llm_filter", "pattern": r"\d{4}"},
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError, match="internal_code"):
+        default_detectors(specs, llm=None)
+
+
 def test_explicit_rules_do_not_load_natasha() -> None:
+    import os
     import subprocess
     import sys
+    from pathlib import Path
+
+    # Эталонный путь к backend/src — editable install указывает на корневой
+    # src (где нет .py-файлов), поэтому subprocess явно получает правильный
+    # PYTHONPATH, иначе `masker.detect` разрешается как пустой namespace-пакет.
+    backend_src = str(Path(__file__).resolve().parents[3] / "src")
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{backend_src}:{existing}" if existing else backend_src
 
     result = subprocess.run(
         [
@@ -127,6 +195,7 @@ def test_explicit_rules_do_not_load_natasha() -> None:
             "from masker.detect.rules import RuleDetector; "
             "DetectAgent([RuleDetector()]); assert 'natasha' not in sys.modules",
         ],
+        env=env,
         check=False,
         capture_output=True,
         text=True,

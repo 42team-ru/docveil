@@ -45,10 +45,10 @@ Product name: **TriemaMasker**. No logo, color palette, typeface, or other visua
 
 ## Evidence on Hand
 
-- Full feature scaffold in `src/pages/masker/` (upload, process, review, report, history, model, settings).
-- Entity models: `document`, `mask`, `rule-profile`, `agent` — all with typed fixtures and Zustand stores where state is needed.
-- Feature modules: `document-upload`, `document-processing`, `mask-review`, `masking-report`, `document-history`, `model-settings`, `app-settings`.
-- Backend at `https://42team.ru/api`; OpenAPI client generated via Orval (tags-split, react-query).
+- Screens in `src/pages/masker/`: upload, review, report, history. No `process`, `model` or `settings` screen exists.
+- Entity models: `document`, `pii`, `rule-profile`, `agent`.
+- Feature modules: `document-upload`, `document-viewer`, `pii-review`, `document-processing`, `masking-report`, `document-history`.
+- Backend at `https://42team.ru/api`, but **no masking endpoints exist yet** — only auth, users, file upload and custom-type compilation. Screens read verbatim `masker.cli` artifacts as fixtures; the Orval client is configured but not generated or used.
 - No real assets (screenshots, testimonials, customer data) are available; fabrication is prohibited.
 
 ## Product Principles

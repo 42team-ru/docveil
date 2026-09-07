@@ -129,10 +129,16 @@ export function useDocumentRender({
       if (handleMouseUp) host.removeEventListener("mouseup", handleMouseUp);
       host.innerHTML = "";
     };
-    // extraction для одного и того же fileUrl в этой итерации не меняется —
-    // перерендер только по смене файла, а не по любому чтению стора.
+    // Перестраиваем документ при смене файла и при смене разбора: раньше в
+    // зависимостях был только `fileUrl`, и новая выдача по тому же файлу
+    // оставляла на экране старую подсветку.
+    //
+    // Колбэки (`render`, `buildIndex`, `captureSelection`) в зависимости
+    // намеренно не входят: вьюеры создают их заново на каждый рендер, и от их
+    // добавления эффект зациклился бы. Мемоизировать их на стороне вьюеров —
+    // отдельная правка, не эта.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileUrl]);
+  }, [fileUrl, extraction]);
 
   return { hostRef, status };
 }

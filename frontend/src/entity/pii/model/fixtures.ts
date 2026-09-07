@@ -1,161 +1,53 @@
-import { parsePiiExtraction } from "./schema";
+import questionsPayload from "./questions.fixture.json";
+import reportPayload from "./report.fixture.json";
+import { parseAskEnvelope, parseMaskingReport } from "./schema";
 
 /**
- * Фикстура собрана из реального `public/test.docx` (гос. контракт на услуги ПО,
- * ЯНАО): 150 абзацев, 22 промаскированных сущности, 29 вхождений — цифры сняты
- * прогоном docx-preview по файлу (см. anchor-index.test.ts). Абзацы (`locator`)
- * и маркеры — настоящие, взятые из документа. Оригинальный текст ПДн (`text`,
- * `normalized`) в файле физически отсутствует — он вычищен маскированием,
- * поэтому здесь это правдоподобные придуманные значения для витрины панели, в
- * духе уже существующих фикстур `entity/mask/model/fixtures.ts`.
+ * Настоящая выдача движка, а не выдумка: `report.fixture.json` и
+ * `questions.fixture.json` — это дословные копии артефактов прогона по
+ * `backend/fixtures/labeled/contract_08_roles.docx`.
+ *
+ * ```
+ * cd backend
+ * .venv/Scripts/python -m masker.cli fixtures/labeled/contract_08_roles.docx \
+ *   --out out/fe-fixtures --profile --redact-style marker --html
+ * .venv/Scripts/python -m masker.cli fixtures/labeled/contract_08_roles.docx \
+ *   --out out/fe-ask --profile --redact-style marker --ask
+ * ```
+ *
+ * Файлы лежат рядом целиком и не переписываются руками: как только форма
+ * `report.json` поедет, `parseMaskingReport` упадёт на настоящих данных, а не
+ * на подогнанной под парсер копии. Раньше здесь был обрезанный до
+ * `chunk_count` + `chunks` литерал, и всё остальное экраны досочиняли своими
+ * фикстурами — цифры в панели и в отчёте расходились.
+ *
+ * Почему именно этот документ: он единственный из размеченных даёт сразу и
+ * `locator: ["body", N]`, и `locator: ["table", t, r, c, p]` (chunk-004), и
+ * роли сторон открытым словарём — «Заказчик»/«Исполнитель», а не зашитые
+ * «поставщик»/«покупатель». Маркер несёт роль: `[ЗАКАЗЧИК-ОРГАНИЗАЦИЯ]`.
+ *
+ * Документ рядом — `public/contract-roles.docx`, это `masked_highlight.docx`
+ * того же прогона: маркеры уже вписаны в файл, исходных ПДн в нём нет.
  */
-const rawPayload = {
-  chunk_count: 22,
-  chunks: [
-    chunk(0, "[ОРГАНИЗАЦИЯ-1].........................._-2026", [
-      pii("E1", "G1", "[ОРГАНИЗАЦИЯ-1]", "org_name", "ООО «Цифровые решения Ямала»", 0.94, "ner"),
-    ]),
-    chunk(7, "[ОРГАНИЗАЦИЯ-2]............................................................ Ямало-Ненецкого автономного округа", [
-      pii("E2", "G2", "[ОРГАНИЗАЦИЯ-2]", "org_name", "Департамент информационных технологий и связи", 0.88, "ner"),
-    ]),
-    chunk(13, "1.3. ИКЗ: 26 [СЧЁТ-1]........................ 0017 000 0000 244.", [
-      pii("E3", "G3", "[СЧЁТ-1]", "bank_account", "28901017212890101001", 0.75, "rule"),
-    ]),
-    chunk(21, "[АДРЕС-1], Ямало-Ненецкий автономный округ, [АДРЕС-2]", [
-      pii("E4", "G4", "[АДРЕС-1]", "address", "629008", 0.9, "rule"),
-      pii("E5", "G5", "[АДРЕС-2]", "address", "г. Салехард, ул. Матросова, влд. 29", 0.9, "rule"),
-    ]),
-    chunk(22, "Место сдачи отчётной документации: [АДРЕС-1], Ямало-Ненецкий автономный округ, [АДРЕС-2]", [
-      pii("E6", "G4", "[АДРЕС-1]", "address", "629008", 0.9, "rule"),
-      pii("E7", "G5", "[АДРЕС-2]", "address", "г. Салехард, ул. Матросова, влд. 29", 0.9, "rule"),
-    ]),
-    chunk(29, "Контракт финансируется за счет средств окружного бюджета в рамках мероприятия «[ОРГАНИЗАЦИЯ-3]»", [
-      pii("E8", "G6", "[ОРГАНИЗАЦИЯ-3]", "org_name", "Аппарат Губернатора ЯНАО", 0.82, "ner"),
-    ]),
-    chunk(47, "Требовать своевременной оплаты на условиях, установленных [ФИО-1]", [
-      pii("E9", "G7", "[ФИО-1]", "person_name", "Ковалёв Артём Сергеевич", 0.97, "ner"),
-    ]),
-    chunk(59, "[ФИО-2] оказанной услуги осуществляется Заказчиком в соответствии с условиями Контракта.", [
-      pii("E10", "G8", "[ФИО-2]", "person_name", "Ответственный: Смирнова Е.В.", 0.42, "ner"),
-    ]),
-    chunk(60, "[ФИО-3] оказанной услуги оформляется в соответствии с требованиями законодательства", [
-      pii("E11", "G9", "[ФИО-3]", "person_name", "Петров Игорь Николаевич", 0.91, "ner"),
-    ]),
-    chunk(61, "автоматизированной информационной системы «Портал поставщиков», расположенного по адресу: [САЙТ]", [
-      pii("E12", "G10", "[САЙТ]", "website", "zakupki.gov.ru/epz/order/notice", 0.88, "rule"),
-    ]),
-    chunk(64, "другие документы (материалы), предусмотренные [ФИО-1]", [
-      pii("E13", "G7", "[ФИО-1]", "person_name", "Ковалёв Артём Сергеевич", 0.97, "ner"),
-    ]),
-    chunk(90, "7.2.4. За несвоевременное исполнение Исполнителем обязательств, начисляется пеня в пользу [ОРГАНИЗАЦИЯ-4]", [
-      pii("E14", "G11", "[ОРГАНИЗАЦИЯ-4]", "org_name", "Правительство ЯНАО", 0.86, "ner"),
-    ]),
-    chunk(94, "7.3.2. В случае просрочки исполнения Заказчиком обязательств, Заказчик уплачивает пеню в пользу [ОРГАНИЗАЦИЯ-4]", [
-      pii("E15", "G11", "[ОРГАНИЗАЦИЯ-4]", "org_name", "Правительство ЯНАО", 0.86, "ner"),
-    ]),
-    chunk(105, "Данное уведомление должно быть подтверждено компетентным органом территории [ОРГАНИЗАЦИЯ-5]", [
-      pii("E16", "G12", "[ОРГАНИЗАЦИЯ-5]", "org_name", "Торгово-промышленная палата ЯНАО", 0.79, "ner"),
-    ]),
-    chunk(
-      117,
-      "Заказчик и [ФИО-4] не вправе предъявлять друг другу требования, связанные с нарушением Контракта и договоров, заключенных между Исполнителем и [ФИО-4] (ст. 706 ГК РФ).",
-      [
-        pii("E17", "G13", "[ФИО-4]", "person_name", "Волков Денис Александрович", 0.93, "ner"),
-        pii("E18", "G13", "[ФИО-4]", "person_name", "Волков Денис Александрович", 0.93, "ner"),
-      ],
-    ),
-    chunk(119, "В случаях, неурегулированных [ФИО-1], Стороны руководствуются законодательством Российской Федерации.", [
-      pii("E19", "G7", "[ФИО-1]", "person_name", "Ковалёв Артём Сергеевич", 0.97, "ner"),
-    ]),
-    chunk(133, "Почтовый адрес: [АДРЕС-1], ЯНАО, [АДРЕС-3]", [
-      pii("E20", "G4", "[АДРЕС-1]", "address", "629008", 0.9, "rule"),
-      pii("E21", "G14", "[АДРЕС-3]", "address", "г. Салехард, ул. Республики, д. 72", 0.87, "rule"),
-    ]),
-    chunk(135, "e-mail: [ПОЧТА]", [
-      pii("E22", "G15", "[ПОЧТА]", "email", "office@dit-yanao.ru", 0.95, "rule"),
-    ]),
-    chunk(136, "ИНН [ИНН]", [
-      pii("E23", "G16", "[ИНН]", "inn", "8901003107", 0.98, "rule"),
-    ]),
-    chunk(137, "КПП [КПП-1]", [
-      pii("E24", "G17", "[КПП-1]", "kpp", "890101001", 0.98, "rule"),
-    ]),
-    chunk(138, "Р/с [СЧЁТ-2]", [
-      pii("E25", "G18", "[СЧЁТ-2]", "bank_account", "40102810145370000010", 0.96, "rule"),
-    ]),
-    chunk(139, "К/с [СЧЁТ-3]", [
-      pii("E26", "G19", "[СЧЁТ-3]", "bank_account", "30101810465770000661", 0.96, "rule"),
-    ]),
-    chunk(140, "Банк: [ОРГАНИЗАЦИЯ-6]", [
-      pii("E27", "G20", "[ОРГАНИЗАЦИЯ-6]", "org_name", "Отделение Тюмень Банка России", 0.9, "ner"),
-    ]),
-    chunk(141, "ОКТМО [КПП-2]", [
-      pii("E28", "G21", "[КПП-2]", "kpp", "719401000", 0.85, "rule"),
-    ]),
-    chunk(142, "БИК [КПП-3]", [
-      pii("E29", "G22", "[КПП-3]", "kpp", "047102001", 0.85, "rule"),
-    ]),
-  ],
-};
+export const maskingReportFixture = parseMaskingReport(reportPayload);
 
-type RawPii = ReturnType<typeof pii>;
+/** Чанки того же отчёта — то, с чем работают вьюер и панель проверки. */
+export const piiExtractionFixture = maskingReportFixture.extraction;
 
-function pii(
-  ref: string,
-  groupId: string,
-  marker: string,
-  type: string,
-  original: string,
-  confidence: number,
-  source: "ner" | "rule",
-) {
-  return {
-    ref,
-    group_id: groupId,
-    marker,
-    type,
-    text: original,
-    normalized: original.toLowerCase(),
-    confidence,
-    source,
-    segment_order: 0,
-    chunk_start: 0,
-    chunk_end: original.length,
-    anchor: { format: "docx", label: "", locator: [] as (string | number)[] },
-  };
-}
-
-function chunk(paragraphIndex: number, text: string, occurrences: RawPii[]) {
-  const anchor = {
-    format: "docx",
-    label: `абзац ${paragraphIndex + 1}`,
-    locator: ["body", paragraphIndex],
-  };
-  return {
-    id: `chunk-${String(paragraphIndex).padStart(3, "0")}`,
-    text,
-    anchor,
-    segment_order: paragraphIndex,
-    // chunk_start/chunk_end различаются по индексу вхождения в чанке — иначе
-    // два occurrence с одинаковой длиной original (напр. оба [ФИО-4] в p117)
-    // получили бы одинаковый synthesized id в occurrenceId() и схлопнулись бы
-    // в один. В реальном контракте это настоящие несовпадающие офсеты в
-    // тексте чанка; здесь — фикстура, поэтому разносим вручную.
-    pii: occurrences.map((occurrence, index) => ({
-      ...occurrence,
-      segment_order: paragraphIndex,
-      chunk_start: index * 1000,
-      chunk_end: index * 1000 + occurrence.chunk_end,
-      anchor,
-    })),
-  };
-}
-
-export const piiExtractionFixture = parsePiiExtraction(rawPayload);
+/**
+ * Конверт паузы графа. В `report.json` вопросов нет вовсе: прогон, который
+ * дошёл до отчёта, на человеке уже не стоит. Поэтому вопросы — отдельный
+ * артефакт того же документа, снятый прогоном с `--ask`.
+ *
+ * Обратите внимание на `TYPE-inn` и `TYPE-bank_account`: у них единственный
+ * вариант ответа — «маскировать». Так выглядит двойное подтверждение со
+ * стороны движка, когда прогон запущен без `--unmask-critical`.
+ */
+export const askEnvelopeFixture = parseAskEnvelope(questionsPayload);
 
 /** Файл, открытый на проверку — путь в /public для fetch на клиенте. */
 export const reviewedDocumentFixture = {
-  name: "Контракт_ПО_2026-114",
-  format: "docx" as const,
-  fileUrl: "/test.docx",
+  name: maskingReportFixture.input,
+  format: maskingReportFixture.format,
+  fileUrl: "/contract-roles.docx",
 };

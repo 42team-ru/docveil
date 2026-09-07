@@ -25,15 +25,21 @@ yarn local       # orval против dev-бэкенда + dev-сервер
 yarn prod        # orval против prod-бэкенда + dev-сервер в mode=production
 yarn orval       # только регенерация клиента
 yarn build       # production-сборка
-yarn typecheck   # react-router typegen && tsc  ← единственная проверка в проекте
+yarn typecheck   # react-router typegen && tsc
+yarn test        # vitest run
 yarn astryx <cmd>  # CLI дизайн-системы (см. AGENTS.md)
 ```
 
-Линтера, форматтера и тестов нет. **После правок всегда прогоняй `yarn typecheck`** — это
-единственный автоматический контроль. Не добавляй ESLint/Prettier/Vitest без запроса.
+Линтера и форматтера нет. **После правок всегда прогоняй `yarn typecheck` и `yarn test`** — это
+весь автоматический контроль. Не добавляй ESLint/Prettier без запроса.
 
-`yarn typecheck` и `yarn build` требуют сгенерированный клиент — если `src/shared/api/generated`
-пуст, сначала `yarn orval` (нужен живой бэкенд, см. `.env`).
+Тесты (vitest + jsdom) покрывают две рискованные части: привязку маркеров к DOM
+(`features/document-viewer/lib`) и разбор контракта движка (`entity/pii/model`). Остальное
+проверяется только типами.
+
+`yarn build` требует сгенерированный клиент, когда код его импортирует. Сейчас
+`src/shared/api/generated` не импортируется ниоткуда, поэтому `yarn typecheck` и `yarn test`
+проходят без `yarn orval` и без живого бэкенда.
 
 ## Правила работы с кодом
 
@@ -64,21 +70,32 @@ VITE_BACKEND_PROD_URL=https://42team.ru
 
 ## Известные расхождения
 
-Проект в ранней стадии; это не «баги под фикс», а контекст. Не чини молча — сначала спроси.
+Это не «баги под фикс», а контекст. Не чини молча — сначала спроси.
 
-1. **`@tanstack/react-query` и `cross-env` не в `package.json`**, хотя Orval настроен на
-   `client: "react-query"`, а скрипты `local`/`prod` вызывают `cross-env`. Обе команды упадут
-   до установки зависимостей. `QueryClientProvider` в `src/app/root.tsx` тоже ещё не подключён.
-2. **`ssr: true` vs Docker.** `react-router.config.ts` включает SSR, а `Dockerfile` копирует в
-   nginx только `build/client` — статики без сервера. Нужно выбрать одно: либо `ssr: false`
-   (SPA + текущий nginx), либо node-образ с `yarn start`.
+1. **Фронт не делает ни одного запроса к бэкенду.** Не потому, что не дошли руки: на бэкенде
+   нет HTTP-эндпоинтов маскирования вовсе — наружу выведены только `auth`, `users`,
+   `files/upload` (кладёт файл в MinIO и всё) и `custom_types/compile`. Движок доступен через
+   CLI и Python-API `masker.run`.
+
+   Поэтому экраны живут на фикстурах, но фикстуры — настоящие: `entity/pii/model/
+   report.fixture.json` и `questions.fixture.json` это дословные артефакты прогона
+   `masker.cli` по `backend/fixtures/labeled/contract_08_roles.docx`. Единая точка входа за
+   данными — `features/pii-review/api/use-review-data.ts`; подключение к API должно свестись
+   к замене её содержимого.
+
+2. **`QueryClientProvider` в `src/app/root.tsx` не подключён**, хотя `@tanstack/react-query`
+   в зависимостях. Подключать вместе с первым настоящим запросом.
+
 3. **Orval input.** `orval.config.ts` берёт схему с `${baseUrl}/openapi.json`, а `orval.md`
-   описывает `/v3/api-docs`. Перед генерацией проверь, что реально отдаёт бэкенд.
-4. **Алиас `~/*` в `tsconfig.json` указывает на `./app/*`** — каталога больше нет
-   (код переехал в `src/app`). Сейчас используются относительные импорты.
-5. `src/shared/ui/header/public-header.tsx` — копипаст-заглушка (экспортирует `Page`),
-   реального хедера нет. `src/features`, `src/entity`, `src/pages/auth`,
-   `src/app/routes/auth` — пустые каркасы.
+   описывает `/v3/api-docs`. FastAPI отдаёт первое; `orval.md` — наследие Java-бэкенда.
+
+4. **XLSX.** Во фронте есть xlsx-вьюер, xlsx-фикстуры и xlsx в дропзоне, а движок этот формат
+   не обрабатывает вообще (`extract_node` принимает только `.docx` и `.pdf`). Оставлено
+   намеренно — решение владельца продукта.
+
+5. **Экраны без данных.** `features/document-processing` (прогресс агентов, трейс вызовов) и
+   `/history` показывают фикстуры: под ними нет ни эндпоинта, ни таблицы в БД. Кнопки
+   экспорта (CSV/XLSX/PDF, скачивание документов) обработчиков не имеют — тоже намеренно.
 
 <!-- ASTRYX:START -->
 Astryx v0.5.2 · 163 components

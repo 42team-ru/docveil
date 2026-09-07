@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FileBarChart2, Download, CheckCircle2 } from "lucide-react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -31,7 +31,7 @@ import { ScreenLayout } from "../../shared/ui/screen-layout/screen-layout";
 
 /** Экран ручной проверки замен: лист документа слева, решения — справа. */
 export function ReviewPage() {
-  const { extraction, document: reviewedDocument } = useReviewData();
+  const { extraction, document: reviewedDocument, report, ask } = useReviewData();
 
   const [notFoundIds, setNotFoundIds] = useState<Set<string>>(new Set());
   const [pendingSelection, setPendingSelection] = useState<SelectionCapture | null>(null);
@@ -41,6 +41,7 @@ export function ReviewPage() {
   const viewMode = useReviewStore((state) => state.viewMode);
   const setViewMode = useReviewStore((state) => state.setViewMode);
   const addManual = useReviewStore((state) => state.addManual);
+  const setDocumentGroups = useReviewStore((state) => state.setDocumentGroups);
 
   const confirmedCount = useConfirmedGroupCount();
   const totalCount = useTotalGroupCount();
@@ -62,6 +63,28 @@ export function ReviewPage() {
     () => new Map(occurrences.map((o) => [o.id, o.groupId])),
     [occurrences],
   );
+
+  // Счётчики проверки живут в сторе и должны считать по открытому документу,
+  // а не по фикстуре: без этого «N/M подтверждено» врало на всём, кроме
+  // docx-фикстуры.
+  const documentGroups = useMemo(() => {
+    const minConfidence = new Map<string, number>();
+    for (const occurrence of occurrences) {
+      const known = minConfidence.get(occurrence.groupId);
+      minConfidence.set(
+        occurrence.groupId,
+        known === undefined ? occurrence.confidence : Math.min(known, occurrence.confidence),
+      );
+    }
+    return [...minConfidence].map(([id, confidence]) => ({
+      id,
+      minConfidence: confidence,
+    }));
+  }, [occurrences]);
+
+  useEffect(() => {
+    setDocumentGroups(documentGroups);
+  }, [documentGroups, setDocumentGroups]);
 
   useReviewHotkeys(orderedOccurrenceIds, groupIdByOccurrenceId);
 
@@ -111,7 +134,13 @@ export function ReviewPage() {
       contentPadding={0}
       isContentScrollable={false}
       panel={
-        <ReviewPanel extraction={extraction} totalCount={totalCount} notFoundIds={notFoundIds} />
+        <ReviewPanel
+          extraction={extraction}
+          report={report}
+          ask={ask}
+          totalCount={totalCount}
+          notFoundIds={notFoundIds}
+        />
       }
     >
       <Layout

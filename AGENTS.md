@@ -16,7 +16,7 @@
 
 Весь Python живёт в `backend/` (`src/`, `tests/`, `migrations/`, `spikes/`,
 `fixtures/`, `pyproject.toml`, `uv.lock`, `alembic.ini`, `Dockerfile`).
-Веб-интерфейс — в `frontend/` (пока только каркас). В корне остались общие
+Веб-интерфейс — в `frontend/` (React Router + Astryx, см. `frontend/README.md`). В корне остались общие
 документы, `docker-compose.yml`, обёртки агентов (`scripts/codex.sh`,
 `scripts/dsh.sh`) и тонкий `Makefile`.
 

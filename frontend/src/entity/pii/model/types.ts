@@ -1,30 +1,77 @@
 /** Формат документа, из которого извлечены ПДн. */
 export type PiiDocFormat = "docx" | "pdf" | "xlsx";
 
-/** Категория персональных данных, которую распознаёт бэкенд. */
+/**
+ * Категория данных, которую распознаёт движок.
+ *
+ * Идентификаторы обязаны совпадать с `EntityType` бэкенда
+ * (`backend/src/masker/model.py`) буква в букву: по ним же движок собирает
+ * маркер, который вписан в документ, поэтому расхождение видно не в типах, а
+ * в файле у оператора.
+ *
+ * `money` и `bank_name` объявлены в реестре бэкенда, но детектора у них пока
+ * нет — тип известен, замен по нему не будет.
+ */
 export type PiiType =
   | "org_name"
-  | "person_name"
-  | "address"
-  | "bank_account"
+  | "person"
   | "inn"
   | "kpp"
-  | "email"
-  | "website"
+  | "ogrn"
+  | "snils"
+  | "bank_account"
+  | "bik"
+  | "bank_name"
+  | "address"
   | "phone"
+  | "email"
+  | "passport"
+  | "contract_number"
   | "money"
   | "date"
-  | "contract_no";
+  | "birth_date"
+  | "site"
+  | "federal_law"
+  | "contract_amount"
+  | "delivery_period"
+  | "payment_terms";
 
-/** Источник обнаружения: модель именованных сущностей или правило. */
-export type PiiSource = "ner" | "rule";
+/**
+ * Слой детекции, выдавший сущность (`Source` в `model.py`).
+ *
+ * `llm` — арбитр, `user` — пользовательский детектор из custom types. Схлопывать
+ * их в `rule` нельзя: оператор перестаёт отличать правило с контрольной суммой
+ * от решения модели.
+ */
+export type PiiSource = "rule" | "ner" | "llm" | "user";
+
+/** Решение движка по сущности (`Action` в `model.py`). */
+export type EntityAction = "mask" | "keep" | "ask";
+
+/**
+ * Кто принял решение (`DecisionSource` в `model.py`), от самого частного к
+ * самому общему. `critical_guard` стоит над всем остальным.
+ */
+export type DecisionSource =
+  | "critical_guard"
+  | "entity"
+  | "profile"
+  | "type"
+  | "judge"
+  | "default";
 
 /** Адресация фрагмента в объектную модель документа. */
 export type PiiAnchor = {
   format: PiiDocFormat;
   /** Человекочитаемая метка для отладки и отчётов, напр. «абзац 19». */
   label: string;
-  /** Путь до узла документа. Для docx: ["body", N] — N-й абзац в порядке документа. */
+  /**
+   * Путь до узла документа. Формы задаёт ingest бэкенда:
+   * docx — `["body", N]` либо `["table", tbl, row, cell, para]`,
+   * pdf — `["page", N, charStart, charEnd]`,
+   * xlsx — `["sheet", имя, row, col]`.
+   * Разбирают его резолверы привязки, не эта модель.
+   */
   locator: (string | number)[];
 };
 
@@ -69,7 +116,8 @@ export type PiiExtraction = {
 /** Решение оператора по одному вхождению или по целой группе. */
 export type PiiDecisionKind = "pending" | "confirmed" | "rejected";
 
-export type PiiDecision = {
+/** Решение оператора — в отличие от `EntityAction`, это правка человека, не движка. */
+export type OperatorDecision = {
   kind: PiiDecisionKind;
   /** Переопределение типа — применяется только когда решение адресное, не групповое. */
   typeOverride?: PiiType;
@@ -82,4 +130,250 @@ export type ManualPiiOccurrence = {
   /** Текст, который оператор выделил в документе. */
   text: string;
   anchor: PiiAnchor;
+};
+
+/* ------------------------------------------------------------------ *
+ * Полный отчёт движка (`report.json`, `report_version: 3`).
+ *
+ * Формы ниже сняты с настоящей выдачи `masker.cli`, поле в поле; источник —
+ * `backend/src/masker/report/payload.py` и `backend/src/masker/graph/serde.py`.
+ * До этого фронт разбирал только `chunk_count` + `chunks`, а всё остальное
+ * подделывал фикстурами по экранам — отсюда и расхождение цифр между панелью
+ * проверки и отчётом.
+ * ------------------------------------------------------------------ */
+
+/** Сводка по документу — `report.summary`. */
+export type ReportSummary = {
+  entitiesTotal: number;
+  /** Сколько найдено по каждому типу; ключ — `PiiType`. */
+  byType: Record<string, number>;
+  /** Сколько найдено каждым слоем детекции; ключ — `PiiSource`. */
+  bySource: Record<string, number>;
+  /** Самая низкая уверенность по документу; `null`, когда сущностей нет. */
+  minimumConfidence: number | null;
+};
+
+/**
+ * Группа замен — `report.plan.groups[]`. Это настоящий источник группы и
+ * маркера: одна сущность во всём документе получает один `marker`, собранный
+ * от профиля и роли (`[ЗАКАЗЧИК-ИНН]`), а не от одного лишь типа.
+ */
+export type MaskGroupRecord = {
+  id: string;
+  marker: string;
+  type: PiiType;
+  /** Русская подпись типа от движка: «Организация», «Банковский счёт». */
+  typeTitle: string;
+  /** Профиль-владелец группы; пустая строка — сущность вне профилей. */
+  profileId: string;
+  refCount: number;
+  /** Одно значение из группы, чтобы показать оператору, о чём речь. */
+  sample: string;
+};
+
+/** Пропущенные ссылки — `report.plan.skipped`. */
+export type MaskPlanSkipped = {
+  count: number;
+  /** Причина → сколько: `type_not_requested`, `kept`, `no_anchor`. */
+  byReason: Record<string, number>;
+};
+
+/** План замен — `report.plan`. */
+export type MaskPlanRecord = {
+  requestedTypes: PiiType[];
+  groups: MaskGroupRecord[];
+  skipped: MaskPlanSkipped;
+};
+
+/** Член профиля — `report.profile_judge.profiles[].members[]`. */
+export type PartyProfileMember = {
+  ref: string;
+  type: PiiType;
+  text: string;
+  normalized: string;
+  confidence: number;
+  source: PiiSource;
+  anchor: PiiAnchor;
+};
+
+/**
+ * Профиль стороны — `report.profile_judge.profiles[]`. Роли открытые: в
+ * `roleTitle` попадает формулировка из документа («Заказчик», «Исполнитель»),
+ * а не значение закрытого перечисления.
+ */
+export type PartyProfile = {
+  id: string;
+  /** Роль как в документе; пустая строка — роль не распознана. */
+  roleTitle: string;
+  roleId: string;
+  /** Роль в маркере: `ЗАКАЗЧИК`, либо `СТОРОНА-N` для нераспознанной. */
+  markerLabel: string;
+  confidence: number;
+  roleConfidence: number;
+  source: PiiSource;
+  /** Чем подтверждена роль — «метка: заказчик». */
+  evidence: string[];
+  members: PartyProfileMember[];
+};
+
+/** Сторона в карточке договора — `report.contract_summary.customer` / `.supplier`. */
+export type ContractParty = {
+  name: string | null;
+  roleTitle: string | null;
+  inn: string | null;
+  ogrn: string | null;
+};
+
+/**
+ * Карточка договора — `report.contract_summary`. Движок собирает её
+ * детерминированно из уже найденных сущностей и профилей, без вызова LLM.
+ */
+export type ContractSummary = {
+  customer: ContractParty | null;
+  supplier: ContractParty | null;
+  federalLaw: string[];
+  contractAmount: string | null;
+  deliveryPeriods: string[];
+  paymentTerms: string | null;
+  contractNumber: string | null;
+  llmCalls: number;
+};
+
+/** Решение движка по одной ссылке — `report.decisions.by_ref[]`. */
+export type RefDecision = {
+  ref: string;
+  action: EntityAction;
+  decidedBy: DecisionSource;
+  questionId: string;
+  reason: string;
+};
+
+/** Снятие маски с критичного типа — `report.decisions.critical_unmasked[]`. */
+export type CriticalUnmasked = {
+  questionId: string;
+  kind: string;
+  target: string;
+  count: number;
+};
+
+/**
+ * Решения движка — `report.decisions`. `mode` показывает, спрашивали ли
+ * человека: `non_interactive` значит, что все ответы взяты по умолчанию.
+ */
+export type ReportDecisions = {
+  mode: "interactive" | "non_interactive" | "unknown";
+  threadId: string;
+  byRef: RefDecision[];
+  /** Пусто — ни одна маска с критичного типа не снята. */
+  criticalUnmasked: CriticalUnmasked[];
+  diagnostics: string[];
+};
+
+/** Итог проверки на утечки — `report.validation`. */
+export type ValidationSummary = {
+  status: string;
+  ok: boolean;
+  leakedCount: number;
+  residualCount: number;
+  checkedArtifacts: string[];
+};
+
+/** Какие запрошенные типы движок искать не умеет — `report.detection_coverage`. */
+export type DetectionCoverage = {
+  requestedTypes: PiiType[];
+  activeDetectorTypes: PiiType[];
+  /** Запрошено, но детектора нет: сейчас это `bank_name` и `money`. */
+  requestedWithoutDetector: PiiType[];
+};
+
+/** Весь `report.json` в форме, которой пользуется интерфейс. */
+export type MaskingReport = {
+  reportVersion: number;
+  /** Имя исходного файла — `contract_08_roles.docx`. */
+  input: string;
+  format: PiiDocFormat;
+  selectedTypes: PiiType[];
+  entityCount: number;
+  extraction: PiiExtraction;
+  summary: ReportSummary;
+  plan: MaskPlanRecord | null;
+  profiles: PartyProfile[];
+  contractSummary: ContractSummary | null;
+  decisions: ReportDecisions | null;
+  validation: ValidationSummary | null;
+  detectionCoverage: DetectionCoverage;
+  /** Чего движок заведомо не покрывает — показывается оператору дословно. */
+  limitations: string[];
+  /**
+   * `report.document_coverage` проходит без разбора: его форма зависит от
+   * формата (у PDF нет ключа `tables`), а интерфейсу пока нужен только факт
+   * наличия. Придумать здесь общую структуру — значит соврать про один из
+   * форматов.
+   */
+  documentCoverage: Record<string, unknown>;
+};
+
+/* ------------------------------------------------------------------ *
+ * Вопросы оператору — конверт паузы графа (`questions.json`).
+ * Источник: `backend/src/masker/graph/questions.py`. Это отдельный артефакт,
+ * не часть `report.json`: он появляется, когда прогон встал на `ask_human`.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Варианты ответа. Движок принимает ровно эти строки
+ * (`backend/src/masker/model.py:177-181`); любая другая молча заменяется на
+ * `default`, то есть на «маскировать».
+ */
+export const MASK_OPTION = "маскировать";
+export const KEEP_OPTION = "оставить";
+/** Снятие маски с критичного типа — отдельный вариант, а не обычное «оставить». */
+export const KEEP_CRITICAL_OPTION = "оставить (осознанное решение)";
+
+export type AnswerOption =
+  | typeof MASK_OPTION
+  | typeof KEEP_OPTION
+  | typeof KEEP_CRITICAL_OPTION;
+
+/**
+ * Вопрос оператору. `kind` задаёт уровень решения: `type` — весь класс
+ * («маскировать все телефоны?»), `profile` — реквизиты одной стороны,
+ * `entity` — конкретная сущность, в которой сомневается судья.
+ */
+export type PolicyQuestion = {
+  id: string;
+  kind: "type" | "profile" | "entity";
+  /** Адресат вопроса: идентификатор типа (`inn`) или профиля (`P1`). */
+  target: string;
+  title: string;
+  prompt: string;
+  /**
+   * Что разрешено ответить. У критичного типа без флага прогона
+   * `--unmask-critical` здесь остаётся единственный вариант «маскировать» —
+   * это и есть двойное подтверждение со стороны движка.
+   */
+  options: AnswerOption[];
+  default: AnswerOption;
+  critical: boolean;
+  /** Сколько сущностей затрагивает ответ. */
+  found: number;
+  samples: string[];
+  /** Метки мест в документе — строки вида «абзац 5», а не объекты-якоря. */
+  anchors: string[];
+};
+
+/** Конверт паузы целиком. */
+export type AskEnvelope = {
+  schemaVersion: number;
+  threadId: string;
+  document: { name: string; format: PiiDocFormat };
+  questions: PolicyQuestion[];
+};
+
+/**
+ * Конверт ответа — то, что движок ждёт обратно при `--resume`. Ключи в
+ * snake_case намеренно: он уходит наружу как есть, а не живёт внутри UI.
+ */
+export type AnswerEnvelope = {
+  schema_version: number;
+  answers: Record<string, AnswerOption>;
 };

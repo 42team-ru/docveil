@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { dataTypes, defaultEnabledTypes } from "./fixtures";
+import { defaultEnabledTypes } from "./fixtures";
 import type { MaskStyle } from "./types";
 
 type RuleProfileState = {
@@ -13,7 +13,8 @@ type RuleProfileState = {
   stableMarkers: boolean;
   setSelectionMode: (mode: "preset" | "manual") => void;
   toggleType: (id: string) => void;
-  selectAllTypes: () => void;
+  /** Список типов приходит извне: сущность правил не знает про словарь ПДн. */
+  selectAllTypes: (ids: string[]) => void;
   setPreset: (id: string) => void;
   setMaskStyle: (style: MaskStyle) => void;
   setHighlightChanges: (value: boolean) => void;
@@ -37,7 +38,7 @@ export const useRuleProfileStore = create<RuleProfileState>((set) => ({
         ? state.enabledTypes.filter((typeId) => typeId !== id)
         : [...state.enabledTypes, id],
     })),
-  selectAllTypes: () => set({ enabledTypes: dataTypes.map((type) => type.id) }),
+  selectAllTypes: (ids) => set({ enabledTypes: ids }),
   setPreset: (id) => set({ preset: id }),
   setMaskStyle: (maskStyle) => set({ maskStyle }),
   setHighlightChanges: (highlightChanges) => set({ highlightChanges }),

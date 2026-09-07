@@ -38,7 +38,7 @@ type PiiGroupItemProps = {
  * Collapsible оборачивает trigger в свой `<button>` — вложенный `<button>`
  * внутри него невалиден и ломает клики. Та же развязка «строка кликабельна,
  * действия внутри стопают propagation», что уже есть в
- * entity/mask/ui/mask-list-item.tsx.
+ * прежней строке списка масок.
  */
 export function PiiGroupItem({
   groupId,

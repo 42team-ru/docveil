@@ -16,6 +16,8 @@ import type { PiiAnchor, PiiExtraction, PiiSource, PiiType } from "./types";
  */
 export type FlatPiiOccurrence = {
   id: string;
+  /** Ссылка движка на сущность (`E1`) — по ней ищется решение в отчёте. */
+  ref: string;
   chunkId: string;
   groupId: string;
   marker: string;
@@ -50,6 +52,7 @@ export function flattenPiiOccurrences(
     for (const pii of chunk.pii) {
       result.push({
         id: occurrenceId(chunk.id, pii.segmentOrder, pii.chunkStart, pii.chunkEnd),
+        ref: pii.ref,
         chunkId: chunk.id,
         groupId: pii.groupId,
         marker: pii.marker,

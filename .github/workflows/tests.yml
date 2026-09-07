@@ -29,3 +29,29 @@ jobs:
 
       - name: Run tests
         run: uv run --locked pytest -q
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Ни одна из проверок не требует живого бэкенда: сгенерированный
+      # Orval-клиент никем не импортируется, а фикстуры лежат в репозитории.
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Run tests
+        run: yarn test

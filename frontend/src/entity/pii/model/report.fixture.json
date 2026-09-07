@@ -1,0 +1,1234 @@
+{
+  "chunk_count": 6,
+  "chunks": [
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 2",
+        "locator": [
+          "body",
+          1
+        ]
+      },
+      "annotated_text": "⟦ORG_NAME:ООО «Северный свет»⟧, ИНН ⟦INN:3662103003⟧, именуемое в дальнейшем «Заказчик», с одной стороны, и",
+      "end": 90,
+      "id": "chunk-001",
+      "pii": [
+        {
+          "anchor": {
+            "format": "docx",
+            "label": "абзац 2",
+            "locator": [
+              "body",
+              1
+            ]
+          },
+          "chunk_end": 19,
+          "chunk_start": 0,
+          "confidence": 0.95,
+          "end": 19,
+          "group_id": "G1",
+          "marker": "[ЗАКАЗЧИК-ОРГАНИЗАЦИЯ]",
+          "normalized": "северный свет",
+          "ref": "E1",
+          "segment_order": 1,
+          "source": "rule",
+          "start": 0,
+          "text": "ООО «Северный свет»",
+          "type": "org_name"
+        },
+        {
+          "anchor": {
+            "format": "docx",
+            "label": "абзац 2",
+            "locator": [
+              "body",
+              1
+            ]
+          },
+          "chunk_end": 35,
+          "chunk_start": 25,
+          "confidence": 1.0,
+          "end": 35,
+          "group_id": "G2",
+          "marker": "[ЗАКАЗЧИК-ИНН]",
+          "normalized": "3662103003",
+          "ref": "E2",
+          "segment_order": 1,
+          "source": "rule",
+          "start": 25,
+          "text": "3662103003",
+          "type": "inn"
+        }
+      ],
+      "pii_count": 2,
+      "segment_order": 1,
+      "start": 0,
+      "text": "ООО «Северный свет», ИНН 3662103003, именуемое в дальнейшем «Заказчик», с одной стороны, и"
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 3",
+        "locator": [
+          "body",
+          2
+        ]
+      },
+      "annotated_text": "⟦ORG_NAME:ООО «Точный расчёт»⟧, ИНН ⟦INN:7707083893⟧, именуемое в дальнейшем «Исполнитель», с другой стороны, заключили договор.",
+      "end": 111,
+      "id": "chunk-002",
+      "pii": [
+        {
+          "anchor": {
+            "format": "docx",
+            "label": "абзац 3",
+            "locator": [
+              "body",
+              2
+            ]
+          },
+          "chunk_end": 19,
+          "chunk_start": 0,
+          "confidence": 0.95,
+          "end": 19,
+          "group_id": "G3",
+          "marker": "[ИСПОЛНИТЕЛЬ-ОРГАНИЗАЦИЯ]",
+          "normalized": "точный расчет",
+          "ref": "E3",
+          "segment_order": 2,
+          "source": "rule",
+          "start": 0,
+          "text": "ООО «Точный расчёт»",
+          "type": "org_name"
+        },
+        {
+          "anchor": {
+            "format": "docx",
+            "label": "абзац 3",
+            "locator": [
+              "body",
+              2
+            ]
+          },
+          "chunk_end": 35,
+          "chunk_start": 25,
+          "confidence": 1.0,
+          "end": 35,
+          "group_id": "G4",
+          "marker": "[ИСПОЛНИТЕЛЬ-ИНН]",
+          "normalized": "7707083893",
+          "ref": "E4",
+          "segment_order": 2,
+          "source": "rule",
+          "start": 25,
+          "text": "7707083893",
+          "type": "inn"
+        }
+      ],
+      "pii_count": 2,
+      "segment_order": 2,
+      "start": 0,
+      "text": "ООО «Точный расчёт», ИНН 7707083893, именуемое в дальнейшем «Исполнитель», с другой стороны, заключили договор."
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 5",
+        "locator": [
+          "body",
+          4
+        ]
+      },
+      "annotated_text": "Расчётный счёт: ⟦BANK_ACCOUNT:40702810100000000002⟧",
+      "end": 36,
+      "id": "chunk-003",
+      "pii": [
+        {
+          "anchor": {
+            "format": "docx",
+            "label": "абзац 5",
+            "locator": [
+              "body",
+              4
+            ]
+          },
+          "chunk_end": 36,
+          "chunk_start": 16,
+          "confidence": 0.75,
+          "end": 36,
+          "group_id": "G5",
+          "marker": "[ЗАКАЗЧИК-СЧЁТ]",
+          "normalized": "40702810100000000002",
+          "ref": "E5",
+          "segment_order": 4,
+          "source": "rule",
+          "start": 16,
+          "text": "40702810100000000002",
+          "type": "bank_account"
+        }
+      ],
+      "pii_count": 1,
+      "segment_order": 4,
+      "start": 0,
+      "text": "Расчётный счёт: 40702810100000000002"
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "таблица 1, строка 1, ячейка 1, абзац 1",
+        "locator": [
+          "table",
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "annotated_text": "Телефон: ⟦PHONE:8-910-347-51-07⟧",
+      "end": 24,
+      "id": "chunk-004",
+      "pii": [
+        {
+          "anchor": {
+            "format": "docx",
+            "label": "таблица 1, строка 1, ячейка 1, абзац 1",
+            "locator": [
+              "table",
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "chunk_end": 24,
+          "chunk_start": 9,
+          "confidence": 0.9,
+          "end": 24,
+          "group_id": "G6",
+          "marker": "[ИСПОЛНИТЕЛЬ-ТЕЛЕФОН]",
+          "normalized": "89103475107",
+          "ref": "E6",
+          "segment_order": 6,
+          "source": "rule",
+          "start": 9,
+          "text": "8-910-347-51-07",
+          "type": "phone"
+        }
+      ],
+      "pii_count": 1,
+      "segment_order": 6,
+      "start": 0,
+      "text": "Телефон: 8-910-347-51-07"
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 8",
+        "locator": [
+          "body",
+          7
+        ]
+      },
+      "annotated_text": "Заказчик: ______________ ⟦PERSON:Иванов И.И⟧.",
+      "end": 36,
+      "id": "chunk-005",
+      "pii": [
+        {
+          "anchor": {
+            "format": "docx",
+            "label": "абзац 8",
+            "locator": [
+              "body",
+              7
+            ]
+          },
+          "chunk_end": 35,
+          "chunk_start": 25,
+          "confidence": 0.85,
+          "end": 35,
+          "group_id": "G7",
+          "marker": "[ЗАКАЗЧИК-ФИО]",
+          "normalized": "иванов и.и.",
+          "ref": "E7",
+          "segment_order": 8,
+          "source": "ner",
+          "start": 25,
+          "text": "Иванов И.И",
+          "type": "person"
+        }
+      ],
+      "pii_count": 1,
+      "segment_order": 8,
+      "start": 0,
+      "text": "Заказчик: ______________ Иванов И.И."
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 9",
+        "locator": [
+          "body",
+          8
+        ]
+      },
+      "annotated_text": "Исполнитель: ______________ ⟦PERSON:Сидоров А.П⟧.",
+      "end": 40,
+      "id": "chunk-006",
+      "pii": [
+        {
+          "anchor": {
+            "format": "docx",
+            "label": "абзац 9",
+            "locator": [
+              "body",
+              8
+            ]
+          },
+          "chunk_end": 39,
+          "chunk_start": 28,
+          "confidence": 0.85,
+          "end": 39,
+          "group_id": "G8",
+          "marker": "[ИСПОЛНИТЕЛЬ-ФИО]",
+          "normalized": "сидоров а.п.",
+          "ref": "E8",
+          "segment_order": 9,
+          "source": "ner",
+          "start": 28,
+          "text": "Сидоров А.П",
+          "type": "person"
+        }
+      ],
+      "pii_count": 1,
+      "segment_order": 9,
+      "start": 0,
+      "text": "Исполнитель: ______________ Сидоров А.П."
+    }
+  ],
+  "contract_summary": {
+    "contract_amount": null,
+    "contract_number": null,
+    "customer": {
+      "inn": "3662103003",
+      "name": "ООО «Северный свет»",
+      "ogrn": null,
+      "role_title": "Заказчик"
+    },
+    "delivery_periods": [],
+    "federal_law": [],
+    "generated_at": "",
+    "llm_calls": 0,
+    "payment_terms": null,
+    "supplier": {
+      "inn": "7707083893",
+      "name": "ООО «Точный расчёт»",
+      "ogrn": null,
+      "role_title": "Исполнитель"
+    }
+  },
+  "decisions": {
+    "by_ref": [
+      {
+        "action": "mask",
+        "decided_by": "judge",
+        "overridden": [
+          {
+            "action": "mask",
+            "decided_by": "default",
+            "question_id": "",
+            "reason": "маскировать по умолчанию"
+          }
+        ],
+        "question_id": "",
+        "reason": "уверенность достаточна",
+        "ref": "E1"
+      },
+      {
+        "action": "mask",
+        "decided_by": "critical_guard",
+        "overridden": [
+          {
+            "action": "mask",
+            "decided_by": "judge",
+            "question_id": "",
+            "reason": "критичный тип маскируется без вопроса"
+          },
+          {
+            "action": "mask",
+            "decided_by": "default",
+            "question_id": "",
+            "reason": "маскировать по умолчанию"
+          }
+        ],
+        "question_id": "",
+        "reason": "критичный тип: снятие требует явного подтверждения",
+        "ref": "E2"
+      },
+      {
+        "action": "mask",
+        "decided_by": "judge",
+        "overridden": [
+          {
+            "action": "mask",
+            "decided_by": "default",
+            "question_id": "",
+            "reason": "маскировать по умолчанию"
+          }
+        ],
+        "question_id": "",
+        "reason": "уверенность достаточна",
+        "ref": "E3"
+      },
+      {
+        "action": "mask",
+        "decided_by": "critical_guard",
+        "overridden": [
+          {
+            "action": "mask",
+            "decided_by": "judge",
+            "question_id": "",
+            "reason": "критичный тип маскируется без вопроса"
+          },
+          {
+            "action": "mask",
+            "decided_by": "default",
+            "question_id": "",
+            "reason": "маскировать по умолчанию"
+          }
+        ],
+        "question_id": "",
+        "reason": "критичный тип: снятие требует явного подтверждения",
+        "ref": "E4"
+      },
+      {
+        "action": "mask",
+        "decided_by": "critical_guard",
+        "overridden": [
+          {
+            "action": "mask",
+            "decided_by": "judge",
+            "question_id": "",
+            "reason": "критичный тип маскируется без вопроса"
+          },
+          {
+            "action": "mask",
+            "decided_by": "default",
+            "question_id": "",
+            "reason": "маскировать по умолчанию"
+          }
+        ],
+        "question_id": "",
+        "reason": "критичный тип: снятие требует явного подтверждения",
+        "ref": "E5"
+      },
+      {
+        "action": "mask",
+        "decided_by": "judge",
+        "overridden": [
+          {
+            "action": "mask",
+            "decided_by": "default",
+            "question_id": "",
+            "reason": "маскировать по умолчанию"
+          }
+        ],
+        "question_id": "",
+        "reason": "уверенность достаточна",
+        "ref": "E6"
+      },
+      {
+        "action": "mask",
+        "decided_by": "judge",
+        "overridden": [
+          {
+            "action": "mask",
+            "decided_by": "default",
+            "question_id": "",
+            "reason": "маскировать по умолчанию"
+          }
+        ],
+        "question_id": "",
+        "reason": "уверенность достаточна",
+        "ref": "E7"
+      },
+      {
+        "action": "mask",
+        "decided_by": "judge",
+        "overridden": [
+          {
+            "action": "mask",
+            "decided_by": "default",
+            "question_id": "",
+            "reason": "маскировать по умолчанию"
+          }
+        ],
+        "question_id": "",
+        "reason": "уверенность достаточна",
+        "ref": "E8"
+      }
+    ],
+    "critical_unmasked": [],
+    "diagnostics": [
+      "E2: критичный тип «inn» — снятие маски требует двойного подтверждения (--unmask-critical и осознанный ответ)",
+      "E4: критичный тип «inn» — снятие маски требует двойного подтверждения (--unmask-critical и осознанный ответ)",
+      "E5: критичный тип «bank_account» — снятие маски требует двойного подтверждения (--unmask-critical и осознанный ответ)"
+    ],
+    "entity_questions": [],
+    "ignored_answers": [],
+    "invalid_answers": [],
+    "mode": "non_interactive",
+    "profiles": [],
+    "thread_id": "a32c684475479812",
+    "types": [],
+    "unanswered_defaults": []
+  },
+  "detection_coverage": {
+    "active_detector_types": [
+      "address",
+      "bank_account",
+      "bik",
+      "birth_date",
+      "contract_amount",
+      "contract_number",
+      "date",
+      "delivery_period",
+      "email",
+      "federal_law",
+      "inn",
+      "kpp",
+      "ogrn",
+      "org_name",
+      "passport",
+      "payment_terms",
+      "person",
+      "phone",
+      "site",
+      "snils"
+    ],
+    "requested_types": [
+      "address",
+      "bank_account",
+      "bank_name",
+      "bik",
+      "birth_date",
+      "contract_amount",
+      "contract_number",
+      "date",
+      "delivery_period",
+      "email",
+      "federal_law",
+      "inn",
+      "kpp",
+      "money",
+      "ogrn",
+      "org_name",
+      "passport",
+      "payment_terms",
+      "person",
+      "phone",
+      "site",
+      "snils"
+    ],
+    "requested_without_detector": [
+      "bank_name",
+      "money"
+    ]
+  },
+  "document_coverage": {
+    "body": {
+      "nonempty_paragraphs": 9,
+      "processed": true,
+      "skipped_blocks": 0
+    },
+    "footers": {
+      "parts": 0,
+      "parts_with_text": 0,
+      "processed": false
+    },
+    "footnotes": {
+      "has_text": false,
+      "part_present": false,
+      "processed": false
+    },
+    "headers": {
+      "parts": 0,
+      "parts_with_text": 0,
+      "processed": false
+    },
+    "metadata": {
+      "present_fields": [
+        "author",
+        "comments"
+      ],
+      "processed": false
+    },
+    "safe_to_export": false,
+    "tables": {
+      "count": 1,
+      "nested_count": 0,
+      "nonempty_paragraphs": 1,
+      "processed": true
+    }
+  },
+  "entities": [
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 2",
+        "locator": [
+          "body",
+          1
+        ]
+      },
+      "confidence": 0.95,
+      "decided_by": "judge",
+      "decision": "mask",
+      "end": 19,
+      "group_id": "G1",
+      "marker": "[ЗАКАЗЧИК-ОРГАНИЗАЦИЯ]",
+      "normalized": "северный свет",
+      "reason": "уверенность достаточна",
+      "ref": "E1",
+      "segment_order": 1,
+      "source": "rule",
+      "start": 0,
+      "text": "ООО «Северный свет»",
+      "type": "org_name"
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 2",
+        "locator": [
+          "body",
+          1
+        ]
+      },
+      "confidence": 1.0,
+      "decided_by": "critical_guard",
+      "decision": "mask",
+      "end": 35,
+      "group_id": "G2",
+      "marker": "[ЗАКАЗЧИК-ИНН]",
+      "normalized": "3662103003",
+      "reason": "критичный тип: снятие требует явного подтверждения",
+      "ref": "E2",
+      "segment_order": 1,
+      "source": "rule",
+      "start": 25,
+      "text": "3662103003",
+      "type": "inn"
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 3",
+        "locator": [
+          "body",
+          2
+        ]
+      },
+      "confidence": 0.95,
+      "decided_by": "judge",
+      "decision": "mask",
+      "end": 19,
+      "group_id": "G3",
+      "marker": "[ИСПОЛНИТЕЛЬ-ОРГАНИЗАЦИЯ]",
+      "normalized": "точный расчет",
+      "reason": "уверенность достаточна",
+      "ref": "E3",
+      "segment_order": 2,
+      "source": "rule",
+      "start": 0,
+      "text": "ООО «Точный расчёт»",
+      "type": "org_name"
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 3",
+        "locator": [
+          "body",
+          2
+        ]
+      },
+      "confidence": 1.0,
+      "decided_by": "critical_guard",
+      "decision": "mask",
+      "end": 35,
+      "group_id": "G4",
+      "marker": "[ИСПОЛНИТЕЛЬ-ИНН]",
+      "normalized": "7707083893",
+      "reason": "критичный тип: снятие требует явного подтверждения",
+      "ref": "E4",
+      "segment_order": 2,
+      "source": "rule",
+      "start": 25,
+      "text": "7707083893",
+      "type": "inn"
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 5",
+        "locator": [
+          "body",
+          4
+        ]
+      },
+      "confidence": 0.75,
+      "decided_by": "critical_guard",
+      "decision": "mask",
+      "end": 36,
+      "group_id": "G5",
+      "marker": "[ЗАКАЗЧИК-СЧЁТ]",
+      "normalized": "40702810100000000002",
+      "reason": "критичный тип: снятие требует явного подтверждения",
+      "ref": "E5",
+      "segment_order": 4,
+      "source": "rule",
+      "start": 16,
+      "text": "40702810100000000002",
+      "type": "bank_account"
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "таблица 1, строка 1, ячейка 1, абзац 1",
+        "locator": [
+          "table",
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "confidence": 0.9,
+      "decided_by": "judge",
+      "decision": "mask",
+      "end": 24,
+      "group_id": "G6",
+      "marker": "[ИСПОЛНИТЕЛЬ-ТЕЛЕФОН]",
+      "normalized": "89103475107",
+      "reason": "уверенность достаточна",
+      "ref": "E6",
+      "segment_order": 6,
+      "source": "rule",
+      "start": 9,
+      "text": "8-910-347-51-07",
+      "type": "phone"
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 8",
+        "locator": [
+          "body",
+          7
+        ]
+      },
+      "confidence": 0.85,
+      "decided_by": "judge",
+      "decision": "mask",
+      "end": 35,
+      "group_id": "G7",
+      "marker": "[ЗАКАЗЧИК-ФИО]",
+      "normalized": "иванов и.и.",
+      "reason": "уверенность достаточна",
+      "ref": "E7",
+      "segment_order": 8,
+      "source": "ner",
+      "start": 25,
+      "text": "Иванов И.И",
+      "type": "person"
+    },
+    {
+      "anchor": {
+        "format": "docx",
+        "label": "абзац 9",
+        "locator": [
+          "body",
+          8
+        ]
+      },
+      "confidence": 0.85,
+      "decided_by": "judge",
+      "decision": "mask",
+      "end": 39,
+      "group_id": "G8",
+      "marker": "[ИСПОЛНИТЕЛЬ-ФИО]",
+      "normalized": "сидоров а.п.",
+      "reason": "уверенность достаточна",
+      "ref": "E8",
+      "segment_order": 9,
+      "source": "ner",
+      "start": 28,
+      "text": "Сидоров А.П",
+      "type": "person"
+    }
+  ],
+  "entity_count": 8,
+  "format": "docx",
+  "input": "contract_08_roles.docx",
+  "layout": [],
+  "leaked": [],
+  "limitations": [
+    "Проверяются непустые абзацы основного текста и верхнеуровневых таблиц DOCX.",
+    "Колонтитулы, сноски и метаданные пока не обезличиваются.",
+    "Адрес собирается в пределах одного абзаца.",
+    "Место рождения не покрыто (T1.16).",
+    "Детектируются все календарные даты; какие из них — персональные данные, решает судья, а не детектор (T1.15).",
+    "Двузначный год (12.02.25) и периоды (в марте 2025) не распознаются как даты.",
+    "Preview содержит исходный текст и не предназначен для передачи наружу."
+  ],
+  "plan": {
+    "groups": [
+      {
+        "id": "G1",
+        "marker": "[ЗАКАЗЧИК-ОРГАНИЗАЦИЯ]",
+        "profile_id": "P1",
+        "ref_count": 1,
+        "sample": "ООО «Северный свет»",
+        "type": "org_name",
+        "type_title": "Организация"
+      },
+      {
+        "id": "G2",
+        "marker": "[ЗАКАЗЧИК-ИНН]",
+        "profile_id": "P1",
+        "ref_count": 1,
+        "sample": "3662103003",
+        "type": "inn",
+        "type_title": "ИНН"
+      },
+      {
+        "id": "G3",
+        "marker": "[ИСПОЛНИТЕЛЬ-ОРГАНИЗАЦИЯ]",
+        "profile_id": "P2",
+        "ref_count": 1,
+        "sample": "ООО «Точный расчёт»",
+        "type": "org_name",
+        "type_title": "Организация"
+      },
+      {
+        "id": "G4",
+        "marker": "[ИСПОЛНИТЕЛЬ-ИНН]",
+        "profile_id": "P2",
+        "ref_count": 1,
+        "sample": "7707083893",
+        "type": "inn",
+        "type_title": "ИНН"
+      },
+      {
+        "id": "G5",
+        "marker": "[ЗАКАЗЧИК-СЧЁТ]",
+        "profile_id": "P1",
+        "ref_count": 1,
+        "sample": "40702810100000000002",
+        "type": "bank_account",
+        "type_title": "Банковский счёт"
+      },
+      {
+        "id": "G6",
+        "marker": "[ИСПОЛНИТЕЛЬ-ТЕЛЕФОН]",
+        "profile_id": "P2",
+        "ref_count": 1,
+        "sample": "8-910-347-51-07",
+        "type": "phone",
+        "type_title": "Телефон"
+      },
+      {
+        "id": "G7",
+        "marker": "[ЗАКАЗЧИК-ФИО]",
+        "profile_id": "P1",
+        "ref_count": 1,
+        "sample": "Иванов И.И",
+        "type": "person",
+        "type_title": "ФИО"
+      },
+      {
+        "id": "G8",
+        "marker": "[ИСПОЛНИТЕЛЬ-ФИО]",
+        "profile_id": "P2",
+        "ref_count": 1,
+        "sample": "Сидоров А.П",
+        "type": "person",
+        "type_title": "ФИО"
+      }
+    ],
+    "requested_types": [
+      "address",
+      "bank_account",
+      "bank_name",
+      "bik",
+      "birth_date",
+      "contract_amount",
+      "contract_number",
+      "date",
+      "delivery_period",
+      "email",
+      "federal_law",
+      "inn",
+      "kpp",
+      "money",
+      "ogrn",
+      "org_name",
+      "passport",
+      "payment_terms",
+      "person",
+      "phone",
+      "site",
+      "snils"
+    ],
+    "skipped": {
+      "by_reason": {},
+      "count": 0
+    }
+  },
+  "preview_only": false,
+  "profile_judge": {
+    "candidates": [],
+    "diagnostics": [],
+    "llm_calls": 0,
+    "profiles": [
+      {
+        "confidence": 1.0,
+        "evidence": [
+          "метка: заказчик"
+        ],
+        "id": "P1",
+        "marker_label": "ЗАКАЗЧИК",
+        "members": [
+          {
+            "anchor": {
+              "fmt": "docx",
+              "label": "абзац 2",
+              "locator": [
+                "body",
+                1
+              ]
+            },
+            "entity": {
+              "confidence": 0.95,
+              "end": 19,
+              "normalized": "северный свет",
+              "segment_order": 1,
+              "source": "rule",
+              "start": 0,
+              "text": "ООО «Северный свет»",
+              "type": "org_name"
+            },
+            "ref": "E1"
+          },
+          {
+            "anchor": {
+              "fmt": "docx",
+              "label": "абзац 2",
+              "locator": [
+                "body",
+                1
+              ]
+            },
+            "entity": {
+              "confidence": 1.0,
+              "end": 35,
+              "normalized": "3662103003",
+              "segment_order": 1,
+              "source": "rule",
+              "start": 25,
+              "text": "3662103003",
+              "type": "inn"
+            },
+            "ref": "E2"
+          },
+          {
+            "anchor": {
+              "fmt": "docx",
+              "label": "абзац 5",
+              "locator": [
+                "body",
+                4
+              ]
+            },
+            "entity": {
+              "confidence": 0.75,
+              "end": 36,
+              "normalized": "40702810100000000002",
+              "segment_order": 4,
+              "source": "rule",
+              "start": 16,
+              "text": "40702810100000000002",
+              "type": "bank_account"
+            },
+            "ref": "E5"
+          },
+          {
+            "anchor": {
+              "fmt": "docx",
+              "label": "абзац 8",
+              "locator": [
+                "body",
+                7
+              ]
+            },
+            "entity": {
+              "confidence": 0.85,
+              "end": 35,
+              "normalized": "иванов и.и.",
+              "segment_order": 8,
+              "source": "ner",
+              "start": 25,
+              "text": "Иванов И.И",
+              "type": "person"
+            },
+            "ref": "E7"
+          }
+        ],
+        "role_confidence": 0.9,
+        "role_id": "zakazcik",
+        "role_title": "Заказчик",
+        "source": "rule"
+      },
+      {
+        "confidence": 1.0,
+        "evidence": [
+          "метка: исполнитель"
+        ],
+        "id": "P2",
+        "marker_label": "ИСПОЛНИТЕЛЬ",
+        "members": [
+          {
+            "anchor": {
+              "fmt": "docx",
+              "label": "абзац 3",
+              "locator": [
+                "body",
+                2
+              ]
+            },
+            "entity": {
+              "confidence": 0.95,
+              "end": 19,
+              "normalized": "точный расчет",
+              "segment_order": 2,
+              "source": "rule",
+              "start": 0,
+              "text": "ООО «Точный расчёт»",
+              "type": "org_name"
+            },
+            "ref": "E3"
+          },
+          {
+            "anchor": {
+              "fmt": "docx",
+              "label": "абзац 3",
+              "locator": [
+                "body",
+                2
+              ]
+            },
+            "entity": {
+              "confidence": 1.0,
+              "end": 35,
+              "normalized": "7707083893",
+              "segment_order": 2,
+              "source": "rule",
+              "start": 25,
+              "text": "7707083893",
+              "type": "inn"
+            },
+            "ref": "E4"
+          },
+          {
+            "anchor": {
+              "fmt": "docx",
+              "label": "таблица 1, строка 1, ячейка 1, абзац 1",
+              "locator": [
+                "table",
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "entity": {
+              "confidence": 0.9,
+              "end": 24,
+              "normalized": "89103475107",
+              "segment_order": 6,
+              "source": "rule",
+              "start": 9,
+              "text": "8-910-347-51-07",
+              "type": "phone"
+            },
+            "ref": "E6"
+          },
+          {
+            "anchor": {
+              "fmt": "docx",
+              "label": "абзац 9",
+              "locator": [
+                "body",
+                8
+              ]
+            },
+            "entity": {
+              "confidence": 0.85,
+              "end": 39,
+              "normalized": "сидоров а.п.",
+              "segment_order": 9,
+              "source": "ner",
+              "start": 28,
+              "text": "Сидоров А.П",
+              "type": "person"
+            },
+            "ref": "E8"
+          }
+        ],
+        "role_confidence": 0.9,
+        "role_id": "ispolnitel",
+        "role_title": "Исполнитель",
+        "source": "rule"
+      }
+    ],
+    "questions": [],
+    "unassigned": [],
+    "verdicts": [
+      {
+        "action": "mask",
+        "confidence": 1.0,
+        "profile_id": "P1",
+        "question_id": "",
+        "reason": "уверенность достаточна",
+        "ref": "E1"
+      },
+      {
+        "action": "mask",
+        "confidence": 1.0,
+        "profile_id": "P1",
+        "question_id": "",
+        "reason": "критичный тип маскируется без вопроса",
+        "ref": "E2"
+      },
+      {
+        "action": "mask",
+        "confidence": 1.0,
+        "profile_id": "P2",
+        "question_id": "",
+        "reason": "уверенность достаточна",
+        "ref": "E3"
+      },
+      {
+        "action": "mask",
+        "confidence": 1.0,
+        "profile_id": "P2",
+        "question_id": "",
+        "reason": "критичный тип маскируется без вопроса",
+        "ref": "E4"
+      },
+      {
+        "action": "mask",
+        "confidence": 0.85,
+        "profile_id": "P1",
+        "question_id": "",
+        "reason": "критичный тип маскируется без вопроса",
+        "ref": "E5"
+      },
+      {
+        "action": "mask",
+        "confidence": 1.0,
+        "profile_id": "P2",
+        "question_id": "",
+        "reason": "уверенность достаточна",
+        "ref": "E6"
+      },
+      {
+        "action": "mask",
+        "confidence": 0.95,
+        "profile_id": "P1",
+        "question_id": "",
+        "reason": "уверенность достаточна",
+        "ref": "E7"
+      },
+      {
+        "action": "mask",
+        "confidence": 0.95,
+        "profile_id": "P2",
+        "question_id": "",
+        "reason": "уверенность достаточна",
+        "ref": "E8"
+      }
+    ]
+  },
+  "render_degradations": [],
+  "report_version": 3,
+  "selected_types": [
+    "address",
+    "bank_account",
+    "bank_name",
+    "bik",
+    "birth_date",
+    "contract_amount",
+    "contract_number",
+    "date",
+    "delivery_period",
+    "email",
+    "federal_law",
+    "inn",
+    "kpp",
+    "money",
+    "ogrn",
+    "org_name",
+    "passport",
+    "payment_terms",
+    "person",
+    "phone",
+    "site",
+    "snils"
+  ],
+  "summary": {
+    "by_source": {
+      "ner": 2,
+      "rule": 6
+    },
+    "by_type": {
+      "bank_account": 1,
+      "inn": 2,
+      "org_name": 2,
+      "person": 2,
+      "phone": 1
+    },
+    "entities_total": 8,
+    "minimum_confidence": 0.75
+  },
+  "validation": {
+    "checked_artifacts": [
+      "masked_highlight.docx"
+    ],
+    "checked_parts": [
+      "masked_highlight.docx:[Content_Types].xml",
+      "masked_highlight.docx:_rels/.rels",
+      "masked_highlight.docx:customXml/_rels/item1.xml.rels",
+      "masked_highlight.docx:customXml/item1.xml",
+      "masked_highlight.docx:customXml/itemProps1.xml",
+      "masked_highlight.docx:docProps/app.xml",
+      "masked_highlight.docx:docProps/core.xml",
+      "masked_highlight.docx:docProps/thumbnail.jpeg",
+      "masked_highlight.docx:word/_rels/document.xml.rels",
+      "masked_highlight.docx:word/document.xml",
+      "masked_highlight.docx:word/fontTable.xml",
+      "masked_highlight.docx:word/numbering.xml",
+      "masked_highlight.docx:word/settings.xml",
+      "masked_highlight.docx:word/styles.xml",
+      "masked_highlight.docx:word/stylesWithEffects.xml",
+      "masked_highlight.docx:word/theme/theme1.xml",
+      "masked_highlight.docx:word/webSettings.xml"
+    ],
+    "layout": [],
+    "leaked_count": 0,
+    "ok": true,
+    "residual_count": 0,
+    "status": "checked"
+  }
+}

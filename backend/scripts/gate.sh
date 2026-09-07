@@ -35,6 +35,11 @@ step "тесты"    $PY -m pytest -q -n "$WORKERS" -m "not gliner and not e2e"
 step "метрики"  $PY -m masker.eval --gate
 
 echo
+# Прогресс печатается при любом исходе: и когда ворота зелёные (видно,
+# сколько осталось), и когда красные (видно, на каком фоне это падение).
+# Своим кодом возврата ворота не рушит — это справка, а не проверка.
+$PY scripts/tasks_progress.py || true
+
 if [ ${#FAILED[@]} -eq 0 ]; then
     echo "ВОРОТА ПРОЙДЕНЫ"
     exit 0

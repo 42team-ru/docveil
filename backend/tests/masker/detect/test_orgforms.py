@@ -130,6 +130,31 @@ def test_person_initial_gets_trailing_dot() -> None:
     assert fix_person_initials(text, 3, len(text) - 1) == (3, len(text))
 
 
+def test_person_initial_dot_survives_shrink_span() -> None:
+    """Р4, кейс 3 (`Пилипенко С.А.`): NER-спан уже содержит завершающую точку
+    инициала, но `shrink_span` стриг её безусловно первой же операцией
+    (``_trim_shrink_bounds``), не заглянув, что это не случайная пунктуация,
+    а точка после одиночной заглавной буквы («С.А.»). Обычную сентенс-точку
+    ``shrink_span`` по-прежнему обязан снимать — второй кейс ниже."""
+    text = "Пилипенко С.А."
+    assert shrink_span(text, 0, len(text)) == (0, len(text))
+
+
+def test_shrink_span_still_drops_plain_trailing_dot() -> None:
+    text = "ООО «Ромашка»."
+    assert shrink_span(text, 0, len(text)) == (0, len("ООО «Ромашка»"))
+
+
+def test_fix_person_initials_extends_oglu_suffix() -> None:
+    """Р4, кейс 2 (`Мамедов Э.Г.о.`): NER отдаёт спан только по последний
+    инициал без точки («Мамедов Э.Г»), хвост «о.» (сокращение «оглы») —
+    за пределами спана."""
+    text = "Согласовано: Мамедов Э.Г.о., начальник ОТК"
+    start = text.index("Мамедов")
+    raw_end = start + len("Мамедов Э.Г")
+    assert fix_person_initials(text, start, raw_end) == (start, start + len("Мамедов Э.Г.о."))
+
+
 # ---------------------------------------------------------------------------
 # Границы ORG вправо, в кавычки после оргформы (план T2.2.1, шаг 5, Д5).
 # ---------------------------------------------------------------------------

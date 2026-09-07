@@ -32,12 +32,12 @@
     },
     {
       "type": "person",
-      "text": "Иванов И.И",
+      "text": "Иванов И.И.",
       "party": "customer"
     },
     {
       "type": "person",
-      "text": "Сидоров А.П",
+      "text": "Сидоров А.П.",
       "party": "contractor"
     }
   ]

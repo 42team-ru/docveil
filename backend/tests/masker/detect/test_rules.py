@@ -368,3 +368,162 @@ def test_contract_number_short_body_is_not_enough_even_with_trigger() -> None:
     ]
     numbers = [e for e in detect_by_rules(segments) if e.type is EntityType.CONTRACT_NUMBER]
     assert numbers == []
+
+
+# ---------------------------------------------------------------------------
+# Р2 — воспроизводимая утечка: регулярка телефона выедала часть счёта и
+# выигрывала разрешение пересечений (план T2.2.1).
+# ---------------------------------------------------------------------------
+
+
+def test_defect_bank_account_survives_overlapping_phone_digits() -> None:
+    """Дефект из плана T2.2.1 (Р2): раньше `phone='810100000012'` съедал
+    часть счёта, а `bank_account` пропадал. Теперь счёт находится, а
+    ложного телефона внутри него нет."""
+    segments = [
+        Segment(
+            text="р/с 40702810100000012345 в банке, БИК 044525225",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+
+    entities = detect_by_rules(segments)
+
+    accounts = [e for e in entities if e.type is EntityType.BANK_ACCOUNT]
+    assert len(accounts) == 1
+    assert accounts[0].text == "40702810100000012345"
+    assert not any(e.type is EntityType.PHONE for e in entities)
+    assert any(e.type is EntityType.BIK for e in entities)
+
+
+def test_two_valid_accounts_both_found_with_shared_bik() -> None:
+    """Приёмка Р2: строка с расчётным и корреспондентским счётом при одном
+    БИК рядом должна дать ОБА счёта, а не один."""
+    segments = [
+        Segment(
+            text=("Расчётный счёт 40702810100000012345, БИК 044525225, к/с 30101810400000000225"),
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+
+    entities = detect_by_rules(segments)
+
+    accounts = {e.text for e in entities if e.type is EntityType.BANK_ACCOUNT}
+    assert accounts == {"40702810100000012345", "30101810400000000225"}
+
+
+# ---------------------------------------------------------------------------
+# Р3 — недописанные формы правил (план T2.2.1).
+# ---------------------------------------------------------------------------
+
+
+def test_passport_form_series_word_before_number_symbol() -> None:
+    """`серия 2004 № 123456` — самая частая реальная форма (Р3)."""
+    segments = [
+        Segment(
+            text="паспорт серия 2004 № 123456 выдан ОВД",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+    passports = [e for e in detect_by_rules(segments) if e.type is EntityType.PASSPORT]
+    assert len(passports) == 1
+    assert passports[0].normalized == "2004123456"
+
+
+def test_passport_form_split_series_number_symbol_no_space() -> None:
+    """`20 04 №123456` — серия через пробел, «№» вплотную к номеру (Р3)."""
+    segments = [
+        Segment(
+            text="паспорт 20 04 №123456 выдан ОВД",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+    passports = [e for e in detect_by_rules(segments) if e.type is EntityType.PASSPORT]
+    assert len(passports) == 1
+    assert passports[0].normalized == "2004123456"
+
+
+def test_passport_form_series_glued_no_number_symbol() -> None:
+    """`2004 123456` — серия слитно, без «№» вовсе (Р3)."""
+    segments = [
+        Segment(
+            text="паспорт 2004 123456 выдан ОВД",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+    passports = [e for e in detect_by_rules(segments) if e.type is EntityType.PASSPORT]
+    assert len(passports) == 1
+    assert passports[0].normalized == "2004123456"
+
+
+def test_snils_dot_separator_found_and_normalized_like_hyphenated() -> None:
+    """`112.233.445.95` — реальная форма записи СНИЛС через точки (Р3);
+    нормализованный ключ должен совпасть с дефисной записью того же СНИЛС."""
+    dot_segments = [
+        Segment(
+            text="СНИЛС 112.233.445.95 указан в анкете",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+    hyphen_segments = [
+        Segment(
+            text="СНИЛС 112-233-445 95 указан в анкете",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+
+    dot_snils = [e for e in detect_by_rules(dot_segments) if e.type is EntityType.SNILS]
+    hyphen_snils = [e for e in detect_by_rules(hyphen_segments) if e.type is EntityType.SNILS]
+
+    assert len(dot_snils) == 1
+    assert dot_snils[0].text == "112.233.445.95"
+    assert len(hyphen_snils) == 1
+    assert dot_snils[0].normalized == hyphen_snils[0].normalized == "11223344595"
+
+
+def test_snils_dot_separator_with_broken_checksum_is_rejected() -> None:
+    """Битый СНИЛС (контрольные разряды не сходятся) не должен находиться
+    даже в новой форме через точки — форма не отменяет проверку суммы."""
+    segments = [
+        Segment(
+            text="СНИЛС 112.233.445.96 указан в анкете",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+    assert not any(e.type is EntityType.SNILS for e in detect_by_rules(segments))
+
+
+def test_phone_dot_separator_found() -> None:
+    """`8.473.250.30.30` — телефон с точками вместо дефисов (Р3)."""
+    segments = [
+        Segment(
+            text="тел. 8.473.250.30.30 звонить с 9 до 18",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+    phones = [e for e in detect_by_rules(segments) if e.type is EntityType.PHONE]
+    assert len(phones) == 1
+    assert phones[0].text == "8.473.250.30.30"
+
+
+def test_phone_does_not_trigger_inside_longer_digit_run() -> None:
+    """Корень дефекта Р2: телефон не должен находиться внутри более
+    длинной цифровой последовательности — даже когда рядом нет БИК и
+    сравнивать не с чем."""
+    segments = [
+        Segment(
+            text="код заказа 81234567890123456789 присвоен автоматически",
+            anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+            order=0,
+        ),
+    ]
+    assert not any(e.type is EntityType.PHONE for e in detect_by_rules(segments))

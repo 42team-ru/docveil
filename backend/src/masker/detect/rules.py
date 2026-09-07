@@ -13,7 +13,6 @@ precision почти единица достаётся бесплатно, оф�
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
 
 from masker.detect.checksums import (
     is_valid_account,
@@ -24,12 +23,18 @@ from masker.detect.checksums import (
     is_valid_snils,
 )
 from masker.detect.normalize import normalize_value
+from masker.detect.resolve import resolve_overlaps
 from masker.model import Document, Entity, EntityType, Segment, Source
 
 #: Сколько соседних сегментов просматривать в поисках БИК для счёта.
 BIK_LOOKAROUND = 3
 
 _DIGIT_SEP = r"[\s\-]?"
+#: Разделитель, который вдобавок к пробелу и дефису допускает точку —
+#: нужен для СНИЛС/телефона в форме «112.233.445.95» / «8.473.250.30.30»
+#: (план T2.2.1, Р3). Не используется в остальных типах, чтобы не расширять
+#: их формат без нужды.
+_DIGIT_SEP_DOT = r"[\s.\-]?"
 
 
 def _d(n: int) -> str:
@@ -37,10 +42,22 @@ def _d(n: int) -> str:
     return _DIGIT_SEP.join([r"\d"] * n)
 
 
+def _d_dot(n: int) -> str:
+    """n цифр, допускающих пробелы, дефисы и точки между собой."""
+    return _DIGIT_SEP_DOT.join([r"\d"] * n)
+
+
 # Границы \b на кириллице ведут себя неожиданно, поэтому запрещаем цифру
 # и слитную букву по краям явным look-around.
 _L = r"(?<![\d\w])"
 _R = r"(?![\d\w])"
+#: Запрет срабатывания внутри более длинной цифровой последовательности —
+#: отдельно от `_L`/`_R`, потому что нужен телефону, у которого само тело
+#: неоднородно (код города, разделители), а не как у сплошного числа.
+#: Корень дефекта Р2: без этого регулярка телефона выедала двенадцать
+#: цифр из середины двадцатизначного счёта.
+_NOT_IN_DIGIT_RUN_L = r"(?<!\d)"
+_NOT_IN_DIGIT_RUN_R = r"(?!\d)"
 
 PATTERNS: dict[EntityType, re.Pattern[str]] = {
     # ИНН не использует _d() — межцифровые пробелы дают ложные срабатывания
@@ -48,14 +65,30 @@ PATTERNS: dict[EntityType, re.Pattern[str]] = {
     # с правильной контрольной цифрой — статистическое совпадение).
     EntityType.INN: re.compile(rf"{_L}(?:\d{{12}}|\d{{10}}){_R}"),
     EntityType.OGRN: re.compile(rf"{_L}(?:{_d(15)}|{_d(13)}){_R}"),
-    EntityType.SNILS: re.compile(rf"{_L}{_d(11)}{_R}"),
+    # Разделитель СНИЛС допускает и точку: «112.233.445.95» — реальная
+    # форма записи, встречается наравне с дефисом (план T2.2.1, Р3).
+    EntityType.SNILS: re.compile(rf"{_L}{_d_dot(11)}{_R}"),
     EntityType.BANK_ACCOUNT: re.compile(rf"{_L}{_d(20)}{_R}"),
     EntityType.BIK: re.compile(rf"{_L}{_d(9)}{_R}"),
     EntityType.KPP: re.compile(rf"{_L}\d{{4}}[\dA-Z]{{2}}\d{{3}}{_R}"),
-    EntityType.PASSPORT: re.compile(rf"{_L}\d{{2}}{_DIGIT_SEP}\d{{2}}{_DIGIT_SEP}\d{{6}}{_R}"),
+    # Серия — два блока по две цифры (сросшихся или разделённых пробелом/
+    # дефисом); между серией и номером кроме обычного разделителя может
+    # стоять «№» с необязательными пробелами вокруг: «серия 2004 № 123456»,
+    # «20 04 №123456», «2004 123456» (план T2.2.1, Р3).
+    EntityType.PASSPORT: re.compile(
+        rf"{_L}\d{{2}}{_DIGIT_SEP}\d{{2}}{_DIGIT_SEP}(?:№\s*)?{_DIGIT_SEP}\d{{6}}{_R}"
+    ),
     EntityType.EMAIL: re.compile(r"[\w.+-]+@[\w-]+\.[\w]+(?:\.[\w]+)*"),
+    # `_NOT_IN_DIGIT_RUN_L/_R` вокруг всего выражения — без них регулярка
+    # находила «телефон» внутри произвольной цифровой последовательности
+    # (например, середины двадцатизначного счёта), потому что первая
+    # альтернатива не проверяла, что перед `+7`/`8` не стоит ещё одна цифра
+    # (план T2.2.1, Р2/Р3). Разделитель допускает и точку: «8.473.250.30.30».
     EntityType.PHONE: re.compile(
-        r"(?:(?:\+7|8)[\s\-]?\(?\d{3,4}\)?|(?<!\d)\(\d{3,4}\))[\s\-]?\d{2,3}[\s\-]?\d{2}[\s\-]?\d{2}"
+        rf"{_NOT_IN_DIGIT_RUN_L}"
+        rf"(?:(?:\+7|8){_DIGIT_SEP_DOT}\(?\d{{3,4}}\)?|\(\d{{3,4}}\))"
+        rf"{_DIGIT_SEP_DOT}\d{{2,3}}{_DIGIT_SEP_DOT}\d{{2}}{_DIGIT_SEP_DOT}\d{{2}}"
+        rf"{_NOT_IN_DIGIT_RUN_R}"
     ),
     EntityType.SITE: re.compile(r"https?://[^\s,;]+|(?<![\w@])www\.[\w.-]+"),
     # Федеральные законы о закупках: «44-ФЗ», «223 ФЗ», «615ФЗ», «275-ФЗ».
@@ -80,26 +113,6 @@ VALIDATORS = {
     EntityType.BIK: is_valid_bik,
     EntityType.KPP: is_valid_kpp,
 }
-
-#: Порядок разрешения пересечений внутри слоя правил: длинное и строго
-#: проверяемое побеждает короткое. Счёт (20 цифр) не должен распадаться
-#: на СНИЛС плюс мусор, а ИНН из 12 цифр — на СНИЛС.
-PRIORITY = [
-    EntityType.BANK_ACCOUNT,
-    EntityType.OGRN,
-    EntityType.INN,
-    EntityType.SNILS,
-    EntityType.PASSPORT,
-    EntityType.BIK,
-    EntityType.KPP,
-    EntityType.EMAIL,
-    EntityType.PHONE,
-    EntityType.SITE,
-    # В хвосте: номер закупки/протокола не должен отбирать перекрытие у
-    # реквизита с контрольной суммой (план T2.2.1, шаг 10, Д6).
-    EntityType.CONTRACT_NUMBER,
-    EntityType.FEDERAL_LAW,
-]
 
 
 def find_biks(segments: list[Segment]) -> dict[int, list[str]]:
@@ -172,10 +185,15 @@ _KPP_LABEL_RE = re.compile(r"кпп", re.IGNORECASE)
 #: (между меткой и вторым значением пары стоит первое значение — тоже
 #: число; проверено на реальном документе).
 _KPP_LABEL_WINDOW = 40
+#: Узкое окно для случая, когда кандидат по формату двусмыслен с БИК
+#: (см. `_has_kpp_context`): хватает на «КПП: 042007681» и «КПП 042007681»
+#: вплотную, но не дотягивается до метки соседнего поля в плотном блоке
+#: реквизитов вроде «ИНН ..., КПП ..., ОГРН ..., БИК ...».
+_KPP_TIGHT_LABEL_WINDOW = 15
 
 
-def _has_kpp_label(text: str, start: int) -> bool:
-    window_start = max(0, start - _KPP_LABEL_WINDOW)
+def _has_kpp_label(text: str, start: int, window: int = _KPP_LABEL_WINDOW) -> bool:
+    window_start = max(0, start - window)
     return bool(_KPP_LABEL_RE.search(text[window_start:start]))
 
 
@@ -186,13 +204,24 @@ def _segment_has_valid_inn(seg: Segment) -> bool:
     return any(is_valid_inn(m.group()) for m in PATTERNS[EntityType.INN].finditer(seg.text))
 
 
-def _has_kpp_context(seg: Segment, start: int) -> bool:
+def _has_kpp_context(seg: Segment, start: int, raw: str) -> bool:
     """КПП не пылесосит всё девятизначное (план T2.2.1, шаг 4, Д8):
 
     без контрольной суммы формат `\\d{4}[\\dA-Z]{2}\\d{3}` совпадает с любым
     девятизначным числом — без контекста в отчёте оказываются граммовки из
     таблиц питания и обрезки телефонов вместо реального КПП.
+
+    Если то же самое число ещё и валидный по формату БИК (тоже девять
+    цифр без контрольной суммы) и рядом (в узком окне) нет явной метки
+    «КПП», двусмысленное число вернее считать БИК: широкое окно метки
+    (40 символов) в плотном блоке реквизитов «ИНН ..., КПП ..., БИК ...»
+    иначе цепляет метку соседнего поля, а «валидный ИНН где-то в
+    сегменте» справедлив для любого числа по соседству. Без этой оговорки
+    таблица приоритетов `resolve.py` (Р2) — где КПП неприкосновенен —
+    отдаёт такому числу тип `kpp` вместо `bik`.
     """
+    if is_valid_bik(raw) and not _has_kpp_label(seg.text, start, window=_KPP_TIGHT_LABEL_WINDOW):
+        return False
     return _has_kpp_label(seg.text, start) or _segment_has_valid_inn(seg)
 
 
@@ -222,44 +251,64 @@ def _is_pdf_generator_url(url: str) -> bool:
     return host in _PDF_GENERATOR_HOSTS
 
 
+#: Типы, чей формат теперь допускает точку как разделитель цифр (план
+#: T2.2.1, Р3: СНИЛС `112.233.445.95`, телефон `8.473.250.30.30`) — но ни
+#: `checksums._digits` (понимает только пробел и дефис), ни
+#: `normalize.normalize_value` (для «цифровых» типов вырезает только
+#: `[\s-]`) о точке не знают.
+_DOT_TOLERANT_TYPES = frozenset({EntityType.SNILS, EntityType.PHONE})
+
+
+def _sanitize_for_checksum(etype: EntityType, value: str) -> str:
+    """Убрать из значения разделители, которых не ждут `checksums.py`/
+    `normalize.py`, не трогая типы, где точка или «№» — часть смысла
+    (email, сайт).
+
+    Используется исключительно для проверки контрольной суммы и расчёта
+    нормализованного ключа — сохранённый `Entity.text` остаётся ровно тем,
+    что совпало в тексте (иначе нарушится инвариант `DetectAgent._validate`:
+    текст сущности должен совпадать со срезом сегмента).
+    """
+    if etype in _DOT_TOLERANT_TYPES:
+        value = value.replace(".", "")
+    if etype is EntityType.PASSPORT:
+        # «№» между серией и номером (план T2.2.1, Р3) — не часть значения.
+        value = value.replace("№", "")
+    return value
+
+
+def _account_validated(raw: str, seg: Segment, biks: dict[int, list[str]]) -> bool:
+    """Сошлась ли контрольная сумма счёта хотя бы с одним соседним БИК."""
+    near = _nearby_biks(biks, seg.order)
+    return any(is_valid_account(raw, b) for b in near)
+
+
 def _accept(etype: EntityType, raw: str, seg: Segment, biks: dict[int, list[str]]) -> bool:
     """Проходит ли кандидат проверку своего типа."""
     if etype is EntityType.BANK_ACCOUNT:
-        # Без БИК проверить счёт нечем. Recall важнее precision: принимаем,
-        # но такой счёт получит пониженную уверенность.
-        near = _nearby_biks(biks, seg.order)
-        return not near or any(is_valid_account(raw, b) for b in near)
+        # Формат (ровно 20 цифр с проверкой границ) уже достаточно строг —
+        # кандидат принимается всегда, а `_confidence` отдельно решает,
+        # прошла ли контрольная сумма. Раньше «рядом есть БИК, но с ним
+        # счёт не сходится» отбрасывало счёт целиком — тот же счёт без
+        # всякого БИК рядом находился нормально, только с уверенностью
+        # 0.75. Recall важнее precision для критичного типа (план T2.2.1,
+        # Р2/Р3): найденный рядом БИК может относиться к другому реквизиту
+        # (например, к соседнему корсчёту), а не быть парой именно этому
+        # счёту — это не повод молчать о самом счёте.
+        return True
     if etype is EntityType.SITE:
         return not _is_pdf_generator_url(raw)
     validator = VALIDATORS.get(etype)
-    return validator is None or validator(raw)
+    return validator is None or validator(_sanitize_for_checksum(etype, raw))
 
 
 def _confidence(etype: EntityType, raw: str, seg: Segment, biks: dict[int, list[str]]) -> float:
     if etype is EntityType.BANK_ACCOUNT:
-        near = _nearby_biks(biks, seg.order)
-        if not near:
-            return 0.75  # формат сошёлся, контрольную сумму проверить нечем
-        return 1.0
+        # Формат сошёлся; контрольная сумма — только если рядом нашёлся
+        # БИК, с которым она сходится (иначе проверить нечем, либо БИК
+        # относится не к этому счёту).
+        return 1.0 if _account_validated(raw, seg, biks) else 0.75
     return 1.0 if etype in VALIDATORS else 0.9
-
-
-def _overlaps(a: Entity, b: Entity) -> bool:
-    return a.segment_order == b.segment_order and a.start < b.end and b.start < a.end
-
-
-def resolve_overlaps(found: Iterable[Entity]) -> list[Entity]:
-    """Убрать пересечения по приоритету типов, затем по длине."""
-    rank: dict[str, int] = {t: i for i, t in enumerate(PRIORITY)}
-    ordered = sorted(
-        found,
-        key=lambda e: (rank.get(e.type, len(PRIORITY)), -(e.end - e.start), e.start),
-    )
-    kept: list[Entity] = []
-    for cand in ordered:
-        if not any(_overlaps(cand, k) for k in kept):
-            kept.append(cand)
-    return sorted(kept, key=lambda e: (e.segment_order, e.start))
 
 
 def detect_by_rules(segments: list[Segment]) -> list[Entity]:
@@ -294,7 +343,7 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
 
                 # КПП требует контекста (нет контрольной суммы) — иначе
                 # пылесосит любое девятизначное число (Д8, план T2.2.1).
-                if etype is EntityType.KPP and not _has_kpp_context(seg, start):
+                if etype is EntityType.KPP and not _has_kpp_context(seg, start, value):
                     continue
 
                 # Номер договора требует триггера слева от «№» (нет
@@ -314,7 +363,7 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                         end=end,
                         source=Source.RULE,
                         confidence=_confidence(etype, value, seg, biks),
-                        normalized=normalize_value(etype, value),
+                        normalized=normalize_value(etype, _sanitize_for_checksum(etype, value)),
                     )
                 )
     return resolve_overlaps(raw_hits)

@@ -16,6 +16,7 @@ import sys
 from collections import defaultdict
 from typing import Any
 
+from masker import evalgen
 from masker.detect.agent import DetectAgent
 from masker.entity_types import EntityTypeRegistry
 from masker.ingest.docx_ingest import ingest_docx
@@ -146,6 +147,29 @@ MAX_RENDER_FAILURES = 0
 #: соседней строки. Порог нулевой — как и у leaked_total, «немного вёрстки
 #: потеряно» не бывает мелочью.
 MAX_LAYOUT_REMOVED_CHARS = 0
+#: Порог на recall метаморфного корпуса (К1, `masker.evalgen`) — той же
+#: сущности в другом написании (разрядка, вёрсточные пробелы, перенос
+#: строки, гомоглифы и опечатки в метке, альтернативные подписи, формы ФИО
+#: и падежи). Порог поставлен **2026-09-08** по фактическому замеру ДО
+#: правок Р1–Р3 (нормализация вёрстки, приоритеты слоёв, недописанные формы
+#: правил): `robust_recall = 0.440` (155/352 случаев). Взят с запасом ниже
+#: факта (0.43, а не 0.44 вплотную) — «Правило порогов» (TASKS.md) требует
+#: порог ниже факта, а не вплотную к нему, иначе случайный шум в одном
+#: случае валит ворота. Поднимать вверх только по мере того, как Р1–Р3
+#: реально чинят детекторы — не потому, что порог мешает.
+MIN_ROBUST_RECALL = 0.43
+
+
+def _print_metamorphic(report: evalgen.MetamorphicReport) -> list[str]:
+    print("\nМЕТАМОРФНЫЙ КОРПУС (варианты написания уже размеченных сущностей)")
+    print(f"{'категория':<30}{'найдено/всего':>15}")
+    for category, (hit, total) in report.by_category.items():
+        print(f"{category:<30}{hit:>10}/{total:<4}")
+    print(f"{'robust_recall':<30}{report.recall:>10.3f}  ({report.hit}/{report.total})")
+    failures: list[str] = []
+    if report.recall < MIN_ROBUST_RECALL:
+        failures.append(f"robust_recall {report.recall:.3f} < {MIN_ROBUST_RECALL}")
+    return failures
 
 
 def corpus_registry(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> EntityTypeRegistry:
@@ -305,12 +329,15 @@ def _print_profile_judge(metrics: dict[str, float]) -> list[str]:
 def run(gate: bool) -> int:
     corpus = load_corpus()
     profile_failures = _print_profile_judge(_profile_judge_metrics(corpus)) if corpus else []
+    # Метаморфный корпус (К1) не зависит от собранного pipeline — только от
+    # слоя детекции, поэтому меряется и здесь до проверки на masker.pipeline.
+    metamorphic_failures = _print_metamorphic(evalgen.evaluate())
     try:
         from masker.pipeline import mask_and_validate
     except ImportError:
         print("МЕТРИКИ ПРОПУЩЕНЫ: masker.pipeline ещё не реализован.")
         print("После T1.10 этот пропуск обязан исчезнуть — иначе ворота декоративны.")
-        return 1 if gate and profile_failures else 0
+        return 1 if gate and (profile_failures or metamorphic_failures) else 0
 
     if not corpus:
         print("МЕТРИКИ ПРОПУЩЕНЫ: в fixtures/labeled нет размеченных документов.")
@@ -421,6 +448,7 @@ def run(gate: bool) -> int:
         )
 
     failures.extend(profile_failures)
+    failures.extend(metamorphic_failures)
     if failures and gate:
         print("\nПОРОГИ НЕ ВЗЯТЫ:")
         for f in failures:

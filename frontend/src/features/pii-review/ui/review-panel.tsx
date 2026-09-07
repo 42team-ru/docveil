@@ -8,13 +8,17 @@ import {
 } from "@astryxdesign/core/Layout";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 
-import type { PiiExtraction } from "../../../entity/pii/model/types";
+import type {
+  AskEnvelope,
+  MaskingReport,
+  PiiExtraction,
+} from "../../../entity/pii/model/types";
 import { ClarificationTab } from "./clarification-tab";
+import { ContractSummaryTab } from "./contract-summary-tab";
 import { PiiListTab } from "./pii-list-tab";
 import { ProfilesTab } from "./profiles-tab";
 
 const PANEL_WIDTH = 400;
-const CLARIFICATION_COUNT = 2;
 
 /**
  * LayoutHeader содержит внутренний паддинг, поэтому для выравнивания табов по
@@ -30,13 +34,27 @@ const tabWrapperStyle: CSSProperties = {
 
 type ReviewPanelProps = {
   extraction: PiiExtraction;
+  /** Весь отчёт прогона; `null` — документ показан без отчёта движка. */
+  report: MaskingReport | null;
+  /** Вопросы, на которых прогон встал; `null` — вопросов не было. */
+  ask: AskEnvelope | null;
   totalCount: number;
   notFoundIds: Set<string>;
 };
 
-/** Правая панель экрана проверки: замены, профили сторон и уточнения агента. */
-export function ReviewPanel({ extraction, totalCount, notFoundIds }: ReviewPanelProps) {
+/**
+ * Правая панель экрана проверки: замены, профили сторон, вопросы агента и
+ * карточка договора.
+ */
+export function ReviewPanel({
+  extraction,
+  report,
+  ask,
+  totalCount,
+  notFoundIds,
+}: ReviewPanelProps) {
   const [tab, setTab] = useState("list");
+  const questionCount = ask?.questions.length ?? 0;
 
   return (
     <LayoutPanel
@@ -61,8 +79,13 @@ export function ReviewPanel({ extraction, totalCount, notFoundIds }: ReviewPanel
                 <Tab
                   value="ask"
                   label="Вопросы"
-                  endContent={<Badge variant="warning" label={CLARIFICATION_COUNT} />}
+                  endContent={
+                    questionCount > 0 ? (
+                      <Badge variant="warning" label={questionCount} />
+                    ) : undefined
+                  }
                 />
+                <Tab value="contract" label="Договор" />
               </TabList>
             </div>
           </LayoutHeader>
@@ -72,8 +95,16 @@ export function ReviewPanel({ extraction, totalCount, notFoundIds }: ReviewPanel
             {tab === "list" ? (
               <PiiListTab extraction={extraction} notFoundIds={notFoundIds} />
             ) : null}
-            {tab === "profiles" ? <ProfilesTab /> : null}
-            {tab === "ask" ? <ClarificationTab /> : null}
+            {tab === "profiles" ? (
+              <ProfilesTab
+                profiles={report?.profiles ?? []}
+                groups={report?.plan?.groups ?? []}
+              />
+            ) : null}
+            {tab === "ask" ? <ClarificationTab ask={ask} /> : null}
+            {tab === "contract" ? (
+              <ContractSummaryTab summary={report?.contractSummary ?? null} />
+            ) : null}
           </LayoutContent>
         }
       />

@@ -37,21 +37,3 @@ export type HistoryRecord = {
   status: DocumentStatus;
   runs: RunRecord[];
 };
-
-/** Строка перечня заменённых фрагментов в отчёте. */
-export type ReportRow = {
-  id: string;
-  page: string;
-  type: string;
-  original: string;
-  marker: string;
-  side: string;
-  status: "подтв." | "низкая" | "проверить" | "ожидает";
-};
-
-/** Плитка сводной статистики отчёта. */
-export type ReportStat = {
-  label: string;
-  value: string;
-  note: string;
-};

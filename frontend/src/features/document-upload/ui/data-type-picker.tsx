@@ -7,8 +7,29 @@ import { Section } from "@astryxdesign/core/Section";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 
-import { dataTypes, rulePresets } from "../../../entity/rule-profile/model/fixtures";
+import {
+  piiTypeLabel,
+  piiTypeMarkerPrefix,
+  piiTypeOptions,
+} from "../../../entity/pii/model/pii-type-dict";
+import { rulePresets } from "../../../entity/rule-profile/model/fixtures";
 import { useRuleProfileStore } from "../../../entity/rule-profile/model/rule-profile-store";
+import type { DataType, MaskStyle } from "../../../entity/rule-profile/model/types";
+
+/**
+ * Список категорий строится из общего словаря типов, а не из собственного
+ * перечисления: идентификаторы обязаны совпадать с `EntityType` движка, иначе
+ * оператор включает тип, которого бэкенд не знает. Показываются все типы
+ * реестра, включая `money` и `bank_name` — они объявлены в реестре, хотя
+ * детектора у них пока нет.
+ */
+const dataTypes: DataType[] = piiTypeOptions().map(({ value }) => ({
+  id: value,
+  name: piiTypeLabel(value),
+  marker: `[${piiTypeMarkerPrefix(value)}]`,
+}));
+
+const ALL_TYPE_IDS = dataTypes.map((type) => type.id);
 
 export function DataTypePicker() {
   const selectionMode = useRuleProfileStore((state) => state.selectionMode);
@@ -20,6 +41,9 @@ export function DataTypePicker() {
   const enabledTypes = useRuleProfileStore((state) => state.enabledTypes);
   const toggleType = useRuleProfileStore((state) => state.toggleType);
   const selectAllTypes = useRuleProfileStore((state) => state.selectAllTypes);
+
+  const maskStyle = useRuleProfileStore((state) => state.maskStyle);
+  const setMaskStyle = useRuleProfileStore((state) => state.setMaskStyle);
 
   return (
     <Section padding={0}>
@@ -67,6 +91,31 @@ export function DataTypePicker() {
         </VStack>
 
         <VStack gap={3} paddingInline={4}>
+          <HStack gap={4} vAlign="center" wrap="wrap">
+            <VStack gap={0.5}>
+              <Text type="supporting" weight="medium">
+                Как выглядит маска
+              </Text>
+              <Text type="supporting" size="sm" color="secondary">
+                {maskStyle === "marker"
+                  ? "Маркер с подсветкой — видно, что и на что заменено."
+                  : "Сплошная заливка — исходное значение закрыто целиком."}
+              </Text>
+            </VStack>
+            <StackItem size="fill" />
+            <SegmentedControl
+              size="sm"
+              label="Стиль маски"
+              value={maskStyle}
+              onChange={(value) => setMaskStyle(value as MaskStyle)}
+            >
+              <SegmentedControlItem value="marker" label="Маркер" />
+              <SegmentedControlItem value="blackbox" label="Заливка" />
+            </SegmentedControl>
+          </HStack>
+        </VStack>
+
+        <VStack gap={3} paddingInline={4}>
           <HStack gap={2} vAlign="center" wrap="wrap">
             <Text type="supporting" weight="medium">
               Отдельные категории данных
@@ -82,7 +131,7 @@ export function DataTypePicker() {
               isDisabled={selectionMode !== "manual" || enabledTypes.length === dataTypes.length}
               onClick={() => {
                 setSelectionMode("manual");
-                selectAllTypes();
+                selectAllTypes(ALL_TYPE_IDS);
               }}
             />
           </HStack>

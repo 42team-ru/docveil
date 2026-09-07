@@ -1,17 +1,12 @@
 import {
-  Bot,
   FileCheck2,
   FilePlus2,
   History,
   ListChecks,
-  Settings,
   ShieldCheck,
 } from "lucide-react";
-import { Link, Outlet, useLocation } from "react-router";
+import { Outlet, useLocation } from "react-router";
 import { Icon } from "@astryxdesign/core/Icon";
-import { HStack } from "@astryxdesign/core/Stack";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { Text } from "@astryxdesign/core/Text";
 
 import { usePendingGroupCount } from "../../../entity/pii/model/selectors";
 import { ProcessMonitor } from "../../../features/document-processing/ui/process-monitor";

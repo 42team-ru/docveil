@@ -8,7 +8,7 @@ import type { FlatPiiOccurrence } from "../model/flatten";
 import { piiTypeLabel } from "../model/pii-type-dict";
 
 /** Порог уверенности, ниже которого метка подсвечивается отдельно — как в
- * старом entity/mask/ui/confidence-mark.tsx. */
+ * прежней метке уверенности. */
 const LOW_CONFIDENCE = 0.6;
 
 function ConfidenceMark({ value }: { value: number }) {
@@ -34,7 +34,7 @@ type PiiOccurrenceItemProps = {
  * Строка одного вхождения внутри развёрнутой группы. Активная строка (выбор
  * пришёл либо кликом здесь, либо кликом по метке в документе) получает
  * вертикальную черту слева — тот же приём, что уже был в
- * `entity/mask/ui/mask-list-item.tsx` (`borderLeft` на обёртке, а не через
+ * прежней строке списка масок (`borderLeft` на обёртке, а не через
  * `Item.isSelected`, чтобы получить именно вертикальную черту, а не встроенную
  * заливку). Цвет — `--color-border-blue`, а не буквально белый: белая черта
  * не видна на светлой панели в светлой теме.

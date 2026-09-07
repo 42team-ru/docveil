@@ -1,10 +1,16 @@
 import { useSearchParams } from "react-router";
 
 import {
-  piiExtractionFixture,
+  askEnvelopeFixture,
+  maskingReportFixture,
   reviewedDocumentFixture,
 } from "../../../entity/pii/model/fixtures";
-import type { PiiDocFormat, PiiExtraction } from "../../../entity/pii/model/types";
+import type {
+  AskEnvelope,
+  MaskingReport,
+  PiiDocFormat,
+  PiiExtraction,
+} from "../../../entity/pii/model/types";
 import {
   piiExtractionXlsxFixture,
   reviewedXlsxDocumentFixture,
@@ -19,6 +25,17 @@ export type ReviewedDocument = {
 export type ReviewData = {
   extraction: PiiExtraction;
   document: ReviewedDocument;
+  /**
+   * Весь `report.json` прогона. `null` — когда отчёта нет: так, xlsx-фикстура
+   * состоит из одних чанков, потому что движок xlsx пока не обрабатывает
+   * вовсе. Экраны обязаны уметь показать документ без отчёта, а не падать.
+   */
+  report: MaskingReport | null;
+  /**
+   * Конверт паузы графа, если прогон остановился на вопросах к человеку.
+   * `null` — вопросов не было либо на них уже ответили.
+   */
+  ask: AskEnvelope | null;
 };
 
 /**
@@ -40,11 +57,15 @@ export function useReviewData(): ReviewData {
     return {
       extraction: piiExtractionXlsxFixture,
       document: reviewedXlsxDocumentFixture,
+      report: null,
+      ask: null,
     };
   }
 
   return {
-    extraction: piiExtractionFixture,
+    extraction: maskingReportFixture.extraction,
     document: reviewedDocumentFixture,
+    report: maskingReportFixture,
+    ask: askEnvelopeFixture,
   };
 }

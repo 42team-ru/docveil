@@ -1,13 +1,20 @@
 import { useState } from "react";
+import { Trash2 } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Icon } from "@astryxdesign/core/Icon";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Section } from "@astryxdesign/core/Section";
+import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
+import { Token } from "@astryxdesign/core/Token";
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@astryxdesign/core/SegmentedControl";
 
 import { flattenPiiOccurrences, groupOccurrences } from "../../../entity/pii/model/flatten";
+import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
 import {
   useLowConfidenceGroupCount,
   usePendingGroupCount,
@@ -39,6 +46,8 @@ export function PiiListTab({ extraction, notFoundIds }: PiiListTabProps) {
   const setGroupType = useReviewStore((state) => state.setGroupType);
   const setOccurrenceType = useReviewStore((state) => state.setOccurrenceType);
   const confirmAllGroups = useReviewStore((state) => state.confirmAllGroups);
+  const manualOccurrences = useReviewStore((state) => state.manualOccurrences);
+  const removeManual = useReviewStore((state) => state.removeManual);
 
   const pendingCount = usePendingGroupCount();
   const lowCount = useLowConfidenceGroupCount();
@@ -82,6 +91,37 @@ export function PiiListTab({ extraction, notFoundIds }: PiiListTabProps) {
           onClick={() => confirmAllGroups([...groups.keys()])}
         />
       </HStack>
+
+      {manualOccurrences.length > 0 ? (
+        <Section padding={3} dividers={["top", "bottom"]}>
+          <VStack gap={2}>
+            <Text type="supporting" weight="medium">
+              {`Отмечено вручную: ${manualOccurrences.length}`}
+            </Text>
+            {manualOccurrences.map((occurrence) => (
+              <HStack key={occurrence.id} gap={2} vAlign="center" width="100%">
+                <Token size="sm" color="orange" label={piiTypeLabel(occurrence.type)} />
+                <Text textWrap="pretty">{occurrence.text}</Text>
+                <StackItem size="fill" />
+                <Text type="supporting" color="secondary" size="sm">
+                  {occurrence.anchor.label}
+                </Text>
+                <IconButton
+                  size="sm"
+                  variant="ghost"
+                  label={`Убрать «${occurrence.text}»`}
+                  icon={<Icon icon={Trash2} size="sm" />}
+                  onClick={() => removeManual(occurrence.id)}
+                />
+              </HStack>
+            ))}
+            <Text type="supporting" color="secondary" textWrap="pretty">
+              В документе такие фрагменты пока не подсвечиваются: подсветка
+              ищет уже вписанный маркер, а у ручной отметки его ещё нет.
+            </Text>
+          </VStack>
+        </Section>
+      ) : null}
 
       {visibleGroups.length === 0 ? (
         <EmptyState

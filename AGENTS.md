@@ -18,7 +18,7 @@
 `fixtures/`, `pyproject.toml`, `uv.lock`, `alembic.ini`, `Dockerfile`).
 OCR-слой — `src/masker/ocr/` (`provider.py`, `fake.py`, `select.py`, `paddle.py`);
 провайдер выбирается через `MASKER_OCR=paddle|fake` (дефолт — `fake` в CI).
-Веб-интерфейс — в `frontend/` (пока только каркас). В корне остались общие
+Веб-интерфейс — в `frontend/` (React Router + Astryx, см. `frontend/README.md`). В корне остались общие
 документы, `docker-compose.yml`, обёртки агентов (`scripts/codex.sh`,
 `scripts/dsh.sh`) и тонкий `Makefile`.
 

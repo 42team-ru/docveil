@@ -40,6 +40,8 @@ type PanelShellProps = {
   currentPath: string;
   /** Доп. содержимое в правой части шапки — перед меню профиля. */
   navEndContent?: ReactNode;
+  /** Пользователь сессии; без него меню профиля показывает заглушку. */
+  user?: PanelUser;
   children: ReactNode;
 };
 
@@ -47,8 +49,23 @@ import { useThemeStore } from "../../model/theme-store";
 
 type Theme = "light" | "dark";
 
+/**
+ * Пользователь сессии. Значения по умолчанию — заглушка на время, пока нет
+ * `GET /api/auth/me`: подстановка настоящего пользователя должна свестись к
+ * передаче пропа, а не к правке разметки.
+ */
+export type PanelUser = {
+  name: string;
+  email: string;
+};
+
+const UNKNOWN_USER: PanelUser = {
+  name: "Пользователь",
+  email: "вход не выполнен",
+};
+
 /** Всплывающее меню пользователя: смена темы и выход. */
-function ProfilePopover() {
+function ProfilePopover({ user }: { user: PanelUser }) {
   const mode = useThemeStore((state) => state.mode);
   const setMode = useThemeStore((state) => state.setMode);
 
@@ -63,10 +80,10 @@ function ProfilePopover() {
           {/* Пользователь */}
           <VStack gap={0}>
             <Text type="label" weight="medium">
-              Иванов И.И.
+              {user.name}
             </Text>
             <Text type="supporting" color="secondary">
-              ivanov@corp.triema.ru
+              {user.email}
             </Text>
           </VStack>
 
@@ -110,13 +127,7 @@ function ProfilePopover() {
         </VStack>
       }
     >
-      <Avatar
-        name="Иванов И.И."
-        src="https://i.pravatar.cc/80"
-        size="md"
-        tooltip={false}
-        onClick={() => {}}
-      />
+      <Avatar name={user.name} size="md" tooltip={false} />
     </Popover>
   );
 }
@@ -131,6 +142,7 @@ export function PanelShell({
   groups,
   currentPath,
   navEndContent,
+  user,
   children,
 }: PanelShellProps) {
   const items = groups.flatMap((group) => group.items);
@@ -176,7 +188,7 @@ export function PanelShell({
           endContent={
             <HStack gap={2} vAlign="center">
               {navEndContent}
-              <ProfilePopover />
+              <ProfilePopover user={user ?? UNKNOWN_USER} />
             </HStack>
           }
         />

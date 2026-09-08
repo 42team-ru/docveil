@@ -23,25 +23,38 @@
 на реальном документе один раз уже схлопнуло прямоугольник в нулевую
 высоту и сущность утекла (``Ивановны`` в диагностике плана T2.2.2).
 
-Узкое поле реальной таблицы иногда не вмещает полный маркер плана
-(``[ПОТРЕБИТЕЛЬ-ОРГАНИЗАЦИЯ-1]`` в ячейку под трёхбуквенную аббревиатуру).
-Решение заказчика (план T2.2.1, пачка 5) — лестница отступления, а не
-падение: полный маркер → короткая метка типа (``mask/labels.py``) → без
-текста. Исходный текст при этом удалён на всех трёх ступенях — падает
-только вырожденный (нулевой площади) прямоугольник, которого на верно
-посчитанных боксах быть не должно.
+Контракт читаемой маски (план М1) разделяет три вещи, смешанные в одном
+прямоугольнике раньше — что удалить, что закрасить, что подписать:
 
-Стиль ``blackbox`` из этой лестницы выведен (план T2.2.2, шаг 1, отменяет
-решение из пачки 5 плана T2.2.1): заказчик увидел метку типа на чёрном
-прямоугольнике готового документа и потребовал вернуть просто чёрный
-прямоугольник без текста. ``blackbox`` больше не пытается вписать ни
-полный маркер, ни короткую метку и никогда не порождает
-``MarkerDegradation`` — «без текста» для него не деградация, а замысел
-стиля. Лестница отступления целиком осталась только у стиля ``marker``.
+- ``erase_regions`` — прямоугольники, по которым реально стёрт текст
+  (``add_redact_annot``/``apply_redactions``). Строятся **только** из
+  символьных боксов самой сущности, обрезанных по своей строке
+  (``_trim_to_own_line``), и никогда не раздвигаются ради подписи — иначе
+  ``apply_redactions`` стирал бы текст соседа (план М1, правило 3).
+- ``paint_regions`` — области, закрашенные фоном (эрейз-регионы плюс,
+  если подпись расширилась, полоса расширения — она тоже красится, но не
+  редактируется, потому что заведомо пуста).
+- ``label_region`` — куда физически вписан текст подписи. Может быть шире
+  своего эрейз-региона: расширяется **вправо по той же строке**, и только
+  до первого чужого символа (``_free_extension_right``) — доказанно
+  свободное место, не «на глаз».
+
+Место для подписи больше не отмеряется по ширине удалённого текста
+(корневая причина жалоб заказчика на мелкий шрифт): подпись подбирается
+лестницей отступления (``mask.labels.marker_ladder``) с полом читаемости
+**8 pt** — ниже этого текст не пробуется вовсе, вместо него берётся более
+короткая ступень лестницы. Подходящая строка для подписи у многострочной
+сущности выбирается по наибольшей итоговой ширине поля, а не всегда первая
+(первая строка ФИО через перенос может содержать один инициал).
+
+Стиль ``blackbox`` не запускает лестницу отступления вовсе (план T2.2.2,
+шаг 1, решение заказчика): чёрный прямоугольник — просто чёрный, без
+текста на любой ступени.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import pathlib
 from collections import defaultdict
@@ -50,15 +63,25 @@ from dataclasses import dataclass
 import pymupdf
 
 from masker.ingest.pdf_ingest import PageChars, page_chars
-from masker.mask.labels import type_marker_label
-from masker.model import Document, Entity, MaskPlan, Replacement
+from masker.mask.labels import marker_ladder
+from masker.model import (
+    Document,
+    Entity,
+    MarkerRenderResult,
+    MaskGroup,
+    MaskPlan,
+    PdfRegion,
+    Replacement,
+)
 
 _FONT_FILE: pathlib.Path = pathlib.Path(__file__).parent.parent / "data" / "DejaVuSans.ttf"
 _FONT_NAME = "cyr"
-#: Кандидаты размера шрифта, от крупного к минимальному — риск Р6 плана
-#: T2.2.1: узкая ячейка таблицы не должна тихо остаться без текста там,
-#: где текст физически можно уменьшить и вписать.
-_MARKER_FONT_SIZES: tuple[float, ...] = (10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0)
+#: Кандидаты размера шрифта, от крупного к минимальному. Пол читаемости —
+#: 8 pt (план М1, правило 1): ниже этого порога подпись не пробуется вовсе,
+#: рендер спускается на следующую ступень лестницы отступления текста, а не
+#: на более мелкий шрифт. Раньше здесь были размеры вплоть до 2 pt — именно
+#: это порождало жалобу заказчика «мелкий шрифт».
+_MARKER_FONT_SIZES: tuple[float, ...] = (10.0, 9.0, 8.0)
 #: Нулевой прямоугольник — сигнатура символа-склейки строк, который
 #: `page_chars`/`ingest_pdf` вставляют строго на границе физической строки
 #: внутри блока (план T2.2.1, шаг 8). Настоящие пробелы получают от
@@ -79,31 +102,11 @@ _MARKER_TEXT_COLOR: tuple[float, float, float] = (0.20, 0.20, 0.20)
 class MarkerDoesNotFitError(ValueError):
     """Прямоугольник вырожденной площади — деградировать некуда.
 
-    Раньше это исключение поднималось на любой узкий, но настоящей площади
-    прямоугольник, если в него не влезал маркер целиком — план T2.2.1,
-    риск Р6. Лестница отступления (решение заказчика, пачка 5) закрывает
-    этот случай текстом покороче или пустым прямоугольником без падения;
-    исключение остаётся только на прямоугольник нулевой или отрицательной
-    площади — сигнал, что боксы посчитаны неверно выше по стеку, а не что
-    место физически кончилось.
+    Поднимается только на прямоугольник нулевой или отрицательной площади
+    — сигнал, что боксы посчитаны неверно выше по стеку, а не что место
+    физически кончилось: любой настоящей площади прямоугольник разрешает
+    лестница отступления текста (план М1) без падения.
     """
-
-
-@dataclass(frozen=True, slots=True)
-class MarkerDegradation:
-    """Один спуск на ступень ниже лучшего результата стиля — факт для отчёта.
-
-    ``shown_as`` — что реально показано вместо лучшего результата:
-    ``"type_label"`` (короткая метка типа вместо полного маркера, только
-    для стиля ``marker``) или ``"blank"`` (прямоугольник вовсе без
-    текста). Успешная вставка лучшего результата стиля в список не
-    попадает — деградацией не является.
-    """
-
-    page: int
-    entity_type: str
-    marker: str
-    shown_as: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,14 +127,20 @@ class RenderCollision:
 
 @dataclass(frozen=True, slots=True)
 class RenderOutcome:
-    """Результат ``render_pdf_redacted`` целиком (план T2.2.2, шаг 3).
+    """Результат ``render_pdf_redacted`` целиком (план М1).
 
-    ``degradations`` — спуски по лестнице отступления маркера (план T2.2.1,
-    пачка 5). ``collisions`` — прямоугольники, для которых обрезка по
-    соседней строке была отменена из-за полного перекрытия строк.
+    ``replacements`` — те же замены плана, но с заполненной геометрией
+    читаемой маски (``erase_regions``/``paint_regions``/``label_region``);
+    для ``blackbox`` заполнены только ``erase_regions``/``paint_regions``
+    — подпись для этого стиля не строится вовсе.
+    ``markers`` — фактический результат вставки подписи, один элемент на
+    каждую ``Replacement`` стиля ``marker`` (пусто для ``blackbox``).
+    ``collisions`` — прямоугольники, для которых обрезка по соседней
+    строке была отменена из-за полного перекрытия строк.
     """
 
-    degradations: tuple[MarkerDegradation, ...]
+    replacements: tuple[Replacement, ...]
+    markers: tuple[MarkerRenderResult, ...]
     collisions: tuple[RenderCollision, ...]
 
 
@@ -200,11 +209,11 @@ def _entity_rects(
 
 
 def _rects_for_entity(
-    cache: _PageCharsCache, page_num: int, seg_char_start: int, entity: Entity
+    cache: _PageCharsCache, page_num: int, seg_char_start: int, replacement: Replacement
 ) -> list[tuple[int, pymupdf.Rect]]:
     chars = cache.chars(page_num)
-    abs_start = seg_char_start + entity.start
-    abs_end = seg_char_start + entity.end
+    abs_start = seg_char_start + replacement.entity.start
+    abs_end = seg_char_start + replacement.entity.end
     return _entity_rects(chars, abs_start, abs_end)
 
 
@@ -247,6 +256,43 @@ def _trim_to_own_line(
     return pymupdf.Rect(rect.x0, y0, rect.x1, y1), False
 
 
+def _free_extension_right(
+    chars: PageChars,
+    line_id: int,
+    rect: pymupdf.Rect,
+    abs_start: int,
+    abs_end: int,
+    line_box: pymupdf.Rect,
+) -> float:
+    """Самая правая граница, до которой подпись может продлиться вправо по
+    той же строке, не задев ни одного чужого символа (план М1, правило 3).
+
+    ``rect`` — уже обрезанный по своей строке эрейз-прямоугольник сущности.
+    Преградой считается любой **непробельный** символ той же строки правее
+    ``rect``, кроме символов самой сущности (``[abs_start, abs_end)``) — то
+    есть и обычный сосед по строке, и другая сущность, ещё не обработанная
+    в этом прогоне: геометрия строится по боксам исходного (ещё не
+    изменённого) текста, поэтому такой сосед всегда виден. Пробелы
+    преградой не считаются — это и есть то самое доказанно свободное
+    место, ради которого функция существует, а не текст, который нельзя
+    задевать. Без преграды граница — конец полосы строки (``line_box.x1``),
+    не дальше физического текста строки (сами пробелы в объединение полосы
+    уже вошли — дальше них строка не продолжается).
+    """
+    limit = line_box.x1
+    for index, (box, box_line) in enumerate(zip(chars.boxes, chars.line_ids, strict=True)):
+        if box_line != line_id or box == _LINE_BREAK_RECT:
+            continue
+        if abs_start <= index < abs_end:
+            continue  # символ самой сущности — не преграда для расширения
+        if chars.text[index].isspace():
+            continue  # пробел — свободное место, а не преграда
+        if box.x0 < rect.x1 - 1e-6:
+            continue  # символ левее прямоугольника — не мешает расширению вправо
+        limit = min(limit, box.x0)
+    return max(limit, rect.x1)
+
+
 def render_pdf_preview(
     source_path: str | pathlib.Path,
     dest_path: str | pathlib.Path,
@@ -263,12 +309,24 @@ def render_pdf_preview(
             document.segments[entity.segment_order].anchor.locator
         )
         page = doc[page_num]
-        for _line_id, rect in _rects_for_entity(cache, page_num, seg_start, entity):
+        chars = cache.chars(page_num)
+        abs_start = seg_start + entity.start
+        abs_end = seg_start + entity.end
+        for _line_id, rect in _entity_rects(chars, abs_start, abs_end):
             annot = page.add_highlight_annot(rect)
             annot.update()
     doc.save(str(dest_path))
     doc.close()
     os.chmod(dest_path, 0o600)
+
+
+@dataclass(slots=True)
+class _PageJob:
+    """Одна замена, привязанная к своей странице, до её редактирования."""
+
+    replacement: Replacement
+    seg_char_start: int
+    rects: list[tuple[int, pymupdf.Rect]]  # (line_id, эрейз-прямоугольник до обрезки)
 
 
 def render_pdf_redacted(
@@ -281,30 +339,25 @@ def render_pdf_redacted(
 ) -> RenderOutcome:
     """Удалить сущности из content-stream и вставить заглушки с маркерами плана.
 
-    style="marker"   — светлый фон весь спуск по лестнице отступления
-                       (план T2.2.1, пачка 5): полный маркер плана →
-                       короткая метка типа → без текста.
+    style="marker"   — светлый фон и подпись читаемой лестницы отступления
+                       (план М1): канонический маркер → маркер с ролью в
+                       4 буквах → маркер с ролью-инициалом → компактная
+                       метка (``[Ф1]``) → голый тип (``ФИО``) → пусто.
     style="blackbox" — чёрный прямоугольник и ничего больше (план T2.2.2,
-                       шаг 1, решение заказчика отменяет прежнюю метку типа
-                       на чёрном из пачки 5 плана T2.2.1): текст не
-                       вставляется ни одной ступенью, деградаций для этого
-                       стиля не бывает в принципе.
+                       шаг 1): текст не вставляется ни одной ступенью.
 
-    Прямоугольник редакции строится только из символов **своей** строки
+    Прямоугольник **удаления** строится только из символов своей строки
     (``line_id`` из ``page_chars``) и обрезается серединой полосы
-    перекрытия с соседними строками — план T2.2.2, шаг 3, лечит Д10
-    (``apply_redactions`` стирал глифы соседней строки, попавшие в
-    прямоугольник по пересечению боксов). Заливка и вставка текста
-    работают по уже обрезанному прямоугольнику.
+    перекрытия с соседними строками — план T2.2.2, шаг 3, лечит Д10.
+    Прямоугольник **подписи** может быть шире — расширяется вправо по той
+    же строке в доказанно свободное место (``_free_extension_right``), но
+    сам прямоугольник удаления при этом не меняется ни на пункт (план М1,
+    правило 3) — иначе ``apply_redactions`` стёр бы текст соседа.
 
-    Текст маркера вставляется не более одного раза на ``Replacement`` — в
-    первый Rect (Д1): сущность, разбитая переносом строки на несколько
-    прямоугольников, раньше получала текст в каждый из них. Каждый спуск
-    ниже полного маркера стиля ``marker`` возвращается в
-    ``RenderOutcome.degradations`` — не падение, а факт для отчёта, чтобы
-    человек видел, где документ стал менее читаемым. Для ``blackbox`` эта
-    лестница не запускается вовсе. Отменённые обрезки (строки перекрыты
-    целиком) возвращаются в ``RenderOutcome.collisions``.
+    Подходящая строка для подписи многострочной сущности выбирается по
+    наибольшей итоговой ширине поля подписи, а не всегда первая (план М1,
+    правило 2) — первая строка ФИО через перенос может содержать один
+    инициал. Подпись вставляется не более одного раза на ``Replacement``.
 
     ``document`` рендеру для поиска места замены не нужен — место уже
     посчитано один раз ``PlanAgent`` и приходит в ``plan.replacements[].anchor``.
@@ -318,57 +371,90 @@ def render_pdf_redacted(
     doc = pymupdf.open(str(source_path))
     font = pymupdf.Font(fontfile=str(_FONT_FILE))
     cache = _PageCharsCache(doc)
+    groups_by_id: dict[str, MaskGroup] = {group.id: group for group in plan.groups}
 
     # Сгруппировать по страницам; боксы считаются до любых изменений документа.
-    # `is_primary` истинно только у первого Rect замены (Д1): текст
-    # вставляется не более одного раза на Replacement, даже если сущность
-    # разбита переносом строки на несколько прямоугольников.
-    by_page: dict[int, list[tuple[int, pymupdf.Rect, Replacement, bool]]] = defaultdict(list)
+    by_page: dict[int, list[_PageJob]] = defaultdict(list)
     for replacement in plan.replacements:
         page_num, seg_start, _seg_end = _parse_locator(replacement.anchor.locator)
-        rects = _rects_for_entity(cache, page_num, seg_start, replacement.entity)
-        for index, (line_id, rect) in enumerate(rects):
-            by_page[page_num].append((line_id, rect, replacement, index == 0))
+        rects = _rects_for_entity(cache, page_num, seg_start, replacement)
+        by_page[page_num].append(
+            _PageJob(replacement=replacement, seg_char_start=seg_start, rects=rects)
+        )
 
     fill_color = (0.0, 0.0, 0.0) if style == "blackbox" else (1.0, 1.0, 1.0)
-    degradations: list[MarkerDegradation] = []
+    out_replacements: list[Replacement] = []
+    markers: list[MarkerRenderResult] = []
     collisions: list[RenderCollision] = []
 
     # Явная сортировка по номеру страницы — детерминизм не должен зависеть
     # от порядка обхода defaultdict (план T2.2.1, раздел «Детерминизм»).
     for page_num in sorted(by_page):
-        redactions = by_page[page_num]
+        jobs = by_page[page_num]
         page = doc[page_num]
         line_boxes = cache.line_boxes(page_num)
-        trimmed: list[tuple[pymupdf.Rect, Replacement, bool]] = []
-        for line_id, rect, replacement, is_primary in redactions:
-            trimmed_rect, collided = _trim_to_own_line(rect, line_id, line_boxes)
-            if collided:
-                collisions.append(
-                    RenderCollision(
-                        page=page_num,
-                        line_id=line_id,
-                        entity_type=replacement.entity.type,
-                        marker=replacement.marker,
+        trimmed_jobs: list[tuple[_PageJob, list[tuple[int, pymupdf.Rect]]]] = []
+        for job in jobs:
+            trimmed_rects: list[tuple[int, pymupdf.Rect]] = []
+            for line_id, rect in job.rects:
+                trimmed_rect, collided = _trim_to_own_line(rect, line_id, line_boxes)
+                if collided:
+                    collisions.append(
+                        RenderCollision(
+                            page=page_num,
+                            line_id=line_id,
+                            entity_type=job.replacement.entity.type,
+                            marker=job.replacement.marker,
+                        )
                     )
-                )
-            page.add_redact_annot(trimmed_rect, fill=fill_color)
-            trimmed.append((trimmed_rect, replacement, is_primary))
+                page.add_redact_annot(trimmed_rect, fill=fill_color)
+                trimmed_rects.append((line_id, trimmed_rect))
+            trimmed_jobs.append((job, trimmed_rects))
         page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
+
         if style == "blackbox":
             # Чёрный прямоугольник — просто чёрный (план T2.2.2, шаг 1):
-            # лестница отступления маркера для этого стиля не запускается.
+            # лестница отступления текста для этого стиля не запускается.
+            for job, trimmed_rects in trimmed_jobs:
+                erase_regions = tuple(
+                    PdfRegion(page=page_num, x0=r.x0, y0=r.y0, x1=r.x1, y1=r.y1)
+                    for _line_id, r in trimmed_rects
+                )
+                out_replacements.append(
+                    dataclasses.replace(
+                        job.replacement, erase_regions=erase_regions, paint_regions=erase_regions
+                    )
+                )
             continue
+
         page.insert_font(fontname=_FONT_NAME, fontfile=str(_FONT_FILE))
-        for trimmed_rect, replacement, is_primary in trimmed:
-            if not is_primary:
-                continue
-            box = pymupdf.Rect(
-                trimmed_rect.x0, trimmed_rect.y0 - 1, trimmed_rect.x1 + 2, trimmed_rect.y1 + 2
+        for job, trimmed_rects in trimmed_jobs:
+            erase_regions = tuple(
+                PdfRegion(page=page_num, x0=r.x0, y0=r.y0, x1=r.x1, y1=r.y1)
+                for _line_id, r in trimmed_rects
             )
-            degradation = _insert_marker_ladder(page, font, box, trimmed_rect, replacement)
-            if degradation is not None:
-                degradations.append(degradation)
+            group = groups_by_id[job.replacement.group_id]
+            label_region, marker_result = _place_label(
+                page,
+                font,
+                cache,
+                page_num,
+                job.seg_char_start,
+                trimmed_rects,
+                job.replacement,
+                group,
+                fill_color,
+            )
+            markers.append(marker_result)
+            paint_regions = (*erase_regions, label_region)
+            out_replacements.append(
+                dataclasses.replace(
+                    job.replacement,
+                    erase_regions=erase_regions,
+                    paint_regions=paint_regions,
+                    label_region=label_region,
+                )
+            )
 
     doc.set_metadata({})
     doc.del_xml_metadata()
@@ -378,7 +464,16 @@ def render_pdf_redacted(
     # Сортировка по (page, line_id) — план T2.2.2, раздел «Детерминизм»:
     # порядок коллизий не должен зависеть от порядка plan.replacements.
     collisions.sort(key=lambda item: (item.page, item.line_id))
-    return RenderOutcome(degradations=tuple(degradations), collisions=tuple(collisions))
+    # Порядок замен на выходе — порядок plan.replacements (текстовый), не
+    # порядок обхода страниц (план T1.6/T1.8, раздел «Детерминизм»).
+    order_by_ref = {replacement.ref: index for index, replacement in enumerate(plan.replacements)}
+    out_replacements.sort(key=lambda item: order_by_ref[item.ref])
+    markers.sort(key=lambda item: order_by_ref[item.ref])
+    return RenderOutcome(
+        replacements=tuple(out_replacements),
+        markers=tuple(markers),
+        collisions=tuple(collisions),
+    )
 
 
 def _parse_locator(locator: tuple[str | int | float, ...]) -> tuple[int, int, int]:
@@ -388,74 +483,135 @@ def _parse_locator(locator: tuple[str | int | float, ...]) -> tuple[int, int, in
     return int(page_num), int(char_start), int(char_end)
 
 
-def _insert_marker_ladder(
+def _try_ladder(
     page: pymupdf.Page,
     font: pymupdf.Font,
     box: pymupdf.Rect,
-    rect: pymupdf.Rect,
-    replacement: Replacement,
-) -> MarkerDegradation | None:
-    """Вписать текст по лестнице отступления стиля ``marker``, вернуть факт деградации.
+    ladder: list[tuple[str, str]],
+) -> tuple[str, str, float] | None:
+    """Попробовать вписать в ``box`` первую подходящую ступень лестницы.
 
-    Вызывается только для стиля ``marker`` — ``blackbox`` эту функцию не
-    зовёт вовсе (план T2.2.2, шаг 1). ``None``, если поместился полный
-    маркер — деградации не было.
+    Идём по ступеням от лучшей к худшей; на каждой — по размерам шрифта от
+    крупного к минимальному (пол — 8 pt, план М1, правило 1). Пустая
+    строка ступени (``""`` — «пусто») никогда не пробуется здесь: это
+    сигнал вызывающему оставить подсветку без текста, а не настоящий текст
+    для вставки. ``insert_textbox`` — единственный надёжный тест: он либо
+    реально вписывает текст и возвращает остаток высоты, либо не пишет
+    ничего и возвращает отрицательное число (план T2.2.1, риск Р6).
+
+    Поднимает ``MarkerDoesNotFitError`` только на вырожденный (нулевой или
+    отрицательной площади) прямоугольник — сигнал ошибки геометрии выше по
+    стеку, а не «место кончилось».
     """
-    if rect.width <= 0 or rect.height <= 0:
-        raise MarkerDoesNotFitError(f"вырожденный прямоугольник {rect!r} — вставлять текст некуда")
-
-    type_label = type_marker_label(replacement.entity.type)
-    steps: list[tuple[str, str, int]] = [
-        (replacement.marker, "marker", pymupdf.TEXT_ALIGN_LEFT),
-        (type_label, "type_label", pymupdf.TEXT_ALIGN_CENTER),
-    ]
-
-    for text, shown_as, align in steps:
-        if _fits(page, font, box, rect, text, _MARKER_TEXT_COLOR, align):
-            if shown_as == "marker":
-                return None
-            return MarkerDegradation(
-                page=page.number,
-                entity_type=replacement.entity.type,
-                marker=replacement.marker,
-                shown_as=shown_as,
-            )
-    return MarkerDegradation(
-        page=page.number,
-        entity_type=replacement.entity.type,
-        marker=replacement.marker,
-        shown_as="blank",
-    )
-
-
-def _fits(
-    page: pymupdf.Page,
-    font: pymupdf.Font,
-    box: pymupdf.Rect,
-    rect: pymupdf.Rect,
-    text: str,
-    color: tuple[float, float, float],
-    align: int,
-) -> bool:
-    """Попробовать вписать ``text`` в ``box``, проверив настоящий результат.
-
-    ``insert_textbox`` возвращает отрицательное число, если текст не
-    поместился. `text_length` — дешёвая отсечка ширины до настоящей
-    (небесплатной, с побочным эффектом) вставки; настоящий возврат
-    проверяется всегда — оценка по ширине не учитывает перенос по высоте.
-    """
-    for size in _MARKER_FONT_SIZES:
-        if font.text_length(text, fontsize=size) > rect.width:
+    if box.width <= 0 or box.height <= 0:
+        raise MarkerDoesNotFitError(f"вырожденный прямоугольник {box!r} — вставлять текст некуда")
+    for text, fallback_reason in ladder:
+        if not text:
             continue
-        result = page.insert_textbox(
-            box,
-            text,
-            fontname=_FONT_NAME,
-            fontfile=str(_FONT_FILE),
-            fontsize=size,
-            color=color,
-            align=align,
+        for size in _MARKER_FONT_SIZES:
+            if font.text_length(text, fontsize=size) > box.width:
+                continue
+            result = page.insert_textbox(
+                box,
+                text,
+                fontname=_FONT_NAME,
+                fontfile=str(_FONT_FILE),
+                fontsize=size,
+                color=_MARKER_TEXT_COLOR,
+                align=pymupdf.TEXT_ALIGN_LEFT,
+            )
+            if result >= 0:
+                return text, fallback_reason, size
+    return None
+
+
+def _place_label(
+    page: pymupdf.Page,
+    font: pymupdf.Font,
+    cache: _PageCharsCache,
+    page_num: int,
+    seg_char_start: int,
+    trimmed_rects: list[tuple[int, pymupdf.Rect]],
+    replacement: Replacement,
+    group: MaskGroup,
+    fill_color: tuple[float, float, float],
+) -> tuple[PdfRegion, MarkerRenderResult]:
+    """Выбрать подходящий эрейз-прямоугольник сущности и вписать в него
+    подпись по лестнице отступления (план М1).
+
+    Кандидаты — все прямоугольники сущности (по одному на строку), каждый
+    расширенный вправо в доказанно свободное место своей строки
+    (``_free_extension_right``). Перебираем от кандидата с наибольшей
+    итоговой шириной поля подписи (план М1, правило 2: не обязательно
+    первая строка), пробуя на каждом всю лестницу текста. Если не влезла
+    даже самая короткая непустая ступень ни на одном кандидате — подсветка
+    остаётся без текста (``fallback_reason="blank"``), но не падает.
+    """
+    for _line_id, rect in trimmed_rects:
+        if rect.width <= 0 or rect.height <= 0:
+            raise MarkerDoesNotFitError(
+                f"вырожденный прямоугольник {rect!r} — вставлять текст некуда"
+            )
+
+    chars = cache.chars(page_num)
+    line_boxes = cache.line_boxes(page_num)
+    abs_start = seg_char_start + replacement.entity.start
+    abs_end = seg_char_start + replacement.entity.end
+
+    candidates: list[tuple[pymupdf.Rect, pymupdf.Rect]] = []  # (erase_rect, label_box)
+    for line_id, erase_rect in trimmed_rects:
+        extension_x1 = _free_extension_right(
+            chars, line_id, erase_rect, abs_start, abs_end, line_boxes[line_id]
         )
-        if result >= 0:
-            return True
-    return False
+        label_box = pymupdf.Rect(
+            erase_rect.x0,
+            erase_rect.y0 - 1,
+            max(erase_rect.x1, extension_x1) + 2,
+            erase_rect.y1 + 2,
+        )
+        candidates.append((erase_rect, label_box))
+
+    # Правило 2: перебор от кандидата с наибольшей итоговой шириной поля
+    # подписи, а не всегда первая строка сущности.
+    ordered = sorted(range(len(candidates)), key=lambda i: -candidates[i][1].width)
+
+    ladder = marker_ladder(group)
+    for idx in ordered:
+        erase_rect, label_box = candidates[idx]
+        if label_box.x1 > erase_rect.x1 + 1e-6:
+            # Расширение вправо доказанно свободно (``_free_extension_right``)
+            # — красим его отдельно от удаления (план М1, правило 3): сама
+            # область удаления при этом не меняется ни на пункт.
+            page.draw_rect(
+                pymupdf.Rect(erase_rect.x1, label_box.y0, label_box.x1, label_box.y1),
+                color=fill_color,
+                fill=fill_color,
+                width=0,
+            )
+        outcome = _try_ladder(page, font, label_box, ladder)
+        if outcome is not None:
+            text, fallback_reason, size = outcome
+            region = PdfRegion(
+                page=page.number, x0=label_box.x0, y0=label_box.y0, x1=label_box.x1, y1=label_box.y1
+            )
+            return region, MarkerRenderResult(
+                ref=replacement.ref,
+                group_id=replacement.group_id,
+                page=page.number,
+                font_size=size,
+                shown_label=text,
+                fallback_reason=fallback_reason,
+            )
+
+    erase_rect, _label_box = candidates[ordered[0]]
+    region = PdfRegion(
+        page=page.number, x0=erase_rect.x0, y0=erase_rect.y0, x1=erase_rect.x1, y1=erase_rect.y1
+    )
+    return region, MarkerRenderResult(
+        ref=replacement.ref,
+        group_id=replacement.group_id,
+        page=page.number,
+        font_size=0.0,
+        shown_label="",
+        fallback_reason="blank",
+    )

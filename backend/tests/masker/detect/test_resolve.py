@@ -13,9 +13,11 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 from masker.detect.agent import DetectAgent
 from masker.detect.resolve import is_validated, resolve_overlaps
-from masker.model import Anchor, Document, Entity, EntityType, Segment, Source
+from masker.model import Anchor, ConfidenceLevel, Document, Entity, EntityType, Segment, Source
 
 
 def _entity(etype: str, text: str, start: int, confidence: float = 1.0) -> Entity:
@@ -135,8 +137,15 @@ def test_rule5_resolved_rule_layer_still_gets_carved_by_agent() -> None:
     # неприкосновенным якорем для агента, а счёт не утекает ни в одну
     # другую сущность после обрезки.
     accounts = [e for e in result.entities if e.type == EntityType.BANK_ACCOUNT]
+    # Счёт — критичный тип (Р8): уровень уверенности всегда `CONFIRMED`,
+    # это не зависит от исхода обрезки, проверяемого этим тестом.
     assert accounts == [
-        _entity(EntityType.BANK_ACCOUNT, "40702810100000000002", start=number_start, confidence=1.0)
+        dataclasses.replace(
+            _entity(
+                EntityType.BANK_ACCOUNT, "40702810100000000002", start=number_start, confidence=1.0
+            ),
+            level=ConfidenceLevel.CONFIRMED,
+        )
     ]
     others = [e for e in result.entities if e.type != EntityType.BANK_ACCOUNT]
     assert not any("40702810100000000002" in e.text for e in others)

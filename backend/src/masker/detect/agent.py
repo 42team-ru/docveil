@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections.abc import Iterable
 
 from masker.detect.base import EntityDetector
+from masker.detect.confidence import classify_level
 from masker.detect.normalize import normalize_value
 from masker.detect.normalize_layout import normalize_for_detection
 from masker.detect.orgforms import (
@@ -159,6 +161,47 @@ class DetectAgent:
         return carved
 
     @staticmethod
+    def _count_signals(entity: Entity, found: list[tuple[EntityDetector, Entity]]) -> int:
+        """Сколько разных детекторов независимо нашли пересекающийся спан (Р8).
+
+        Считается по «сырым» находкам (``found``), собранным ДО разрешения
+        перекрытий — именно там ещё видно, что, например, оргформа-правило и
+        локальная NER независимо указали на одно и то же имя. После
+        ``_resolve_overlaps`` из двух перекрывшихся спанов остаётся один, и
+        сам факт согласия исчез бы, если бы его не посчитали здесь.
+        """
+        names = {
+            detector.name
+            for detector, candidate in found
+            if _overlaps(entity, candidate) and candidate.type == entity.type
+        }
+        return len(names)
+
+    def _levelled(
+        self, entities: list[Entity], found: list[tuple[EntityDetector, Entity]]
+    ) -> list[Entity]:
+        """Проставить уровень уверенности (Р8) каждой принятой сущности.
+
+        Сквозной досмотр (``sweep``) не участвует в ``found`` — его находки
+        не от отдельного детектора, а копия уже принятого значения в другом
+        месте документа, поэтому им достаётся тот же классификатор с
+        ``signal_count=1``: без второго независимого детектора и без
+        критичности/контрольной суммы они не станут ``CONFIRMED`` только за
+        счёт повторения текста.
+        """
+        return [
+            dataclasses.replace(
+                entity,
+                level=classify_level(
+                    entity,
+                    signal_count=self._count_signals(entity, found),
+                    registry=self._registry,
+                ),
+            )
+            for entity in entities
+        ]
+
+    @staticmethod
     def _has_fragment_evidence(entity_type: str, text: str) -> bool:
         if entity_type == EntityType.ORG_NAME:
             return has_organization_evidence(text)
@@ -280,5 +323,10 @@ class DetectAgent:
             [*entities, *sweep(document, entities, extra_sweep_types)],
             key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
+        # Уровень уверенности (Р8) — последний шаг, после того как состав
+        # принятых сущностей окончательно определён: `_count_signals` читает
+        # ещё не разрешённые `found`, а `sweep`-находки уже сами по себе
+        # заведомо однодетекторные (см. докстринг `_levelled`).
+        entities = self._levelled(entities, found)
         chunks = build_pii_chunks(document.segments, entities)
         return DetectionResult(entities=entities, chunks=chunks)

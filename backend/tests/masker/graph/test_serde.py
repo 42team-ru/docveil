@@ -6,6 +6,8 @@ from masker.detect.agent import DetectAgent
 from masker.graph.serde import (
     decisions_from_dicts,
     decisions_to_dicts,
+    entity_from_dict,
+    entity_to_dict,
     plan_from_dict,
     plan_to_dict,
     policy_questions_from_dicts,
@@ -16,7 +18,17 @@ from masker.graph.serde import (
 from masker.graph.state import State
 from masker.ingest.docx_ingest import ingest_docx
 from masker.mask import PlanAgent
-from masker.model import Action, Anchor, Decision, DecisionSource, EntityType, PolicyQuestion
+from masker.model import (
+    Action,
+    Anchor,
+    ConfidenceLevel,
+    Decision,
+    DecisionSource,
+    Entity,
+    EntityType,
+    PolicyQuestion,
+    Source,
+)
 from masker.profile import ProfileAgent
 from masker.refs import EntityIndex, entity_sort_key
 
@@ -33,6 +45,44 @@ def test_profile_serde_round_trip_is_json_stable() -> None:
     assert json.dumps(serialized, ensure_ascii=False, sort_keys=True) == json.dumps(
         profiles_to_dicts(profiles_from_dicts(serialized)), ensure_ascii=False, sort_keys=True
     )
+
+
+def test_entity_serde_round_trip_preserves_level() -> None:
+    """Р8: уровень уверенности — часть контракта Entity, обязан пережить
+    сериализацию в состояние чекпойнтера (state["entities"]), иначе он не
+    дойдёт от detect_node до report_node."""
+    entity = Entity(
+        type=EntityType.ORG_NAME,
+        text="Ромашка",
+        segment_order=0,
+        start=0,
+        end=7,
+        source=Source.NER,
+        confidence=0.7,
+        normalized="ромашка",
+        level=ConfidenceLevel.CONFIRMED,
+    )
+
+    assert entity_from_dict(entity_to_dict(entity)) == entity
+
+
+def test_entity_from_dict_defaults_missing_level_to_probable() -> None:
+    """Чекпойнт, записанный до Р8, не содержит ``level`` — старое состояние
+    не должно молча стать ``CONFIRMED`` (самое строгое неизвестное — самое
+    осторожное для отчёта, а не самое доверчивое)."""
+    data = entity_to_dict(
+        Entity(
+            type=EntityType.PERSON,
+            text="Иванов",
+            segment_order=0,
+            start=0,
+            end=6,
+            source=Source.NER,
+        )
+    )
+    del data["level"]
+
+    assert entity_from_dict(data).level == ConfidenceLevel.PROBABLE
 
 
 def test_plan_serde_round_trip_restores_tuples_and_skipped() -> None:

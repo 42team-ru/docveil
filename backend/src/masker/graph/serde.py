@@ -8,10 +8,12 @@ from masker.judge.agent import JudgeResult
 from masker.model import (
     Action,
     Anchor,
+    ConfidenceLevel,
     Decision,
     Entity,
     MaskGroup,
     MaskPlan,
+    PdfRegion,
     PolicyQuestion,
     Profile,
     ProfileMember,
@@ -41,6 +43,7 @@ def entity_to_dict(entity: Entity) -> dict[str, Any]:
         "source": entity.source.value,
         "confidence": entity.confidence,
         "normalized": entity.normalized,
+        "level": entity.level.value,
     }
 
 
@@ -54,6 +57,10 @@ def entity_from_dict(data: dict[str, Any]) -> Entity:
         Source(str(data["source"])),
         float(data.get("confidence", 1.0)),
         str(data.get("normalized", "")),
+        # Старые чекпойнты (до Р8) не знают об уровне — по умолчанию
+        # `PROBABLE`, самый строгий вариант для отчёта («не подтверждено»),
+        # а не молчаливое `CONFIRMED`.
+        ConfidenceLevel(str(data.get("level", ConfidenceLevel.PROBABLE.value))),
     )
 
 
@@ -266,6 +273,26 @@ def decisions_from_dicts(
     return decisions, overridden
 
 
+def pdf_region_to_dict(region: PdfRegion) -> dict[str, Any]:
+    return {
+        "page": region.page,
+        "x0": region.x0,
+        "y0": region.y0,
+        "x1": region.x1,
+        "y1": region.y1,
+    }
+
+
+def pdf_region_from_dict(data: dict[str, Any]) -> PdfRegion:
+    return PdfRegion(
+        page=int(data["page"]),
+        x0=float(data["x0"]),
+        y0=float(data["y0"]),
+        x1=float(data["x1"]),
+        y1=float(data["y1"]),
+    )
+
+
 def _replacement_to_dict(item: Replacement) -> dict[str, Any]:
     return {
         "ref": item.ref,
@@ -274,10 +301,17 @@ def _replacement_to_dict(item: Replacement) -> dict[str, Any]:
         "group_id": item.group_id,
         "profile_id": item.profile_id,
         "anchor": anchor_to_dict(item.anchor),
+        # Геометрия читаемой маски (план М1) заполняется рендером PDF уже
+        # после этого шага графа — на момент сериализации плана она обычно
+        # пуста, но контракт сериализации обязан её пережить не теряя.
+        "erase_regions": [pdf_region_to_dict(region) for region in item.erase_regions],
+        "paint_regions": [pdf_region_to_dict(region) for region in item.paint_regions],
+        "label_region": pdf_region_to_dict(item.label_region) if item.label_region else None,
     }
 
 
 def _replacement_from_dict(data: dict[str, Any]) -> Replacement:
+    label_region = data.get("label_region")
     return Replacement(
         ref=str(data["ref"]),
         entity=entity_from_dict(data["entity"]),
@@ -285,6 +319,9 @@ def _replacement_from_dict(data: dict[str, Any]) -> Replacement:
         group_id=str(data["group_id"]),
         profile_id=str(data["profile_id"]),
         anchor=anchor_from_dict(data["anchor"]),
+        erase_regions=tuple(pdf_region_from_dict(item) for item in data.get("erase_regions", [])),
+        paint_regions=tuple(pdf_region_from_dict(item) for item in data.get("paint_regions", [])),
+        label_region=pdf_region_from_dict(label_region) if label_region else None,
     )
 
 
@@ -299,6 +336,8 @@ def _mask_group_to_dict(item: MaskGroup) -> dict[str, Any]:
         "number": item.number,
         "refs": list(item.refs),
         "sample": item.sample,
+        "canonical_label": item.canonical_label,
+        "compact_label": item.compact_label,
     }
 
 
@@ -313,6 +352,8 @@ def _mask_group_from_dict(data: dict[str, Any]) -> MaskGroup:
         number=int(data["number"]),
         refs=tuple(str(value) for value in data["refs"]),
         sample=str(data["sample"]),
+        canonical_label=str(data.get("canonical_label", "")),
+        compact_label=str(data.get("compact_label", "")),
     )
 
 

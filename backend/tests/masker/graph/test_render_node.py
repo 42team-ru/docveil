@@ -129,20 +129,32 @@ def test_render_node_surfaces_pdf_marker_degradations(
     Деградация инжектируется через monkeypatch: конкретный PDF-документ не
     обязан иметь узкие поля при текущем наборе сущностей — важно, что
     render_node корректно доносит список деградаций до состояния."""
+    from masker.model import MarkerRenderResult
     from masker.render import pdf_render as pdf_render_module
-    from masker.render.pdf_render import MarkerDegradation, RenderOutcome
-
-    fake_degradation = MarkerDegradation(
-        page=1, entity_type="org_name", marker="[ОРГАНИЗАЦИЯ-1]", shown_as="type_label"
-    )
+    from masker.render.pdf_render import RenderOutcome
 
     original_render = pdf_render_module.render_pdf_redacted
 
     def patched_render(*args, **kwargs):
         outcome = original_render(*args, **kwargs)
-        extra = (fake_degradation,) if kwargs.get("style") == "marker" else ()
+        if kwargs.get("style") != "marker" or not outcome.markers:
+            return outcome
+        fake_marker = MarkerRenderResult(
+            ref=outcome.markers[0].ref,
+            group_id=outcome.markers[0].group_id,
+            page=1,
+            font_size=8.0,
+            shown_label="ОРГАНИЗАЦИЯ",
+            fallback_reason="type_only",
+        )
+        # Реальные деградации фикстуры (если есть) отфильтрованы — тест
+        # проверяет ровно то, что render_node доносит инжектированную
+        # запись до состояния, независимо от того, деградировало ли что-то
+        # взаправду на этом документе (докстринг выше).
+        no_fallback = tuple(item for item in outcome.markers if not item.fallback_reason)
         return RenderOutcome(
-            degradations=outcome.degradations + extra,
+            replacements=outcome.replacements,
+            markers=(*no_fallback, fake_marker),
             collisions=outcome.collisions,
         )
 
@@ -169,7 +181,7 @@ def test_render_node_surfaces_pdf_marker_degradations(
     assert degradations, "render_node должен доносить деградации из PDF-рендера до состояния"
     sample = degradations[0]
     assert sample["artifact"] == "masked_highlight.pdf"
-    assert sample["shown_as"] in ("type_label", "blank")
+    assert sample["fallback_reason"] == "type_only"
     assert isinstance(sample["page"], int)
     assert sample["entity_type"]
 
@@ -180,20 +192,28 @@ def test_render_node_blackbox_never_surfaces_degradations(
     """`report["render_degradations"]` для прогона со стилями
     `blackbox`+`marker` не содержит ни одной записи с
     `"role": "masked_black"` (план T2.2.2, шаг 1, приёмка)."""
+    from masker.model import MarkerRenderResult
     from masker.render import pdf_render as pdf_render_module
-    from masker.render.pdf_render import MarkerDegradation, RenderOutcome
-
-    fake_degradation = MarkerDegradation(
-        page=1, entity_type="org_name", marker="[ОРГАНИЗАЦИЯ-1]", shown_as="type_label"
-    )
+    from masker.render.pdf_render import RenderOutcome
 
     original_render = pdf_render_module.render_pdf_redacted
 
     def patched_render(*args, **kwargs):
         outcome = original_render(*args, **kwargs)
-        extra = (fake_degradation,) if kwargs.get("style") == "marker" else ()
+        if kwargs.get("style") != "marker" or not outcome.markers:
+            return outcome
+        fake_marker = MarkerRenderResult(
+            ref=outcome.markers[0].ref,
+            group_id=outcome.markers[0].group_id,
+            page=1,
+            font_size=8.0,
+            shown_label="ОРГАНИЗАЦИЯ",
+            fallback_reason="type_only",
+        )
+        no_fallback = tuple(item for item in outcome.markers if not item.fallback_reason)
         return RenderOutcome(
-            degradations=outcome.degradations + extra,
+            replacements=outcome.replacements,
+            markers=(*no_fallback, fake_marker),
             collisions=outcome.collisions,
         )
 

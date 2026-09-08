@@ -23,10 +23,9 @@ from masker.model import (
 )
 from masker.refs import EntityIndex
 from masker.render.pdf_render import (
-    MarkerDegradation,
     MarkerDoesNotFitError,
     _entity_rects,
-    _insert_marker_ladder,
+    _try_ladder,
     render_pdf_preview,
     render_pdf_redacted,
 )
@@ -223,14 +222,25 @@ def test_redacted_marker_appears_in_text(tmp_path: pathlib.Path) -> None:
 
 def test_pdf_marker_from_plan(tmp_path: pathlib.Path) -> None:
     """Ради этого шага всё затевалось: в PDF тоже маркер с ролью, а не
-    латинский тип."""
-    src = _make_pdf_with_inn(tmp_path)
+    латинский тип.
+
+    Своя (не общая) фикстура — с запасом свободного места после ИНН,
+    доказанно свободным для расширения подписи (план М1, правило 3):
+    `_make_pdf_with_inn` рассчитана впритык под голый ``[ИНН]`` и с полом
+    читаемости 8 pt (план М1, правило 1) не оставляет места для роли.
+    """
+    path = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 100), f"ИНН {_INN}          ", fontsize=12)
+    doc.save(str(path))
+    doc.close()
+
     dest = tmp_path / "redacted.pdf"
-    document = ingest_pdf(src)
+    document = ingest_pdf(path)
     entity = _entity_for_doc(document, _INN, EntityType.INN)
     index = EntityIndex([entity])
     profile = _profile_for("ПОСТАВЩИК", [entity], index)
-    render_pdf_redacted(src, dest, document, _plan(document, [entity], profiles=[profile]))
+    render_pdf_redacted(path, dest, document, _plan(document, [entity], profiles=[profile]))
     doc = pymupdf.open(str(dest))
     text = doc[0].get_text()
     doc.close()
@@ -332,7 +342,7 @@ def test_blackbox_inserts_no_text(tmp_path: pathlib.Path) -> None:
     doc.close()
     assert "ИНН" not in text, text
     assert text.strip() == "", text
-    assert outcome.degradations == ()
+    assert outcome.markers == ()
 
 
 def test_blackbox_never_reports_degradation(tmp_path: pathlib.Path) -> None:
@@ -356,7 +366,7 @@ def test_blackbox_never_reports_degradation(tmp_path: pathlib.Path) -> None:
     profile = _profile_for("ПОТРЕБИТЕЛЬ-ОРГАНИЗАЦИЯ-МАОУ-ГИМНАЗИЯ-1", [entity], index)
     plan = _plan(document, [entity], profiles=[profile])
     outcome = render_pdf_redacted(src, dest, document, plan, style="blackbox")
-    assert outcome.degradations == ()
+    assert outcome.markers == ()
     assert outcome.collisions == ()
 
 
@@ -456,7 +466,7 @@ def _org_replacement(marker: str = "[ПОСТАВЩИК-ОРГАНИЗАЦИЯ]"
     )
 
 
-# ── лестница отступления маркера (план T2.2.1, пачка 5, решение заказчика) ────
+# ── лестница отступления маркера (план М1) ─────────────────────────────────
 
 
 def test_pdf_insert_textbox_failure_is_loud_only_on_degenerate_rect(
@@ -470,73 +480,105 @@ def test_pdf_insert_textbox_failure_is_loud_only_on_degenerate_rect(
     page = doc[0]
     font = pymupdf.Font(fontfile=_FONT)
     degenerate = pymupdf.Rect(72, 100, 72, 100)  # нулевые ширина и высота
+    ladder = [("[ПОСТАВЩИК-ОРГАНИЗАЦИЯ]", ""), ("ОРГАНИЗАЦИЯ", "type_only")]
     try:
         with pytest.raises(MarkerDoesNotFitError):
-            _insert_marker_ladder(page, font, degenerate, degenerate, _org_replacement())
+            _try_ladder(page, font, degenerate, ladder)
     finally:
         doc.close()
 
 
-def test_pdf_marker_degrades_to_type_label_when_full_marker_does_not_fit(
+def test_ladder_falls_back_to_shorter_rung_when_full_marker_does_not_fit(
     tmp_path: pathlib.Path,
 ) -> None:
     """Не влез полный маркер, но влезла короткая метка типа — деградация,
-    не падение; факт спуска возвращается для отчёта человеку."""
+    не падение; факт спуска возвращается вызывающему для отчёта."""
     src = _make_pdf_with_inn(tmp_path)
     doc = pymupdf.open(str(src))
     page = doc[0]
     font = pymupdf.Font(fontfile=_FONT)
+    ladder = [("[ПОСТАВЩИК-ОРГАНИЗАЦИЯ]", ""), ("ОРГАНИЗАЦИЯ", "type_only")]
     try:
-        # 20pt: полный маркер (мин. ширина ~31pt на 2pt шрифте) не влезает
-        # ни при одном размере, короткая метка «ОРГАНИЗАЦИЯ» (~15pt на 2pt) — влезает.
-        narrow = pymupdf.Rect(72, 100, 92, 115)
-        replacement = _org_replacement()
-        degradation = _insert_marker_ladder(page, font, narrow, narrow, replacement)
+        # 90pt: полный маркер (мин. ширина ~125pt на 8pt, пол читаемости)
+        # не влезает ни при одном разрешённом размере, «ОРГАНИЗАЦИЯ»
+        # (мин. ширина ~62pt на 8pt) — влезает.
+        narrow = pymupdf.Rect(72, 100, 162, 115)
+        outcome = _try_ladder(page, font, narrow, ladder)
     finally:
         doc.close()
-    assert degradation == MarkerDegradation(
-        page=0, entity_type="org_name", marker=replacement.marker, shown_as="type_label"
-    )
+    assert outcome is not None
+    text, fallback_reason, size = outcome
+    assert text == "ОРГАНИЗАЦИЯ"
+    assert fallback_reason == "type_only"
+    assert size >= 8.0
 
 
-def test_pdf_marker_degrades_to_blank_when_nothing_fits(tmp_path: pathlib.Path) -> None:
-    """Не влезла даже короткая метка — пустой прямоугольник без текста,
-    исходный текст всё равно удалён, падения по-прежнему нет."""
+def test_ladder_returns_none_when_nothing_fits(tmp_path: pathlib.Path) -> None:
+    """Не влезла даже короткая метка — сигнал вызывающему оставить
+    подсветку без текста, падения по-прежнему нет."""
     src = _make_pdf_with_inn(tmp_path)
     doc = pymupdf.open(str(src))
     page = doc[0]
     font = pymupdf.Font(fontfile=_FONT)
+    ladder = [("[ПОСТАВЩИК-ОРГАНИЗАЦИЯ]", ""), ("ОРГАНИЗАЦИЯ", "type_only")]
     try:
-        # 10pt: даже метка «ОРГАНИЗАЦИЯ» (мин. ширина ~15pt) не влезает.
-        tiny = pymupdf.Rect(72, 100, 82, 115)
-        replacement = _org_replacement()
-        degradation = _insert_marker_ladder(page, font, tiny, tiny, replacement)
+        tiny = pymupdf.Rect(72, 100, 82, 115)  # 10pt — даже «ОРГАНИЗАЦИЯ» не влезает
+        outcome = _try_ladder(page, font, tiny, ladder)
     finally:
         doc.close()
-    assert degradation == MarkerDegradation(
-        page=0, entity_type="org_name", marker=replacement.marker, shown_as="blank"
-    )
+    assert outcome is None
 
 
-def test_marker_style_ladder_unchanged(tmp_path: pathlib.Path) -> None:
-    """Регрессия: откат `blackbox` (план T2.2.2, шаг 1) не задевает лестницу
-    `marker` — полный маркер по-прежнему первая и лучшая ступень."""
+def test_ladder_prefers_full_marker_when_it_fits(tmp_path: pathlib.Path) -> None:
+    """Регрессия: полный (канонический) маркер по-прежнему первая и лучшая
+    ступень лестницы, когда места достаточно."""
     src = _make_pdf_with_inn(tmp_path)
     doc = pymupdf.open(str(src))
     page = doc[0]
     font = pymupdf.Font(fontfile=_FONT)
+    ladder = [("[ПОСТАВЩИК-ОРГАНИЗАЦИЯ]", ""), ("ОРГАНИЗАЦИЯ", "type_only")]
     try:
         wide = pymupdf.Rect(72, 100, 300, 115)  # полный маркер сюда помещается
-        replacement = _org_replacement()
-        degradation = _insert_marker_ladder(page, font, wide, wide, replacement)
+        outcome = _try_ladder(page, font, wide, ladder)
     finally:
         doc.close()
-    assert degradation is None
+    assert outcome is not None
+    text, fallback_reason, _size = outcome
+    assert text == "[ПОСТАВЩИК-ОРГАНИЗАЦИЯ]"
+    assert fallback_reason == ""
+
+
+@pytest.mark.parametrize("width", [5.0, 12.0, 18.0, 25.0, 40.0, 90.0, 160.0, 400.0])
+def test_ladder_never_uses_a_font_below_the_readability_floor(
+    tmp_path: pathlib.Path, width: float
+) -> None:
+    """План М1, критерий приёмки: ни на одном прогоне маркер не отрендерен
+    шрифтом меньше 8 pt — свойство проверяется на диапазоне ширин поля, а
+    не на одном удачном примере."""
+    src = _make_pdf_with_inn(tmp_path)
+    doc = pymupdf.open(str(src))
+    page = doc[0]
+    font = pymupdf.Font(fontfile=_FONT)
+    ladder = [
+        ("[ПОСТАВЩИК-ФИО-1]", ""),
+        ("[ПОСТ-ФИО-1]", "role_short"),
+        ("[П-ФИО-1]", "role_initial"),
+        ("[Ф1]", "compact"),
+        ("ФИО", "type_only"),
+    ]
+    try:
+        box = pymupdf.Rect(72, 100, 72 + width, 115)
+        outcome = _try_ladder(page, font, box, ladder)
+    finally:
+        doc.close()
+    if outcome is not None:
+        _text, _reason, size = outcome
+        assert size >= 8.0
 
 
 def test_render_pdf_redacted_returns_degradation_report(tmp_path: pathlib.Path) -> None:
-    """`render_pdf_redacted` отдаёт список деградаций — план T2.2.1, пачка 5:
-    «каждый спуск на ступень ниже фиксируется в отчёте»."""
+    """`render_pdf_redacted` отдаёт факт деградации в `RenderOutcome.markers`
+    — «каждый спуск на ступень ниже фиксируется для отчёта»."""
     # Короткое исходное значение — узкий прямоугольник; длинная составная
     # роль профиля — маркер шире, чем это узкое поле, независимо от шрифта.
     src = _make_pdf_block(tmp_path, ["ШБС"])
@@ -555,10 +597,119 @@ def test_render_pdf_redacted_returns_degradation_report(tmp_path: pathlib.Path) 
     profile = _profile_for("ПОТРЕБИТЕЛЬ-ОРГАНИЗАЦИЯ-МАОУ-ГИМНАЗИЯ-1", [entity], index)
     plan = _plan(document, [entity], profiles=[profile])
     outcome = render_pdf_redacted(src, dest, document, plan, style="marker")
-    assert len(outcome.degradations) == 1, outcome.degradations
-    assert outcome.degradations[0].shown_as in ("type_label", "blank")
-    assert outcome.degradations[0].entity_type == "org_name"
-    assert outcome.degradations[0].page == 0
+    assert len(outcome.markers) == 1, outcome.markers
+    assert outcome.markers[0].fallback_reason != ""
+    assert outcome.markers[0].font_size == 0.0 or outcome.markers[0].font_size >= 8.0
+    assert outcome.markers[0].page == 0
+
+
+# ── контракт читаемой маски: erase/paint/label раздельны (план М1) ────────────
+
+
+def test_multiline_entity_picks_widest_line_for_label_not_first(tmp_path: pathlib.Path) -> None:
+    """План М1, правило 2: подпись ставится в пригодный прямоугольник, а
+    не в первый — первая строка многострочного ФИО тут состоит из одного
+    инициала и физически не может вместить даже сокращённую метку, а
+    вторая строка (полное продолжение) — может."""
+    src = _make_pdf_block(tmp_path, ["И", "Морозова Инга Петровна далее по тексту"])
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    seg = document.segments[0]
+    entity = Entity(
+        type=EntityType.PERSON,
+        text=seg.text.strip(),
+        segment_order=seg.order,
+        start=0,
+        end=len(seg.text.strip()),
+        source=Source.NER,
+        confidence=0.9,
+        normalized=seg.text.strip().lower(),
+    )
+    outcome = render_pdf_redacted(src, dest, document, _plan(document, [entity]))
+    assert len(outcome.markers) == 1
+    # Первая строка («И» в одиночестве) не могла вместить ни одной
+    # непустой ступени лестницы — если бы рендер настаивал на первой
+    # строке, результат был бы `fallback_reason="blank"`.
+    assert outcome.markers[0].shown_label != ""
+    assert outcome.markers[0].fallback_reason == ""
+
+
+def test_style_marker_fills_erase_paint_and_label_regions(tmp_path: pathlib.Path) -> None:
+    """Контракт М1: `erase_regions`/`paint_regions`/`label_region`
+    заполнены после рендера стиля `marker`, а не пусты, как в исходном
+    плане (до заполнения рендером)."""
+    src = _make_pdf_with_inn(tmp_path)
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    outcome = render_pdf_redacted(src, dest, document, _plan(document, [entity]), style="marker")
+    assert len(outcome.replacements) == 1
+    replacement = outcome.replacements[0]
+    assert replacement.erase_regions
+    assert replacement.paint_regions
+    assert replacement.label_region is not None
+
+
+def test_style_blackbox_fills_erase_and_paint_but_not_label(tmp_path: pathlib.Path) -> None:
+    """`blackbox` считает геометрию удаления, но никогда не строит подпись
+    — `label_region` остаётся `None` (план М1)."""
+    src = _make_pdf_with_inn(tmp_path)
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    outcome = render_pdf_redacted(src, dest, document, _plan(document, [entity]), style="blackbox")
+    replacement = outcome.replacements[0]
+    assert replacement.erase_regions
+    assert replacement.paint_regions
+    assert replacement.label_region is None
+
+
+def test_label_extension_does_not_erase_neighbouring_kept_word(tmp_path: pathlib.Path) -> None:
+    """План М1, правило 3: расширение поля подписи — только в доказанно
+    свободное место своей строки, `erase_regions` не трогается никогда.
+
+    Без разделения регионов (одна и та же геометрия и для удаления, и для
+    подписи) этот тест падает: чтобы вписать канонический маркер, старый
+    код раздвигал сам прямоугольник **удаления**, и `apply_redactions`
+    стирал бы часть соседнего слова, которое в план не входит."""
+    path = tmp_path / "neighbour.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=_FONT)
+    # Один инициал — сущность, за которой (через несколько пробелов —
+    # доказанно свободное место) следует НЕ входящее в план слово.
+    page.insert_text((72, 100), "И        Незыблемовна", fontname="dvu", fontsize=12)
+    doc.save(str(path))
+    doc.close()
+
+    document = ingest_pdf(path)
+    seg = document.segments[0]
+    entity = Entity(
+        type=EntityType.PERSON,
+        text="И",
+        segment_order=seg.order,
+        start=0,
+        end=1,
+        source=Source.RULE,
+        confidence=1.0,
+        normalized="и",
+    )
+    dest = tmp_path / "redacted.pdf"
+    outcome = render_pdf_redacted(path, dest, document, _plan(document, [entity]))
+
+    doc = pymupdf.open(str(dest))
+    text = doc[0].get_text()
+    doc.close()
+    assert "Незыблемовна" in text, text
+
+    replacement = outcome.replacements[0]
+    erase_region = replacement.erase_regions[0]
+    label_region = replacement.label_region
+    assert label_region is not None
+    # Подпись имела право расшириться вправо (доказанно свободное место),
+    # но сама область удаления не изменилась ни на пункт.
+    assert erase_region.x1 - erase_region.x0 < 12.0
+    assert label_region.x1 >= erase_region.x1
 
 
 # ── обрезка прямоугольника по соседней строке (Д10, план T2.2.2, шаг 3) ───────

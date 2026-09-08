@@ -104,8 +104,24 @@ def test_layout_diff_is_zero_on_clean_render(tmp_path: pathlib.Path) -> None:
 
 def test_layout_diff_ignores_inserted_markers(tmp_path: pathlib.Path) -> None:
     """Стиль ``marker`` вставляет текст маркера — без ``markers`` это лишний
-    (``inserted``) символ, с ``markers`` он вычитается и расхождения нет."""
-    source = _make_source_two_lines(tmp_path)
+    (``inserted``) символ, с ``markers`` он вычитается и расхождения нет.
+
+    Своя фикстура с запасом свободного места после ``sekret`` (план М1,
+    правило 3: подпись может расшириться в доказанно свободное место
+    строки) — с полом читаемости 8 pt (правило 1) канонический маркер
+    ``[ОРГАНИЗАЦИЯ]`` не влезает в ширину голого слова «sekret», а тест
+    целенаправленно проверяет именно вставку канонического маркера, а не
+    лестницу отступления (ту проверяют тесты `render/test_pdf_render.py`).
+    """
+    path = tmp_path / "source_wide_tail.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=_FONT)
+    page.insert_text((72, 100), "Verhnyaya stroka sekret        ", fontname="dvu", fontsize=13)
+    page.insert_text((72, 112.7), "Nizhnyaya stroka tekst", fontname="dvu", fontsize=13)
+    doc.save(str(path))
+    doc.close()
+    source = path
     document = ingest_pdf(source)
     entity = _entity_for(document, "Verhnyaya", "sekret")
     plan = PlanAgent().plan(document, [entity])

@@ -21,7 +21,7 @@ from masker.detect.result import PiiChunk
 from masker.entity_types import EntityTypeRegistry
 from masker.graph.serde import judge_to_dicts, profiles_to_dicts
 from masker.judge.agent import JudgeResult
-from masker.model import Document, Entity, Leak, MaskPlan, ValidationReport
+from masker.model import ConfidenceLevel, Document, Entity, Leak, MaskPlan, ValidationReport
 from masker.profile.agent import ProfileResult
 
 REPORT_VERSION = 3
@@ -43,6 +43,10 @@ def _entity_record(
         "normalized": entity.normalized,
         "source": entity.source.value,
         "confidence": entity.confidence,
+        #: Уровень уверенности (Р8) — "confirmed"/"probable"/"possible".
+        #: "possible" дублируется в ``report["review_possible"]`` по группам,
+        #: чтобы UI мог снять лишнюю маску одним кликом.
+        "level": entity.level.value,
         "segment_order": entity.segment_order,
         "start": entity.start,
         "end": entity.end,
@@ -120,10 +124,14 @@ def _annotate_chunk(text: str, chunk: PiiChunk) -> str:
 def _summary(entities: list[Entity]) -> dict[str, Any]:
     by_type = Counter(entity.type for entity in entities)
     by_source = Counter(entity.source.value for entity in entities)
+    by_level = Counter(entity.level.value for entity in entities)
     return {
         "entities_total": len(entities),
         "by_type": dict(sorted(by_type.items())),
         "by_source": dict(sorted(by_source.items())),
+        #: Р8 — сколько сущностей на каждом уровне уверенности; "possible"
+        #: здесь же считает то, что попадёт в ``review_possible``.
+        "by_level": dict(sorted(by_level.items())),
         "minimum_confidence": min((entity.confidence for entity in entities), default=None),
     }
 
@@ -167,9 +175,29 @@ def _limitations_pdf(coverage: dict[str, Any]) -> list[str]:
     ]
 
 
-def _plan_record(plan: MaskPlan, registry: EntityTypeRegistry) -> dict[str, Any]:
+#: Порядок «силы» уровня для группы (Р8): группа наследует самый уверенный
+#: уровень, встреченный хоть у одной её сущности — единственное вхождение,
+#: подтверждённое дважды или контрольной суммой, снимает подозрение со
+#: всей группы одинаковых значений в документе.
+_LEVEL_RANK: dict[str, int] = {
+    ConfidenceLevel.POSSIBLE.value: 0,
+    ConfidenceLevel.PROBABLE.value: 1,
+    ConfidenceLevel.CONFIRMED.value: 2,
+}
+
+
+def _best_level(levels: list[str]) -> str:
+    return max(levels, key=lambda level: _LEVEL_RANK.get(level, -1))
+
+
+def _plan_record(
+    plan: MaskPlan,
+    registry: EntityTypeRegistry,
+    level_by_ref: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Сериализовать план масок для report.json — раздел «Проводка плана в CLI»."""
     skipped_by_reason: Counter[str] = Counter(item.reason for item in plan.skipped)
+    level_by_ref = level_by_ref or {}
     return {
         "requested_types": list(plan.requested_types),
         "groups": [
@@ -181,6 +209,13 @@ def _plan_record(plan: MaskPlan, registry: EntityTypeRegistry) -> dict[str, Any]
                 "profile_id": group.profile_id,
                 "ref_count": len(group.refs),
                 "sample": group.sample,
+                #: Р8 — лучший (самый уверенный) уровень среди ссылок группы;
+                #: "" — ни для одной ссылки уровень не известен report'у.
+                "level": _best_level(
+                    [level_by_ref[ref] for ref in group.refs if ref in level_by_ref]
+                )
+                if any(ref in level_by_ref for ref in group.refs)
+                else "",
             }
             for group in plan.groups
         ],
@@ -261,6 +296,19 @@ def build_report_payload(
     group_id_by_ref = (
         {repl.ref: repl.group_id for repl in plan.replacements} if plan is not None else {}
     )
+    # Р8: уровень уверенности по ссылке — читается прямо из `entities`
+    # (``Entity.level`` проставляет ``DetectAgent.detect()``), а не
+    # пересчитывается здесь заново — единственный источник правды один раз
+    # посчитан на детекции.
+    level_by_ref: dict[str, str] = (
+        {
+            ref_by_entity_id[id(entity)]: entity.level.value
+            for entity in entities
+            if id(entity) in ref_by_entity_id
+        }
+        if ref_by_entity_id is not None
+        else {}
+    )
     # ``document_coverage`` PDF-варианта не содержит ключа "tables" —
     # ``_limitations`` (докс-специфичные пункты) на нём упал бы KeyError;
     # PDF всегда идёт по ``_limitations_pdf`` (T1.10, шаг 9: единый путь
@@ -307,8 +355,17 @@ def build_report_payload(
         ],
         "limitations": limitations,
     }
+    review_possible: list[dict[str, Any]] = []
     if plan is not None:
-        report["plan"] = _plan_record(plan, registry or EntityTypeRegistry.builtin())
+        plan_record = _plan_record(plan, registry or EntityTypeRegistry.builtin(), level_by_ref)
+        report["plan"] = plan_record
+        # Р8, «снять одним кликом»: отдельная секция с группами уровня
+        # "possible" — ровно то, что заказчик просил не искать по всему
+        # отчёту, а увидеть одним списком.
+        review_possible = [
+            group for group in plan_record["groups"] if group["level"] == ConfidenceLevel.POSSIBLE
+        ]
+    report["review_possible"] = review_possible
     if profile_result is not None and judge_result is not None:
         # Сериализаторы графа задают единый публичный JSON-формат для CLI и State.
         report["profile_judge"] = {

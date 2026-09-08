@@ -13,7 +13,7 @@ from collections.abc import Mapping
 
 from masker.entity_types import EntityTypeRegistry
 from masker.mask.keys import group_key
-from masker.mask.labels import compose_marker, type_marker_label
+from masker.mask.labels import assign_compact_labels, compose_marker, type_marker_label
 from masker.model import (
     Action,
     Anchor,
@@ -99,6 +99,15 @@ class PlanAgent:
         marker_by_bucket, number_by_bucket = _assign_markers(
             buckets, role_label_by_profile_id, self._registry
         )
+        # Компактная метка (план М1) нумеруется сквозным счётчиком по типу
+        # для всего документа, а не по паре (роль, тип) — иначе два профиля
+        # с разными ролями схлопнутся в одинаковый `[Ф1]` (обе пары
+        # начинают свой номер с 1). Порядок — порядок вставки `buckets`,
+        # то есть порядок первого появления в тексте (детерминизм).
+        compact_label_by_bucket = assign_compact_labels(
+            [(bucket, items[0].entity.type) for bucket, items in buckets.items()],
+            self._registry,
+        )
 
         groups: list[MaskGroup] = []
         group_id_by_bucket: dict[_BucketKey, str] = {}
@@ -117,6 +126,8 @@ class PlanAgent:
                     number=number_by_bucket[bucket],
                     refs=tuple(item.ref for item in items),
                     sample=first.entity.text,
+                    canonical_label=marker_by_bucket[bucket],
+                    compact_label=compact_label_by_bucket[bucket],
                 )
             )
 

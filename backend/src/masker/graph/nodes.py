@@ -523,16 +523,29 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     outcome = pdf_render_module.render_pdf_redacted(
                         source, destination, document, plan, style=style
                     )
+                    groups_by_id = {group.id: group for group in plan.groups}
+                    # Только реальные спуски по лестнице отступления (план
+                    # М1) — пустой ``fallback_reason`` означает «показан
+                    # канонический маркер без сокращений», это не факт для
+                    # отчёта человеку, а норма.
                     render_degradations.extend(
                         {
                             "artifact": destination.name,
                             "role": role,
                             "page": item.page,
-                            "entity_type": item.entity_type,
-                            "marker": item.marker,
-                            "shown_as": item.shown_as,
+                            "group_id": item.group_id,
+                            "entity_type": groups_by_id[item.group_id].type
+                            if item.group_id in groups_by_id
+                            else "",
+                            "canonical_label": groups_by_id[item.group_id].canonical_label
+                            if item.group_id in groups_by_id
+                            else "",
+                            "shown_label": item.shown_label,
+                            "font_size": item.font_size,
+                            "fallback_reason": item.fallback_reason,
                         }
-                        for item in outcome.degradations
+                        for item in outcome.markers
+                        if item.fallback_reason
                     )
                 else:
                     docx_redact_module.render_docx_redacted(

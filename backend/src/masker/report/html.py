@@ -34,6 +34,9 @@ p { margin: 0; }
 .badge strong { font-size: 14px; }
 .warning { padding: 10px 12px; background: #fff3cd; border-left: 4px solid #b7791f;
   margin: 8px 0; }
+.cert-ok { margin-top: 12px; padding: 10px 12px; color: #14532d; background: #e6f4ea;
+  border-left: 4px solid #237a49; font-weight: 700; }
+tr.cert-fail-row td { background: #fde8e7; }
 table { width: 100%; border-collapse: collapse; background: #fff; }
 th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #e3e5e8;
   vertical-align: top; font-size: 13px; }
@@ -470,6 +473,52 @@ def _contract_summary_card(report: dict[str, Any]) -> str:
     return f'<div class="contract-card"><table><tbody>{"".join(rows)}</tbody></table></div>'
 
 
+_CERTIFICATE_TITLES: dict[str, str] = {
+    "leak_scan": "Побайтовый поиск утечек по всем частям файла",
+    "metadata_cleared": "Метаданные вычищены (/Info, XMP, docProps)",
+    "width_quantization": "Ширина маски не выдаёт длину оригинала (план М1)",
+}
+
+
+def _certificate_section(report: dict[str, Any]) -> str:
+    """Блок «Сертификат обезличивания» (план М3): три независимые проверки
+    итогового файла показаны прямо в отчёте — не «мы обезличили», а «вот
+    доказательство, и его можно перепроверить».
+
+    ``report["certificate"]`` отсутствует (``None``), когда редактирующий
+    артефакт не строился (``preview_only``, старый report.json) — тогда блок
+    явно говорит, что сертификат не считался, а не молчит и не выдаёт себя
+    за пройденный.
+    """
+    certificate = report.get("certificate")
+    if not certificate or not isinstance(certificate, dict):
+        return (
+            '<p class="empty">Сертификат не посчитан — редактирующий '
+            "артефакт не создавался (preview_only).</p>"
+        )
+    overall = (
+        '<p class="cert-ok">Сертификат пройден: все три проверки подтвердили обезличивание.</p>'
+        if certificate.get("ok")
+        else '<p class="danger">СЕРТИФИКАТ НЕ ПРОЙДЕН: как минимум одна из трёх '
+        "проверок провалена — см. таблицу ниже.</p>"
+    )
+    rows: list[str] = []
+    for check in certificate.get("checks") or []:
+        title = _CERTIFICATE_TITLES.get(str(check["name"]), str(check["name"]))
+        ok = bool(check.get("ok"))
+        status = "пройдена" if ok else "ПРОВАЛЕНА"
+        row_class = "" if ok else ' class="cert-fail-row"'
+        rows.append(
+            f"<tr{row_class}><td>{escape(title)}</td><td>{escape(status)}</td>"
+            f"<td>{escape(str(check.get('detail', '')))}</td></tr>"
+        )
+    table = (
+        "<table><thead><tr><th>Проверка</th><th>Итог</th><th>Обоснование</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+    return overall + table
+
+
 def _critical_unmasked_banner(report: dict[str, Any]) -> str:
     """Красный баннер, если человек осознанно снял маску с критичного типа.
 
@@ -510,6 +559,7 @@ def render_html_report(report: dict[str, Any], source: Path, destination: Path) 
 {critical_banner}
 </header><main>{missing_warning}
 {contract_section}
+<h2>Сертификат обезличивания</h2>{_certificate_section(report)}
 <h2>Покрытие документа</h2><table><thead><tr><th>Область</th><th>Обработана</th>
 <th>Фактическое содержимое</th></tr></thead><tbody>{_coverage(report)}</tbody></table>
 <h2>Группы согласованности</h2>{_groups(report)}

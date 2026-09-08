@@ -5,7 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from masker.cli import main
-from masker.report.html import _groups, _marker_legend, _pii_rows, _review_possible
+from masker.report.html import (
+    _certificate_section,
+    _groups,
+    _marker_legend,
+    _pii_rows,
+    _review_possible,
+)
 
 ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
@@ -156,3 +162,93 @@ def test_review_possible_block_renders_group_row() -> None:
 def test_review_possible_block_is_empty_but_present_without_section() -> None:
     assert "Групп уровня possible нет" in _review_possible({})
     assert "Групп уровня possible нет" in _review_possible({"review_possible": []})
+
+
+# ── сертификат обезличивания (план М3) ──────────────────────────────────────────
+
+
+def test_certificate_section_shows_ok_and_all_three_checks() -> None:
+    report = {
+        "certificate": {
+            "ok": True,
+            "checks": [
+                {"name": "leak_scan", "ok": True, "detail": "утечек не найдено"},
+                {"name": "metadata_cleared", "ok": True, "detail": "метаданные пусты"},
+                {"name": "width_quantization", "ok": True, "detail": "кратно 12pt"},
+            ],
+        }
+    }
+    html = _certificate_section(report)
+    assert "Сертификат пройден" in html
+    assert "СЕРТИФИКАТ НЕ ПРОЙДЕН" not in html
+    assert "пройдена" in html
+    assert "ПРОВАЛЕНА" not in html
+    for title in (
+        "Побайтовый поиск утечек",
+        "Метаданные вычищены",
+        "не выдаёт длину оригинала",
+    ):
+        assert title in html
+
+
+def test_certificate_section_shows_failure_banner_and_row_class() -> None:
+    report = {
+        "certificate": {
+            "ok": False,
+            "checks": [
+                {"name": "leak_scan", "ok": True, "detail": "утечек не найдено"},
+                {"name": "metadata_cleared", "ok": True, "detail": "метаданные пусты"},
+                {
+                    "name": "width_quantization",
+                    "ok": False,
+                    "detail": "R1 (person, стр. 1): ширина 68.20pt не кратна 12pt",
+                },
+            ],
+        }
+    }
+    html = _certificate_section(report)
+    assert "СЕРТИФИКАТ НЕ ПРОЙДЕН" in html
+    assert "ПРОВАЛЕНА" in html
+    assert 'class="cert-fail-row"' in html
+    assert "68.20pt" in html
+
+
+def test_certificate_section_escapes_detail() -> None:
+    report = {
+        "certificate": {
+            "ok": False,
+            "checks": [
+                {"name": "leak_scan", "ok": False, "detail": "<script>alert(1)</script>"},
+            ],
+        }
+    }
+    html = _certificate_section(report)
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_certificate_section_is_empty_but_present_without_section() -> None:
+    """``report["certificate"]`` может быть ``None`` (preview_only) или
+    отсутствовать (старый report.json) — блок явно говорит «не посчитан»,
+    а не притворяется пройденным."""
+    assert "не посчитан" in _certificate_section({})
+    assert "не посчитан" in _certificate_section({"certificate": None})
+
+
+def test_html_report_includes_certificate_heading(tmp_path: Path) -> None:
+    assert (
+        main(
+            [
+                str(FIXTURE),
+                "--out",
+                str(tmp_path),
+                "--types",
+                "all",
+                "--profile",
+                "--html",
+            ]
+        )
+        == 0
+    )
+    html = (tmp_path / FIXTURE.stem / "report.html").read_text(encoding="utf-8")
+    assert "Сертификат обезличивания" in html

@@ -706,6 +706,10 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
     # шаг 5: сохранность вёрстки PDF читается тем же взглядом, что и
     # leaked/render_degradations, а не через вложенный validation.layout.
     report["layout"] = report["validation"].get("layout", [])
+    # Дубль report["validation"]["certificate"] на верхнем уровне — план М3:
+    # сертификат обезличивания читается одним взглядом, не через вложенный
+    # validation.certificate (тот же приём, что и layout строкой выше).
+    report["certificate"] = report["validation"].get("certificate")
     contract_summary = state.get("contract_summary")
     if contract_summary:
         report["contract_summary"] = contract_summary

@@ -51,6 +51,10 @@ _REFERENCE_KEYS = frozenset(
         "marker_legend",
         #: Сохранность текстового слоя PDF вне замен (план T2.2.2, шаг 5).
         "layout",
+        #: Сертификат обезличивания (план М3) — дубль
+        #: ``validation["certificate"]`` на верхнем уровне, тот же приём,
+        #: что и ``layout`` строкой выше.
+        "certificate",
         #: Р8 — «снять одним кликом»: группы уровня "possible" отдельным
         #: списком, даже пустым, если план был построен.
         "review_possible",
@@ -116,6 +120,28 @@ def test_report_node_json_serializable_and_has_no_absolute_paths(tmp_path: Path)
     dumped = json.dumps(report, ensure_ascii=False)  # не должно упасть — json-сериализуемо
     assert str(tmp_path) not in dumped
     assert report["input"] == FIXTURE.name
+
+
+def test_report_node_certificate_mirrors_validation_certificate(tmp_path: Path) -> None:
+    """План М3: ``report["certificate"]`` — дубль
+    ``report["validation"]["certificate"]`` на верхнем уровне, тот же приём,
+    что и ``report["layout"]``. Без редактирующего рендера (``styles=()``)
+    сертификат не считается вовсе — ``None``, а не молчаливая заглушка."""
+    skipped_state = _full_state(tmp_path)
+    skipped_report = nodes.make_report_node(nodes.RunDeps())(skipped_state)["report"]
+    assert skipped_report["certificate"] is None
+
+    redacted_state = _full_state(tmp_path, styles=("marker", "blackbox"))
+    redacted_report = nodes.make_report_node(nodes.RunDeps())(redacted_state)["report"]
+    certificate = redacted_report["certificate"]
+    assert certificate is redacted_report["validation"]["certificate"]
+    assert certificate is not None
+    assert certificate["ok"] is True
+    assert {check["name"] for check in certificate["checks"]} == {
+        "leak_scan",
+        "metadata_cleared",
+        "width_quantization",
+    }
 
 
 def test_report_node_without_profile_has_no_profile_judge_key(tmp_path: Path) -> None:

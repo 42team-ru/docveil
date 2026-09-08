@@ -156,6 +156,12 @@ MAX_RENDER_FAILURES = 0
 #: соседней строки. Порог нулевой — как и у leaked_total, «немного вёрстки
 #: потеряно» не бывает мелочью.
 MAX_LAYOUT_REMOVED_CHARS = 0
+#: Сертификат обезличивания (план М3) — три независимые проверки (утечки,
+#: метаданные, квантование ширины эрейз-региона) итогового файла. Провал
+#: любой из них — провал прогона, порог нулевой, как и у ``leaked_total``:
+#: «сертификат почти прошёл» не бывает мелочью, это ровно то, что нельзя
+#: показать на защите как доказательство.
+MAX_CERTIFICATE_FAILURES = 0
 #: Порог на recall метаморфного корпуса (К1, `masker.evalgen`) — той же
 #: сущности в другом написании (разрядка, вёрсточные пробелы, перенос
 #: строки, гомоглифы и опечатки в метке, альтернативные подписи, формы ФИО
@@ -388,6 +394,11 @@ class MaskingMetrics:
     layout_removed_chars: int = 0
     layout_failures: list[str] = field(default_factory=list)
     render_failures: list[str] = field(default_factory=list)
+    #: Сколько документов провалили сертификат обезличивания (план М3) — по
+    #: любому из трёх пунктов. Счётчик документов, а не пунктов: один
+    #: провалившийся документ не должен размножаться на три строки в сумме.
+    certificate_failures: int = 0
+    certificate_failure_details: list[str] = field(default_factory=list)
 
 
 def _mask_corpus(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> MaskingMetrics:
@@ -425,6 +436,15 @@ def _mask_corpus(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> MaskingMe
                             f"{path.name}/{layout.artifact}: removed={layout.removed_chars} "
                             f"pages={list(layout.pages)} {layout.first_diff}"
                         )
+                certificate = result.validation.certificate
+                if certificate is not None and not certificate.ok:
+                    metrics.certificate_failures += 1
+                    failed_checks = "; ".join(
+                        f"{check.name}: {check.detail}"
+                        for check in certificate.checks
+                        if not check.ok
+                    )
+                    metrics.certificate_failure_details.append(f"{path.name}: {failed_checks}")
         except RunFailedError as error:
             # Не глотать тихо: документ выпадает из P/R/F1 (план на него не
             # посчитан), но факт и место падения обязаны остаться видимыми —
@@ -466,6 +486,9 @@ def _print_main_corpus(metrics: MaskingMetrics, registry: EntityTypeRegistry) ->
     print(f"layout_removed_chars{metrics.layout_removed_chars:>14}")
     for failure in metrics.layout_failures:
         print(f"  {failure}")
+    print(f"certificate_failures{metrics.certificate_failures:>14}")
+    for failure in metrics.certificate_failure_details:
+        print(f"  {failure}")
     print(f"render_failures{len(metrics.render_failures):>19}")
     for failure in metrics.render_failures:
         print(f"  {failure}")
@@ -488,6 +511,12 @@ def _print_main_corpus(metrics: MaskingMetrics, registry: EntityTypeRegistry) ->
         failures.append(
             f"render_failures {len(metrics.render_failures)} > {MAX_RENDER_FAILURES} — "
             "рендер упал на документе(ах) корпуса: " + "; ".join(metrics.render_failures)
+        )
+    if metrics.certificate_failures > MAX_CERTIFICATE_FAILURES:
+        failures.append(
+            f"certificate_failures {metrics.certificate_failures} > "
+            f"{MAX_CERTIFICATE_FAILURES} — сертификат обезличивания (план М3) не прошёл "
+            "хотя бы один пункт: " + "; ".join(metrics.certificate_failure_details)
         )
     return failures
 
@@ -554,6 +583,9 @@ def _print_holdout(metrics: MaskingMetrics, registry: EntityTypeRegistry) -> lis
     )
     print(f"holdout_leaked_total{metrics.leaked_total:>13}")
     print(f"holdout_duplicate_markers{metrics.duplicate_markers:>8}")
+    print(f"holdout_certificate_failures{metrics.certificate_failures:>4}")
+    for failure in metrics.certificate_failure_details:
+        print(f"  {failure}")
     for failure in metrics.render_failures:
         print(f"  {failure}")
 
@@ -574,6 +606,11 @@ def _print_holdout(metrics: MaskingMetrics, registry: EntityTypeRegistry) -> lis
     if metrics.duplicate_markers > MAX_DUPLICATE_MARKERS:
         failures.append(
             f"holdout duplicate_markers {metrics.duplicate_markers} > {MAX_DUPLICATE_MARKERS}"
+        )
+    if metrics.certificate_failures > MAX_CERTIFICATE_FAILURES:
+        failures.append(
+            f"holdout certificate_failures {metrics.certificate_failures} > "
+            f"{MAX_CERTIFICATE_FAILURES}: {'; '.join(metrics.certificate_failure_details)}"
         )
     if metrics.render_failures:
         failures.append(f"holdout render_failures: {'; '.join(metrics.render_failures)}")
@@ -596,6 +633,9 @@ def _print_negative(metrics: MaskingMetrics) -> list[str]:
         for item in sorted(found):
             print(f"    {item[0]}: {item[2]!r}")
     print(f"{'ИТОГО':<18}{total_fp:>7}")
+    print(f"negative_certificate_failures{metrics.certificate_failures:>4}")
+    for failure in metrics.certificate_failure_details:
+        print(f"  {failure}")
 
     failures: list[str] = []
     if total_fp > MAX_NEGATIVE_FALSE_POSITIVES:
@@ -604,6 +644,11 @@ def _print_negative(metrics: MaskingMetrics) -> list[str]:
         )
     if metrics.leaked_total > MAX_LEAKED_TOTAL:
         failures.append(f"негативный корпус leaked_total {metrics.leaked_total} > 0")
+    if metrics.certificate_failures > MAX_CERTIFICATE_FAILURES:
+        failures.append(
+            f"негативный корпус certificate_failures {metrics.certificate_failures} > "
+            f"{MAX_CERTIFICATE_FAILURES}: {'; '.join(metrics.certificate_failure_details)}"
+        )
     if metrics.render_failures:
         failures.append(f"негативный корпус render_failures: {'; '.join(metrics.render_failures)}")
     return failures

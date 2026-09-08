@@ -22,6 +22,8 @@ import masker.eval as eval_module
 from masker.model import (
     Anchor,
     ArtifactLayout,
+    Certificate,
+    CertificateCheck,
     Entity,
     EntityType,
     Leak,
@@ -278,6 +280,96 @@ def test_eval_gate_passes_without_leak(
     output = capsys.readouterr().out
     assert code == 0
     assert _row(output, "leaked_total").split()[-1] == "0"
+
+
+def test_eval_gate_fails_on_certificate_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """План М3: сертификат обезличивания провалил пункт `width_quantization` —
+    ворота обязаны провалиться на `certificate_failures`, даже когда
+    `leaked_total`/`layout_removed_chars` в порядке."""
+    docx_path = tmp_path / "doc.docx"
+    docx_path.write_bytes(b"")
+    labels = {"entities": [{"type": "inn", "text": "1234567890"}]}
+    _patch_common(monkeypatch, [(docx_path, labels)])
+    certificate = Certificate(
+        ok=False,
+        checks=(
+            CertificateCheck(name="leak_scan", ok=True, detail="утечек не найдено"),
+            CertificateCheck(name="metadata_cleared", ok=True, detail="метаданные пусты"),
+            CertificateCheck(
+                name="width_quantization",
+                ok=False,
+                detail="R1 (inn, стр. 1): ширина 62.00pt не кратна 12pt",
+            ),
+        ),
+    )
+    result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.INN, "1234567890"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=ValidationReport(
+            leaked=(),
+            residual=(),
+            checked_artifacts=("masked_black.docx",),
+            checked_parts=(),
+            ok=True,
+            certificate=certificate,
+        ),
+        artifacts=(),
+    )
+    _patch_mask_and_validate(monkeypatch, {str(docx_path): result})
+
+    code = eval_module.run(gate=True)
+    output = capsys.readouterr().out
+    assert code == 1, "провал сертификата обязан провалить ворота"
+    assert _row(output, "certificate_failures").split()[-1] == "1"
+    assert "width_quantization" in output
+
+
+def test_eval_gate_passes_with_certificate_ok(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Симметричный случай: сертификат пройден целиком — ворота по
+    `certificate_failures` не падают."""
+    docx_path = tmp_path / "doc.docx"
+    docx_path.write_bytes(b"")
+    labels = {"entities": [{"type": "inn", "text": "1234567890"}]}
+    _patch_common(monkeypatch, [(docx_path, labels)])
+    certificate = Certificate(
+        ok=True,
+        checks=(
+            CertificateCheck(name="leak_scan", ok=True, detail="утечек не найдено"),
+            CertificateCheck(name="metadata_cleared", ok=True, detail="метаданные пусты"),
+            CertificateCheck(name="width_quantization", ok=True, detail="кратно 12pt"),
+        ),
+    )
+    result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.INN, "1234567890"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=ValidationReport(
+            leaked=(),
+            residual=(),
+            checked_artifacts=("masked_black.docx",),
+            checked_parts=(),
+            ok=True,
+            certificate=certificate,
+        ),
+        artifacts=(),
+    )
+    _patch_mask_and_validate(monkeypatch, {str(docx_path): result})
+
+    code = eval_module.run(gate=True)
+    output = capsys.readouterr().out
+    assert code == 0
+    assert _row(output, "certificate_failures").split()[-1] == "0"
 
 
 def test_eval_gate_fails_on_layout_loss(

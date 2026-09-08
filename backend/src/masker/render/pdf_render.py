@@ -353,6 +353,70 @@ def _quantize_erase_rect(
     return pymupdf.Rect(rect.x0, rect.y0, new_x1, rect.y1)
 
 
+def compute_erase_geometry(
+    source_path: str | pathlib.Path, plan: MaskPlan
+) -> dict[str, tuple[PdfRegion, ...]]:
+    """Пересчитать финальную (уже квантованную) геометрию ``erase_regions``
+    по исходному PDF и плану, не открывая и не редактируя ни одного
+    артефакта (план М3, сертификат обезличивания, пункт 3).
+
+    Тот же путь вычисления, что и внутри ``render_pdf_redacted`` (группировка
+    по странице → ``_rects_for_entity`` → ``_trim_to_own_line`` →
+    ``_quantize_erase_rect``) — детерминированная функция только от
+    ``(source_path, plan)``, поэтому её можно позвать заново уже после
+    рендера, не читая геометрию из самого артефакта: ``apply_redactions``
+    необратимо потребляет аннотацию редакции, восстановить прямоугольник из
+    готового файла нельзя. Единственное игнорируемое поле —
+    ``replacement.anchor.fmt != "pdf"`` (DOCX-замены плана пропускаются: у
+    них нет координатной геометрии).
+
+    Возвращает только ``erase_regions`` (не ``paint_regions``/``label_region``
+    — те зависят от стиля рендера и лестницы отступления подписи, здесь не
+    нужны). Ключ — ``Replacement.ref``, значение — один ``PdfRegion`` на
+    строку сущности (обычно один, больше — только у сущности, перенесённой
+    на новую строку).
+    """
+    doc = pymupdf.open(str(source_path))
+    try:
+        cache = _PageCharsCache(doc)
+        by_page: dict[int, list[_PageJob]] = defaultdict(list)
+        for replacement in plan.replacements:
+            if replacement.anchor.fmt != "pdf":
+                continue
+            page_num, seg_start, _seg_end = _parse_locator(replacement.anchor.locator)
+            rects = _rects_for_entity(cache, page_num, seg_start, replacement)
+            by_page[page_num].append(
+                _PageJob(replacement=replacement, seg_char_start=seg_start, rects=rects)
+            )
+
+        result: dict[str, tuple[PdfRegion, ...]] = {}
+        for page_num in sorted(by_page):
+            line_boxes = cache.line_boxes(page_num)
+            chars = cache.chars(page_num)
+            for job in by_page[page_num]:
+                abs_start = job.seg_char_start + job.replacement.entity.start
+                abs_end = job.seg_char_start + job.replacement.entity.end
+                regions: list[PdfRegion] = []
+                for line_id, rect in job.rects:
+                    trimmed_rect, _collided = _trim_to_own_line(rect, line_id, line_boxes)
+                    quantized_rect = _quantize_erase_rect(
+                        chars, line_id, trimmed_rect, abs_start, abs_end, line_boxes[line_id]
+                    )
+                    regions.append(
+                        PdfRegion(
+                            page=page_num,
+                            x0=quantized_rect.x0,
+                            y0=quantized_rect.y0,
+                            x1=quantized_rect.x1,
+                            y1=quantized_rect.y1,
+                        )
+                    )
+                result[job.replacement.ref] = tuple(regions)
+        return result
+    finally:
+        doc.close()
+
+
 def render_pdf_preview(
     source_path: str | pathlib.Path,
     dest_path: str | pathlib.Path,

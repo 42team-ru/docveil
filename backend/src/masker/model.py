@@ -437,6 +437,35 @@ class ArtifactLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class CertificateCheck:
+    """Один пункт сертификата обезличивания (план М3).
+
+    ``name`` — ``"leak_scan"`` | ``"metadata_cleared"`` | ``"width_quantization"``,
+    строковая константа, не для локализации — интерфейс отчёта переводит её
+    в заголовок сам. ``detail`` — человекочитаемое обоснование, независимо
+    от ``ok``: даже прошедшая проверка обязана показать, что именно и сколько
+    было проверено, а не просто «ок».
+    """
+
+    name: str
+    ok: bool
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class Certificate:
+    """Сертификат обезличивания (план М3): три независимые проверки итогового
+    файла, которые можно перепроверить, а не просто поверить отчёту.
+
+    ``ok`` — конъюнкция всех ``checks``: провал любого пункта — провал
+    сертификата целиком (``eval.py`` роняет ворота на любом ``not ok``).
+    """
+
+    ok: bool
+    checks: tuple[CertificateCheck, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ValidationReport:
     """Итог проверки обезличенных артефактов ``ValidateAgent``."""
 
@@ -449,3 +478,8 @@ class ValidationReport:
     #: прогонов, где ``source`` не передан ``ValidateAgent.validate`` или
     #: артефакты не PDF.
     layout: tuple[ArtifactLayout, ...] = ()
+    #: Сертификат обезличивания (план М3) — ``None`` только если сборка
+    #: сертификата не вызывалась вовсе (не должно происходить для реального
+    #: прогона ``ValidateAgent.validate``, но конструктор ``ValidationReport``
+    #: используют и тесты напрямую, без сертификата).
+    certificate: Certificate | None = None

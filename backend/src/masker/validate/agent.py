@@ -41,6 +41,7 @@ from masker.ingest.pdf_ingest import ingest_pdf
 from masker.mask.keys import group_key
 from masker.model import ArtifactLayout, Document, Leak, MaskPlan, ValidationReport
 from masker.refs import entity_sort_key
+from masker.validate.certificate import build_certificate
 from masker.validate.parts import DocPart, docx_parts, pdf_parts
 from masker.validate.pdf_layout import artifact_layout
 
@@ -171,13 +172,23 @@ class ValidateAgent:
                 assert source is not None  # source_is_pdf гарантирует не-None
                 layout.append(artifact_layout(source, artifact, plan, markers=markers))
 
+        leaked_sorted = _sorted_unique(leaked)
+        checked_parts_sorted = tuple(sorted(set(checked_parts)))
+        certificate = build_certificate(
+            plan,
+            leaked_sorted,
+            checked_parts_sorted,
+            tuple(artifacts),
+            source=source,
+        )
         return ValidationReport(
-            leaked=_sorted_unique(leaked),
+            leaked=leaked_sorted,
             residual=_sorted_unique(residual),
             checked_artifacts=tuple(artifact.name for artifact in artifacts),
-            checked_parts=tuple(sorted(set(checked_parts))),
+            checked_parts=checked_parts_sorted,
             ok=not leaked,
             layout=tuple(layout),
+            certificate=certificate,
         )
 
     def _search_values(

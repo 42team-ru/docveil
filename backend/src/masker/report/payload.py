@@ -241,7 +241,10 @@ def _validation_record(report: ValidationReport) -> dict[str, Any]:
     ``TASKS.md``/``T1.9`` называют по имени (``leaked`` — единственный
     список, обязанный быть top-level ключом). ``layout`` — сохранность
     вёрстки PDF вне замен (план T2.2.2, шаг 4), пуст для DOCX и для
-    прогонов без переданного ``source``.
+    прогонов без переданного ``source``. ``certificate`` — сертификат
+    обезличивания (план М3, ``masker.validate.certificate``) —
+    ``None``, только если ``ValidationReport`` собран в обход
+    ``ValidateAgent.validate`` (тесты).
     """
     return {
         "status": "checked",
@@ -251,6 +254,7 @@ def _validation_record(report: ValidationReport) -> dict[str, Any]:
         "leaked_count": len(report.leaked),
         "residual_count": len(report.residual),
         "layout": [dataclasses.asdict(item) for item in report.layout],
+        "certificate": dataclasses.asdict(report.certificate) if report.certificate else None,
     }
 
 

@@ -27,6 +27,7 @@ from masker.render.pdf_render import (
     _entity_rects,
     _quantize_erase_rect,
     _try_ladder,
+    compute_erase_geometry,
     render_pdf_preview,
     render_pdf_redacted,
 )
@@ -941,3 +942,73 @@ def test_quantized_erase_region_never_erases_neighbouring_word(tmp_path: pathlib
 
     diff = layout_diff(path, dest, plan)
     assert diff.removed == 0, diff.first_diff
+
+
+# ── compute_erase_geometry: пересчёт геометрии без открытия артефакта (план М3) ───
+
+
+def test_compute_erase_geometry_matches_render_pdf_redacted(tmp_path: pathlib.Path) -> None:
+    """``compute_erase_geometry`` обязана дать побайтово ту же геометрию
+    ``erase_regions``, что и настоящий ``render_pdf_redacted`` — план М3
+    (сертификат обезличивания) пересчитывает ширину эрейз-региона заново по
+    исходнику и плану, не открывая уже сохранённый артефакт (аннотация
+    редакции необратимо потребляется ``apply_redactions``, восстановить её
+    из готового файла нельзя)."""
+    path = tmp_path / "surnames.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=_FONT)
+    page.insert_text((72, 100), "Попов        далее", fontname="dvu", fontsize=12)
+    page.insert_text((72, 130), "Иванов        далее", fontname="dvu", fontsize=12)
+    doc.save(str(path))
+    doc.close()
+
+    document = ingest_pdf(path)
+    entities = [
+        _person_entity(document, "Попов", "Попов"),
+        _person_entity(document, "Иванов", "Иванов"),
+    ]
+    plan = _plan(document, entities)
+    dest = tmp_path / "redacted.pdf"
+    outcome = render_pdf_redacted(path, dest, document, plan, style="blackbox")
+
+    geometry = compute_erase_geometry(path, plan)
+
+    by_ref = {repl.ref: repl for repl in outcome.replacements}
+    assert set(geometry) == set(by_ref)
+    for ref, regions in geometry.items():
+        assert regions == by_ref[ref].erase_regions
+
+
+def test_compute_erase_geometry_ignores_docx_replacements(tmp_path: pathlib.Path) -> None:
+    """Замены с ``anchor.fmt != "pdf"`` не участвуют — у них нет координатной
+    геометрии, которую можно пересчитать по странице."""
+    path = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=_FONT)
+    page.insert_text((72, 100), "Иванов", fontname="dvu", fontsize=12)
+    doc.save(str(path))
+    doc.close()
+
+    document = ingest_pdf(path)
+    entity = _person_entity(document, "Иванов", "Иванов")
+    plan = _plan(document, [entity])
+    docx_only_plan = MaskPlan(
+        replacements=tuple(
+            Replacement(
+                ref=repl.ref,
+                entity=repl.entity,
+                marker=repl.marker,
+                group_id=repl.group_id,
+                profile_id=repl.profile_id,
+                anchor=Anchor(fmt="docx", locator=("body", 0)),
+            )
+            for repl in plan.replacements
+        ),
+        groups=plan.groups,
+        skipped=plan.skipped,
+        requested_types=plan.requested_types,
+    )
+
+    assert compute_erase_geometry(path, docx_only_plan) == {}

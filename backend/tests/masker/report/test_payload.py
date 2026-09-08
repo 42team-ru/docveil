@@ -8,9 +8,14 @@ from masker.detect.agent import DetectAgent
 from masker.entity_types import EntityTypeRegistry
 from masker.ingest.docx_ingest import ingest_docx
 from masker.mask import PlanAgent
-from masker.model import ConfidenceLevel
+from masker.model import Certificate, CertificateCheck, ConfidenceLevel, ValidationReport
 from masker.refs import EntityIndex
-from masker.report.payload import build_report_payload, marker_legend
+from masker.report.payload import (
+    _validation_record,
+    _validation_skipped,
+    build_report_payload,
+    marker_legend,
+)
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "labeled"
 _DOCUMENT_COVERAGE = {"tables": {"nested_count": 0}}
@@ -210,3 +215,52 @@ def test_marker_legend_order_is_deterministic_regardless_of_input_order() -> Non
     )
     assert forward == backward
     assert [item["shown_label"] for item in forward] == ["[Ф1]", "[Ф2]"]
+
+
+# ── _validation_record: сертификат обезличивания в report.json (план М3) ─────────
+
+
+def test_validation_record_serializes_certificate() -> None:
+    """``report["validation"]["certificate"]`` — сериализованный
+    ``Certificate`` целиком, а не только его ``ok``: заказчик должен увидеть
+    все три пункта с обоснованием, а не одно булево значение."""
+    certificate = Certificate(
+        ok=False,
+        checks=(
+            CertificateCheck(name="leak_scan", ok=True, detail="утечек не найдено"),
+            CertificateCheck(name="metadata_cleared", ok=True, detail="метаданные пусты"),
+            CertificateCheck(name="width_quantization", ok=False, detail="ширина не кратна 12pt"),
+        ),
+    )
+    report = ValidationReport(
+        leaked=(),
+        residual=(),
+        checked_artifacts=("masked_black.pdf",),
+        checked_parts=("page 1",),
+        ok=True,
+        certificate=certificate,
+    )
+    record = _validation_record(report)
+    assert record["certificate"]["ok"] is False
+    assert [check["name"] for check in record["certificate"]["checks"]] == [
+        "leak_scan",
+        "metadata_cleared",
+        "width_quantization",
+    ]
+    assert record["certificate"]["checks"][2]["ok"] is False
+
+
+def test_validation_record_certificate_none_when_not_computed() -> None:
+    """``ValidationReport`` собран напрямую без сертификата (тесты, старый
+    код) — ``record["certificate"]`` явно ``None``, а не отсутствует."""
+    report = ValidationReport(
+        leaked=(), residual=(), checked_artifacts=(), checked_parts=(), ok=True
+    )
+    record = _validation_record(report)
+    assert record["certificate"] is None
+
+
+def test_validation_skipped_has_no_certificate_key() -> None:
+    """``preview_only`` — сертификат не считался вовсе, не «прошёл вникуда»."""
+    skipped = _validation_skipped("preview_only: --redact-style не задан")
+    assert "certificate" not in skipped

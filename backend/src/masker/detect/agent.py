@@ -20,6 +20,7 @@ from masker.detect.requisite_blocks import find_requisite_block_candidates
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.detect.sweep import sweep
 from masker.entity_types import EntityTypeRegistry
+from masker.llm import LLMProvider
 from masker.model import Document, Entity, EntityType, Segment, Source
 
 MIN_FRAGMENT_LEN = 2
@@ -40,6 +41,7 @@ class DetectAgent:
         self,
         detectors: Iterable[EntityDetector] | None = None,
         registry: EntityTypeRegistry | None = None,
+        llm: LLMProvider | None = None,
     ) -> None:
         if detectors is None:
             from masker.detect import default_detectors
@@ -47,6 +49,12 @@ class DetectAgent:
             detectors = default_detectors()
         self._detectors = list(detectors)
         self._registry = registry if registry is not None else EntityTypeRegistry.builtin()
+        # Р7 (TASKS.md): верификатор на recall — опциональный последний шаг,
+        # включается, только если вызывающий явно передал `LLMProvider`.
+        # `None` по умолчанию — офлайн-ворота (`make gate`, весь остальной
+        # корпус тестов) продолжают работать без единого сетевого вызова, как
+        # и раньше; см. `masker.detect.verifier.verify_recall`.
+        self._llm = llm
 
     @property
     def detectors(self) -> tuple[EntityDetector, ...]:
@@ -335,6 +343,18 @@ class DetectAgent:
             [*entities, *find_requisite_block_candidates(document, entities)],
             key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
+        if self._llm is not None:
+            # Р7: верификатор смотрит только на то, что осталось непокрытым
+            # ПОСЛЕ Р4/Р5/Р6 (морфология, оргформы, блоки реквизитов) — их
+            # находки уже в `entities` к этому моменту, поэтому кандидатные
+            # окна строятся от актуального остатка, а не от «сырых» правил.
+            from masker.detect.verifier import verify_recall
+
+            verifier_result = verify_recall(document, entities, self._llm)
+            entities = sorted(
+                [*entities, *verifier_result.entities],
+                key=lambda item: (item.segment_order, item.start, item.end, item.type),
+            )
         # Уровень уверенности (Р8) — последний шаг, после того как состав
         # принятых сущностей окончательно определён: `_count_signals` читает
         # ещё не разрешённые `found`, а `sweep`-находки уже сами по себе

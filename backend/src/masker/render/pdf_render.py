@@ -30,7 +30,12 @@
   (``add_redact_annot``/``apply_redactions``). Строятся **только** из
   символьных боксов самой сущности, обрезанных по своей строке
   (``_trim_to_own_line``), и никогда не раздвигаются ради подписи — иначе
-  ``apply_redactions`` стирал бы текст соседа (план М1, правило 3).
+  ``apply_redactions`` стирал бы текст соседа (план М1, правило 3). Ширина
+  затем квантуется вверх по сетке 12 pt (``_quantize_erase_rect``, план М1,
+  правило 5) — без этого ширина прямоугольника один в один повторяет длину
+  удалённого текста, доказанный канал утечки (PoPETs 2023, ≈13 бит о
+  фамилии). Расширение кванта, как и расширение подписи, никогда не заходит
+  на чужой непробельный символ — граница та же ``_free_extension_right``.
 - ``paint_regions`` — области, закрашенные фоном (эрейз-регионы плюс,
   если подпись расширилась, полоса расширения — она тоже красится, но не
   редактируется, потому что заведомо пуста).
@@ -55,6 +60,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 import os
 import pathlib
 from collections import defaultdict
@@ -82,6 +88,22 @@ _FONT_NAME = "cyr"
 #: на более мелкий шрифт. Раньше здесь были размеры вплоть до 2 pt — именно
 #: это порождало жалобу заказчика «мелкий шрифт».
 _MARKER_FONT_SIZES: tuple[float, ...] = (10.0, 9.0, 8.0)
+#: Шаг сетки квантования ширины `erase_regions` (план М1, правило 5).
+#: Ширина прямоугольника, повторяющая ширину удалённого текста, — доказанный
+#: канал утечки длины фамилии (PoPETs 2023, ≈13 бит, один человек из 8000):
+#: округление вверх до кратного 12 pt схлопывает много разных длин в одну
+#: и ту же наблюдаемую геометрию.
+_ERASE_WIDTH_GRID = 12.0
+#: Общий допуск сравнения геометрии с плавающей точкой — боксы глифов из
+#: PyMuPDF накапливают шум значительно больше "учебного" `1e-6` (реально
+#: наблюдалось расхождение ~6e-5pt между границей объединённого прямоугольника
+#: сущности и боксом следующего символа на той же координате). Старое значение
+#: `1e-6` пропускало символ-сосед как «уже внутри прямоугольника» и давало
+#: расширению вправо ложную безопасную границу дальше настоящего соседа —
+#: `apply_redactions`/квантование стирали часть соседнего слова (диагностика
+#: на `contract_pdf_02_school.pdf`, план М1). `0.01pt` на три порядка больше
+#: наблюдаемого шума и на два порядка меньше ширины любого реального глифа.
+_GEOMETRY_EPS = 0.01
 #: Нулевой прямоугольник — сигнатура символа-склейки строк, который
 #: `page_chars`/`ingest_pdf` вставляют строго на границе физической строки
 #: внутри блока (план T2.2.1, шаг 8). Настоящие пробелы получают от
@@ -287,10 +309,48 @@ def _free_extension_right(
             continue  # символ самой сущности — не преграда для расширения
         if chars.text[index].isspace():
             continue  # пробел — свободное место, а не преграда
-        if box.x0 < rect.x1 - 1e-6:
+        if box.x0 < rect.x1 - _GEOMETRY_EPS:
             continue  # символ левее прямоугольника — не мешает расширению вправо
         limit = min(limit, box.x0)
     return max(limit, rect.x1)
+
+
+def _quantize_erase_rect(
+    chars: PageChars,
+    line_id: int,
+    rect: pymupdf.Rect,
+    abs_start: int,
+    abs_end: int,
+    line_box: pymupdf.Rect,
+) -> pymupdf.Rect:
+    """Расширить прямоугольник удаления вправо до ближайшего кратного
+    ``_ERASE_WIDTH_GRID`` (план М1, правило 5).
+
+    Ширина прямоугольника редакции раньше один в один повторяла ширину
+    удалённого текста — доказанный канал утечки (PoPETs 2023): по ширине
+    закраски восстанавливается длина фамилии, ≈13 бит, один человек из
+    8 000. Квант всегда округляется **вверх**: прямоугольник не имеет права
+    стать уже оригинала, иначе виден незакрашенный хвост исходного текста.
+
+    Верхняя граница расширения — та же безопасная граница, что и для
+    подписи (``_free_extension_right``), построенная по боксам исходного
+    (ещё не изменённого) текста: она никогда не заходит на чужой
+    непробельный символ, будь то обычный сосед по строке или другая
+    сущность, ещё не обработанная в этом прогоне. Если свободного места не
+    хватает до полного кванта, прямоугольник останавливается на границе
+    соседа — недостающий квант приносится в жертву целостности соседнего
+    текста, а не наоборот: расширенный `erase_regions` идёт в
+    ``add_redact_annot``/``apply_redactions``, и лишний захват стёр бы
+    соседа безвозвратно.
+    """
+    width = rect.width
+    if width <= 0:
+        return rect
+    quanta = math.ceil((width - _GEOMETRY_EPS) / _ERASE_WIDTH_GRID)
+    target_x1 = rect.x0 + quanta * _ERASE_WIDTH_GRID
+    safe_x1 = _free_extension_right(chars, line_id, rect, abs_start, abs_end, line_box)
+    new_x1 = max(rect.x1, min(target_x1, safe_x1))
+    return pymupdf.Rect(rect.x0, rect.y0, new_x1, rect.y1)
 
 
 def render_pdf_preview(
@@ -393,8 +453,11 @@ def render_pdf_redacted(
         jobs = by_page[page_num]
         page = doc[page_num]
         line_boxes = cache.line_boxes(page_num)
+        chars = cache.chars(page_num)
         trimmed_jobs: list[tuple[_PageJob, list[tuple[int, pymupdf.Rect]]]] = []
         for job in jobs:
+            abs_start = job.seg_char_start + job.replacement.entity.start
+            abs_end = job.seg_char_start + job.replacement.entity.end
             trimmed_rects: list[tuple[int, pymupdf.Rect]] = []
             for line_id, rect in job.rects:
                 trimmed_rect, collided = _trim_to_own_line(rect, line_id, line_boxes)
@@ -407,8 +470,15 @@ def render_pdf_redacted(
                             marker=job.replacement.marker,
                         )
                     )
-                page.add_redact_annot(trimmed_rect, fill=fill_color)
-                trimmed_rects.append((line_id, trimmed_rect))
+                # План М1, правило 5: ширина эрейз-прямоугольника квантуется
+                # вверх по сетке 12 pt — расширение не заходит на чужой
+                # текст (``_quantize_erase_rect`` использует ту же безопасную
+                # границу, что и расширение подписи).
+                quantized_rect = _quantize_erase_rect(
+                    chars, line_id, trimmed_rect, abs_start, abs_end, line_boxes[line_id]
+                )
+                page.add_redact_annot(quantized_rect, fill=fill_color)
+                trimmed_rects.append((line_id, quantized_rect))
             trimmed_jobs.append((job, trimmed_rects))
         page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
 
@@ -578,7 +648,7 @@ def _place_label(
     ladder = marker_ladder(group)
     for idx in ordered:
         erase_rect, label_box = candidates[idx]
-        if label_box.x1 > erase_rect.x1 + 1e-6:
+        if label_box.x1 > erase_rect.x1 + _GEOMETRY_EPS:
             # Расширение вправо доказанно свободно (``_free_extension_right``)
             # — красим его отдельно от удаления (план М1, правило 3): сама
             # область удаления при этом не меняется ни на пункт.

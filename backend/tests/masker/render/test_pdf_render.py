@@ -8,7 +8,7 @@ import stat
 import pymupdf
 import pytest
 
-from masker.ingest.pdf_ingest import ingest_pdf, page_chars
+from masker.ingest.pdf_ingest import PageChars, ingest_pdf, page_chars
 from masker.mask.agent import PlanAgent
 from masker.model import (
     Anchor,
@@ -25,10 +25,12 @@ from masker.refs import EntityIndex
 from masker.render.pdf_render import (
     MarkerDoesNotFitError,
     _entity_rects,
+    _quantize_erase_rect,
     _try_ladder,
     render_pdf_preview,
     render_pdf_redacted,
 )
+from masker.validate.pdf_layout import layout_diff
 
 _INN = "3662103003"
 _AUTHOR = "Тест Автор"
@@ -706,10 +708,14 @@ def test_label_extension_does_not_erase_neighbouring_kept_word(tmp_path: pathlib
     erase_region = replacement.erase_regions[0]
     label_region = replacement.label_region
     assert label_region is not None
-    # Подпись имела право расшириться вправо (доказанно свободное место),
-    # но сама область удаления не изменилась ни на пункт.
-    assert erase_region.x1 - erase_region.x0 < 12.0
+    # Область удаления одного инициала («И») квантуется вверх ровно до
+    # одного кванта сетки 12 pt (план М1, правило 5) — не дальше, хотя
+    # свободное место после неё тянется до самого «Незыблемовна». Подпись
+    # же имела право расшириться в это свободное место значительно шире —
+    # сама область удаления от этого расширения не растёт ни на пункт.
+    assert erase_region.x1 - erase_region.x0 == pytest.approx(12.0)
     assert label_region.x1 >= erase_region.x1
+    assert label_region.x1 - label_region.x0 > 12.0
 
 
 # ── обрезка прямоугольника по соседней строке (Д10, план T2.2.2, шаг 3) ───────
@@ -781,3 +787,157 @@ def test_overlapping_lines_fall_back_and_report_collision(tmp_path: pathlib.Path
     text = doc[0].get_text()
     doc.close()
     assert "sekretnoe" not in text, text
+
+
+# ── квантование ширины erase_regions по сетке 12 pt (план М1, правило 5) ──────
+
+
+def _fake_line_chars(
+    word_width: float, gap: float, blocker_width: float | None
+) -> tuple[PageChars, pymupdf.Rect]:
+    """Синтетическая строка без реального PDF/шрифта: слово шириной
+    ``word_width`` от x=0, затем пробел шириной ``gap`` (доказанно свободное
+    место), затем — опционально — непробельный символ шириной
+    ``blocker_width`` сразу за пробелом (сосед, которого нельзя задевать)."""
+    text = "W "
+    boxes = [
+        pymupdf.Rect(0.0, 0.0, word_width, 10.0),
+        pymupdf.Rect(word_width, 0.0, word_width + gap, 10.0),
+    ]
+    line_ids = [0, 0]
+    cursor = word_width + gap
+    if blocker_width is not None:
+        text += "X"
+        boxes.append(pymupdf.Rect(cursor, 0.0, cursor + blocker_width, 10.0))
+        line_ids.append(0)
+        cursor += blocker_width
+    chars = PageChars(text=text, boxes=tuple(boxes), line_ids=tuple(line_ids))
+    line_box = pymupdf.Rect(0.0, 0.0, cursor, 10.0)
+    return chars, line_box
+
+
+def test_quantize_erase_rect_rounds_up_with_free_space() -> None:
+    """Ширина 5pt при свободном месте справа — округляется вверх до первого
+    кратного 12 (план М1, правило 5), не оставляя её нетронутой."""
+    chars, line_box = _fake_line_chars(word_width=5.0, gap=1000.0, blocker_width=None)
+    rect = pymupdf.Rect(0.0, 0.0, 5.0, 10.0)
+    quantized = _quantize_erase_rect(chars, 0, rect, 0, 1, line_box)
+    assert quantized.x0 == 0.0
+    assert quantized.x1 == 12.0
+
+
+def test_quantize_erase_rect_two_widths_in_same_quantum_are_byte_identical() -> None:
+    """Главный критерий приёмки плана М1: две разные исходные ширины,
+    попадающие в один квант (5pt и 10pt — обе < 12), дают побайтово
+    одинаковый прямоугольник после квантования."""
+    chars_a, line_box_a = _fake_line_chars(word_width=5.0, gap=1000.0, blocker_width=None)
+    chars_b, line_box_b = _fake_line_chars(word_width=10.0, gap=1000.0, blocker_width=None)
+    quantized_a = _quantize_erase_rect(
+        chars_a, 0, pymupdf.Rect(0.0, 0.0, 5.0, 10.0), 0, 1, line_box_a
+    )
+    quantized_b = _quantize_erase_rect(
+        chars_b, 0, pymupdf.Rect(0.0, 0.0, 10.0, 10.0), 0, 1, line_box_b
+    )
+    assert (quantized_a.x0, quantized_a.x1) == (quantized_b.x0, quantized_b.x1)
+    assert quantized_a.x1 == 12.0
+
+
+def test_quantize_erase_rect_does_not_shrink_rect_already_on_grid() -> None:
+    """Ширина, уже кратная 12pt, не растёт (и тем более не сжимается) —
+    иначе округление вверх было бы систематической утечкой в другую
+    сторону: лишний квант там, где он не нужен."""
+    chars, line_box = _fake_line_chars(word_width=24.0, gap=1000.0, blocker_width=None)
+    rect = pymupdf.Rect(0.0, 0.0, 24.0, 10.0)
+    quantized = _quantize_erase_rect(chars, 0, rect, 0, 1, line_box)
+    assert quantized.x1 == 24.0
+
+
+def test_quantize_erase_rect_stops_before_neighbouring_char() -> None:
+    """Ловушка задания: полный квант потребовал бы залезть на соседний
+    непробельный символ — расширение обязано остановиться на его границе, а
+    не дотянуть до кратного 12, иначе ``apply_redactions`` стёр бы соседа."""
+    chars, line_box = _fake_line_chars(word_width=5.0, gap=3.0, blocker_width=6.0)
+    rect = pymupdf.Rect(0.0, 0.0, 5.0, 10.0)
+    quantized = _quantize_erase_rect(chars, 0, rect, 0, 1, line_box)
+    # Полный квант дал бы x1=12.0, но сосед начинается в x=8.0.
+    assert quantized.x1 == 8.0
+    assert quantized.x1 >= rect.x1  # никогда не становится уже оригинала
+
+
+def _person_entity(document: Document, seg_text_contains: str, name: str) -> Entity:
+    seg = next(s for s in document.segments if seg_text_contains in s.text)
+    start = seg.text.index(name)
+    return Entity(
+        type=EntityType.PERSON,
+        text=name,
+        segment_order=seg.order,
+        start=start,
+        end=start + len(name),
+        source=Source.RULE,
+        confidence=1.0,
+        normalized=name.lower(),
+    )
+
+
+def test_two_different_surnames_in_same_width_quantum_get_identical_geometry(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Приёмка плана М1: «Попов» (38.58pt) и «Иванов» (45.62pt) — разной
+    исходной ширины, но оба округляются вверх до одного и того же кванта
+    (48pt) при достаточном свободном месте справа. Оба слова начинаются в
+    одном и том же x0 на своей строке — итоговая геометрия по горизонтали
+    (x0, x1) обязана совпасть побайтово, не «примерно»."""
+    path = tmp_path / "surnames.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=_FONT)
+    page.insert_text((72, 100), "Попов        далее", fontname="dvu", fontsize=12)
+    page.insert_text((72, 130), "Иванов        далее", fontname="dvu", fontsize=12)
+    doc.save(str(path))
+    doc.close()
+
+    document = ingest_pdf(path)
+    entities = [
+        _person_entity(document, "Попов", "Попов"),
+        _person_entity(document, "Иванов", "Иванов"),
+    ]
+    dest = tmp_path / "redacted.pdf"
+    outcome = render_pdf_redacted(path, dest, document, _plan(document, entities), style="blackbox")
+
+    by_text = {r.entity.text: r for r in outcome.replacements}
+    popov_region = by_text["Попов"].erase_regions[0]
+    ivanov_region = by_text["Иванов"].erase_regions[0]
+    assert popov_region.x1 - popov_region.x0 != pytest.approx(38.58, abs=0.5)  # квант сработал
+    assert (popov_region.x0, popov_region.x1) == (ivanov_region.x0, ivanov_region.x1)
+    assert popov_region.x1 - popov_region.x0 == pytest.approx(48.0)
+
+
+def test_quantized_erase_region_never_erases_neighbouring_word(tmp_path: pathlib.Path) -> None:
+    """Расширение до полного кванта (24pt для «Ли», 16.8pt исходной ширины)
+    упёрлось бы в «Смирнова» через один узкий пробел — итоговая область
+    обязана остановиться раньше и не стереть ни одного символа соседа."""
+    path = tmp_path / "neighbour_word.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=_FONT)
+    page.insert_text((72, 100), "Ли Смирнова", fontname="dvu", fontsize=12)
+    doc.save(str(path))
+    doc.close()
+
+    document = ingest_pdf(path)
+    entity = _person_entity(document, "Смирнова", "Ли")
+    dest = tmp_path / "redacted.pdf"
+    plan = _plan(document, [entity])
+    outcome = render_pdf_redacted(path, dest, document, plan, style="blackbox")
+
+    doc2 = pymupdf.open(str(dest))
+    text = doc2[0].get_text()
+    doc2.close()
+    assert "Смирнова" in text, text
+
+    region = outcome.replacements[0].erase_regions[0]
+    assert region.x1 - region.x0 < 24.0  # квант не дотянут — сосед рядом
+    assert region.x1 - region.x0 > 16.8 - 0.5  # но шире исходного «Ли»
+
+    diff = layout_diff(path, dest, plan)
+    assert diff.removed == 0, diff.first_diff

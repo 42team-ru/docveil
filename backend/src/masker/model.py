@@ -57,6 +57,7 @@ class Source(StrEnum):
     NER = "ner"  # локальная модель
     LLM = "llm"  # арбитр
     USER = "user"  # пользовательский детектор (custom types, T1.13)
+    BLOCK = "block"  # структурный признак: блок реквизитов или подписной (Р6)
 
 
 class ConfidenceLevel(StrEnum):

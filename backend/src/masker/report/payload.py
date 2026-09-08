@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import dataclasses
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -262,6 +262,38 @@ def _validation_skipped(reason: str) -> dict[str, Any]:
     редактирующего рендера, значит и результата проверки нет).
     """
     return {"status": "skipped", "reason": reason}
+
+
+def marker_legend(render_degradations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Собрать строки легенды сокращений маркера (план М1, правило 6).
+
+    Вход — ``report["render_degradations"]``: один элемент на каждую замену,
+    для которой лестница отступления (``mask/labels.py::marker_ladder``)
+    реально спустилась со ступени — то есть на странице показан не
+    ``canonical_label``, а его сокращение (``shown_label`` != пусто и не
+    равен каноническому). Заказчик видит в документе, например, ``[Ф1]`` —
+    легенда объясняет, что это значит и на каких страницах встречается:
+    ``{"shown_label": "[Ф1]", "canonical_label": "[ПОСТАВЩИК-ФИО-1]",
+    "pages": [3, 5]}``.
+
+    Деградации со ступенью «blank» (``shown_label == ""``, вообще ничего не
+    вписано) в легенду не попадают — расшифровывать в документе нечего, там
+    только закраска без текста. Страницы — человекочитаемая нумерация с 1,
+    а не 0-based индекс PyMuPDF, которым оперирует рендер. Результат
+    отсортирован по (``shown_label``, ``canonical_label``) — детерминизм
+    отчёта не должен зависеть от порядка ``render_degradations`` на входе.
+    """
+    pages_by_key: dict[tuple[str, str], set[int]] = defaultdict(set)
+    for item in render_degradations:
+        shown = str(item.get("shown_label") or "")
+        canonical = str(item.get("canonical_label") or "")
+        if not shown or not canonical or shown == canonical:
+            continue
+        pages_by_key[(shown, canonical)].add(int(item.get("page", 0)) + 1)
+    return [
+        {"shown_label": shown, "canonical_label": canonical, "pages": sorted(pages)}
+        for (shown, canonical), pages in sorted(pages_by_key.items())
+    ]
 
 
 def build_report_payload(

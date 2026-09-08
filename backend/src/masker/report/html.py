@@ -175,6 +175,60 @@ def _groups(report: dict[str, Any]) -> str:
     )
 
 
+def _marker_legend(report: dict[str, Any]) -> str:
+    """Блок «Легенда сокращений маркера» (план М1, правило 6).
+
+    Заказчик видит в документе короткую форму (``[Ф1]``), когда полный
+    маркер (``[ПОСТАВЩИК-ФИО-1]``) не влез в поле — эта таблица расшифровывает
+    каждое такое сокращение и перечисляет страницы, где оно встречается.
+    ``report["marker_legend"]`` может отсутствовать в старом report.json —
+    в этом случае блок пуст, а не падает (тот же приём, что и в ``_groups``).
+    """
+    legend = report.get("marker_legend") or []
+    if not legend:
+        return '<p class="empty">Сокращений маркера нет — везде показан полный маркер.</p>'
+    rows: list[str] = []
+    for item in legend:
+        pages = ", ".join(str(int(page)) for page in item.get("pages", []))
+        rows.append(
+            "<tr>"
+            f'<td><span class="type">{escape(str(item["shown_label"]))}</span></td>'
+            f"<td>{escape(str(item['canonical_label']))}</td>"
+            f"<td>{escape(pages)}</td>"
+            "</tr>"
+        )
+    return (
+        "<table><thead><tr><th>Показано</th><th>Означает</th>"
+        f"<th>Страницы</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
+def _review_possible(report: dict[str, Any]) -> str:
+    """Блок «Снять одним кликом» (Р8): группы уровня ``possible`` отдельным
+    списком, как просил заказчик, — не искать их по всему отчёту.
+
+    ``report["review_possible"]`` может отсутствовать в старом report.json
+    — блок пуст, а не падает (тот же приём, что и в ``_groups``).
+    """
+    groups = report.get("review_possible") or []
+    if not groups:
+        return '<p class="empty">Групп уровня possible нет — снимать маску вручную не с чего.</p>'
+    rows: list[str] = []
+    for group in groups:
+        rows.append(
+            "<tr>"
+            f'<td><span class="type">{escape(str(group["marker"]))}</span></td>'
+            f"<td>{escape(str(group.get('type_title', group['type'])))}</td>"
+            f"<td>{int(group['ref_count'])}</td>"
+            f"<td>{escape(str(group['sample']))}</td>"
+            "</tr>"
+        )
+    return (
+        "<table><thead><tr><th>Маркер</th><th>Тип</th><th>Встречается</th>"
+        f"<th>Образец</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
 def _chunks(report: dict[str, Any]) -> str:
     chunks = report["chunks"]
     if not chunks:
@@ -459,6 +513,8 @@ def render_html_report(report: dict[str, Any], source: Path, destination: Path) 
 <h2>Покрытие документа</h2><table><thead><tr><th>Область</th><th>Обработана</th>
 <th>Фактическое содержимое</th></tr></thead><tbody>{_coverage(report)}</tbody></table>
 <h2>Группы согласованности</h2>{_groups(report)}
+<h2>Легенда сокращений маркера</h2>{_marker_legend(report)}
+<h2>Снять одним кликом (уровень possible)</h2>{_review_possible(report)}
 <h2 id="full-document">Полный документ</h2>
 <div class="legend"><span class="legend-item"><span class="legend-swatch"></span>
 Контекст chunk</span>

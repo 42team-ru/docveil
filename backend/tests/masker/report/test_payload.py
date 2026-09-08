@@ -10,7 +10,7 @@ from masker.ingest.docx_ingest import ingest_docx
 from masker.mask import PlanAgent
 from masker.model import ConfidenceLevel
 from masker.refs import EntityIndex
-from masker.report.payload import build_report_payload
+from masker.report.payload import build_report_payload, marker_legend
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "labeled"
 _DOCUMENT_COVERAGE = {"tables": {"nested_count": 0}}
@@ -88,3 +88,125 @@ def test_review_possible_is_empty_list_without_plan() -> None:
 
     assert report["review_possible"] == []
     assert "plan" not in report
+
+
+# ── легенда сокращений маркера (план М1, правило 6) ────────────────────────────
+
+
+def _degradation(
+    *,
+    shown_label: str,
+    canonical_label: str,
+    page: int,
+    fallback_reason: str = "compact",
+) -> dict[str, object]:
+    return {
+        "artifact": "masked_highlight.pdf",
+        "role": "masked_highlight",
+        "page": page,
+        "group_id": "G1",
+        "entity_type": "person",
+        "canonical_label": canonical_label,
+        "shown_label": shown_label,
+        "font_size": 8.0,
+        "fallback_reason": fallback_reason,
+    }
+
+
+def test_marker_legend_is_empty_without_degradations() -> None:
+    assert marker_legend([]) == []
+
+
+def test_marker_legend_maps_shown_to_canonical_with_human_page_numbers() -> None:
+    """Пример из плана М1: ``[Ф1] = [ПОСТАВЩИК-ФИО-1], стр. 3`` — страница
+    человекочитаемая (с 1), а не 0-based индекс PyMuPDF, которым оперирует
+    рендер (``item["page"]`` в ``render_degradations`` — 0-based)."""
+    legend = marker_legend(
+        [_degradation(shown_label="[Ф1]", canonical_label="[ПОСТАВЩИК-ФИО-1]", page=2)]
+    )
+    assert legend == [{"shown_label": "[Ф1]", "canonical_label": "[ПОСТАВЩИК-ФИО-1]", "pages": [3]}]
+
+
+def test_marker_legend_aggregates_pages_and_deduplicates() -> None:
+    """Один и тот же сокращённый маркер встречается на нескольких страницах
+    — легенда даёт одну строку с отсортированным списком уникальных страниц,
+    а не строку на каждое вхождение."""
+    legend = marker_legend(
+        [
+            _degradation(shown_label="[Ф1]", canonical_label="[ПОСТАВЩИК-ФИО-1]", page=4),
+            _degradation(shown_label="[Ф1]", canonical_label="[ПОСТАВЩИК-ФИО-1]", page=2),
+            _degradation(shown_label="[Ф1]", canonical_label="[ПОСТАВЩИК-ФИО-1]", page=2),
+        ]
+    )
+    assert legend == [
+        {"shown_label": "[Ф1]", "canonical_label": "[ПОСТАВЩИК-ФИО-1]", "pages": [3, 5]}
+    ]
+
+
+def test_marker_legend_keeps_different_canonical_labels_separate() -> None:
+    """Два профиля с разными ролями никогда не схлопываются в одну короткую
+    метку (план М1, критерий приёмки) — легенда обязана отражать это же
+    свойство отдельными строками, если оно вдруг нарушится."""
+    legend = marker_legend(
+        [
+            _degradation(shown_label="[Ф1]", canonical_label="[ПОСТАВЩИК-ФИО-1]", page=1),
+            _degradation(shown_label="[Ф2]", canonical_label="[ПОКУПАТЕЛЬ-ФИО-1]", page=1),
+        ]
+    )
+    assert legend == [
+        {"shown_label": "[Ф1]", "canonical_label": "[ПОСТАВЩИК-ФИО-1]", "pages": [2]},
+        {"shown_label": "[Ф2]", "canonical_label": "[ПОКУПАТЕЛЬ-ФИО-1]", "pages": [2]},
+    ]
+
+
+def test_marker_legend_skips_blank_fallback_with_no_visible_marker() -> None:
+    """Ступень «blank» (``shown_label == ""``) ничего не вписывает в
+    документ — расшифровывать в легенде нечего, строка не создаётся."""
+    legend = marker_legend(
+        [
+            _degradation(
+                shown_label="",
+                canonical_label="[ПОСТАВЩИК-ФИО-1]",
+                page=1,
+                fallback_reason="blank",
+            )
+        ]
+    )
+    assert legend == []
+
+
+def test_marker_legend_skips_entries_without_real_degradation() -> None:
+    """Защита от вырожденного случая: ``shown_label`` совпал с
+    ``canonical_label`` (деградации по факту не было) — строка легенды не
+    нужна, показывать нечего расшифровывать."""
+    legend = marker_legend(
+        [
+            _degradation(
+                shown_label="[ПОСТАВЩИК-ФИО-1]",
+                canonical_label="[ПОСТАВЩИК-ФИО-1]",
+                page=1,
+                fallback_reason="",
+            )
+        ]
+    )
+    assert legend == []
+
+
+def test_marker_legend_order_is_deterministic_regardless_of_input_order() -> None:
+    """Два прогона на разном порядке деградаций (может отличаться порядком
+    обхода страниц/групп) обязаны дать одинаковую легенду — детерминизм
+    отчёта (инвариант проекта)."""
+    forward = marker_legend(
+        [
+            _degradation(shown_label="[Ф2]", canonical_label="[ПОКУПАТЕЛЬ-ФИО-1]", page=5),
+            _degradation(shown_label="[Ф1]", canonical_label="[ПОСТАВЩИК-ФИО-1]", page=1),
+        ]
+    )
+    backward = marker_legend(
+        [
+            _degradation(shown_label="[Ф1]", canonical_label="[ПОСТАВЩИК-ФИО-1]", page=1),
+            _degradation(shown_label="[Ф2]", canonical_label="[ПОКУПАТЕЛЬ-ФИО-1]", page=5),
+        ]
+    )
+    assert forward == backward
+    assert [item["shown_label"] for item in forward] == ["[Ф1]", "[Ф2]"]

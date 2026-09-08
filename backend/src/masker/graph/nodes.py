@@ -69,6 +69,7 @@ from masker.report.payload import (
     _validation_record,
     _validation_skipped,
     build_report_payload,
+    marker_legend,
 )
 from masker.typeconfig import CustomTypeSpec, load_type_config
 from masker.validate import ValidateAgent
@@ -698,6 +699,9 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
     )
     report["leaked"] = state.get("leaked", [])
     report["render_degradations"] = state.get("render_degradations", [])
+    # План М1, правило 6: любое сокращение маркера — строка легенды
+    # («[Ф1] = [ПОСТАВЩИК-ФИО-1], стр. 3»), а не молчаливая деградация.
+    report["marker_legend"] = marker_legend(report["render_degradations"])
     # Дубль report["validation"]["layout"] на верхнем уровне — план T2.2.2,
     # шаг 5: сохранность вёрстки PDF читается тем же взглядом, что и
     # leaked/render_degradations, а не через вложенный validation.layout.

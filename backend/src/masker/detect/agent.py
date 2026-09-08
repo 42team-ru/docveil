@@ -16,6 +16,7 @@ from masker.detect.orgforms import (
     is_role_stopword,
     shrink_span,
 )
+from masker.detect.requisite_blocks import find_requisite_block_candidates
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.detect.sweep import sweep
 from masker.entity_types import EntityTypeRegistry
@@ -321,6 +322,17 @@ class DetectAgent:
         )
         entities = sorted(
             [*entities, *sweep(document, entities, extra_sweep_types)],
+            key=lambda item: (item.segment_order, item.start, item.end, item.type),
+        )
+        # Блоки реквизитов/подписей как источник кандидатов (Р6, план
+        # TASKS.md): тот же класс шага, что и `sweep` выше, — не
+        # `EntityDetector` (протокол не видит уже найденные сущности, а
+        # построение блока в них нуждается, см. докстринг модуля), а
+        # отдельный проход после разрешения перекрытий, ДО простановки
+        # уровня уверенности, чтобы новым кандидатам тоже достался обычный
+        # путь `classify_level` (Р8), а не отдельная жёстко прибитая метка.
+        entities = sorted(
+            [*entities, *find_requisite_block_candidates(document, entities)],
             key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
         # Уровень уверенности (Р8) — последний шаг, после того как состав

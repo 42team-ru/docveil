@@ -53,6 +53,12 @@ class State(TypedDict, total=False):
     render_degradations: list[dict[str, Any]]
     #: Карточка договора — сериализованный ``ContractSummary.model_dump()``.
     contract_summary: dict[str, Any]
+    #: Правки оператора с экрана проверки (``graph.review.parse_review_edits``):
+    #: решения по ссылкам, смена типа, добавленные вручную значения.
+    review_edits: dict[str, Any]
+    #: Сколько раундов правок уже применено. Раунд ровно один: второй заход
+    #: ``needs_review`` ведёт в конец, иначе граф зациклится на report.
+    review_round: int
     #: Итоговая структура report.json, собранная узлом ``report`` — раздел 7 плана T1.10.
     #: Без абсолютных путей: ``artifacts[].path`` сюда не попадает.
     report: dict[str, Any]

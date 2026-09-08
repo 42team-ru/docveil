@@ -9,6 +9,7 @@ import { Outlet, useLocation } from "react-router";
 import { Icon } from "@astryxdesign/core/Icon";
 
 import { usePendingGroupCount } from "../../../entity/pii/model/selectors";
+import { useAuthSession } from "../../../shared/model/use-auth-session";
 import { ProcessMonitor } from "../../../features/document-processing/ui/process-monitor";
 import {
   PanelShell,
@@ -22,6 +23,9 @@ import {
 export default function MaskerLayout() {
   const { pathname } = useLocation();
   const pendingCount = usePendingGroupCount();
+  // Все экраны под этим каркасом ходят в закрытый API: без действующей сессии
+  // показывать их незачем — хук уводит на вход.
+  useAuthSession();
 
   const groups: PanelNavGroup[] = [
     {

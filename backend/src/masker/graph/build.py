@@ -16,7 +16,9 @@ from langgraph.graph.state import CompiledStateGraph
 from masker.graph.nodes import (
     RunDeps,
     apply_answers_node,
+    apply_review_edits_node,
     ask_human_node,
+    ask_review_node,
     extract_node,
     finalize_node,
     make_detect_node,
@@ -25,6 +27,7 @@ from masker.graph.nodes import (
     make_render_node,
     make_report_node,
     needs_human,
+    needs_review,
     plan_node,
     policy_node,
     summary_node,
@@ -61,6 +64,8 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     graph.add_node("render", make_render_node(deps))  # type: ignore[arg-type]
     graph.add_node("validate", validate_node)
     graph.add_node("report", make_report_node(deps))  # type: ignore[arg-type]
+    graph.add_node("ask_review", ask_review_node)
+    graph.add_node("apply_review_edits", apply_review_edits_node)
 
     graph.add_edge(START, "extract")
     graph.add_edge("extract", "detect")
@@ -79,7 +84,16 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     graph.add_edge("summary", "render")
     graph.add_edge("render", "validate")
     graph.add_edge("validate", "report")
-    graph.add_edge("report", END)
+    # Второй круг: оператор видит отчёт и правит результат, после чего
+    # документ пересобирается тем же путём plan → … → report. Ровно один
+    # раунд — иначе прогон не заканчивается никогда (``needs_review``).
+    graph.add_conditional_edges(
+        "report",
+        needs_review,
+        {"ask_review": "ask_review", "end": END},
+    )
+    graph.add_edge("ask_review", "apply_review_edits")
+    graph.add_edge("apply_review_edits", "plan")
     return graph
 
 

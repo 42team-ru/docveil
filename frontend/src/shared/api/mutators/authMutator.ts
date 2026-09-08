@@ -1,7 +1,10 @@
 import axios, { AxiosError } from "axios";
 import type { AxiosRequestConfig, AxiosResponse, Method, ResponseType } from "axios";
 
-const LOCAL_BACKEND_FALLBACK = "http://localhost:8080";
+import { clearAccessToken, getAccessToken, setAccessToken } from "../auth-token";
+
+// Порт бэкенда — 8000 везде: `make api`, Dockerfile и docker-compose.
+const LOCAL_BACKEND_FALLBACK = "http://localhost:8000";
 const REMOTE_BACKEND_FALLBACK = "https://42team.ru/api";
 const GENERATED_BACKEND_PREFIXES = [
   LOCAL_BACKEND_FALLBACK,
@@ -122,6 +125,7 @@ const normalizeAxiosError = (error: AxiosError<ApiErrorPayload>) => {
 };
 
 const dispatchUnauthorized = () => {
+  clearAccessToken();
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("auth:unauthorized"));
   }
@@ -137,14 +141,28 @@ export const clientApiWithAuth = axios.create({
   withCredentials: true,
 });
 
+// Bearer на каждый запрос: бэкенд читает access-токен только из заголовка
+// (`HTTPBearer` в `api/core/deps.py`), cookie у него — исключительно refresh.
+clientApiWithAuth.interceptors.request.use((config) => {
+  const token = getAccessToken();
+  if (token) {
+    config.headers.set("Authorization", `Bearer ${token}`);
+  }
+  return config;
+});
+
 let refreshPromise: Promise<void> | null = null;
 
 /** Single refresh call; concurrent 401s share one in-flight request via refreshPromise. */
 const refreshAccessTokenOnce = async (): Promise<void> => {
   if (!refreshPromise) {
     refreshPromise = clientApi
-      .post(REFRESH_ENDPOINT)
-      .then(() => undefined)
+      .post<{ access_token?: string }>(REFRESH_ENDPOINT)
+      .then((response) => {
+        // Ответ несёт новый access — без этого повтор запроса уйдёт со старым
+        // просроченным токеном и снова получит 401.
+        setAccessToken(response.data?.access_token ?? null);
+      })
       .finally(() => {
         refreshPromise = null;
       });

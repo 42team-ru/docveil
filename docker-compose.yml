@@ -50,6 +50,9 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Источники фронта, которым разрешён доступ к API (список через запятую).
+      # По умолчанию — дев-сервер Vite; прод-домен задаётся переменной.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-masker}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-masker123}

@@ -37,9 +37,10 @@ yarn astryx <cmd>  # CLI дизайн-системы (см. AGENTS.md)
 (`features/document-viewer/lib`) и разбор контракта движка (`entity/pii/model`). Остальное
 проверяется только типами.
 
-`yarn build` требует сгенерированный клиент, когда код его импортирует. Сейчас
-`src/shared/api/generated` не импортируется ниоткуда, поэтому `yarn typecheck` и `yarn test`
-проходят без `yarn orval` и без живого бэкенда.
+`src/shared/api/generated` импортируется кодом и лежит в репозитории вместе со снимком
+схемы `src/shared/api/schemas/core.json`. `yarn orval` без переменной `ORVAL_BACKEND_ENV`
+генерирует клиент из этого снимка — живой бэкенд для `yarn typecheck`/`yarn test` не нужен.
+Снимок обновляется из FastAPI-приложения (`app.openapi()`), когда меняются эндпоинты.
 
 ## Правила работы с кодом
 
@@ -61,41 +62,45 @@ yarn astryx <cmd>  # CLI дизайн-системы (см. AGENTS.md)
 `.env` в гите нет, шаблон — `.env.example`:
 
 ```env
-VITE_BACKEND_DEV_URL=http://localhost:8080
+VITE_BACKEND_DEV_URL=http://localhost:8000
 VITE_BACKEND_PROD_URL=https://42team.ru
 ```
 
+Порт 8000 — тот же, что у `make api`, Dockerfile и docker-compose бэкенда. Пути запросов
+включают префикс `/api`, поэтому в переменной он не нужен.
+
 Выбор окружения для Orval — отдельная переменная `ORVAL_BACKEND_ENV=dev|prod`
-(флаг `--mode` в Orval не попадает, см. `orval.md`).
+(флаг `--mode` в Orval не попадает, см. `orval.md`). Без неё Orval берёт схему из
+закоммиченного снимка `src/shared/api/schemas/core.json`.
 
 ## Известные расхождения
 
 Это не «баги под фикс», а контекст. Не чини молча — сначала спроси.
 
-1. **Фронт не делает ни одного запроса к бэкенду.** Не потому, что не дошли руки: на бэкенде
-   нет HTTP-эндпоинтов маскирования вовсе — наружу выведены только `auth`, `users`,
-   `files/upload` (кладёт файл в MinIO и всё) и `custom_types/compile`. Движок доступен через
-   CLI и Python-API `masker.run`.
+1. **Фикстуры остались только в тестах.** `entity/pii/model/report.fixture.json` и
+   `questions.fixture.json` — дословные артефакты прогона `masker.cli`; на них проверяются
+   парсеры контракта (`schema.test.ts`, `answers.test.ts`, `review-store.test.ts`,
+   `review-edits.test.ts`). Экраны берут данные у API: `features/masking-run/api/
+   masking-run.ts` (прогон, вопросы, правки, артефакты, журнал) и
+   `features/pii-review/api/use-review-data.ts` (единая точка входа `/review` и `/report`).
 
-   Поэтому экраны живут на фикстурах, но фикстуры — настоящие: `entity/pii/model/
-   report.fixture.json` и `questions.fixture.json` это дословные артефакты прогона
-   `masker.cli` по `backend/fixtures/labeled/contract_08_roles.docx`. Единая точка входа за
-   данными — `features/pii-review/api/use-review-data.ts`; подключение к API должно свестись
-   к замене её содержимого.
-
-2. **`QueryClientProvider` в `src/app/root.tsx` не подключён**, хотя `@tanstack/react-query`
-   в зависимостях. Подключать вместе с первым настоящим запросом.
+2. **Правки оператора применяет граф, а не клиент.** Кнопка «Утвердить документ» шлёт
+   `POST /api/runs/{id}/review`; конверт собирает `entity/pii/model/review-edits.ts`.
+   Никакой фильтрации критичных типов на клиенте нет и быть не должно — это `critical_guard`
+   на бэкенде, второе место для той же защиты сделало бы её недоказуемой.
 
 3. **Orval input.** `orval.config.ts` берёт схему с `${baseUrl}/openapi.json`, а `orval.md`
    описывает `/v3/api-docs`. FastAPI отдаёт первое; `orval.md` — наследие Java-бэкенда.
 
-4. **XLSX.** Во фронте есть xlsx-вьюер, xlsx-фикстуры и xlsx в дропзоне, а движок этот формат
-   не обрабатывает вообще (`extract_node` принимает только `.docx` и `.pdf`). Оставлено
+4. **XLSX.** Во фронте остались xlsx-вьюер и xlsx-фикстуры, а движок этот формат не
+   обрабатывает вообще (`extract_node` принимает только `.docx` и `.pdf`), и API заводить
+   прогон по нему отказывается (422). Из дропзоны xlsx поэтому убран; вьюер оставлен
    намеренно — решение владельца продукта.
 
-5. **Экраны без данных.** `features/document-processing` (прогресс агентов, трейс вызовов) и
-   `/history` показывают фикстуры: под ними нет ни эндпоинта, ни таблицы в БД. Кнопки
-   экспорта (CSV/XLSX/PDF, скачивание документов) обработчиков не имеют — тоже намеренно.
+5. **Экраны без данных.** `features/document-processing` (прогресс агентов, трейс вызовов,
+   LLM-провайдеры) показывает фикстуры: под ним нет ни узла графа, ни таблицы в БД.
+   Кнопки экспорта отчёта (CSV/XLSX/PDF) обработчиков не имеют — тоже намеренно.
+   `/history` и скачивание документов работают через API.
 
 <!-- ASTRYX:START -->
 Astryx v0.5.2 · 163 components

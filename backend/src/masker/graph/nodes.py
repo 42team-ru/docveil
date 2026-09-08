@@ -31,6 +31,11 @@ from masker.detect.contract_params import (
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.entity_types import EntityTypeRegistry
 from masker.graph.questions import build_ask_payload, parse_answers
+from masker.graph.review import (
+    KEEP_ACTION,
+    build_review_payload,
+    parse_review_edits,
+)
 from masker.graph.serde import (
     anchor_from_dict,
     decisions_to_dicts,
@@ -57,7 +62,15 @@ from masker.judge.agent import JudgeResult
 from masker.llm import LLMProvider, TracingProvider
 from masker.mask import PlanAgent
 from masker.mask.select import resolve_requested_types
-from masker.model import Action, Document, Question, Segment
+from masker.model import (
+    Action,
+    DecisionSource,
+    Document,
+    Entity,
+    Question,
+    Segment,
+    Source,
+)
 from masker.ocr.provider import OCRProvider
 from masker.policy.agent import CriticalUnmask, GroupAnswer, PolicyAgent
 from masker.profile import ProfileAgent
@@ -438,6 +451,186 @@ def finalize_node(state: State) -> dict[str, object]:
             "diagnostics": result.diagnostics,
         },
     }
+
+
+def ask_review_node(state: State) -> dict[str, object]:
+    """Второе прерывание графа: показать отчёт и принять правки оператора.
+
+    Как и ``ask_human_node``, узел без побочных эффектов: LangGraph выполняет
+    его заново при каждом возобновлении треда, поэтому он ничего не пишет и
+    не меняет входной ``state``, кроме поля с правками.
+    """
+    return {"review_edits": parse_review_edits(interrupt(build_review_payload(state)))}
+
+
+def apply_review_edits_node(state: State) -> dict[str, object]:
+    """Развернуть правки оператора в сущности и решения по ссылкам.
+
+    Три вида правок, все — через тот же путь, что и решения движка:
+
+    1. **Снять/поставить маску** по ссылке. Снятие с критичного типа держит
+       ``critical_guard``: без ``unmask_critical`` воля оператора его не
+       перебивает — это тот же двойной барьер, что и на первом проходе.
+    2. **Сменить тип** у сущности. Тип меняется на самой сущности, поэтому
+       новый маркер построит ``PlanAgent`` — второго места, где собирается
+       маркер, не появляется.
+    3. **Добавить пропущенное значение.** Ищется по всему документу, а не
+       только там, где оператор его выделил: одно значение — один маркер во
+       всём документе (инвариант согласованности псевдонимов).
+
+    Ссылки ``E1..En`` считаются от порядка сущностей в тексте, поэтому
+    добавление сущности их сдвигает. Правки разбираются до вставки, решения
+    переносятся на сущности, а не на строки-ссылки, и заново нумеруются
+    после — иначе оператор снял бы маску не с того.
+    """
+    edits = state.get("review_edits", {})
+    entities = [entity_from_dict(item) for item in state.get("entities", [])]
+    registry, _ = _registry_and_specs(state)
+    allow_unmask_critical = bool(state.get("options", {}).get("unmask_critical", False))
+
+    index = EntityIndex(entities)
+    by_ref = {ref: index.entity(ref) for ref in index.refs()}
+
+    for ref, type_id in edits.get("type_overrides", {}).items():
+        entity = by_ref.get(ref)
+        if entity is None or type_id not in registry:
+            continue
+        entity.type = type_id
+
+    # Решения переносятся с ссылок на сами объекты сущностей: после вставки
+    # ручных значений те же сущности получат другие номера ссылок.
+    decisions_by_entity: dict[int, dict[str, object]] = {}
+    for item in state.get("final_actions", []):
+        entity = by_ref.get(str(item["ref"]))
+        if entity is not None:
+            decisions_by_entity[id(entity)] = dict(item)
+
+    diagnostics: list[str] = []
+    for ref, action in edits.get("decisions", {}).items():
+        entity = by_ref.get(ref)
+        if entity is None:
+            continue
+        guarded = registry.is_critical(entity.type) and not allow_unmask_critical
+        if action == KEEP_ACTION and guarded:
+            diagnostics.append(
+                f"{ref}: снятие маски с критичного типа {entity.type!r} отклонено "
+                "(прогон без unmask_critical)"
+            )
+            decisions_by_entity[id(entity)] = {
+                "ref": ref,
+                "action": Action.MASK.value,
+                "decided_by": DecisionSource.CRITICAL_GUARD,
+                "question_id": "",
+                "reason": "критичный тип: снятие маски требует явного разрешения прогона",
+                "overridden": [],
+            }
+            continue
+        decisions_by_entity[id(entity)] = {
+            "ref": ref,
+            "action": action,
+            "decided_by": DecisionSource.ENTITY,
+            "question_id": "",
+            "reason": "решение оператора на экране проверки",
+            "overridden": [],
+        }
+
+    document = _document(state)
+    added = _manual_entities(edits.get("manual", []), document, registry)
+    for entity in added:
+        decisions_by_entity[id(entity)] = {
+            "ref": "",
+            "action": Action.MASK.value,
+            "decided_by": DecisionSource.ENTITY,
+            "question_id": "",
+            "reason": "значение добавлено оператором на экране проверки",
+            "overridden": [],
+        }
+    entities.extend(added)
+
+    reindexed = EntityIndex(entities)
+    final_actions: list[dict[str, object]] = []
+    for ref in reindexed.refs():
+        entity = reindexed.entity(ref)
+        decision = decisions_by_entity.get(id(entity))
+        if decision is None:
+            continue
+        final_actions.append({**decision, "ref": ref})
+
+    review = dict(state.get("decisions", {}))
+    review["review_diagnostics"] = diagnostics
+    review["review_manual_added"] = len(added)
+
+    return {
+        "entities": [entity_to_dict(entity) for entity in entities],
+        "final_actions": final_actions,
+        "decisions": review,
+        "options": _options_with_manual_types(state, added),
+        "review_round": int(state.get("review_round", 0)) + 1,
+    }
+
+
+def _options_with_manual_types(state: State, added: list[Entity]) -> dict[str, object]:
+    """Дописать типы добавленных вручную значений в запрошенные типы прогона.
+
+    ``PlanAgent`` пропускает сущность, тип которой не запрошен. Без этой
+    дописки значение, добавленное оператором типом вне отбора прогона, молча
+    не попало бы ни в документ, ни в отчёт — оператор увидел бы, что его
+    правка исчезла без объяснений.
+    """
+    options = dict(state.get("options", {}))
+    requested = options.get("types")
+    if not requested or not added:
+        return options
+    options["types"] = sorted({*(str(item) for item in requested), *(e.type for e in added)})
+    return options
+
+
+def _manual_entities(
+    manual: list[dict[str, str]], document: Document, registry: EntityTypeRegistry
+) -> list[Entity]:
+    """Сущности для значений, добавленных оператором, — по всем вхождениям.
+
+    Пустой результат на неизвестный тип и на значение, которого в документе
+    нет: молча добавить сущность без места в тексте нельзя — рендер не найдёт,
+    что заменять, а отчёт покажет замену, которой не было.
+    """
+    added: list[Entity] = []
+    for item in manual:
+        type_id = item["type"]
+        text = item["text"]
+        if type_id not in registry:
+            continue
+        for segment in document.segments:
+            start = segment.text.find(text)
+            while start != -1:
+                added.append(
+                    Entity(
+                        type=type_id,
+                        text=text,
+                        segment_order=segment.order,
+                        start=start,
+                        end=start + len(text),
+                        source=Source.USER,
+                        confidence=1.0,
+                    )
+                )
+                start = segment.text.find(text, start + len(text))
+    return added
+
+
+def needs_review(state: State) -> str:
+    """Нужен ли раунд правок оператора после отчёта.
+
+    Ровно один раунд на прогон: второй заход ведёт в конец. Иначе граф
+    зациклился бы на паре ``ask_review → report``, а прогон никогда бы не
+    завершился — и `resume` на нём всегда возвращал бы «жду правок».
+    """
+    options = state.get("options", {})
+    if not bool(options.get("review", False)):
+        return "end"
+    if int(state.get("review_round", 0)) > 0:
+        return "end"
+    return "ask_review"
 
 
 def needs_human(state: State) -> str:

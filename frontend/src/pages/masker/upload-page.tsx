@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router";
 import { Play } from "lucide-react";
+import { useToast } from "@astryxdesign/core/Toast";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import {
@@ -13,7 +14,9 @@ import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Text } from "@astryxdesign/core/Text";
 
-import { uploadQueueSummary } from "../../entity/document/model/fixtures";
+import { useRuleProfileStore } from "../../entity/rule-profile/model/rule-profile-store";
+import { useUploadQueueStore } from "../../features/document-upload/model/upload-queue-store";
+import { useStartRun } from "../../features/masking-run/api/masking-run";
 import { DataTypePicker } from "../../features/document-upload/ui/data-type-picker";
 import { UploadDropzone } from "../../features/document-upload/ui/upload-dropzone";
 import { UploadQueue } from "../../features/document-upload/ui/upload-queue";
@@ -25,6 +28,48 @@ const SETTINGS_WIDTH = 380;
 /** Шаг 1: что обезличиваем и по каким правилам. */
 export function UploadPage() {
   const navigate = useNavigate();
+  const showToast = useToast();
+
+  const items = useUploadQueueStore((state) => state.items);
+  const markStarting = useUploadQueueStore((state) => state.markStarting);
+  const markStarted = useUploadQueueStore((state) => state.markStarted);
+  const markFailed = useUploadQueueStore((state) => state.markFailed);
+
+  const enabledTypes = useRuleProfileStore((state) => state.enabledTypes);
+  const maskStyle = useRuleProfileStore((state) => state.maskStyle);
+
+  const startRun = useStartRun();
+  const pending = items.filter((item) => item.state !== "started");
+
+  /**
+   * Один прогон на документ: движок принимает файл, а не пачку. Файлы
+   * заводятся по очереди, чтобы порядок прогонов в журнале совпадал с
+   * порядком в очереди, а первый открылся на проверку.
+   */
+  async function handleStart() {
+    let firstRunId: string | null = null;
+
+    for (const item of pending) {
+      markStarting(item.id);
+      try {
+        const run = await startRun.mutateAsync({
+          file: item.file,
+          types: enabledTypes,
+          maskStyle,
+        });
+        markStarted(item.id, run.id);
+        firstRunId ??= run.id;
+      } catch (error) {
+        markFailed(item.id, error instanceof Error ? error.message : "не удалось запустить");
+      }
+    }
+
+    if (firstRunId === null) {
+      showToast({ body: "Ни один файл не удалось отправить на обезличивание", type: "error" });
+      return;
+    }
+    navigate(`/review?run=${firstRunId}`);
+  }
 
   return (
     <ScreenLayout
@@ -61,7 +106,7 @@ export function UploadPage() {
                   </Text>
                   <StackItem size="fill" />
                   <Text type="supporting" color="secondary" size="sm">
-                    {uploadQueueSummary.files} готово
+                    {`${pending.length} готово`}
                   </Text>
                 </HStack>
               </LayoutHeader>
@@ -77,11 +122,19 @@ export function UploadPage() {
                       size="lg"
                       width="100%"
                       icon={<Icon icon={Play} size="sm" />}
-                      label={`Обезличить ${uploadQueueSummary.files} файла`}
-                      onClick={() => navigate("/review")}
+                      label={
+                        pending.length === 1
+                          ? "Обезличить документ"
+                          : `Обезличить ${pending.length} документа`
+                      }
+                      isDisabled={pending.length === 0 || startRun.isPending}
+                      isLoading={startRun.isPending}
+                      onClick={() => void handleStart()}
                     />
                     <Text type="supporting" color="secondary" justify="center">
-                      {`оценка: ${uploadQueueSummary.estimate}`}
+                      {enabledTypes.length === 0
+                        ? "выбраны все типы данных"
+                        : `типов данных: ${enabledTypes.length}`}
                     </Text>
                   </VStack>
                 </VStack>

@@ -38,6 +38,8 @@ type ReviewPanelProps = {
   report: MaskingReport | null;
   /** Вопросы, на которых прогон встал; `null` — вопросов не было. */
   ask: AskEnvelope | null;
+  /** Прогон, открытый на проверку: по нему уходят ответы человека. */
+  runId: string | null;
   totalCount: number;
   notFoundIds: Set<string>;
 };
@@ -50,6 +52,7 @@ export function ReviewPanel({
   extraction,
   report,
   ask,
+  runId,
   totalCount,
   notFoundIds,
 }: ReviewPanelProps) {
@@ -101,7 +104,7 @@ export function ReviewPanel({
                 groups={report?.plan?.groups ?? []}
               />
             ) : null}
-            {tab === "ask" ? <ClarificationTab ask={ask} /> : null}
+            {tab === "ask" ? <ClarificationTab ask={ask} runId={runId} /> : null}
             {tab === "contract" ? (
               <ContractSummaryTab summary={report?.contractSummary ?? null} />
             ) : null}

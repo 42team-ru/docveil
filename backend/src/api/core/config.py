@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import quote
 
 from dotenv import dotenv_values
@@ -40,6 +40,26 @@ class Settings(BaseSettings):
     #: захардкожено раньше (`8000`), поэтому смена не меняет поведение,
     #: пока переменная `APP_PORT` не задана явно.
     app_port: int = 8000
+    #: Чекпойнтер графа маскирования. `postgres` — рабочий режим веб-сервера
+    #: (`SqliteSaver` однопоточный, см. `masker.run`); `sqlite` оставлен для
+    #: локального запуска без поднятой базы. Выбор явный: молчаливого отката
+    #: на sqlite при недоступном Postgres здесь нет.
+    run_checkpointer: Literal["postgres", "sqlite"] = "postgres"
+    run_state_db: Path = Path("data/runs.sqlite")
+
+    #: Источники, которым браузер разрешит ходить в API. Список явный, а не
+    #: `*`: запросы идут с `credentials` (refresh-токен в cookie), а с
+    #: подстановочным источником браузер такие запросы блокирует. По
+    #: умолчанию — дев-сервер Vite (`yarn dev`, порт 5173) на обоих написаниях
+    #: локального хоста: `localhost` и `127.0.0.1` — разные Origin.
+    #: Прод-домен добавляется через `CORS_ORIGINS` в окружении, списком через
+    #: запятую.
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """`cors_origins` как список; пустые элементы отбрасываются."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @classmethod
     def settings_customise_sources(

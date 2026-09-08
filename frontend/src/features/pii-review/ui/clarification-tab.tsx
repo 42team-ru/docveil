@@ -1,5 +1,6 @@
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
 import { Section } from "@astryxdesign/core/Section";
@@ -7,16 +8,23 @@ import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 
-import { isForcedQuestion } from "../../../entity/pii/model/answers";
+import {
+  buildAnswerEnvelope,
+  isForcedQuestion,
+  unansweredQuestions,
+} from "../../../entity/pii/model/answers";
 import { useReviewStore } from "../../../entity/pii/model/review-store";
 import type {
   AnswerOption,
   AskEnvelope,
   PolicyQuestion,
 } from "../../../entity/pii/model/types";
+import { useSubmitAnswers } from "../../masking-run/api/masking-run";
 
 type ClarificationTabProps = {
   ask: AskEnvelope | null;
+  /** Прогон, который стоит на этих вопросах; `null` — отправлять некуда. */
+  runId: string | null;
 };
 
 const KIND_LABEL: Record<PolicyQuestion["kind"], string> = {
@@ -100,13 +108,14 @@ function QuestionItem({
  * движок, и любая другая строка на его стороне молча превратится в
  * «маскировать».
  *
- * Ответы живут в сторе проверки и никуда не уходят: эндпоинта возобновления
- * прогона на бэкенде пока нет. Обещать оператору обратное — хуже, чем
- * сказать прямо.
+ * Ответы уходят на `POST /api/runs/{id}/answers` тем же конвертом, который
+ * движок ждёт при возобновлении графа (`Command(resume=...)`): ни одного
+ * варианта сверх списка вопроса интерфейс не изобретает.
  */
-export function ClarificationTab({ ask }: ClarificationTabProps) {
+export function ClarificationTab({ ask, runId }: ClarificationTabProps) {
   const answers = useReviewStore((state) => state.questionAnswers);
   const answerQuestion = useReviewStore((state) => state.answerQuestion);
+  const submit = useSubmitAnswers(runId);
 
   if (!ask || ask.questions.length === 0) {
     return (
@@ -121,6 +130,7 @@ export function ClarificationTab({ ask }: ClarificationTabProps) {
   const answered = ask.questions.filter(
     (question) => answers[question.id] !== undefined,
   ).length;
+  const unanswered = unansweredQuestions(ask.questions, answers).length;
 
   return (
     <VStack gap={0} isScrollable height="100%">
@@ -145,10 +155,32 @@ export function ClarificationTab({ ask }: ClarificationTabProps) {
       ))}
 
       <Section padding={4} dividers={["top"]}>
-        <Text type="supporting" color="secondary" textWrap="pretty">
-          Ответы остаются на этом экране: отправлять их пока некуда — движок
-          принимает возобновление прогона только из командной строки.
-        </Text>
+        <VStack gap={3}>
+          <Button
+            variant="primary"
+            width="100%"
+            label="Продолжить обезличивание"
+            isDisabled={runId === null || submit.isPending}
+            isLoading={submit.isPending}
+            onClick={() =>
+              submit.mutate(buildAnswerEnvelope(ask.questions, answers))
+            }
+          />
+          {unanswered > 0 ? (
+            <Text type="supporting" color="secondary" textWrap="pretty">
+              {`Без ответа ${unanswered} — движок решит их сам, по умолчанию «маскировать».`}
+            </Text>
+          ) : null}
+          {submit.isError ? (
+            <Banner
+              status="error"
+              container="section"
+              collapsible={false}
+              title="Ответы не приняты"
+              description="Прогон уже не ждёт ответов — обновите страницу, чтобы увидеть его состояние."
+            />
+          ) : null}
+        </VStack>
       </Section>
     </VStack>
   );

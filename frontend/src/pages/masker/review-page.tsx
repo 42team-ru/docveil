@@ -15,6 +15,7 @@ import { useToast } from "@astryxdesign/core/Toast";
 import type { DocumentFormat } from "../../entity/document/model/types";
 import { FormatToken } from "../../entity/document/ui/format-token";
 import { flattenPiiOccurrences } from "../../entity/pii/model/flatten";
+import { buildReviewEdits } from "../../entity/pii/model/review-edits";
 import { useReviewStore } from "../../entity/pii/model/review-store";
 import {
   useConfirmedGroupCount,
@@ -22,6 +23,11 @@ import {
 } from "../../entity/pii/model/selectors";
 import type { PiiType } from "../../entity/pii/model/types";
 import { DocumentViewer } from "../../features/document-viewer/ui/document-viewer";
+import {
+  downloadArtifact,
+  hasRunResult,
+  useSubmitReview,
+} from "../../features/masking-run/api/masking-run";
 import type { SelectionCapture } from "../../features/document-viewer/lib/read-selection";
 import { useReviewData } from "../../features/pii-review/api/use-review-data";
 import { useReviewHotkeys } from "../../features/pii-review/lib/use-review-hotkeys";
@@ -31,7 +37,14 @@ import { ScreenLayout } from "../../shared/ui/screen-layout/screen-layout";
 
 /** Экран ручной проверки замен: лист документа слева, решения — справа. */
 export function ReviewPage() {
-  const { extraction, document: reviewedDocument, report, ask } = useReviewData();
+  const {
+    runId,
+    status,
+    extraction,
+    document: reviewedDocument,
+    report,
+    ask,
+  } = useReviewData();
 
   const [notFoundIds, setNotFoundIds] = useState<Set<string>>(new Set());
   const [pendingSelection, setPendingSelection] = useState<SelectionCapture | null>(null);
@@ -88,6 +101,41 @@ export function ReviewPage() {
 
   useReviewHotkeys(orderedOccurrenceIds, groupIdByOccurrenceId);
 
+  const ready = hasRunResult(status);
+  const submitReview = useSubmitReview(runId);
+
+  /**
+   * Утверждение документа. Правки уходят вторым прерыванием в граф, и
+   * документ пересобирается там же — интерфейс ничего не «применяет» сам,
+   * поэтому маркеры остаются согласованными, а результат заново проверяется
+   * на утечки.
+   */
+  function handleApprove() {
+    const state = useReviewStore.getState();
+    submitReview.mutate(buildReviewEdits(extraction, state), {
+      onSuccess: () =>
+        showToast({
+          body: "Правки приняты: документ пересобирается с ними",
+          type: "info",
+        }),
+      onError: () =>
+        showToast({
+          body: "Прогон уже не ждёт правок — обновите страницу",
+          type: "error",
+        }),
+    });
+  }
+
+  /** Скачивает подсвеченный вариант — тот же файл, что открыт во вьюере. */
+  async function handleDownload() {
+    if (runId === null) return;
+    try {
+      await downloadArtifact(runId, "masked_highlight", reviewedDocument.name);
+    } catch {
+      showToast({ body: "Не удалось скачать обезличенный документ", type: "error" });
+    }
+  }
+
   function handleAddManual(type: PiiType) {
     if (!pendingSelection) return;
     addManual({
@@ -115,19 +163,29 @@ export function ReviewPage() {
       }
       actions={
         <HStack gap={2}>
-          <Button size="sm" variant="ghost" label="Отчёт" icon={<Icon icon={FileBarChart2} size="sm" />} href="/report" />
-          <Button size="sm" variant="secondary" label="Скачать .pdf" icon={<Icon icon={Download} size="sm" />} />
+          <Button
+            size="sm"
+            variant="ghost"
+            label="Отчёт"
+            icon={<Icon icon={FileBarChart2} size="sm" />}
+            href={runId ? `/report?run=${runId}` : "/report"}
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            label="Скачать"
+            icon={<Icon icon={Download} size="sm" />}
+            isDisabled={!ready}
+            onClick={() => void handleDownload()}
+          />
           <Button
             size="sm"
             variant={allConfirmed ? "primary" : "secondary"}
             label="Утвердить документ"
             icon={<Icon icon={CheckCircle2} size="sm" />}
-            onClick={() =>
-              showToast({
-                body: "Документ утверждён. Отправка на бэкенд появится вместе с реальным эндпоинтом.",
-                type: "info",
-              })
-            }
+            isDisabled={status !== "awaiting_review" || submitReview.isPending}
+            isLoading={submitReview.isPending}
+            onClick={handleApprove}
           />
         </HStack>
       }
@@ -138,6 +196,7 @@ export function ReviewPage() {
           extraction={extraction}
           report={report}
           ask={ask}
+          runId={runId}
           totalCount={totalCount}
           notFoundIds={notFoundIds}
         />

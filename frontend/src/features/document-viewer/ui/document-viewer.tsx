@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { VStack } from "@astryxdesign/core/Stack";
 
@@ -26,6 +27,20 @@ type DocumentViewerProps = {
 
 /** Диспетчер по формату документа — единственная точка входа для страницы. */
 export function DocumentViewer({ format, fileUrl, extraction, ...handlers }: DocumentViewerProps) {
+  // Пустой адрес — это не сбой: пока прогон стоит на вопросах, узел `render`
+  // не выполнялся и обезличенного файла ещё нет. Грузить пустой URL нельзя.
+  if (!fileUrl) {
+    return (
+      <VStack hAlign="center" vAlign="center" padding={6} height="100%">
+        <EmptyState
+          isCompact
+          title="Документ ещё не готов"
+          description="Обезличенный файл появится, когда прогон дойдёт до конца."
+        />
+      </VStack>
+    );
+  }
+
   if (format === "docx" || format === "xlsx") {
     const Viewer = format === "docx" ? DocxViewer : XlsxViewer;
     return (

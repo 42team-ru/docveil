@@ -333,3 +333,57 @@ def test_render_pdf_redacted_is_actually_clean(tmp_path: pathlib.Path) -> None:
 
     assert report.ok is True
     assert report.leaked == ()
+
+
+def test_validate_attaches_certificate_for_pdf_with_source(tmp_path: pathlib.Path) -> None:
+    """План М3: ``ValidateAgent.validate`` обязан вернуть заполненный
+    ``ValidationReport.certificate`` (не ``None``) с тремя проверенными
+    пунктами, когда передан ``source`` PDF-документа — иначе сертификат
+    просто не появляется ни в ``report.json``, ни в отчёте человеку."""
+    src = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), f"ИНН {_INN}", fontsize=12)
+    doc.save(str(src))
+    doc.close()
+
+    document = ingest_pdf(src)
+    entity = _entity_for(document, _INN, EntityType.INN)
+    plan = PlanAgent().plan(document, [entity])
+
+    dest = tmp_path / "redacted.pdf"
+    render_pdf_redacted(src, dest, document, plan, style="marker")
+
+    report = ValidateAgent().validate(plan, [dest], source=src)
+
+    assert report.certificate is not None
+    assert report.certificate.ok is True
+    assert {check.name for check in report.certificate.checks} == {
+        "leak_scan",
+        "metadata_cleared",
+        "width_quantization",
+    }
+
+
+def test_validate_certificate_leak_scan_fails_when_render_is_broken(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Симметрия с ``test_broken_render_is_caught``: утечка не только
+    попадает в ``report.leaked``, но и роняет пункт ``leak_scan`` сертификата
+    — иначе сертификат мог бы «пройти», пока настоящий отчёт кричит об
+    утечке."""
+    src = _make_docx(tmp_path, f"ИНН {_INN}")
+    document = ingest_docx(src)
+    entity = _entity_for(document, _INN, EntityType.INN)
+    plan = PlanAgent().plan(document, [entity])
+
+    # "Сломанный" рендер: копия исходника без какой-либо правки.
+    dest = tmp_path / "redacted.docx"
+    shutil.copy2(src, dest)
+
+    report = ValidateAgent().validate(plan, [dest])
+
+    assert report.certificate is not None
+    assert report.certificate.ok is False
+    leak_check = next(check for check in report.certificate.checks if check.name == "leak_scan")
+    assert leak_check.ok is False

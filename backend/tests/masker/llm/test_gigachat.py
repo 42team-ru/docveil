@@ -1,0 +1,285 @@
+"""Тесты провайдера GigaChat: авторизация, ретраи, различение кодов ошибок.
+
+Сеть не используется: транспорт `httpx.Client.request` подменяется фейком,
+который эмулирует реальные ответы OAuth- и chat-эндпоинтов GigaChat. Это
+проверяет не только наш код, но и то, что конфигурация `GigaChatProvider`
+(`max_retries`, `retry_backoff_factor`, `verify_ssl_certs`) действительно
+включает ретраи и кэширование токена библиотеки `gigachat`, а не только
+теоретически описана в докстринге.
+"""
+
+from __future__ import annotations
+
+import os
+import time
+from collections import deque
+from dataclasses import dataclass
+
+import httpx
+import pytest
+
+from masker.llm import GigaChatProvider, LLMError, Message, get_provider
+from masker.llm.config import LLMConfig
+
+AUTH_URL_FRAGMENT = "oauth"
+
+
+def _success_body(text: str) -> dict[str, object]:
+    return {
+        "choices": [
+            {
+                "message": {"role": "assistant", "content": text},
+                "index": 0,
+                "finish_reason": "stop",
+            }
+        ],
+        "created": 1_700_000_000,
+        "model": "GigaChat",
+        "object": "chat.completion",
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+
+
+@dataclass
+class _FakeTransport:
+    """Подменяет `httpx.Client.request`, отделяя OAuth-вызовы от chat-вызовов."""
+
+    chat_responses: deque[tuple[int, dict[str, object]]]
+    auth_bodies: deque[dict[str, object]] | None = None
+    auth_calls: int = 0
+    chat_call_headers: list[dict[str, str]] | None = None
+
+    def __post_init__(self) -> None:
+        if self.chat_call_headers is None:
+            self.chat_call_headers = []
+
+    def request(self, **kwargs: object) -> httpx.Response:
+        method = str(kwargs["method"])
+        url = str(kwargs["url"])
+        if AUTH_URL_FRAGMENT in url:
+            self.auth_calls += 1
+            if self.auth_bodies:
+                body = self.auth_bodies.popleft()
+            else:
+                body = {
+                    "access_token": f"token-{self.auth_calls}",
+                    "expires_at": int((time.time() + 1_800) * 1_000),
+                }
+            return httpx.Response(200, json=body, request=httpx.Request(method, url))
+
+        headers = dict(kwargs.get("headers") or {})
+        assert self.chat_call_headers is not None
+        self.chat_call_headers.append(headers)
+        if not self.chat_responses:
+            raise AssertionError("неожиданный дополнительный вызов chat-эндпоинта GigaChat")
+        status, body = self.chat_responses.popleft()
+        return httpx.Response(status, json=body, request=httpx.Request(method, url))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ретраи не должны реально ждать секунды в юнит-тестах."""
+    import gigachat.retry as giga_retry
+
+    monkeypatch.setattr(giga_retry.time, "sleep", lambda _seconds: None)
+
+
+def _install_transport(monkeypatch: pytest.MonkeyPatch, transport: _FakeTransport) -> None:
+    monkeypatch.setattr(httpx.Client, "request", transport.request)
+
+
+def _provider(**overrides: object) -> GigaChatProvider:
+    defaults: dict[str, object] = {
+        "credentials": "dGVzdDp0ZXN0",
+        "model": "GigaChat",
+        "max_retries": 2,
+        "retry_backoff_factor": 0.01,
+    }
+    defaults.update(overrides)
+    return GigaChatProvider(**defaults)  # type: ignore[arg-type]
+
+
+def test_gigachat_successful_completion(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = _FakeTransport(chat_responses=deque([(200, _success_body("Ответ модели"))]))
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider()
+    result = provider.complete([Message("system", "rules"), Message("user", "вопрос")])
+
+    assert result == "Ответ модели"
+    assert transport.auth_calls == 1
+    assert transport.chat_call_headers is not None
+    assert transport.chat_call_headers[0]["Authorization"] == "Bearer token-1"
+
+
+def test_gigachat_reuses_client_and_caches_token_across_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Второй вызов `complete()` не должен запрашивать новый токен, пока старый жив."""
+    transport = _FakeTransport(
+        chat_responses=deque([(200, _success_body("первый")), (200, _success_body("второй"))])
+    )
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider()
+    provider.complete([Message("user", "1")])
+    provider.complete([Message("user", "2")])
+
+    assert transport.auth_calls == 1
+    assert transport.chat_call_headers is not None
+    assert (
+        transport.chat_call_headers[0]["Authorization"]
+        == transport.chat_call_headers[1]["Authorization"]
+    )
+
+
+def test_gigachat_reacquires_token_after_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Просроченный токен переполучается перед следующим вызовом, а не рвёт запрос."""
+    now_ms = int(time.time() * 1_000)
+    transport = _FakeTransport(
+        chat_responses=deque([(200, _success_body("первый")), (200, _success_body("второй"))]),
+        auth_bodies=deque(
+            [
+                {"access_token": "token-stale", "expires_at": now_ms},
+                {"access_token": "token-fresh", "expires_at": now_ms + 1_800_000},
+            ]
+        ),
+    )
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider()
+    provider.complete([Message("user", "1")])
+    provider.complete([Message("user", "2")])
+
+    assert transport.auth_calls == 2
+    assert transport.chat_call_headers is not None
+    assert transport.chat_call_headers[0]["Authorization"] == "Bearer token-stale"
+    assert transport.chat_call_headers[1]["Authorization"] == "Bearer token-fresh"
+
+
+def test_gigachat_retries_on_429_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = _FakeTransport(
+        chat_responses=deque(
+            [
+                (429, {"message": "rate limit"}),
+                (200, _success_body("после повтора")),
+            ]
+        )
+    )
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider(max_retries=2)
+    result = provider.complete([Message("user", "вопрос")])
+
+    assert result == "после повтора"
+    assert transport.chat_call_headers is not None
+    assert len(transport.chat_call_headers) == 2
+
+
+def test_gigachat_413_raises_without_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = _FakeTransport(chat_responses=deque([(413, {"message": "too large"})]))
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider(max_retries=3)
+
+    with pytest.raises(LLMError, match="413"):
+        provider.complete([Message("user", "очень длинный документ")])
+
+    assert transport.chat_call_headers is not None
+    assert len(transport.chat_call_headers) == 1
+
+
+def test_gigachat_422_raises_without_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = _FakeTransport(chat_responses=deque([(422, {"message": "bad params"})]))
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider(max_retries=3)
+
+    with pytest.raises(LLMError, match="422"):
+        provider.complete([Message("user", "вопрос")])
+
+    assert transport.chat_call_headers is not None
+    assert len(transport.chat_call_headers) == 1
+
+
+def test_gigachat_402_raises_understandable_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = _FakeTransport(chat_responses=deque([(402, {"message": "no tokens left"})]))
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider(max_retries=0)
+
+    with pytest.raises(LLMError, match="402"):
+        provider.complete([Message("user", "вопрос")])
+
+
+def test_gigachat_blacklist_finish_reason_is_not_treated_as_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = _success_body("")
+    body["choices"][0]["finish_reason"] = "blacklist"  # type: ignore[index]
+    transport = _FakeTransport(chat_responses=deque([(200, body)]))
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider()
+
+    with pytest.raises(LLMError, match="blacklist"):
+        provider.complete([Message("user", "запрещённая тема")])
+
+
+def test_gigachat_requires_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GIGACHAT_CREDENTIALS", raising=False)
+    monkeypatch.setenv("MASKER_LLM", "gigachat")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "GigaChat")
+
+    with pytest.raises(LLMError, match="GIGACHAT_CREDENTIALS"):
+        get_provider()
+
+
+def test_gigachat_requires_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GIGACHAT_CREDENTIALS", "dGVzdDp0ZXN0")
+    monkeypatch.setenv("MASKER_LLM", "gigachat")
+    monkeypatch.delenv("MASKER_LLM_MODEL", raising=False)
+
+    with pytest.raises(LLMError, match="модель"):
+        get_provider()
+
+
+def test_get_provider_builds_gigachat_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GIGACHAT_CREDENTIALS", "dGVzdDp0ZXN0")
+    monkeypatch.setenv("MASKER_LLM", "gigachat")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "GigaChat")
+
+    provider = get_provider()
+
+    assert isinstance(provider, GigaChatProvider)
+    assert provider.model == "GigaChat"
+    assert provider.credentials == "dGVzdDp0ZXN0"
+
+
+def test_get_provider_respects_custom_api_key_env_from_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MY_GIGACHAT_KEY", "custom-creds")
+    config = LLMConfig(provider="gigachat", model="GigaChat-Pro", api_key_env="MY_GIGACHAT_KEY")
+
+    provider = get_provider(config)
+
+    assert isinstance(provider, GigaChatProvider)
+    assert provider.credentials == "custom-creds"
+    assert provider.model == "GigaChat-Pro"
+
+
+def test_masker_llm_fake_still_works_without_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MASKER_LLM", "fake")
+    provider = get_provider()
+    assert provider.complete([Message("user", "test")])
+
+
+@pytest.mark.e2e
+def test_gigachat_live_smoke() -> None:
+    """Проверка сети запускается только при явной настройке настоящего GigaChat."""
+    if os.environ.get("MASKER_LLM") != "gigachat" or not os.environ.get("GIGACHAT_CREDENTIALS"):
+        pytest.skip("нужны MASKER_LLM=gigachat и GIGACHAT_CREDENTIALS")
+    provider = get_provider()
+    response = provider.complete([Message("user", "Ответь только словом OK")])
+    assert response.strip()

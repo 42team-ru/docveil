@@ -10,7 +10,7 @@ include $(ENV_FILE)
 export
 endif
 
-.PHONY: gate test eval demo fmt install gate-selftest migrate migration api seed-admin
+.PHONY: gate tasks test eval demo fmt install gate-selftest migrate migration api seed-admin
 
 install:
 	uv venv --python 3.14 .venv
@@ -18,6 +18,11 @@ install:
 
 gate:
 	./scripts/gate.sh
+
+# Прогресс по TASKS.md. Источник истины — сам TASKS.md,
+# второго списка задач не заводим: он разъедется с первым.
+tasks:
+	@$(PY) scripts/tasks_progress.py
 
 # PYTEST_WORKERS=0 — последовательный прогон (отладка), по умолчанию 4 процесса.
 PYTEST_WORKERS ?= 4

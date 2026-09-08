@@ -64,6 +64,9 @@ def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
         "entities_total": 6,
         "by_type": {"email": 1, "inn": 1, "passport": 1, "snils": 1, "date": 2},
         "by_source": {"rule": 6},
+        # Р8: критичные (inn/passport/snils) — confirmed; email и обе даты —
+        # один сигнал правила без контрольной суммы — probable.
+        "by_level": {"confirmed": 3, "probable": 3},
         "minimum_confidence": 0.9,
     }
     first_chunk = report["chunks"][0]

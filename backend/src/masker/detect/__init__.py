@@ -6,6 +6,7 @@ from masker.detect.address import AddressDetector
 from masker.detect.agent import DetectAgent
 from masker.detect.base import EntityDetector
 from masker.detect.dates import DateDetector
+from masker.detect.morph import MorphPersonDetector
 from masker.detect.ner import NatashaDetector, memoize_tagger, natasha_tagger
 from masker.detect.org_rules import OrgFormDetector
 from masker.detect.result import DetectionResult, PiiChunk, build_pii_chunks
@@ -42,6 +43,7 @@ def default_detectors(
         PaymentTermsDetector(),
         OrgFormDetector(),
         NatashaDetector(tagger),
+        MorphPersonDetector(),
     ]
     if custom_specs:
         from masker.detect.config_detector import ConfigDetector
@@ -72,6 +74,7 @@ __all__ = [
     "DetectAgent",
     "DetectionResult",
     "EntityDetector",
+    "MorphPersonDetector",
     "NatashaDetector",
     "OrgFormDetector",
     "PiiChunk",

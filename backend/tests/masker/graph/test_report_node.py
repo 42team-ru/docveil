@@ -12,6 +12,11 @@ ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
 )
 FIXTURE = ROOT / "fixtures" / "labeled" / "contract_01.docx"
+#: Тот же PDF, что и в ``test_render_node.py`` — реальный документ с
+#: известным узким полем, на котором лестница отступления маркера реально
+#: срабатывает (не только инжектированный фейк), а значит и легенда
+#: сокращений (план М1, правило 6) реально есть что агрегировать.
+PDF_FIXTURE = ROOT / "fixtures" / "labeled" / "contract_pdf_02_school.pdf"
 
 #: Множество ключей верхнего уровня report.json «простого пути» (``cli.py::
 #: inspect_docx``) на ``contract_01.docx --profile --types all``, плюс
@@ -41,8 +46,18 @@ _REFERENCE_KEYS = frozenset(
         "decisions",
         #: Спуски по лестнице отступления маркера PDF (план T2.2.1, пачка 5).
         "render_degradations",
+        #: Легенда сокращений маркера (план М1, правило 6) — агрегация
+        #: ``render_degradations`` по (shown_label, canonical_label).
+        "marker_legend",
         #: Сохранность текстового слоя PDF вне замен (план T2.2.2, шаг 5).
         "layout",
+        #: Сертификат обезличивания (план М3) — дубль
+        #: ``validation["certificate"]`` на верхнем уровне, тот же приём,
+        #: что и ``layout`` строкой выше.
+        "certificate",
+        #: Р8 — «снять одним кликом»: группы уровня "possible" отдельным
+        #: списком, даже пустым, если план был построен.
+        "review_possible",
     }
 )
 
@@ -107,6 +122,28 @@ def test_report_node_json_serializable_and_has_no_absolute_paths(tmp_path: Path)
     assert report["input"] == FIXTURE.name
 
 
+def test_report_node_certificate_mirrors_validation_certificate(tmp_path: Path) -> None:
+    """План М3: ``report["certificate"]`` — дубль
+    ``report["validation"]["certificate"]`` на верхнем уровне, тот же приём,
+    что и ``report["layout"]``. Без редактирующего рендера (``styles=()``)
+    сертификат не считается вовсе — ``None``, а не молчаливая заглушка."""
+    skipped_state = _full_state(tmp_path)
+    skipped_report = nodes.make_report_node(nodes.RunDeps())(skipped_state)["report"]
+    assert skipped_report["certificate"] is None
+
+    redacted_state = _full_state(tmp_path, styles=("marker", "blackbox"))
+    redacted_report = nodes.make_report_node(nodes.RunDeps())(redacted_state)["report"]
+    certificate = redacted_report["certificate"]
+    assert certificate is redacted_report["validation"]["certificate"]
+    assert certificate is not None
+    assert certificate["ok"] is True
+    assert {check["name"] for check in certificate["checks"]} == {
+        "leak_scan",
+        "metadata_cleared",
+        "width_quantization",
+    }
+
+
 def test_report_node_without_profile_has_no_profile_judge_key(tmp_path: Path) -> None:
     state = _full_state(tmp_path, profile=False)
 
@@ -137,3 +174,36 @@ def test_report_node_notes_llm_trace_limitation_only_when_tracer_present(tmp_pat
         state
     )["report"]
     assert any("llm-trace" in item for item in with_tracer["limitations"])
+
+
+def test_report_node_marker_legend_aggregates_real_render_degradations(tmp_path: Path) -> None:
+    """План М1, правило 6: ``report["marker_legend"]`` не пуст на документе,
+    где лестница отступления реально спускается, и каждая строка легенды
+    ссылается на непустой канонический маркер из тех же деградаций."""
+    state: State = {
+        "path": str(PDF_FIXTURE),
+        "options": {
+            "rules_only": False,
+            "types": None,
+            "interactive": False,
+            "styles": ["marker"],
+            "preview": False,
+        },
+    }
+    state.update(nodes.extract_node(state))
+    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
+    state.update(nodes.plan_node(state))
+    state.update(nodes.make_render_node(nodes.RunDeps(artifact_dir=tmp_path))(state))
+
+    result = nodes.make_report_node(nodes.RunDeps())(state)
+    report = result["report"]
+
+    degraded_shown_labels = {
+        item["shown_label"] for item in report["render_degradations"] if item["shown_label"]
+    }
+    assert degraded_shown_labels, "фикстура должна давать хотя бы одну видимую деградацию"
+    assert report["marker_legend"], "легенда обязана агрегировать реальные деградации фикстуры"
+    for entry in report["marker_legend"]:
+        assert entry["shown_label"] in degraded_shown_labels
+        assert entry["canonical_label"]
+        assert entry["pages"] == sorted(set(entry["pages"]))

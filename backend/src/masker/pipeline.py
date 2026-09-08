@@ -84,11 +84,20 @@ class MaskResult:
     должен проверяться на утечку — см. ``validate_node``). Пути валидны,
     пока не закрыт ``with``-блок ``mask_and_validate``: каталог, в котором
     они лежат, временный и удаляется при выходе.
+
+    ``render_degradations`` — то же, что и в ``report.json`` (``render_node``,
+    ``graph/nodes.py``): один элемент на каждую замену PDF-стиля ``marker``,
+    для которой лестница отступления реально спустилась со ступени (пустой
+    ``fallback_reason`` — канонический маркер без сокращений — сюда не
+    попадает). Нужен ``masker.eval.inconsistent_marker_count`` (план М4) —
+    точная проверка «какой текст реально показан для этой замены», а не
+    догадка по вхождению подстроки в текст артефакта.
     """
 
     plan: MaskPlan
     validation: ValidationReport
     artifacts: tuple[Path, ...]
+    render_degradations: tuple[dict[str, Any], ...] = ()
 
 
 @contextmanager
@@ -141,4 +150,10 @@ def mask_and_validate(
             if item.get("redacting")
         )
         validation = ValidateAgent().validate(plan, artifacts, source=Path(path))
-        yield MaskResult(plan=plan, validation=validation, artifacts=artifacts)
+        render_degradations = tuple(outcome.state.get("render_degradations", []))
+        yield MaskResult(
+            plan=plan,
+            validation=validation,
+            artifacts=artifacts,
+            render_degradations=render_degradations,
+        )

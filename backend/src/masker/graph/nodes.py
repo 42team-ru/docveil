@@ -69,6 +69,7 @@ from masker.report.payload import (
     _validation_record,
     _validation_skipped,
     build_report_payload,
+    marker_legend,
 )
 from masker.typeconfig import CustomTypeSpec, load_type_config
 from masker.validate import ValidateAgent
@@ -523,16 +524,29 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     outcome = pdf_render_module.render_pdf_redacted(
                         source, destination, document, plan, style=style
                     )
+                    groups_by_id = {group.id: group for group in plan.groups}
+                    # Только реальные спуски по лестнице отступления (план
+                    # М1) — пустой ``fallback_reason`` означает «показан
+                    # канонический маркер без сокращений», это не факт для
+                    # отчёта человеку, а норма.
                     render_degradations.extend(
                         {
                             "artifact": destination.name,
                             "role": role,
                             "page": item.page,
-                            "entity_type": item.entity_type,
-                            "marker": item.marker,
-                            "shown_as": item.shown_as,
+                            "group_id": item.group_id,
+                            "entity_type": groups_by_id[item.group_id].type
+                            if item.group_id in groups_by_id
+                            else "",
+                            "canonical_label": groups_by_id[item.group_id].canonical_label
+                            if item.group_id in groups_by_id
+                            else "",
+                            "shown_label": item.shown_label,
+                            "font_size": item.font_size,
+                            "fallback_reason": item.fallback_reason,
                         }
-                        for item in outcome.degradations
+                        for item in outcome.markers
+                        if item.fallback_reason
                     )
                 else:
                     docx_redact_module.render_docx_redacted(
@@ -685,10 +699,17 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
     )
     report["leaked"] = state.get("leaked", [])
     report["render_degradations"] = state.get("render_degradations", [])
+    # План М1, правило 6: любое сокращение маркера — строка легенды
+    # («[Ф1] = [ПОСТАВЩИК-ФИО-1], стр. 3»), а не молчаливая деградация.
+    report["marker_legend"] = marker_legend(report["render_degradations"])
     # Дубль report["validation"]["layout"] на верхнем уровне — план T2.2.2,
     # шаг 5: сохранность вёрстки PDF читается тем же взглядом, что и
     # leaked/render_degradations, а не через вложенный validation.layout.
     report["layout"] = report["validation"].get("layout", [])
+    # Дубль report["validation"]["certificate"] на верхнем уровне — план М3:
+    # сертификат обезличивания читается одним взглядом, не через вложенный
+    # validation.certificate (тот же приём, что и layout строкой выше).
+    report["certificate"] = report["validation"].get("certificate")
     contract_summary = state.get("contract_summary")
     if contract_summary:
         report["contract_summary"] = contract_summary

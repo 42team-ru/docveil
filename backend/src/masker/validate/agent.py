@@ -41,6 +41,7 @@ from masker.ingest.pdf_ingest import ingest_pdf
 from masker.mask.keys import group_key
 from masker.model import ArtifactLayout, Document, Leak, MaskPlan, ValidationReport
 from masker.refs import entity_sort_key
+from masker.validate.certificate import build_certificate
 from masker.validate.parts import DocPart, docx_parts, pdf_parts
 from masker.validate.pdf_layout import artifact_layout
 
@@ -154,7 +155,15 @@ class ValidateAgent:
         layout: list[ArtifactLayout] = []
 
         group_id_by_key: dict[str, str] = {group.key: group.id for group in plan.groups}
-        markers = tuple(group.marker for group in plan.groups)
+        # И машинный `marker` (контракт eval.py/report), и человекочитаемый
+        # `canonical_label` (план М4) — в PDF реально печатается второй (плюс,
+        # на тесных местах, более короткая ступень его лестницы отступления,
+        # план М1/М4), но `_inside_any_marker`/`_strip_markers` должны узнавать
+        # обе формы — иначе смена формулировки маркера ложно всплыла бы как
+        # утечка (`_search_detector`) или как шум вёрстки (`layout_diff`).
+        markers = tuple(group.marker for group in plan.groups) + tuple(
+            group.canonical_label for group in plan.groups if group.canonical_label
+        )
         source_is_pdf = source is not None and source.suffix.lower() == ".pdf"
 
         for artifact in artifacts:
@@ -171,13 +180,23 @@ class ValidateAgent:
                 assert source is not None  # source_is_pdf гарантирует не-None
                 layout.append(artifact_layout(source, artifact, plan, markers=markers))
 
+        leaked_sorted = _sorted_unique(leaked)
+        checked_parts_sorted = tuple(sorted(set(checked_parts)))
+        certificate = build_certificate(
+            plan,
+            leaked_sorted,
+            checked_parts_sorted,
+            tuple(artifacts),
+            source=source,
+        )
         return ValidationReport(
-            leaked=_sorted_unique(leaked),
+            leaked=leaked_sorted,
             residual=_sorted_unique(residual),
             checked_artifacts=tuple(artifact.name for artifact in artifacts),
-            checked_parts=tuple(sorted(set(checked_parts))),
+            checked_parts=checked_parts_sorted,
             ok=not leaked,
             layout=tuple(layout),
+            certificate=certificate,
         )
 
     def _search_values(

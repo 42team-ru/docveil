@@ -57,6 +57,32 @@ class Source(StrEnum):
     NER = "ner"  # локальная модель
     LLM = "llm"  # арбитр
     USER = "user"  # пользовательский детектор (custom types, T1.13)
+    BLOCK = "block"  # структурный признак: блок реквизитов или подписной (Р6)
+
+
+class ConfidenceLevel(StrEnum):
+    """Три уровня уверенности детекции (Р8, режим «мазать всё»).
+
+    Асимметрия, ради которой уровни существуют: человек снимает лишнее
+    одним кликом, а не дописывает пропущенное — найти забытый реквизит
+    почти невозможно, поэтому детектор маскирует на всех трёх уровнях,
+    разница только в том, как решение показано в отчёте.
+
+    ``CONFIRMED`` — контрольная сумма реквизита либо ≥2 независимых
+    детектора нашли пересекающиеся спаны: маскируется молча.
+    ``PROBABLE`` — один сигнал (морфология, структура, локальная NER):
+    маскируется, но помечается в отчёте.
+    ``POSSIBLE`` — заглавное имя собственное вне белого списка, без
+    формального подтверждения: маскируется и выносится в отчёте отдельной
+    секцией «снять одним кликом» (``report["review_possible"]``).
+
+    Критичные типы (``CRITICAL_TYPES``) всегда ``CONFIRMED`` независимо от
+    того, как их нашли — см. ``masker.detect.confidence.classify_level``.
+    """
+
+    CONFIRMED = "confirmed"
+    PROBABLE = "probable"
+    POSSIBLE = "possible"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +119,10 @@ class Entity:
     source: Source
     confidence: float = 1.0
     normalized: str = ""  # ключ согласованности, заполняет детектор
+    #: Уровень уверенности (Р8) — заполняет ``DetectAgent.detect()`` после
+    #: разрешения перекрытий; дефолт ``PROBABLE`` только для сущностей,
+    #: которые собраны в обход детектора (тесты, кандидаты профиля).
+    level: ConfidenceLevel = ConfidenceLevel.PROBABLE
 
 
 @dataclass(slots=True)
@@ -252,6 +282,23 @@ class PolicyQuestion:
 
 
 @dataclass(frozen=True, slots=True)
+class PdfRegion:
+    """Прямоугольник на странице PDF, в координатах страницы (pt).
+
+    Непрозрачная геометрия для рендера читаемой маски (план М1): три поля
+    ``Replacement`` — ``erase_regions``, ``paint_regions``, ``label_region``
+    — используют этот тип, чтобы разделить «что удалить», «что закрасить»
+    и «где подписать» вместо одного смешанного прямоугольника.
+    """
+
+    page: int  # номер страницы, 0-based
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+
+@dataclass(frozen=True, slots=True)
 class MaskGroup:
     """Группа сущностей с одним значением и одним маркером.
 
@@ -264,12 +311,23 @@ class MaskGroup:
     id: str  # "G1", по порядку первого вхождения в документе
     key: str  # ключ согласованности, см. mask/keys.py::group_key
     type: str  # id из EntityTypeRegistry
-    marker: str  # "[ПОСТАВЩИК-ИНН-2]"
+    marker: str  # "[ПОСТАВЩИК-ИНН-2]" — оставлен для eval.py/report/validate
     profile_id: str  # "" — сущность без профиля
     role_label: str  # "ПОСТАВЩИК" | "СТОРОНА-2" | "" (без профиля)
     number: int  # порядковый номер внутри пары (role_label, type), от 1
     refs: tuple[str, ...]  # ссылки EntityIndex, в текстовом порядке
     sample: str  # первое встреченное написание — для отчёта
+    #: Человекочитаемая полная метка — роль обычным регистром вперёд типа,
+    #: слова через пробел (план М4): ``"Заказчик Представитель"``, а не
+    #: капс-с-дефисами ``marker`` (``mask/labels.py::compose_canonical_label``).
+    #: Раздельные имена нужны, потому что ``marker`` — уже существующий
+    #: контракт eval.py/validate/report, трогать который нельзя, а
+    #: ``canonical_label`` — то, что реально печатается в PDF.
+    canonical_label: str = ""
+    #: Однозначная короткая метка, например ``[Ф1]`` — построена так, что
+    #: два профиля с разными ролями никогда не получают одинаковую (план
+    #: М1, критерий приёмки) — см. ``mask/labels.py::assign_compact_labels``.
+    compact_label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +338,12 @@ class Replacement:
     ``eval.py`` (``result.replacements``, ``repl.entity.type``,
     ``repl.entity.text``): переименовывать их нельзя, иначе сломается ещё
     не подключённая метрика.
+
+    ``erase_regions``/``paint_regions``/``label_region`` — контракт читаемой
+    маски PDF (план М1): что реально удалить, что закрасить и куда вписать
+    подпись — три разные вещи, а не один прямоугольник. Пустые по
+    умолчанию — заполняются рендером PDF после открытия страницы
+    (``render/pdf_render.py``), для DOCX не используются вовсе.
     """
 
     ref: str
@@ -288,6 +352,9 @@ class Replacement:
     group_id: str
     profile_id: str
     anchor: Anchor
+    erase_regions: tuple[PdfRegion, ...] = ()
+    paint_regions: tuple[PdfRegion, ...] = ()
+    label_region: PdfRegion | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,6 +374,28 @@ class MaskPlan:
     groups: tuple[MaskGroup, ...]  # в порядке номеров
     skipped: tuple[SkippedRef, ...]
     requested_types: tuple[str, ...]  # отсортированные значения
+
+
+@dataclass(frozen=True, slots=True)
+class MarkerRenderResult:
+    """Фактический результат вставки подписи одной замены (план М1).
+
+    Один экземпляр на ``Replacement``, для которой рендер реально пытался
+    вписать текст (сегодня — только PDF; DOCX вставляет маркер как есть,
+    без лестницы отступления и без подбора кегля). Пустой
+    ``fallback_reason`` — показан ``canonical_label`` без сокращений; любое
+    другое значение — какая ступень лестницы сработала («role_only» |
+    «compact» | «type_only» | «blank»). Отчёт превращает непустой
+    ``fallback_reason`` в строку легенды вида
+    ``[Ф1] = [Поставщик Представитель], стр. 3``.
+    """
+
+    ref: str
+    group_id: str
+    page: int
+    font_size: float
+    shown_label: str
+    fallback_reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,6 +439,35 @@ class ArtifactLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class CertificateCheck:
+    """Один пункт сертификата обезличивания (план М3).
+
+    ``name`` — ``"leak_scan"`` | ``"metadata_cleared"`` | ``"width_quantization"``,
+    строковая константа, не для локализации — интерфейс отчёта переводит её
+    в заголовок сам. ``detail`` — человекочитаемое обоснование, независимо
+    от ``ok``: даже прошедшая проверка обязана показать, что именно и сколько
+    было проверено, а не просто «ок».
+    """
+
+    name: str
+    ok: bool
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class Certificate:
+    """Сертификат обезличивания (план М3): три независимые проверки итогового
+    файла, которые можно перепроверить, а не просто поверить отчёту.
+
+    ``ok`` — конъюнкция всех ``checks``: провал любого пункта — провал
+    сертификата целиком (``eval.py`` роняет ворота на любом ``not ok``).
+    """
+
+    ok: bool
+    checks: tuple[CertificateCheck, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ValidationReport:
     """Итог проверки обезличенных артефактов ``ValidateAgent``."""
 
@@ -362,3 +480,8 @@ class ValidationReport:
     #: прогонов, где ``source`` не передан ``ValidateAgent.validate`` или
     #: артефакты не PDF.
     layout: tuple[ArtifactLayout, ...] = ()
+    #: Сертификат обезличивания (план М3) — ``None`` только если сборка
+    #: сертификата не вызывалась вовсе (не должно происходить для реального
+    #: прогона ``ValidateAgent.validate``, но конструктор ``ValidationReport``
+    #: используют и тесты напрямую, без сертификата).
+    certificate: Certificate | None = None

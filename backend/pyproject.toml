@@ -98,5 +98,6 @@ module = [
     "masker.render.pdf_render",
     "masker.validate.parts",
     "masker.validate.pdf_layout",
+    "masker.validate.certificate",
 ]
 ignore_errors = true

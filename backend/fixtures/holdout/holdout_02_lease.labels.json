@@ -1,0 +1,103 @@
+{
+  "entities": [
+    {
+      "type": "person",
+      "text": "Соловьёв Николай Петрович",
+      "party": "landlord"
+    },
+    {
+      "type": "birth_date",
+      "text": "3 сентября 1975",
+      "party": "landlord"
+    },
+    {
+      "type": "passport",
+      "text": "45 12 № 778899",
+      "party": "landlord"
+    },
+    {
+      "type": "date",
+      "text": "14.03.2019"
+    },
+    {
+      "type": "snils",
+      "text": "667-788-990 07",
+      "party": "landlord"
+    },
+    {
+      "type": "address",
+      "text": "443010, г. Самара, ул. Ленинградская, д. 5, кв. 42"
+    },
+    {
+      "type": "org_name",
+      "text": "Общество с ограниченной ответственностью «Стройсервис Плюс»",
+      "party": "tenant"
+    },
+    {
+      "type": "inn",
+      "text": "6312345675",
+      "party": "tenant"
+    },
+    {
+      "type": "kpp",
+      "text": "631201001",
+      "party": "tenant"
+    },
+    {
+      "type": "ogrn",
+      "text": "1036310001232",
+      "party": "tenant"
+    },
+    {
+      "type": "person",
+      "text": "Кравцовой Олеси Игоревны",
+      "party": "tenant"
+    },
+    {
+      "type": "address",
+      "text": "г. Самара, ул. Мичурина, д. 15, пом. 3"
+    },
+    {
+      "type": "address",
+      "text": "443080, г. Самара, ул. Революционная, д. 70, оф. 11"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810700000000004",
+      "party": "tenant"
+    },
+    {
+      "type": "bik",
+      "text": "043601607",
+      "party": "tenant"
+    },
+    {
+      "type": "phone",
+      "text": "8-846-270-11-22",
+      "party": "tenant"
+    },
+    {
+      "type": "email",
+      "text": "office@stroyservice-plus.example",
+      "party": "tenant"
+    },
+    {
+      "type": "person",
+      "text": "Н.П. Соловьёв",
+      "party": "landlord"
+    },
+    {
+      "type": "person",
+      "text": "О.И. Кравцова",
+      "party": "tenant"
+    },
+    {
+      "type": "date",
+      "text": "«01» марта 2026"
+    },
+    {
+      "type": "contract_number",
+      "text": "5/2026"
+    }
+  ]
+}

@@ -9,7 +9,7 @@
 
 .DEFAULT_GOAL := gate
 
-BACKEND_TARGETS := gate test eval demo fmt install gate-selftest migrate migration api seed-admin
+BACKEND_TARGETS := gate tasks test eval demo fmt install gate-selftest migrate migration api seed-admin
 
 .PHONY: $(BACKEND_TARGETS) up down logs db-shell front help
 

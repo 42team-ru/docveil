@@ -1,0 +1,89 @@
+{
+  "entities": [
+    {
+      "type": "person",
+      "text": "Дегтярёв Роман Олегович",
+      "party": "carrier"
+    },
+    {
+      "type": "inn",
+      "text": "780123456724",
+      "party": "carrier"
+    },
+    {
+      "type": "ogrn",
+      "text": "312784000123400",
+      "party": "carrier"
+    },
+    {
+      "type": "org_name",
+      "text": "Общество с ограниченной ответственностью «Северная логистика»",
+      "party": "customer"
+    },
+    {
+      "type": "inn",
+      "text": "7812345611",
+      "party": "customer"
+    },
+    {
+      "type": "kpp",
+      "text": "781201001",
+      "party": "customer"
+    },
+    {
+      "type": "ogrn",
+      "text": "1027800123493",
+      "party": "customer"
+    },
+    {
+      "type": "person",
+      "text": "Никоновой Елены Станиславовны",
+      "party": "customer"
+    },
+    {
+      "type": "address",
+      "text": "196006, г. Санкт-Петербург, Московский пр., д. 143, лит. А"
+    },
+    {
+      "type": "phone",
+      "text": "8-800-555-01-23",
+      "party": "carrier"
+    },
+    {
+      "type": "snils",
+      "text": "445-566-778 28",
+      "party": "carrier"
+    },
+    {
+      "type": "address",
+      "text": "191025, г. Санкт-Петербург, Невский пр., д. 90/92"
+    },
+    {
+      "type": "email",
+      "text": "INFO@SEVLOGISTIKA.EXAMPLE",
+      "party": "customer"
+    },
+    {
+      "type": "federal_law",
+      "text": "223-ФЗ"
+    },
+    {
+      "type": "date",
+      "text": "20 апреля 2026"
+    },
+    {
+      "type": "contract_number",
+      "text": "У-12/2026"
+    },
+    {
+      "type": "person",
+      "text": "Р.О. Дегтярёв",
+      "party": "carrier"
+    },
+    {
+      "type": "person",
+      "text": "Е.С. Никонова",
+      "party": "customer"
+    }
+  ]
+}

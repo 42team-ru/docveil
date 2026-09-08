@@ -70,13 +70,42 @@ def _replacement(entity_type: EntityType, text: str, *, ref: str = "R1") -> Repl
     )
 
 
-def _patch_common(
-    monkeypatch: pytest.MonkeyPatch, corpus: list[tuple[Path, dict[str, Any]]]
+def _patch_corpora(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    main: list[tuple[Path, dict[str, Any]]] = (),
+    holdout: list[tuple[Path, dict[str, Any]]] = (),
+    negative: list[tuple[Path, dict[str, Any]]] = (),
 ) -> None:
-    monkeypatch.setattr(eval_module, "load_corpus", lambda: corpus)
+    """Подменить `load_corpus` тремя независимыми корпусами (К2).
+
+    `run()` зовёт `load_corpus` трижды — без аргумента для основного корпуса
+    и с `FIXTURES_HOLDOUT`/`FIXTURES_NEGATIVE` для новых секций. Один
+    zero-arg lambda (как было до К2) сломался бы на втором и третьем вызове
+    ``TypeError``, поэтому подмена должна различать корпус по переданному пути.
+    """
+
+    def fake(fixtures: Path = eval_module.FIXTURES) -> list[tuple[Path, dict[str, Any]]]:
+        if fixtures == eval_module.FIXTURES_HOLDOUT:
+            return list(holdout)
+        if fixtures == eval_module.FIXTURES_NEGATIVE:
+            return list(negative)
+        return list(main)
+
+    monkeypatch.setattr(eval_module, "load_corpus", fake)
     monkeypatch.setattr(
         eval_module, "_profile_judge_metrics", lambda _corpus: dict(_NEUTRAL_PROFILE_JUDGE_METRICS)
     )
+
+
+def _patch_common(
+    monkeypatch: pytest.MonkeyPatch, corpus: list[tuple[Path, dict[str, Any]]]
+) -> None:
+    """Совместимость со старыми тестами: только основной корпус, holdout и
+    негативный корпус пусты — секции К2 печатают «ПРОПУЩЕН» и не влияют
+    на ворота (см. `test_eval_holdout_and_negative_sections_skip_when_empty`).
+    """
+    _patch_corpora(monkeypatch, main=corpus)
 
 
 def _row(output: str, prefix: str) -> str:
@@ -484,3 +513,255 @@ def test_eval_gate_passes_without_render_failure(
     output = capsys.readouterr().out
     assert code == 0
     assert _row(output, "render_failures").split()[-1] == "0"
+
+
+def test_eval_holdout_and_negative_sections_skip_when_empty(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """К2: пустой holdout/негативный корпус не валит ворота — печатается
+    явный пропуск, а не тихая нулевая метрика."""
+    docx_path = tmp_path / "doc.docx"
+    docx_path.write_bytes(b"")
+    labels = {"entities": [{"type": "inn", "text": "1234567890"}]}
+    _patch_common(monkeypatch, [(docx_path, labels)])
+    result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.INN, "1234567890"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    _patch_mask_and_validate(monkeypatch, {str(docx_path): result})
+
+    code = eval_module.run(gate=True)
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "HOLDOUT ПРОПУЩЕН" in output
+    assert "ЛОЖНЫЕ ПРОПУЩЕНЫ" in output
+
+
+def test_eval_holdout_section_prints_separately_and_passes(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """К2: секция HOLDOUT печатается отдельно от основного корпуса и не
+    валит ворота, когда holdout recall не хуже установленных порогов."""
+    main_path = tmp_path / "main.docx"
+    main_path.write_bytes(b"")
+    main_labels = {"entities": [{"type": "inn", "text": "1234567890"}]}
+    holdout_path = tmp_path / "holdout.docx"
+    holdout_path.write_bytes(b"")
+    holdout_labels = {"entities": [{"type": "inn", "text": "9876543210"}]}
+    _patch_corpora(
+        monkeypatch, main=[(main_path, main_labels)], holdout=[(holdout_path, holdout_labels)]
+    )
+    main_result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.INN, "1234567890"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    holdout_result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.INN, "9876543210"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    _patch_mask_and_validate(
+        monkeypatch, {str(main_path): main_result, str(holdout_path): holdout_result}
+    )
+
+    code = eval_module.run(gate=True)
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "HOLDOUT (fixtures/holdout" in output
+    assert "holdout_recall_critical     1.000  (1/1)" in output
+
+
+def test_eval_holdout_gate_fails_when_critical_type_missed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Пропуск критичного типа (ИНН) на holdout — утечка, ворота обязаны
+    провалиться независимо от того, как выглядит основной корпус."""
+    main_path = tmp_path / "main.docx"
+    main_path.write_bytes(b"")
+    main_labels = {"entities": [{"type": "inn", "text": "1234567890"}]}
+    holdout_path = tmp_path / "holdout.docx"
+    holdout_path.write_bytes(b"")
+    holdout_labels = {"entities": [{"type": "inn", "text": "9876543210"}]}
+    _patch_corpora(
+        monkeypatch, main=[(main_path, main_labels)], holdout=[(holdout_path, holdout_labels)]
+    )
+    main_result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.INN, "1234567890"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    # Holdout ничего не находит — критичный ИНН пропущен.
+    holdout_result = MaskResult(
+        plan=MaskPlan(replacements=(), groups=(), skipped=(), requested_types=()),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    _patch_mask_and_validate(
+        monkeypatch, {str(main_path): main_result, str(holdout_path): holdout_result}
+    )
+
+    code = eval_module.run(gate=True)
+    output = capsys.readouterr().out
+    assert code == 1, "пропуск критичного типа на holdout обязан провалить ворота"
+    assert "критичный тип не найден" in output
+
+
+def test_eval_holdout_gate_fails_when_recall_other_below_threshold(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Некритичный тип, полностью пропущенный на holdout, обязан провалить
+    ворота через агрегированный `holdout_recall_other`."""
+    main_path = tmp_path / "main.docx"
+    main_path.write_bytes(b"")
+    main_labels = {"entities": [{"type": "inn", "text": "1234567890"}]}
+    holdout_path = tmp_path / "holdout.docx"
+    holdout_path.write_bytes(b"")
+    holdout_labels = {"entities": [{"type": "org_name", "text": "ООО «Ромашка»"}]}
+    _patch_corpora(
+        monkeypatch, main=[(main_path, main_labels)], holdout=[(holdout_path, holdout_labels)]
+    )
+    main_result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.INN, "1234567890"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    holdout_result = MaskResult(
+        plan=MaskPlan(replacements=(), groups=(), skipped=(), requested_types=()),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    _patch_mask_and_validate(
+        monkeypatch, {str(main_path): main_result, str(holdout_path): holdout_result}
+    )
+
+    code = eval_module.run(gate=True)
+    output = capsys.readouterr().out
+    assert code == 1, "нулевой recall по некритичному типу на holdout обязан провалить ворота"
+    assert any("holdout_recall_other" in line for line in output.splitlines())
+
+
+def test_eval_negative_section_passes_within_threshold(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """К2: негативный корпус без единой PII — найденное считается только как
+    FP; в пределах порога ворота не падают, а секция печатается отдельно."""
+    main_path = tmp_path / "main.docx"
+    main_path.write_bytes(b"")
+    main_labels = {"entities": [{"type": "inn", "text": "1234567890"}]}
+    negative_path = tmp_path / "negative.docx"
+    negative_path.write_bytes(b"")
+    negative_labels: dict[str, Any] = {"entities": []}
+    _patch_corpora(
+        monkeypatch,
+        main=[(main_path, main_labels)],
+        negative=[(negative_path, negative_labels)],
+    )
+    main_result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.INN, "1234567890"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    # Один ложный org_name — в пределах MAX_NEGATIVE_FALSE_POSITIVES (2).
+    negative_result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.ORG_NAME, "ГОСТ Р 12345-2020"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    _patch_mask_and_validate(
+        monkeypatch, {str(main_path): main_result, str(negative_path): negative_result}
+    )
+
+    code = eval_module.run(gate=True)
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "ЛОЖНЫЕ (fixtures/negative" in output
+    assert _row(output, "ИТОГО").split()[-1] == "1"
+
+
+def test_eval_negative_section_fails_gate_above_threshold(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Ложных срабатываний на негативном корпусе больше порога — ворота
+    обязаны провалиться, а не молча стерпеть рост."""
+    main_path = tmp_path / "main.docx"
+    main_path.write_bytes(b"")
+    main_labels = {"entities": [{"type": "inn", "text": "1234567890"}]}
+    negative_path = tmp_path / "negative.docx"
+    negative_path.write_bytes(b"")
+    negative_labels: dict[str, Any] = {"entities": []}
+    _patch_corpora(
+        monkeypatch,
+        main=[(main_path, main_labels)],
+        negative=[(negative_path, negative_labels)],
+    )
+    main_result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.INN, "1234567890"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    # Три ложных срабатывания — больше MAX_NEGATIVE_FALSE_POSITIVES (2).
+    negative_result = MaskResult(
+        plan=MaskPlan(
+            replacements=(
+                _replacement(EntityType.ORG_NAME, "ГОСТ Р 12345-2020", ref="R1"),
+                _replacement(EntityType.DATE, "01.07.2020", ref="R2"),
+                _replacement(EntityType.PERSON, "ГГ-ММ-НННН", ref="R3"),
+            ),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    _patch_mask_and_validate(
+        monkeypatch, {str(main_path): main_result, str(negative_path): negative_result}
+    )
+
+    code = eval_module.run(gate=True)
+    output = capsys.readouterr().out
+    assert code == 1, "рост ложных срабатываний на негативном корпусе обязан провалить ворота"
+    assert "негативный корпус" in output
+    assert _row(output, "ИТОГО").split()[-1] == "3"

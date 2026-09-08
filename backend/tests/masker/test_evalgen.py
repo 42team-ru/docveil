@@ -174,7 +174,17 @@ def _isolate_from_rest_of_the_gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     docx_path = tmp_path / "doc.docx"
     docx_path.write_bytes(b"")
     labels = {"entities": [{"type": "inn", "text": "1234567890"}]}
-    monkeypatch.setattr(eval_module, "load_corpus", lambda: [(docx_path, labels)])
+    # К2 добавил вызовы `load_corpus(FIXTURES_HOLDOUT)`/`load_corpus(FIXTURES_NEGATIVE)`
+    # внутри `run()` — заглушка обязана принимать (и игнорировать) этот
+    # аргумент, иначе второй вызов падает `TypeError`. Пустой список для
+    # holdout/negative печатает «ПРОПУЩЕН» и не участвует в пороге robust_recall.
+    monkeypatch.setattr(
+        eval_module,
+        "load_corpus",
+        lambda fixtures=eval_module.FIXTURES: (
+            [(docx_path, labels)] if fixtures == eval_module.FIXTURES else []
+        ),
+    )
     monkeypatch.setattr(
         eval_module, "_profile_judge_metrics", lambda _corpus: dict(_NEUTRAL_PROFILE_JUDGE_METRICS)
     )

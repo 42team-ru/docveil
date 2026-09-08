@@ -14,6 +14,7 @@ import json
 import pathlib
 import sys
 from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import Any
 
 from masker import evalgen
@@ -29,7 +30,15 @@ from masker.run import RunFailedError
 from masker.typeconfig import load_type_config
 from masker.validate.parts import docx_parts, pdf_parts
 
-FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "labeled"
+_FIXTURES_ROOT = pathlib.Path(__file__).resolve().parents[2] / "fixtures"
+FIXTURES = _FIXTURES_ROOT / "labeled"
+#: К2 — 2–3 документа, на которых никто не настраивает детекторы и не
+#: смотрит чаще раза в день. Разница между recall основного корпуса и
+#: `holdout_recall_*` — честная оценка переобучения на `fixtures/labeled`.
+FIXTURES_HOLDOUT = _FIXTURES_ROOT / "holdout"
+#: К2 — документ без единой PII (ГОСТ/регламент). Recall тут не определён
+#: (нечего находить), считаются только ложные срабатывания.
+FIXTURES_NEGATIVE = _FIXTURES_ROOT / "negative"
 
 #: Расширение файла → его ingest. Единственное место, которое решает, каким
 #: парсером читать документ корпуса — раньше решение было спрятано в
@@ -159,6 +168,32 @@ MAX_LAYOUT_REMOVED_CHARS = 0
 #: реально чинят детекторы — не потому, что порог мешает.
 MIN_ROBUST_RECALL = 0.43
 
+#: К2 — HOLDOUT (`fixtures/holdout`): критичные типы обязаны остаться на
+#: recall = 1.0, как и в основном корпусе (см. `MIN_RECALL_CRITICAL`) — это
+#: не измеренный порог, а тот же инвариант «утечка ИНН/паспорта/счёта
+#: недопустима», распространённый и на документы, которых детектор не видел
+#: при настройке. Замер **2026-09-08** на 3 holdout-документах:
+#: critical recall = 1.000 (17/17) — держится.
+#:
+#: Некритичные типы агрегированы одним числом, а не по каждому типу
+#: отдельно: на 3 документах у части типов по 1–3 примера (`birth_date`,
+#: `delivery_period`), и точечный порог на такой выборке ловил бы шум одного
+#: документа, а не деградацию. Замер **2026-09-08**:
+#: holdout_recall_other = 0.906 (48/53), holdout_precision_other = 0.873
+#: (48/55). Пороги взяты с запасом ниже факта (0.85 и 0.80) — «Правило
+#: порогов» требует зазор, а не значение вплотную к замеру.
+MIN_HOLDOUT_RECALL_OTHER = 0.85
+MIN_HOLDOUT_PRECISION_OTHER = 0.80
+#: К2 — ЛОЖНЫЕ (`fixtures/negative`): документ без единой PII, поэтому
+#: recall не определён, а любое срабатывание — ошибка по определению.
+#: Замер **2026-09-08** на `negative_01_gost.docx`: 2 ложных срабатывания —
+#: `date` на «01.07.2020» (дата введения ГОСТа, похожа на дату документа) и
+#: `person` на «ГГ-ММ-НННН» (плейсхолдер формата номера, Natasha приняла за
+#: ФИО). Ноль недостижим без дальнейшей фильтрации детекторов, поэтому порог
+#: поставлен на фактическое значение, а не ниже: цель не спрятать эти два
+#: случая, а не дать добавиться третьему незамеченным.
+MAX_NEGATIVE_FALSE_POSITIVES = 2
+
 
 def _print_metamorphic(report: evalgen.MetamorphicReport) -> list[str]:
     print("\nМЕТАМОРФНЫЙ КОРПУС (варианты написания уже размеченных сущностей)")
@@ -190,14 +225,21 @@ def corpus_registry(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> Entity
     return registry
 
 
-def load_corpus() -> list[tuple[pathlib.Path, dict[str, Any]]]:
-    """Документ плюс его ручная разметка."""
+def load_corpus(
+    fixtures: pathlib.Path = FIXTURES,
+) -> list[tuple[pathlib.Path, dict[str, Any]]]:
+    """Документ плюс его ручная разметка из каталога ``fixtures``.
+
+    По умолчанию — основной корпус (``fixtures/labeled``). К2 добавил ещё
+    два: ``FIXTURES_HOLDOUT`` (не трогается при настройке детекторов) и
+    ``FIXTURES_NEGATIVE`` (документ без единой PII, разметка пустая).
+    """
     corpus: list[tuple[pathlib.Path, dict[str, Any]]] = []
-    for labels in sorted(FIXTURES.glob("*.labels.json")):
+    for labels in sorted(fixtures.glob("*.labels.json")):
         doc = next(
             (
                 p
-                for p in FIXTURES.glob(labels.name.replace(".labels.json", ".*"))
+                for p in fixtures.glob(labels.name.replace(".labels.json", ".*"))
                 if not p.name.endswith(".labels.json")
             ),
             None,
@@ -326,44 +368,39 @@ def _print_profile_judge(metrics: dict[str, float]) -> list[str]:
     return failures
 
 
-def run(gate: bool) -> int:
-    corpus = load_corpus()
-    profile_failures = _print_profile_judge(_profile_judge_metrics(corpus)) if corpus else []
-    # Метаморфный корпус (К1) не зависит от собранного pipeline — только от
-    # слоя детекции, поэтому меряется и здесь до проверки на masker.pipeline.
-    metamorphic_failures = _print_metamorphic(evalgen.evaluate())
-    try:
-        from masker.pipeline import mask_and_validate
-    except ImportError:
-        print("МЕТРИКИ ПРОПУЩЕНЫ: masker.pipeline ещё не реализован.")
-        print("После T1.10 этот пропуск обязан исчезнуть — иначе ворота декоративны.")
-        return 1 if gate and (profile_failures or metamorphic_failures) else 0
+@dataclass
+class MaskingMetrics:
+    """Результат прогона ``mask_and_validate`` по одному корпусу.
 
-    if not corpus:
-        print("МЕТРИКИ ПРОПУЩЕНЫ: в fixtures/labeled нет размеченных документов.")
-        return 1
+    Общий контейнер для основного корпуса, holdout и негативного (К2) —
+    раньше эти числа жили локальными переменными внутри ``run()`` и не
+    подлежали переиспользованию.
+    """
 
-    registry = corpus_registry(corpus)
-    by_type: dict[str, dict[str, set[tuple[str, ...]]]] = defaultdict(
-        lambda: {"expected": set(), "found": set()}
+    by_type: dict[str, dict[str, set[tuple[str, ...]]]] = field(
+        default_factory=lambda: defaultdict(lambda: {"expected": set(), "found": set()})
     )
-    # Разрез по форматам (шаг 2 плана T2.2.1): без него идеальные цифры по
-    # DOCX маскируют провал по PDF — ровно то, что случилось в Д7.
-    by_format: dict[str, dict[str, set[tuple[str, ...]]]] = defaultdict(
-        lambda: {"expected": set(), "found": set()}
+    by_format: dict[str, dict[str, set[tuple[str, ...]]]] = field(
+        default_factory=lambda: defaultdict(lambda: {"expected": set(), "found": set()})
     )
-    # Гейт на утечки и дубли маркеров по всему корпусу (шаг 3 плана T2.2.1):
-    # оба редактирующих артефакта строятся и проверяются ``ValidateAgent``
-    # здесь же, одним прогоном с планом — не отдельным вторым вызовом графа.
-    leaked_total = 0
-    duplicate_markers = 0
-    # Сохранность вёрстки PDF вне замен (Д10, план T2.2.2, шаг 5) — сумма
-    # ``removed_chars`` по всем PDF-артефактам корпуса; для DOCX-документов
-    # ``result.validation.layout`` пуст (`ValidateAgent` считает layout
-    # только для PDF), поэтому сумма не искажается посторонним форматом.
-    layout_removed_chars = 0
-    layout_failures: list[str] = []
-    render_failures: list[str] = []
+    leaked_total: int = 0
+    duplicate_markers: int = 0
+    layout_removed_chars: int = 0
+    layout_failures: list[str] = field(default_factory=list)
+    render_failures: list[str] = field(default_factory=list)
+
+
+def _mask_corpus(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> MaskingMetrics:
+    """Прогнать ``mask_and_validate`` по каждому документу корпуса и собрать метрики.
+
+    Общая часть основного, holdout- и негативного прогонов (К2, план
+    `docs/plans/product-completion.md`): раньше это тело жило только внутри
+    `run()` и не могло быть вызвано второй раз для `fixtures/holdout` и
+    `fixtures/negative` без копипаста.
+    """
+    from masker.pipeline import mask_and_validate
+
+    metrics = MaskingMetrics()
     for path, labels in corpus:
         fmt = path.suffix.casefold().lstrip(".")
         custom_types = labels.get("custom_types", [])
@@ -373,18 +410,18 @@ def run(gate: bool) -> int:
             ) as result:
                 for item in labels["entities"]:
                     key = (path.name, item["type"], _collapse(item["text"]))
-                    by_type[item["type"]]["expected"].add(key)
-                    by_format[fmt]["expected"].add(key)
+                    metrics.by_type[item["type"]]["expected"].add(key)
+                    metrics.by_format[fmt]["expected"].add(key)
                 for repl in result.plan.replacements:
                     key = (path.name, repl.entity.type, _collapse(repl.entity.text))
-                    by_type[repl.entity.type]["found"].add(key)
-                    by_format[fmt]["found"].add(key)
-                leaked_total += len(result.validation.leaked)
-                duplicate_markers += duplicate_marker_count(result.plan, result.artifacts)
+                    metrics.by_type[repl.entity.type]["found"].add(key)
+                    metrics.by_format[fmt]["found"].add(key)
+                metrics.leaked_total += len(result.validation.leaked)
+                metrics.duplicate_markers += duplicate_marker_count(result.plan, result.artifacts)
                 for layout in result.validation.layout:
-                    layout_removed_chars += layout.removed_chars
+                    metrics.layout_removed_chars += layout.removed_chars
                     if layout.removed_chars:
-                        layout_failures.append(
+                        metrics.layout_failures.append(
                             f"{path.name}/{layout.artifact}: removed={layout.removed_chars} "
                             f"pages={list(layout.pages)} {layout.first_diff}"
                         )
@@ -393,12 +430,15 @@ def run(gate: bool) -> int:
             # посчитан), но факт и место падения обязаны остаться видимыми —
             # иначе один аномальный документ маскировал бы метрики по всем
             # остальным, ровно то, чего требовалось избежать (Д7 наоборот).
-            render_failures.append(f"{path.name}: {error}")
+            metrics.render_failures.append(f"{path.name}: {error}")
+    return metrics
 
+
+def _print_main_corpus(metrics: MaskingMetrics, registry: EntityTypeRegistry) -> list[str]:
     print(f"{'тип':<18}{'P':>7}{'R':>7}{'F1':>7}{'FN':>5}{'FP':>5}")
     failures: list[str] = []
-    for name in sorted(by_type):
-        m = score(by_type[name]["expected"], by_type[name]["found"])
+    for name in sorted(metrics.by_type):
+        m = score(metrics.by_type[name]["expected"], metrics.by_type[name]["found"])
         print(
             f"{name:<18}{m['precision']:>7.3f}{m['recall']:>7.3f}"
             f"{m['f1']:>7.3f}{m['fn']:>5}{m['fp']:>5}"
@@ -414,41 +454,199 @@ def run(gate: bool) -> int:
             failures.append(f"{name}: precision {m['precision']:.3f} < {min_prec}")
 
     print(f"\nФОРМАТЫ\n{'формат':<18}{'P':>7}{'R':>7}{'F1':>7}{'FN':>5}{'FP':>5}")
-    for fmt in sorted(by_format):
-        m = score(by_format[fmt]["expected"], by_format[fmt]["found"])
+    for fmt in sorted(metrics.by_format):
+        m = score(metrics.by_format[fmt]["expected"], metrics.by_format[fmt]["found"])
         print(
             f"{fmt:<18}{m['precision']:>7.3f}{m['recall']:>7.3f}"
             f"{m['f1']:>7.3f}{m['fn']:>5}{m['fp']:>5}"
         )
 
-    print(f"\nleaked_total{leaked_total:>22}")
-    print(f"duplicate_markers{duplicate_markers:>17}")
-    print(f"layout_removed_chars{layout_removed_chars:>14}")
-    for failure in layout_failures:
+    print(f"\nleaked_total{metrics.leaked_total:>22}")
+    print(f"duplicate_markers{metrics.duplicate_markers:>17}")
+    print(f"layout_removed_chars{metrics.layout_removed_chars:>14}")
+    for failure in metrics.layout_failures:
         print(f"  {failure}")
-    print(f"render_failures{len(render_failures):>19}")
-    for failure in render_failures:
+    print(f"render_failures{len(metrics.render_failures):>19}")
+    for failure in metrics.render_failures:
         print(f"  {failure}")
-    if leaked_total > MAX_LEAKED_TOTAL:
-        failures.append(f"leaked_total {leaked_total} > {MAX_LEAKED_TOTAL} — утечка в артефактах")
-    if duplicate_markers > MAX_DUPLICATE_MARKERS:
+    if metrics.leaked_total > MAX_LEAKED_TOTAL:
         failures.append(
-            f"duplicate_markers {duplicate_markers} > {MAX_DUPLICATE_MARKERS} — "
+            f"leaked_total {metrics.leaked_total} > {MAX_LEAKED_TOTAL} — утечка в артефактах"
+        )
+    if metrics.duplicate_markers > MAX_DUPLICATE_MARKERS:
+        failures.append(
+            f"duplicate_markers {metrics.duplicate_markers} > {MAX_DUPLICATE_MARKERS} — "
             "маркер вставлен не один раз на Replacement"
         )
-    if layout_removed_chars > MAX_LAYOUT_REMOVED_CHARS:
+    if metrics.layout_removed_chars > MAX_LAYOUT_REMOVED_CHARS:
         failures.append(
-            f"layout_removed_chars {layout_removed_chars} > {MAX_LAYOUT_REMOVED_CHARS} — "
-            "прямоугольник редакции стёр текст вне своих замен (Д10): " + "; ".join(layout_failures)
+            f"layout_removed_chars {metrics.layout_removed_chars} > {MAX_LAYOUT_REMOVED_CHARS} — "
+            "прямоугольник редакции стёр текст вне своих замен (Д10): "
+            + "; ".join(metrics.layout_failures)
         )
-    if len(render_failures) > MAX_RENDER_FAILURES:
+    if len(metrics.render_failures) > MAX_RENDER_FAILURES:
         failures.append(
-            f"render_failures {len(render_failures)} > {MAX_RENDER_FAILURES} — "
-            "рендер упал на документе(ах) корпуса: " + "; ".join(render_failures)
+            f"render_failures {len(metrics.render_failures)} > {MAX_RENDER_FAILURES} — "
+            "рендер упал на документе(ах) корпуса: " + "; ".join(metrics.render_failures)
         )
+    return failures
 
+
+def _aggregate(
+    by_type: dict[str, dict[str, set[tuple[str, ...]]]], registry: EntityTypeRegistry
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Сложить TP/FP/FN по всем типам раздельно для критичных и остальных.
+
+    Holdout-корпус (К2) слишком мал (2–4 примера на тип), чтобы держать
+    порог по каждому типу отдельно — единичный промах на одном документе
+    валил бы ворота как системная деградация. Критичные типы, наоборот,
+    обязаны остаться на recall = 1.0 даже поодиночке, поэтому считаются
+    отдельной суммой.
+    """
+    critical = {"tp": 0, "fp": 0, "fn": 0}
+    other = {"tp": 0, "fp": 0, "fn": 0}
+    for name, sets in by_type.items():
+        m = score(sets["expected"], sets["found"])
+        bucket = critical if registry.is_critical(name) else other
+        bucket["tp"] += int(m["tp"])
+        bucket["fp"] += int(m["fp"])
+        bucket["fn"] += int(m["fn"])
+    return critical, other
+
+
+def _print_holdout(metrics: MaskingMetrics, registry: EntityTypeRegistry) -> list[str]:
+    """К2: секция HOLDOUT — те же P/R/F1 по типам, но на документах,
+    которые никто не смотрит при настройке детекторов. Печатается и
+    проверяется отдельно от основного корпуса — разница между corpus recall
+    и holdout recall и есть честная оценка переобучения.
+    """
+    print("\nHOLDOUT (fixtures/holdout — детекторы на этих документах не настраивались)")
+    print(f"{'тип':<18}{'P':>7}{'R':>7}{'F1':>7}{'FN':>5}{'FP':>5}")
+    for name in sorted(metrics.by_type):
+        expected = metrics.by_type[name]["expected"]
+        found = metrics.by_type[name]["found"]
+        m = score(expected, found)
+        print(
+            f"{name:<18}{m['precision']:>7.3f}{m['recall']:>7.3f}"
+            f"{m['f1']:>7.3f}{m['fn']:>5}{m['fp']:>5}"
+        )
+        for missing in sorted(expected - found):
+            print(f"    НЕ НАЙДЕНО: {missing[0]}: {missing[2]!r}")
+
+    critical, other = _aggregate(metrics.by_type, registry)
+    critical_recall = (
+        critical["tp"] / (critical["tp"] + critical["fn"])
+        if critical["tp"] + critical["fn"]
+        else 1.0
+    )
+    other_recall = other["tp"] / (other["tp"] + other["fn"]) if other["tp"] + other["fn"] else 1.0
+    other_precision = (
+        other["tp"] / (other["tp"] + other["fp"]) if other["tp"] + other["fp"] else 1.0
+    )
+    print(
+        f"holdout_recall_critical{critical_recall:>10.3f}  "
+        f"({critical['tp']}/{critical['tp'] + critical['fn']})"
+    )
+    print(f"holdout_recall_other{other_recall:>13.3f}  ({other['tp']}/{other['tp'] + other['fn']})")
+    print(
+        f"holdout_precision_other{other_precision:>10.3f}  "
+        f"({other['tp']}/{other['tp'] + other['fp']})"
+    )
+    print(f"holdout_leaked_total{metrics.leaked_total:>13}")
+    print(f"holdout_duplicate_markers{metrics.duplicate_markers:>8}")
+    for failure in metrics.render_failures:
+        print(f"  {failure}")
+
+    failures: list[str] = []
+    if critical_recall < MIN_RECALL_CRITICAL:
+        failures.append(
+            f"holdout: критичный тип не найден, recall {critical_recall:.3f} < "
+            f"{MIN_RECALL_CRITICAL}"
+        )
+    if other_recall < MIN_HOLDOUT_RECALL_OTHER:
+        failures.append(f"holdout_recall_other {other_recall:.3f} < {MIN_HOLDOUT_RECALL_OTHER}")
+    if other_precision < MIN_HOLDOUT_PRECISION_OTHER:
+        failures.append(
+            f"holdout_precision_other {other_precision:.3f} < {MIN_HOLDOUT_PRECISION_OTHER}"
+        )
+    if metrics.leaked_total > MAX_LEAKED_TOTAL:
+        failures.append(f"holdout leaked_total {metrics.leaked_total} > {MAX_LEAKED_TOTAL}")
+    if metrics.duplicate_markers > MAX_DUPLICATE_MARKERS:
+        failures.append(
+            f"holdout duplicate_markers {metrics.duplicate_markers} > {MAX_DUPLICATE_MARKERS}"
+        )
+    if metrics.render_failures:
+        failures.append(f"holdout render_failures: {'; '.join(metrics.render_failures)}")
+    return failures
+
+
+def _print_negative(metrics: MaskingMetrics) -> list[str]:
+    """К2: секция ЛОЖНЫЕ — negative-корпус без единой PII. Recall тут не
+    имеет смысла (нечего находить), считаются только ложные срабатывания.
+    """
+    print("\nЛОЖНЫЕ (fixtures/negative — документ без единой PII, каждое срабатывание — ошибка)")
+    print(f"{'тип':<18}{'FP':>7}")
+    total_fp = 0
+    for name in sorted(metrics.by_type):
+        found = metrics.by_type[name]["found"]
+        if not found:
+            continue
+        total_fp += len(found)
+        print(f"{name:<18}{len(found):>7}")
+        for item in sorted(found):
+            print(f"    {item[0]}: {item[2]!r}")
+    print(f"{'ИТОГО':<18}{total_fp:>7}")
+
+    failures: list[str] = []
+    if total_fp > MAX_NEGATIVE_FALSE_POSITIVES:
+        failures.append(
+            f"негативный корпус: {total_fp} ложных срабатываний > {MAX_NEGATIVE_FALSE_POSITIVES}"
+        )
+    if metrics.leaked_total > MAX_LEAKED_TOTAL:
+        failures.append(f"негативный корпус leaked_total {metrics.leaked_total} > 0")
+    if metrics.render_failures:
+        failures.append(f"негативный корпус render_failures: {'; '.join(metrics.render_failures)}")
+    return failures
+
+
+def run(gate: bool) -> int:
+    corpus = load_corpus()
+    profile_failures = _print_profile_judge(_profile_judge_metrics(corpus)) if corpus else []
+    # Метаморфный корпус (К1) не зависит от собранного pipeline — только от
+    # слоя детекции, поэтому меряется и здесь до проверки на masker.pipeline.
+    metamorphic_failures = _print_metamorphic(evalgen.evaluate())
+    try:
+        from masker.pipeline import mask_and_validate  # noqa: F401 — проверка наличия модуля
+    except ImportError:
+        print("МЕТРИКИ ПРОПУЩЕНЫ: masker.pipeline ещё не реализован.")
+        print("После T1.10 этот пропуск обязан исчезнуть — иначе ворота декоративны.")
+        return 1 if gate and (profile_failures or metamorphic_failures) else 0
+
+    if not corpus:
+        print("МЕТРИКИ ПРОПУЩЕНЫ: в fixtures/labeled нет размеченных документов.")
+        return 1
+
+    registry = corpus_registry(corpus)
+    failures = _print_main_corpus(_mask_corpus(corpus), registry)
     failures.extend(profile_failures)
     failures.extend(metamorphic_failures)
+
+    # К2 — holdout: те же метрики отдельной секцией на документах, на
+    # которых никто не настраивает детекторы.
+    holdout_corpus = load_corpus(FIXTURES_HOLDOUT)
+    if holdout_corpus:
+        holdout_registry = corpus_registry(holdout_corpus)
+        failures.extend(_print_holdout(_mask_corpus(holdout_corpus), holdout_registry))
+    else:
+        print("\nHOLDOUT ПРОПУЩЕН: fixtures/holdout пуст.")
+
+    # К2 — негативный корпус: документ без единой PII, считаются только FP.
+    negative_corpus = load_corpus(FIXTURES_NEGATIVE)
+    if negative_corpus:
+        failures.extend(_print_negative(_mask_corpus(negative_corpus)))
+    else:
+        print("\nЛОЖНЫЕ ПРОПУЩЕНЫ: fixtures/negative пуст.")
+
     if failures and gate:
         print("\nПОРОГИ НЕ ВЗЯТЫ:")
         for f in failures:

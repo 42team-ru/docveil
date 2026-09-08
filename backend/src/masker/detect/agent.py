@@ -7,6 +7,7 @@ from collections.abc import Iterable
 
 from masker.detect.base import EntityDetector
 from masker.detect.normalize import normalize_value
+from masker.detect.normalize_layout import normalize_for_detection
 from masker.detect.orgforms import (
     has_organization_evidence,
     is_organization_form_only,
@@ -16,7 +17,7 @@ from masker.detect.orgforms import (
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.detect.sweep import sweep
 from masker.entity_types import EntityTypeRegistry
-from masker.model import Document, Entity, EntityType, Source
+from masker.model import Document, Entity, EntityType, Segment, Source
 
 MIN_FRAGMENT_LEN = 2
 
@@ -170,16 +171,103 @@ class DetectAgent:
             for token in tokens
         )
 
+    @staticmethod
+    def _normalize_document(document: Document) -> tuple[Document, dict[int, list[int]]]:
+        """Построить документ с «чистым» текстом для детекторов (Р1).
+
+        Каждый сегмент нормализуется независимо (`normalize_for_detection`),
+        якорь и порядок сохраняются — детекторы адресуются к тем же
+        сегментам, что и раньше, только текст в них уже без вёрстки:
+        схлопнутых пробельных вариантов, переноса строки посреди номера,
+        разрядки меток, гомоглифов. Карта смещений на сегмент нужна
+        `_remap_entities`, чтобы вернуть найденные спаны в координаты
+        исходного документа — контракт `model.py` наружу не меняется.
+        """
+        segments: list[Segment] = []
+        maps: dict[int, list[int]] = {}
+        for segment in document.segments:
+            normalized_text, mapping = normalize_for_detection(segment.text)
+            maps[segment.order] = mapping
+            segments.append(
+                Segment(text=normalized_text, anchor=segment.anchor, order=segment.order)
+            )
+        normalized = Document(
+            path=document.path, fmt=document.fmt, segments=segments, meta=document.meta
+        )
+        return normalized, maps
+
+    @staticmethod
+    def _remap_entities(
+        entities: list[Entity],
+        maps: dict[int, list[int]],
+        original_segments: dict[int, Segment],
+    ) -> list[Entity]:
+        """Отобразить спаны детектора с нормализованного текста на исходный.
+
+        Детектор искал по `normalize_for_detection(segment.text)` и вернул
+        смещения в ЭТОМ тексте — они не совпадают по длине с исходным
+        (два пробела схлопнуты в один, перенос строки внутри номера
+        удалён), поэтому пересчёт через простую разницу длин здесь неверен:
+        конец спана обязан идти через ту же карту, что и начало
+        (``mapping[end]``), а не через ``mapping[start] + (end - start)``.
+
+        ``entity.normalized`` не пересчитывается: детектор уже посчитал его
+        от «чистого» значения, которое сам нашёл (``normalize_value`` в
+        ``rules.py``/``morph.py`` и т.п.), — это и есть канонический ключ.
+        Пересчёт от восстановленного исходного текста был бы ХУЖЕ: в нём
+        может остаться необработанный мягкий перенос или неразрывный
+        пробел (см. кейсы Р1), которые `normalize_value` не обязан знать,
+        и один и тот же реквизит с вёрсткой и без неё получил бы разные
+        ключи согласованности.
+        """
+        remapped: list[Entity] = []
+        for entity in entities:
+            mapping = maps[entity.segment_order]
+            original_text = original_segments[entity.segment_order].text
+            start = mapping[entity.start]
+            end = mapping[entity.end]
+            remapped.append(
+                Entity(
+                    type=entity.type,
+                    text=original_text[start:end],
+                    segment_order=entity.segment_order,
+                    start=start,
+                    end=end,
+                    source=entity.source,
+                    confidence=entity.confidence,
+                    normalized=entity.normalized,
+                )
+            )
+        return remapped
+
     def detect(self, document: Document) -> DetectionResult:
         """Запустить детекторы и вернуть проверенный, объединённый результат.
+
+        Все детекторы получают один и тот же нормализованный документ
+        (Р1) — так вёрсточные варианты (NBSP, перенос строки в номере,
+        разрядка «И Н Н», гомоглифы) чинятся один раз для всех детекторов
+        разом, а не в каждом из них по отдельности. Найденные спаны сразу
+        отображаются назад на координаты исходного сегмента, поэтому
+        дальше по конвейеру (``_validate``, ``_resolve_overlaps``, ``sweep``)
+        ничего не знает о нормализации — она полностью прозрачна снаружи.
 
         Сквозной досмотр (``sweep``, план T2.2.2, шаг 8, Д13) — последний
         проход, после разрешения перекрытий: расширяет уже принятые
         значения по всему документу, а не ищет новые типы сущностей.
         """
+        normalized_document, maps = self._normalize_document(document)
+        original_segments = {segment.order: segment for segment in document.segments}
         found: list[tuple[EntityDetector, Entity]] = []
         for detector in self._detectors:
-            entities = detector.detect(document)
+            entities = detector.detect(normalized_document)
+            # Контракт детектора проверяется на том же тексте, по которому
+            # он искал (нормализованном) — иначе сломанный плагин, который
+            # сам себе противоречит (текст не совпадает со своим спаном),
+            # прошёл бы незамеченным: `_remap_entities` берёт текст среза
+            # ИСХОДНОГО сегмента по координатам, а не то, что вернул
+            # детектор, и молча «чинит» результат несогласованного плагина.
+            self._validate(detector, normalized_document, entities)
+            entities = self._remap_entities(entities, maps, original_segments)
             self._validate(detector, document, entities)
             found.extend((detector, entity) for entity in entities)
         entities = self._resolve_overlaps(found)

@@ -42,7 +42,14 @@
 - ``label_region`` — куда физически вписан текст подписи. Может быть шире
   своего эрейз-региона: расширяется **вправо по той же строке**, и только
   до первого чужого символа (``_free_extension_right``) — доказанно
-  свободное место, не «на глаз».
+  свободное место, не «на глаз». Отступ на воздух под глифы (сверху и
+  снизу) — тем же приёмом (``_free_extension_vertical``): край поля
+  подписи может отступить от эрейз-прямоугольника только до первого чужого
+  непробельного символа соседней строки, а не безусловно на фиксированное
+  число пунктов — план М5 (баг «заливка заезжает на № сразу за датой», см.
+  ``docs/TASKS.md``, найдено заказчиком глазами 08.09.2026): старый код
+  добавлял отступ **сверх** уже посчитанной безопасной границы, а не
+  зажимал его ею, и ровно эти лишние пункты заезжали на живой символ.
 
 Место для подписи больше не отмеряется по ширине удалённого текста
 (корневая причина жалоб заказчика на мелкий шрифт): подпись подбирается
@@ -92,6 +99,21 @@ _FONT_NAME = "cyr"
 #: на более мелкий шрифт. Раньше здесь были размеры вплоть до 2 pt — именно
 #: это порождало жалобу заказчика «мелкий шрифт».
 _MARKER_FONT_SIZES: tuple[float, ...] = (10.0, 9.0, 8.0)
+#: Реальная высота строки, которую требует ``page.insert_textbox`` — не
+#: кегль сам по себе (план М5, диагностика на ``contract_pdf_02_school.pdf``,
+#: группа ``G1``): бинарным поиском по нескольким ширинам/кеглям измерено
+#: устойчиво ``высота = 1.4 × кегль`` независимо от текста и ширины поля —
+#: внутренний межстрочный интервал PyMuPDF, не наша величина. Прежняя
+#: оценка (`box.height >= size`) была систематически оптимистична и
+#: молчала об этом, пока щедрый безусловный отступ (``-1``/``+2``) с запасом
+#: перекрывал разницу везде. План М5 сузил отступ до доказанно свободного
+#: места, и на одном реальном кандидате (тесная область у нижнего колонтитула)
+#: запаса больше не осталось: оценка сказала «влезет», а настоящая вставка
+#: текста — нет, что и должно было быть пойманым сразу, а не через дефект
+#: подсветки. Без этого множителя оценка и факт расходятся ровно там, где
+#: раньше расхождение маскировалось лишним воздухом, а не там, где текста
+#: действительно нет места.
+_LABEL_LINE_HEIGHT = 1.4
 #: Шаг сетки квантования ширины `erase_regions` (план М1, правило 5).
 #: Ширина прямоугольника, повторяющая ширину удалённого текста, — доказанный
 #: канал утечки длины фамилии (PoPETs 2023, ≈13 бит, один человек из 8000):
@@ -313,11 +335,40 @@ def _free_extension_right(
     задевать. Без преграды граница — конец полосы строки (``line_box.x1``),
     не дальше физического текста строки (сами пробелы в объединение полосы
     уже вошли — дальше них строка не продолжается).
+
+    «Та же строка» — не только тот же ``line_id``: два блока PyMuPDF на
+    одной визуальной строке (соседние ячейки таблицы, форма с несколькими
+    полями подряд) нумеруются как **разные** физические строки (план М5,
+    диагностика на ``contract_pdf_02_school.pdf``, замена ``E223``, «ул.
+    Банникова, 2»): счётчик строк в ``_walk_page`` сквозной по странице, но
+    сбрасывается на границе блока, поэтому символ соседнего блока на той
+    же высоте получает другой ``line_id``, хотя визуально стоит в упор
+    справа. Расширение, отфильтрованное только по ``line_id``, такого
+    соседа не видело и заезжало на него.
+
+    Преградой поэтому считается и чужой ``line_id``, если его бокс
+    пересекается по вертикали с самим прямоугольником ``rect`` — не с
+    полосой всей строки (``line_box``): полоса строки шире прямоугольника
+    сущности (включает выносные элементы других символов той же строки) и
+    у неё, как и у соседних строк вообще (Д10, план T2.2.2), почти всегда
+    находится сосед снизу или сверху со сравнимой высотой — их пересечение
+    с полосой ловило бы соседнюю физическую строку целиком, а не соседний
+    блок на **этой** строке (регресс на ``E19`` — символ следующей строки
+    «и» ложно считался преградой). Прямоугольник сущности — куда более
+    узкая и точная мера «эта строка», её боксом и сверяется независимая
+    проверка сертификата (``validate/certificate.py::_has_real_neighbor_at``),
+    поэтому граница здесь не должна расходиться с тем, что эта проверка
+    считает объяснённым соседом.
     """
     limit = line_box.x1
-    for index, (box, box_line) in enumerate(zip(chars.boxes, chars.line_ids, strict=True)):
-        if box_line != line_id or box == _LINE_BREAK_RECT:
+    for index, box in enumerate(chars.boxes):
+        if box == _LINE_BREAK_RECT:
             continue
+        box_line = chars.line_ids[index]
+        if box_line != line_id and (
+            box.y1 <= rect.y0 + _GEOMETRY_EPS or box.y0 >= rect.y1 - _GEOMETRY_EPS
+        ):
+            continue  # другая строка PDF и другая визуальная высота — не преграда
         if abs_start <= index < abs_end:
             continue  # символ самой сущности — не преграда для расширения
         if chars.text[index].isspace():
@@ -326,6 +377,63 @@ def _free_extension_right(
             continue  # символ левее прямоугольника — не мешает расширению вправо
         limit = min(limit, box.x0)
     return max(limit, rect.x1)
+
+
+def _free_extension_vertical(
+    line_boxes: dict[int, pymupdf.Rect],
+    own_line_id: int,
+    x0: float,
+    x1: float,
+) -> tuple[float, float]:
+    """Границы, до которых поле подписи может раздвинуться вверх и вниз, не
+    заходя за середину полосы перекрытия с соседней строкой (план М5,
+    вертикальная симметрия ``_free_extension_right``).
+
+    Раньше отступ на воздух под глифы (``-1`` сверху, ``+2`` снизу) считался
+    безусловно, без единой проверки соседних строк — дефект, найденный
+    заказчиком глазами 08.09.2026: жёлтая заливка заезжала на символ ``№``
+    сразу за замаскированной датой, потому что расширение вправо
+    (``_free_extension_right``) честно останавливалось у самой границы
+    соседа, а этот отступ добавлялся **сверх** уже посчитанной безопасной
+    границы.
+
+    Граница строится по **полосам строк** (``line_boxes`` — объединение
+    боксов всех символов строки, ``_line_boxes``), а не по отдельным
+    символьным боксам, как расширение вправо: бокс глифа в PyMuPDF включает
+    выносные элементы шрифта (ascender/descender), и у настоящих соседних
+    строк документа они рутинно перекрываются на один-два пункта даже без
+    какого-либо расширения подписи — та же причина, что и у Д10 (план
+    T2.2.2, шаг 3), где обрезка эрейз-прямоугольника по отдельному символу
+    неверна ровно по этой причине. Посимвольная проверка на реальном
+    корпусе (``contract_pdf_02_school.pdf``) находила сотни таких «пересечений»
+    там, где визуально ничего не видно — кончик выносного элемента чужой,
+    физически далёкой строки, а не наш текст, наехавший на неё. Середина
+    полосы перекрытия — тот же компромисс, что уже принят для
+    ``erase_regions`` (``_trim_to_own_line``): не математическая гарантия
+    нулевого перекрытия боксов глифов (она недостижима на реальном шаге
+    строк), а гарантия того, что поле подписи не заходит на **чужую
+    половину** промежутка — ровно то, что нужно, чтобы отступ не рос за
+    счёт соседней строки, как раньше.
+
+    Возвращает ``(top_limit, bottom_limit)`` — абсолютные координаты,
+    дальше которых заходить нельзя. Преграды сверху нет — ``-inf``
+    (отступ вверх ничем не ограничен), преграды снизу нет — ``+inf``.
+    """
+    own_line = line_boxes[own_line_id]
+    own_center = (own_line.y0 + own_line.y1) / 2
+    top_limit = -math.inf
+    bottom_limit = math.inf
+    for other_line_id, other in line_boxes.items():
+        if other_line_id == own_line_id:
+            continue
+        if other.x1 <= x0 + _GEOMETRY_EPS or other.x0 >= x1 - _GEOMETRY_EPS:
+            continue  # не пересекается по горизонтали с полем подписи
+        other_center = (other.y0 + other.y1) / 2
+        if other_center < own_center:
+            top_limit = max(top_limit, (other.y1 + own_line.y0) / 2)  # преграда выше
+        else:
+            bottom_limit = min(bottom_limit, (other.y0 + own_line.y1) / 2)  # преграда ниже
+    return top_limit, bottom_limit
 
 
 def _quantize_erase_rect(
@@ -426,6 +534,257 @@ def compute_erase_geometry(
                     )
                 result[job.replacement.ref] = tuple(regions)
         return result
+    finally:
+        doc.close()
+
+
+def _fitting_size(font: pymupdf.Font, text: str, box: pymupdf.Rect) -> float | None:
+    """Первый кегль лестницы размеров (от крупного к минимальному), в
+    который ``text`` помещается в ``box`` — та же формула, что и
+    ``_ladder_fits``, только возвращает конкретный кегль, а не булево:
+    ``compute_label_geometry`` обязана знать, каким именно кеглем реальный
+    рендер напечатал бы текст, чтобы воспроизвести ровно ту же вставку на
+    черновой странице (``count_highlight_overlaps``), а не гадать."""
+    if box.width <= 0 or box.height <= 0:
+        return None
+    for size in _MARKER_FONT_SIZES:
+        if font.text_length(text, fontsize=size) <= box.width and box.height >= (
+            size * _LABEL_LINE_HEIGHT
+        ):
+            return size
+    return None
+
+
+def compute_label_geometry(
+    source_path: str | pathlib.Path, plan: MaskPlan
+) -> dict[str, tuple[PdfRegion, str, float]]:
+    """Пересчитать ``label_region``, фактически показанный текст и кегль
+    каждой замены стиля ``marker`` по исходному PDF и плану, не открывая
+    страницу на запись (план М5, метрика читаемости в воротах,
+    ``eval.highlight_overlap_count``).
+
+    Тот же путь вычисления, что и ``render_pdf_redacted`` при
+    ``style="marker"`` (группировка по странице → ``_rects_for_entity`` →
+    ``_trim_to_own_line`` → ``_quantize_erase_rect`` → ``_label_box_candidates``
+    → ``_choose_group_rungs`` → тот же выбор конкретного кандидата, что и
+    ``_place_label_fixed`` — первый по порядку документа, где выбранная
+    ступень группы влезает) — детерминированная функция только от
+    ``(source_path, plan)``, как и ``compute_erase_geometry``. Ни
+    ``add_redact_annot``, ни вставка текста здесь не выполняются: страница
+    нужна только для чтения символьных боксов и метрик шрифта, не для
+    записи. Именно поэтому эту геометрию можно (и нужно) проверять против
+    уже готового ВЫХОДНОГО артефакта отдельно — здесь она только
+    пересчитана, не нарисована.
+
+    Кегль возвращается вместе с регионом и текстом не просто для справки:
+    ``count_highlight_overlaps`` воспроизводит ровно эту вставку
+    (``box``, ``text``, ``fontsize``) на черновой странице, чтобы получить
+    боксы настоящих глифов подписи — искать литеральную строку
+    (``page.search_for``) в готовом артефакте нельзя, она не находит
+    перенос длинного маркера на вторую визуальную строку внутри поля
+    (легальный перенос, если высота поля позволяет).
+
+    Возвращает по одному элементу ``(label_region, shown_text, font_size)``
+    на ``Replacement``, для которой рендер печатает непустой текст. Замены
+    со ступенью ``"blank"`` (печатать нечего) и DOCX-замены (``anchor.fmt
+    != "pdf"``) в результат не попадают.
+    """
+    doc = pymupdf.open(str(source_path))
+    try:
+        font = pymupdf.Font(fontfile=str(_FONT_FILE))
+        cache = _PageCharsCache(doc)
+        by_page: dict[int, list[_PageJob]] = defaultdict(list)
+        for replacement in plan.replacements:
+            if replacement.anchor.fmt != "pdf":
+                continue
+            page_num, seg_start, _seg_end = _parse_locator(replacement.anchor.locator)
+            rects = _rects_for_entity(cache, page_num, seg_start, replacement)
+            by_page[page_num].append(
+                _PageJob(replacement=replacement, seg_char_start=seg_start, rects=rects)
+            )
+
+        candidates_by_group: dict[str, list[list[tuple[pymupdf.Rect, pymupdf.Rect]]]] = defaultdict(
+            list
+        )
+        candidates_by_ref: dict[str, list[tuple[pymupdf.Rect, pymupdf.Rect]]] = {}
+        page_by_ref: dict[str, int] = {}
+
+        for page_num in sorted(by_page):
+            line_boxes = cache.line_boxes(page_num)
+            chars = cache.chars(page_num)
+            for job in by_page[page_num]:
+                abs_start = job.seg_char_start + job.replacement.entity.start
+                abs_end = job.seg_char_start + job.replacement.entity.end
+                trimmed_rects: list[tuple[int, pymupdf.Rect]] = []
+                for line_id, rect in job.rects:
+                    trimmed_rect, _collided = _trim_to_own_line(rect, line_id, line_boxes)
+                    quantized_rect = _quantize_erase_rect(
+                        chars, line_id, trimmed_rect, abs_start, abs_end, line_boxes[line_id]
+                    )
+                    trimmed_rects.append((line_id, quantized_rect))
+                candidates = _label_box_candidates(
+                    cache, page_num, job.seg_char_start, job.replacement, trimmed_rects
+                )
+                candidates_by_group[job.replacement.group_id].append(candidates)
+                candidates_by_ref[job.replacement.ref] = candidates
+                page_by_ref[job.replacement.ref] = page_num
+
+        rung_by_group = _choose_group_rungs(font, plan.groups, candidates_by_group)
+
+        result: dict[str, tuple[PdfRegion, str, float]] = {}
+        for replacement in plan.replacements:
+            candidates = candidates_by_ref.get(replacement.ref)
+            if candidates is None:
+                continue
+            text, _reason = rung_by_group.get(replacement.group_id, ("", "blank"))
+            if not text:
+                continue
+            for _erase_rect, label_box in candidates:
+                size = _fitting_size(font, text, label_box)
+                if size is None:
+                    continue
+                result[replacement.ref] = (
+                    PdfRegion(
+                        page=page_by_ref[replacement.ref],
+                        x0=label_box.x0,
+                        y0=label_box.y0,
+                        x1=label_box.x1,
+                        y1=label_box.y1,
+                    ),
+                    text,
+                    size,
+                )
+                break
+        return result
+    finally:
+        doc.close()
+
+
+def _rects_overlap(a: pymupdf.Rect, b: pymupdf.Rect) -> bool:
+    """Пересекаются ли ``a`` и ``b`` по площади, а не только по границе
+    (план М5): символ, чей бокс лишь касается границы области подсветки в
+    одной точке/по нулевой полосе, — не преграда, преграда — только
+    настоящее перекрытие."""
+    ix0, iy0 = max(a.x0, b.x0), max(a.y0, b.y0)
+    ix1, iy1 = min(a.x1, b.x1), min(a.y1, b.y1)
+    return (ix1 - ix0) > _GEOMETRY_EPS and (iy1 - iy0) > _GEOMETRY_EPS
+
+
+#: Черновая страница для перепроверки настоящих боксов глифов подписи
+#: (``_scratch_marker_boxes``) — заведомо больше любого разумного размера
+#: страницы реального документа, чтобы ``insert_textbox`` ни на одном
+#: ``label_region`` не наткнулась на край черновой страницы и не обрезала
+#: текст там, где на настоящей странице обрезки не было бы.
+_SCRATCH_PAGE_SIZE = 5000.0
+
+
+def _scratch_marker_boxes(
+    font: pymupdf.Font, box: pymupdf.Rect, text: str, size: float
+) -> list[pymupdf.Rect]:
+    """Настоящие боксы глифов, которые оставит ``insert_textbox(box, text,
+    fontsize=size)`` — план М5, метрика ``count_highlight_overlaps``.
+
+    Ни поиск литеральной строки (``page.search_for``), ни сравнение по
+    имени шрифта не годятся, чтобы отличить текст маркера от текста
+    документа в уже готовом артефакте:
+
+    - ``page.search_for`` ищет строку целиком и не находит её, если
+      ``insert_textbox`` законно перенесла длинный маркер на вторую
+      визуальную строку внутри поля (высота поля это разрешает) — реальный
+      случай на ``contract_pdf_02_school.pdf`` («Сторона 32 Адрес»).
+    - Имя шрифта в ``rawdict`` — внутреннее имя файла шрифта (PyMuPDF не
+      сохраняет алиас, переданный ``insert_font``/``insert_textbox``), а
+      не наш ``_FONT_NAME``: документ, набранный тем же файлом шрифта
+      (например, синтетические PDF в тестах этого модуля), дал бы то же
+      самое имя и для своего текста, и для нашей подписи.
+
+    Надёжнее — воспроизвести ровно ту же вставку на черновой странице
+    (тот же ``box`` в абсолютных координатах страницы, тот же ``text``,
+    тот же ``size``, тот же файл шрифта) и прочитать её собственный
+    ``rawdict``: черновая страница пуста, кроме этой одной вставки, поэтому
+    всё, что на ней нашлось внутри ``box``, — заведомо наш текст, вне
+    зависимости от того, на сколько визуальных строк он перенёсся.
+    """
+    scratch = pymupdf.open()
+    try:
+        page = scratch.new_page(width=_SCRATCH_PAGE_SIZE, height=_SCRATCH_PAGE_SIZE)
+        page.insert_font(fontname=_FONT_NAME, fontfile=str(_FONT_FILE))
+        page.insert_textbox(
+            box,
+            text,
+            fontname=_FONT_NAME,
+            fontfile=str(_FONT_FILE),
+            fontsize=size,
+            color=_MARKER_TEXT_COLOR,
+            align=pymupdf.TEXT_ALIGN_LEFT,
+        )
+        data = page.get_text("rawdict", clip=box)
+        boxes: list[pymupdf.Rect] = []
+        for block in data["blocks"]:
+            if block["type"] != 0:
+                continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    boxes.extend(pymupdf.Rect(ch["bbox"]) for ch in span["chars"])
+        return boxes
+    finally:
+        scratch.close()
+
+
+def count_highlight_overlaps(
+    plan: MaskPlan, source: str | pathlib.Path, artifact: str | pathlib.Path
+) -> int:
+    """Сколько раз область подсветки маркера в ``artifact`` накрыла живой,
+    не свой символ (план М5, метрика ворот ``eval.highlight_overlap_count``).
+
+    Геометрия подсветки (``label_region`` каждой замены) пересчитывается
+    независимо от уже сохранённого артефакта тем же приёмом, что и
+    сертификат обезличивания (план М3, ``compute_erase_geometry``):
+    детерминированно по ``(source, plan)`` (``compute_label_geometry``), а
+    не читается из самого рендера — так проверка не тавтологична коду,
+    который эту геометрию построил.
+
+    Мерить пересечение нужно по ``artifact`` (уже отрендеренному файлу), не
+    по ``source``: в исходнике эрейз-регион ещё содержит собственный текст
+    сущности, и его край дал бы ложное срабатывание. В артефакте эрейз-
+    регион уже пуст (``apply_redactions`` стёр его), поэтому любой символ,
+    зацепивший подсветку, — заведомо чужой.
+
+    Текст самого маркера исключается не поиском литеральной строки в
+    артефакте (``page.search_for``), а воспроизведением той же вставки на
+    черновой странице (``_scratch_marker_boxes``) — см. её докстринг про
+    то, почему ни поиск строки, ни имя шрифта в ``rawdict`` не годятся.
+    """
+    label_regions = compute_label_geometry(source, plan)
+    if not label_regions:
+        return 0
+
+    font = pymupdf.Font(fontfile=str(_FONT_FILE))
+    doc = pymupdf.open(str(artifact))
+    try:
+        pages_needed = {region.page for region, _text, _size in label_regions.values()}
+        chars_by_page = {page_num: page_chars(doc[page_num]) for page_num in pages_needed}
+
+        total = 0
+        for region, text, size in label_regions.values():
+            rect = pymupdf.Rect(region.x0, region.y0, region.x1, region.y1)
+            marker_boxes = _scratch_marker_boxes(font, rect, text, size)
+            chars = chars_by_page[region.page]
+            for index, box in enumerate(chars.boxes):
+                if box == _LINE_BREAK_RECT:
+                    continue
+                if chars.text[index].isspace():
+                    # Пробел под подсветкой не виден человеку — это то самое
+                    # доказанно свободное место, ради которого расширение
+                    # существует (``_free_extension_right``/
+                    # ``_free_extension_vertical``), не преграда и не дефект.
+                    continue
+                if not _rects_overlap(box, rect):
+                    continue
+                if any(_rects_overlap(box, mbox) for mbox in marker_boxes):
+                    continue  # символы самого маркера — не утечка и не дефект
+                total += 1
+        return total
     finally:
         doc.close()
 
@@ -667,7 +1026,8 @@ def _ladder_fits(
     if box.width <= 0 or box.height <= 0:
         return False
     return any(
-        font.text_length(text, fontsize=size) <= box.width and box.height >= size
+        font.text_length(text, fontsize=size) <= box.width
+        and box.height >= size * _LABEL_LINE_HEIGHT
         for text, _reason in ladder
         if text
         for size in _MARKER_FONT_SIZES
@@ -732,7 +1092,13 @@ def _label_box_candidates(
 
     Кандидаты — все прямоугольники сущности (по одному на строку), каждый
     расширенный вправо в доказанно свободное место своей строки
-    (``_free_extension_right``) — план М1, правило 3.
+    (``_free_extension_right``) — план М1, правило 3. Отступ на воздух под
+    глифы (сверху и снизу) — доказанно свободным местом по той же логике
+    (``_free_extension_vertical``, план М5): раньше эти пункты добавлялись
+    безусловно поверх уже посчитанной безопасной границы, из-за чего
+    заливка заезжала на живой символ соседней строки или строки-соседа
+    справа (заказчик нашёл это глазами 08.09.2026 — «№» сразу за
+    замаскированной датой).
     """
     for _line_id, rect in trimmed_rects:
         if rect.width <= 0 or rect.height <= 0:
@@ -747,15 +1113,24 @@ def _label_box_candidates(
 
     candidates: list[tuple[pymupdf.Rect, pymupdf.Rect]] = []  # (erase_rect, label_box)
     for line_id, erase_rect in trimmed_rects:
-        extension_x1 = _free_extension_right(
+        # Горизонтальная безопасная граница уже доказанно свободна
+        # (``_free_extension_right`` возвращает ``max(limit, erase_rect.x1)``
+        # — никогда не бывает уже эрейз-прямоугольника). Раньше сюда сверху
+        # добавлялось ``+ 2`` — ровно те два пункта, что заезжали на первый
+        # чужой символ, стоящий вплотную к границе (план М5): граница сама
+        # по себе уже воздух, добавлять к ней ничего нельзя, только зажимать.
+        label_x1 = _free_extension_right(
             chars, line_id, erase_rect, abs_start, abs_end, line_boxes[line_id]
         )
-        label_box = pymupdf.Rect(
-            erase_rect.x0,
-            erase_rect.y0 - 1,
-            max(erase_rect.x1, extension_x1) + 2,
-            erase_rect.y1 + 2,
+        top_limit, bottom_limit = _free_extension_vertical(
+            line_boxes, line_id, erase_rect.x0, label_x1
         )
+        # Желаемый отступ на воздух под глифы — не безусловный, а зажатый
+        # доказанно свободной вертикальной границей (план М5): без соседа
+        # рядом отступ остаётся тем же, что и раньше (``-1``/``+2``).
+        label_y0 = max(erase_rect.y0 - 1, top_limit)
+        label_y1 = min(erase_rect.y1 + 2, bottom_limit)
+        label_box = pymupdf.Rect(erase_rect.x0, label_y0, label_x1, label_y1)
         candidates.append((erase_rect, label_box))
     return candidates
 
@@ -768,7 +1143,8 @@ def _rung_fits_everywhere(
     """``text`` обязан поместиться хоть в одном кандидате **каждого** вхождения."""
     return all(
         any(
-            font.text_length(text, fontsize=size) <= label_box.width and label_box.height >= size
+            font.text_length(text, fontsize=size) <= label_box.width
+            and label_box.height >= size * _LABEL_LINE_HEIGHT
             for _erase_rect, label_box in occurrence
             for size in _MARKER_FONT_SIZES
         )

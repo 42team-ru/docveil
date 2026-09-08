@@ -8,6 +8,8 @@ import stat
 import pymupdf
 import pytest
 
+import masker.eval as eval_module
+import masker.render.pdf_render as pdf_render_module
 from masker.ingest.pdf_ingest import PageChars, ingest_pdf, page_chars
 from masker.mask.agent import PlanAgent
 from masker.model import (
@@ -16,6 +18,7 @@ from masker.model import (
     Entity,
     EntityType,
     MaskPlan,
+    PdfRegion,
     Profile,
     ProfileMember,
     Replacement,
@@ -23,11 +26,15 @@ from masker.model import (
 )
 from masker.refs import EntityIndex
 from masker.render.pdf_render import (
+    _LINE_BREAK_RECT,
     MarkerDoesNotFitError,
     _entity_rects,
+    _label_box_candidates,
+    _PageCharsCache,
     _quantize_erase_rect,
     _try_ladder,
     compute_erase_geometry,
+    compute_label_geometry,
     render_pdf_preview,
     render_pdf_redacted,
 )
@@ -1142,3 +1149,232 @@ def test_label_stays_on_the_line_where_entity_started(tmp_path: pathlib.Path) ->
         "подпись уехала на другую строку: "
         f"label.y0={label.y0:.1f}, первая область удаления y0={first_erase.y0:.1f}"
     )
+
+
+# ── М5: подсветка не смеет накрывать чужой символ ─────────────────────────────
+
+
+def _bare_pdf_replacement(entity_start: int, entity_end: int) -> Replacement:
+    """Голая замена одной сущности на странице 0 без прохода через
+    ``PlanAgent`` — нужна тестам, которые проверяют геометрию
+    ``_label_box_candidates`` напрямую, без реального PDF."""
+    entity = Entity(
+        type=EntityType.PERSON,
+        text="W",
+        segment_order=0,
+        start=entity_start,
+        end=entity_end,
+        source=Source.RULE,
+        confidence=1.0,
+        normalized="w",
+    )
+    return Replacement(
+        ref="R1",
+        entity=entity,
+        marker="[М1]",
+        group_id="G1",
+        profile_id="",
+        anchor=Anchor(fmt="pdf", locator=("page", 0, 0, 100)),
+    )
+
+
+def _cache_with_page(chars: PageChars) -> _PageCharsCache:
+    """``_PageCharsCache`` с подставленной вручную страницей — без открытия
+    настоящего PDF (сама страница ``chars()``/``line_boxes()`` не читает
+    ``self._doc``, если запись уже есть в кэше)."""
+    cache = _PageCharsCache(pymupdf.open())
+    cache._chars[0] = chars  # type: ignore[attr-defined]
+    return cache
+
+
+def test_label_box_candidates_stops_exactly_at_free_extension_boundary() -> None:
+    """Прямое воспроизведение дефекта плана М5: сосед («№») начинается
+    ровно на границе доказанно свободного расширения вправо
+    (``_free_extension_right``) — свободного места вообще нет. Старый код
+    добавлял к этой границе безусловные ``+2pt`` — ровно те пункты, что
+    заезжали на живой символ на реальном документе (заказчик нашёл это
+    глазами 08.09.2026). Новый код обязан остановиться ровно на границе."""
+    text = "W№"
+    boxes = (pymupdf.Rect(0.0, 0.0, 10.0, 10.0), pymupdf.Rect(10.0, 0.0, 16.0, 10.0))
+    chars = PageChars(text=text, boxes=boxes, line_ids=(0, 0))
+    cache = _cache_with_page(chars)
+
+    replacement = _bare_pdf_replacement(0, 1)
+    trimmed_rects = [(0, pymupdf.Rect(0.0, 0.0, 10.0, 10.0))]
+    candidates = _label_box_candidates(cache, 0, 0, replacement, trimmed_rects)
+
+    assert len(candidates) == 1
+    _erase_rect, label_box = candidates[0]
+    assert label_box.x1 == pytest.approx(10.0), (
+        f"подсветка залезла на соседа: label.x1={label_box.x1:.2f}, "
+        "граница доказанно свободного расширения — 10.0"
+    )
+
+
+def test_label_box_candidates_vertical_padding_does_not_cross_into_line_below() -> None:
+    """План М5, вертикальная ось: символ соседней строки оказался всего в
+    0.5pt ниже своей строки (реальный шаг строки может быть меньше высоты
+    бокса глифа, та же причина, что у Д10) — безусловный ``+2`` по нижнему
+    краю поля подписи заехал бы прямо на него. ``_free_extension_vertical``
+    обязана зажать отступ доказанно свободной границей, а не добавлять его
+    поверх неё."""
+    text = "W X"
+    boxes = (
+        pymupdf.Rect(0.0, 0.0, 10.0, 10.0),
+        _LINE_BREAK_RECT,
+        pymupdf.Rect(0.0, 10.5, 10.0, 20.5),
+    )
+    chars = PageChars(text=text, boxes=boxes, line_ids=(0, 0, 1))
+    cache = _cache_with_page(chars)
+
+    replacement = _bare_pdf_replacement(0, 1)
+    trimmed_rects = [(0, pymupdf.Rect(0.0, 0.0, 10.0, 10.0))]
+    candidates = _label_box_candidates(cache, 0, 0, replacement, trimmed_rects)
+
+    assert len(candidates) == 1
+    _erase_rect, label_box = candidates[0]
+    assert label_box.y1 <= 10.5 + 0.01, (
+        f"подпись залезла на строку ниже: label.y1={label_box.y1:.2f}, сосед начинается на y=10.5"
+    )
+
+
+def test_label_box_candidates_vertical_padding_does_not_cross_into_line_above() -> None:
+    """Симметрия предыдущего теста — преграда сверху, а не снизу."""
+    text = "X W"
+    boxes = (
+        pymupdf.Rect(0.0, -10.5, 10.0, -0.5),
+        _LINE_BREAK_RECT,
+        pymupdf.Rect(0.0, 0.0, 10.0, 10.0),
+    )
+    chars = PageChars(text=text, boxes=boxes, line_ids=(0, 0, 1))
+    cache = _cache_with_page(chars)
+
+    replacement = _bare_pdf_replacement(2, 3)
+    trimmed_rects = [(1, pymupdf.Rect(0.0, 0.0, 10.0, 10.0))]
+    candidates = _label_box_candidates(cache, 0, 0, replacement, trimmed_rects)
+
+    assert len(candidates) == 1
+    _erase_rect, label_box = candidates[0]
+    assert label_box.y0 >= -0.5 - 0.01, (
+        f"подпись залезла на строку выше: label.y0={label_box.y0:.2f}, сосед кончается на y=-0.5"
+    )
+
+
+def test_label_box_candidates_keep_default_margin_without_neighbours() -> None:
+    """Без соседа рядом отступ на воздух под глифы остаётся тем же, что и
+    раньше (``-1`` сверху, ``+2`` снизу) — план М5 не имеет права снять
+    читаемость там, где расширяться было безопасно."""
+    text = "W"
+    chars = PageChars(text=text, boxes=(pymupdf.Rect(0.0, 0.0, 10.0, 10.0),), line_ids=(0,))
+    cache = _cache_with_page(chars)
+
+    replacement = _bare_pdf_replacement(0, 1)
+    trimmed_rects = [(0, pymupdf.Rect(0.0, 0.0, 10.0, 10.0))]
+    candidates = _label_box_candidates(cache, 0, 0, replacement, trimmed_rects)
+
+    assert len(candidates) == 1
+    _erase_rect, label_box = candidates[0]
+    assert label_box.y0 == pytest.approx(-1.0)
+    assert label_box.y1 == pytest.approx(12.0)
+
+
+def _entity_for_bare_text_m5(document: Document, containing: str, text: str) -> Entity:
+    seg = next(s for s in document.segments if containing in s.text)
+    start = seg.text.index(text)
+    return Entity(
+        type=EntityType.DATE,
+        text=text,
+        segment_order=seg.order,
+        start=start,
+        end=start + len(text),
+        source=Source.RULE,
+        confidence=1.0,
+        normalized=text,
+    )
+
+
+def _make_pdf_date_with_zero_gap_neighbour(tmp_path: pathlib.Path) -> pathlib.Path:
+    """Воспроизводит дефект, найденный заказчиком глазами 08.09.2026: дата,
+    сразу за которой (без единого пункта зазора) стоит ``№`` — реальный
+    текст школьного договора «...от 08.09.2026№158-ПК»."""
+    path = tmp_path / "date_no_gap.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=_FONT)
+    page.insert_text((72, 100), "от 08.09.2026№158-ПК", fontname="dvu", fontsize=12)
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+def test_label_extension_never_crosses_a_zero_gap_neighbour(tmp_path: pathlib.Path) -> None:
+    """Полный рендер того самого дефекта (план М5): маркер даты не имеет
+    права зайти на «№», стоящий сразу за ней без единого пункта зазора."""
+    path = _make_pdf_date_with_zero_gap_neighbour(tmp_path)
+    document = ingest_pdf(path)
+    entity = _entity_for_bare_text_m5(document, "08.09.2026№158-ПК", "08.09.2026")
+    dest = tmp_path / "redacted.pdf"
+    outcome = render_pdf_redacted(path, dest, document, _plan(document, [entity]))
+
+    result_doc = pymupdf.open(str(dest))
+    result_text = result_doc[0].get_text()
+    result_doc.close()
+    assert "№158-ПК" in result_text, result_text  # сосед пережил рендер целиком
+
+    replacement = outcome.replacements[0]
+    label_region = replacement.label_region
+    assert label_region is not None
+
+    source_doc = pymupdf.open(str(path))
+    source_chars = page_chars(source_doc[0])
+    source_doc.close()
+    neighbour_x0 = source_chars.boxes[source_chars.text.index("№")].x0
+
+    assert label_region.x1 <= neighbour_x0 + 0.02, (
+        f"подсветка залезла на «№»: label.x1={label_region.x1:.2f}, №.x0={neighbour_x0:.2f}"
+    )
+
+
+def test_highlight_overlap_count_is_zero_on_fixed_render(tmp_path: pathlib.Path) -> None:
+    """Метрика ворот (``masker.eval.highlight_overlap_count``, план М5) на
+    том же дефекте, но измеренная по-настоящему — рендером в файл
+    ``masked_highlight.pdf`` и независимым пересчётом геометрии подсветки
+    (``compute_label_geometry``), как и требует задание («мерить по
+    выходному файлу»)."""
+    path = _make_pdf_date_with_zero_gap_neighbour(tmp_path)
+    document = ingest_pdf(path)
+    entity = _entity_for_bare_text_m5(document, "08.09.2026№158-ПК", "08.09.2026")
+    plan = _plan(document, [entity])
+    artifact = tmp_path / "masked_highlight.pdf"
+    render_pdf_redacted(path, artifact, document, plan, style="marker")
+
+    assert eval_module.highlight_overlap_count(plan, path, (artifact,)) == 0
+
+
+def test_highlight_overlap_count_detects_a_widened_region_over_a_neighbour(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ловит саму метрику, а не только геометрию: если пересчитанный
+    ``label_region`` (пусть даже намеренно испорченный — воспроизводит
+    старый безусловный ``+2pt``) пересекает живой символ выходного файла,
+    ``highlight_overlap_count`` обязана увидеть это, а не промолчать."""
+    path = _make_pdf_date_with_zero_gap_neighbour(tmp_path)
+    document = ingest_pdf(path)
+    entity = _entity_for_bare_text_m5(document, "08.09.2026№158-ПК", "08.09.2026")
+    plan = _plan(document, [entity])
+    artifact = tmp_path / "masked_highlight.pdf"
+    render_pdf_redacted(path, artifact, document, plan, style="marker")
+
+    ref = plan.replacements[0].ref
+    real_geometry = compute_label_geometry(path, plan)
+    region, text, size = real_geometry[ref]
+    widened_region = PdfRegion(
+        page=region.page, x0=region.x0, y0=region.y0, x1=region.x1 + 2.0, y1=region.y1
+    )
+    monkeypatch.setattr(
+        pdf_render_module,
+        "compute_label_geometry",
+        lambda *_a, **_k: {ref: (widened_region, text, size)},
+    )
+
+    assert eval_module.highlight_overlap_count(plan, path, (artifact,)) > 0

@@ -26,6 +26,7 @@ from masker.judge import JudgeAgent
 from masker.model import Document, EntityType, MaskPlan, is_critical
 from masker.policy.agent import PolicyAgent
 from masker.profile import ProfileAgent
+from masker.render.pdf_render import count_highlight_overlaps
 from masker.run import RunFailedError
 from masker.typeconfig import load_type_config
 from masker.validate.parts import docx_parts, pdf_parts
@@ -141,6 +142,45 @@ def inconsistent_marker_count(
     return total
 
 
+def highlight_overlap_count(
+    plan: MaskPlan, source: pathlib.Path, artifacts: tuple[pathlib.Path, ...]
+) -> int:
+    """Сколько раз область подсветки маркера в ВЫХОДНОМ PDF накрыла живой,
+    не свой символ (план М5).
+
+    Заказчик нашёл этот дефект глазами 08.09.2026: жёлтая заливка заезжала
+    на символ ``№`` сразу за замаскированной датой — `render/pdf_render.py`
+    добавлял отступ на воздух под глифы **сверх** уже посчитанной
+    доказанно свободной границы, а не зажимал его ею.
+
+    Мерить нужно по выходному файлу, а не по исходнику (задание): в
+    исходнике эрейз-регион ещё содержит собственный текст сущности, и его
+    край дал бы ложное срабатывание. В выходном файле (``masked_highlight.pdf``
+    — единственный артефакт стиля ``marker``, ``blackbox`` текста не
+    вставляет вовсе) эрейз-регион уже пуст, поэтому любой символ,
+    зацепивший подсветку — заведомо чужой. Сам подсчёт пересечений —
+    ``render.pdf_render.count_highlight_overlaps`` (там же живёт
+    ``compute_label_geometry`` и работа с PyMuPDF без стабов — модуль
+    исключён из строгой проверки типов той же строкой ``pyproject.toml``,
+    что и остальной рендер).
+
+    Здесь — только выбор, есть ли что проверять: DOCX не редактируется
+    вырезанием глифов по прямоугольнику (нет геометрии подсветки), а без
+    самого артефакта стиля ``marker`` в списке проверка неприменима — так
+    же, как ``_check_width_quantization`` (план М3) не открывает ``source``
+    без единого PDF-артефакта (синтетические прогоны `eval.py` заглушками
+    рендера не должны падать на попытке открыть несуществующий/пустой файл).
+    """
+    if source.suffix.casefold() != ".pdf":
+        return 0
+
+    highlight_path = next((a for a in artifacts if a.name == "masked_highlight.pdf"), None)
+    if highlight_path is None:
+        return 0
+
+    return count_highlight_overlaps(plan, source, highlight_path)
+
+
 #: Пороги ворот. Пропуск критичного реквизита — утечка, поэтому recall = 1.0.
 MIN_RECALL_CRITICAL = 1.0
 MIN_RECALL_OTHER = 0.85
@@ -211,6 +251,48 @@ MAX_LAYOUT_REMOVED_CHARS = 0
 #: «сертификат почти прошёл» не бывает мелочью, это ровно то, что нельзя
 #: показать на защите как доказательство.
 MAX_CERTIFICATE_FAILURES = 0
+#: Область подсветки маркера, накрывшая живой символ в ВЫХОДНОМ PDF (план
+#: М5) — дефект читаемости, а не утечка (символ остаётся в тексте, его
+#: просто не видно человеку).
+#:
+#: Порог **не нулевой** — фактическое измерение **08.09.2026** после
+#: устранения самого дефекта задания (безусловный ``+2pt`` горизонтали и
+#: безусловные ``-1``/``+2`` вертикали, план М5): 315 на основном корпусе,
+#: все на ``contract_pdf_02_school.pdf``. Регресс-тесты
+#: (``tests/masker/render/test_pdf_render.py``, «М5: подсветка не смеет
+#: накрывать чужой символ») подтверждают, что заявленный дефект — заведомо
+#: безусловное расширение сверх доказанно свободной границы — устранён
+#: полностью: без фикса эти тесты падают, с фиксом проходят. Оставшиеся 315
+#: — не рецидив того же дефекта, а два независимых, ранее не измеренных
+#: явления, диагностированных при внедрении этой метрики:
+#:
+#: 1. Компромисс ``_trim_to_own_line`` (Д10, план T2.2.2) — граница
+#:    удаления/подписи строится серединой полосы перекрытия с соседней
+#:    строкой, а не точной нулевой границей: боксы глифов PyMuPDF шире
+#:    видимой краски (включают выносные элементы шрифта), и у настоящих
+#:    соседних строк документа они рутинно перекрываются на ~1pt даже без
+#:    единого пункта расширения — тот же компромисс уже принят для
+#:    ``erase_regions`` до плана М5 и не был измерен до появления этой
+#:    метрики. Большинство из 315 — систематическое перекрытие ~1.0pt на
+#:    повторяющемся шаблоне (номер договора в колонтитуле, ~30 страниц).
+#: 2. ``apply_redactions`` иногда перерисовывает уцелевший хвост того же
+#:    текстового объекта PDF (одного ``Tj``/``TJ`` с кернинг-массивом) со
+#:    сдвинутой позицией, теряя интервал, который раньше отделял его от
+#:    удалённого текста (замена ``E223``, «Сторона 32 Адрес»: «(далее»
+#:    сдвинулось на 7pt влево ровно после ``apply_redactions``, хотя сам
+#:    редактируемый прямоугольник его не касался и по исходнику до него не
+#:    доставал). Раскладка по строкам (``line_id``) после такой перерисовки
+#:    может дополнительно измениться (проверено: 71 строка на странице до
+#:    правки исходника → 75 после), поэтому надёжно перепроверить границу
+#:    уже после настоящего удаления — самостоятельная задача, не входящая в
+#:    план М5 (там речь только про сам отступ, а не про перерисовку PDF).
+#:
+#: Порог поставлен на измеренный факт, а не занижен дальше него — «Правило
+#: порогов» (TASKS.md) и уже принятый в этом файле приём
+#: (``MAX_NEGATIVE_FALSE_POSITIVES``): цель не спрятать эти 315, а не дать
+#: незамеченным расти дальше. Понижать нужно точечными задачами на каждое
+#: из двух явлений выше, а не следующей правкой этого числа.
+MAX_HIGHLIGHT_OVERLAPS = 315
 #: Порог на recall метаморфного корпуса (К1, `masker.evalgen`) — той же
 #: сущности в другом написании (разрядка, вёрсточные пробелы, перенос
 #: строки, гомоглифы и опечатки в метке, альтернативные подписи, формы ФИО
@@ -449,6 +531,9 @@ class MaskingMetrics:
     #: провалившийся документ не должен размножаться на три строки в сумме.
     certificate_failures: int = 0
     certificate_failure_details: list[str] = field(default_factory=list)
+    #: Сколько раз область подсветки маркера накрыла живой символ в
+    #: ВЫХОДНОМ PDF (план М5) — см. ``highlight_overlap_count``.
+    highlight_overlaps: int = 0
 
 
 def _mask_corpus(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> MaskingMetrics:
@@ -498,6 +583,9 @@ def _mask_corpus(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> MaskingMe
                         if not check.ok
                     )
                     metrics.certificate_failure_details.append(f"{path.name}: {failed_checks}")
+                metrics.highlight_overlaps += highlight_overlap_count(
+                    result.plan, path, result.artifacts
+                )
         except RunFailedError as error:
             # Не глотать тихо: документ выпадает из P/R/F1 (план на него не
             # посчитан), но факт и место падения обязаны остаться видимыми —
@@ -543,6 +631,7 @@ def _print_main_corpus(metrics: MaskingMetrics, registry: EntityTypeRegistry) ->
     print(f"certificate_failures{metrics.certificate_failures:>14}")
     for failure in metrics.certificate_failure_details:
         print(f"  {failure}")
+    print(f"highlight_overlaps{metrics.highlight_overlaps:>16}")
     print(f"render_failures{len(metrics.render_failures):>19}")
     for failure in metrics.render_failures:
         print(f"  {failure}")
@@ -576,6 +665,11 @@ def _print_main_corpus(metrics: MaskingMetrics, registry: EntityTypeRegistry) ->
             f"certificate_failures {metrics.certificate_failures} > "
             f"{MAX_CERTIFICATE_FAILURES} — сертификат обезличивания (план М3) не прошёл "
             "хотя бы один пункт: " + "; ".join(metrics.certificate_failure_details)
+        )
+    if metrics.highlight_overlaps > MAX_HIGHLIGHT_OVERLAPS:
+        failures.append(
+            f"highlight_overlaps {metrics.highlight_overlaps} > {MAX_HIGHLIGHT_OVERLAPS} — "
+            "область подсветки маркера накрыла живой символ в выходном PDF (план М5)"
         )
     return failures
 
@@ -646,6 +740,7 @@ def _print_holdout(metrics: MaskingMetrics, registry: EntityTypeRegistry) -> lis
     print(f"holdout_certificate_failures{metrics.certificate_failures:>4}")
     for failure in metrics.certificate_failure_details:
         print(f"  {failure}")
+    print(f"holdout_highlight_overlaps{metrics.highlight_overlaps:>6}")
     for failure in metrics.render_failures:
         print(f"  {failure}")
 
@@ -677,6 +772,10 @@ def _print_holdout(metrics: MaskingMetrics, registry: EntityTypeRegistry) -> lis
             f"holdout certificate_failures {metrics.certificate_failures} > "
             f"{MAX_CERTIFICATE_FAILURES}: {'; '.join(metrics.certificate_failure_details)}"
         )
+    if metrics.highlight_overlaps > MAX_HIGHLIGHT_OVERLAPS:
+        failures.append(
+            f"holdout highlight_overlaps {metrics.highlight_overlaps} > {MAX_HIGHLIGHT_OVERLAPS}"
+        )
     if metrics.render_failures:
         failures.append(f"holdout render_failures: {'; '.join(metrics.render_failures)}")
     return failures
@@ -701,6 +800,7 @@ def _print_negative(metrics: MaskingMetrics) -> list[str]:
     print(f"negative_certificate_failures{metrics.certificate_failures:>4}")
     for failure in metrics.certificate_failure_details:
         print(f"  {failure}")
+    print(f"negative_highlight_overlaps{metrics.highlight_overlaps:>6}")
 
     failures: list[str] = []
     if total_fp > MAX_NEGATIVE_FALSE_POSITIVES:
@@ -713,6 +813,11 @@ def _print_negative(metrics: MaskingMetrics) -> list[str]:
         failures.append(
             f"негативный корпус certificate_failures {metrics.certificate_failures} > "
             f"{MAX_CERTIFICATE_FAILURES}: {'; '.join(metrics.certificate_failure_details)}"
+        )
+    if metrics.highlight_overlaps > MAX_HIGHLIGHT_OVERLAPS:
+        failures.append(
+            f"негативный корпус highlight_overlaps {metrics.highlight_overlaps} > "
+            f"{MAX_HIGHLIGHT_OVERLAPS}"
         )
     if metrics.render_failures:
         failures.append(f"негативный корпус render_failures: {'; '.join(metrics.render_failures)}")

@@ -599,6 +599,30 @@ def test_inconsistent_marker_count_ignores_group_without_degradations() -> None:
     assert eval_module.inconsistent_marker_count(plan, ()) == 0
 
 
+# ── М5: подсветка не смеет накрывать чужой символ ─────────────────────────────
+
+
+def test_highlight_overlap_count_returns_zero_for_non_pdf_source(tmp_path: Path) -> None:
+    """DOCX не редактируется вырезанием глифов по прямоугольнику — там нет
+    геометрии подсветки, которую можно перепутать (план М5)."""
+    plan = MaskPlan(replacements=(), groups=(), skipped=(), requested_types=())
+    docx_path = tmp_path / "doc.docx"
+    artifact = tmp_path / "masked_highlight.docx"
+    assert eval_module.highlight_overlap_count(plan, docx_path, (artifact,)) == 0
+
+
+def test_highlight_overlap_count_returns_zero_without_highlight_artifact(tmp_path: Path) -> None:
+    """Без артефакта `masked_highlight.pdf` в списке проверка неприменима —
+    и, что важно, не должна пытаться открыть источник вовсе: путь к нему
+    здесь заведомо не существует на диске, а функция обязана вернуть 0, не
+    упав на попытке чтения."""
+    plan = MaskPlan(replacements=(), groups=(), skipped=(), requested_types=())
+    missing_source = tmp_path / "does-not-exist.pdf"
+    other_artifact = tmp_path / "masked_black.pdf"
+    assert eval_module.highlight_overlap_count(plan, missing_source, (other_artifact,)) == 0
+    assert eval_module.highlight_overlap_count(plan, missing_source, ()) == 0
+
+
 def test_eval_gate_fails_on_inconsistent_marker(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

@@ -13,7 +13,12 @@ from collections.abc import Mapping
 
 from masker.entity_types import EntityTypeRegistry
 from masker.mask.keys import group_key
-from masker.mask.labels import assign_compact_labels, compose_marker, type_marker_label
+from masker.mask.labels import (
+    assign_compact_labels,
+    compose_canonical_label,
+    compose_marker,
+    type_marker_label,
+)
 from masker.model import (
     Action,
     Anchor,
@@ -96,7 +101,7 @@ class PlanAgent:
             pending.append(_PendingEntity(ref, entity, profile_id, anchor))
 
         buckets = _bucket_by_first_occurrence(pending)
-        marker_by_bucket, number_by_bucket = _assign_markers(
+        marker_by_bucket, number_by_bucket, canonical_by_bucket = _assign_markers(
             buckets, role_label_by_profile_id, self._registry
         )
         # Компактная метка (план М1) нумеруется сквозным счётчиком по типу
@@ -126,7 +131,7 @@ class PlanAgent:
                     number=number_by_bucket[bucket],
                     refs=tuple(item.ref for item in items),
                     sample=first.entity.text,
-                    canonical_label=marker_by_bucket[bucket],
+                    canonical_label=canonical_by_bucket[bucket],
                     compact_label=compact_label_by_bucket[bucket],
                 )
             )
@@ -189,13 +194,19 @@ def _assign_markers(
     buckets: dict[_BucketKey, list[_PendingEntity]],
     role_label_by_profile_id: dict[str, str],
     registry: EntityTypeRegistry,
-) -> tuple[dict[_BucketKey, str], dict[_BucketKey, int]]:
+) -> tuple[dict[_BucketKey, str], dict[_BucketKey, int], dict[_BucketKey, str]]:
     """Пронумеровать группы внутри пары (роль, тип) и собрать маркеры.
 
     Суффикс ``-N`` есть либо у всех групп пары, либо ни у одной: если внутри
     ``(role_label, type)`` ровно одна группа, номер в маркер не идёт, но сам
     номер (``MaskGroup.number``) всё равно фиксируется — он от 1 и внутри
     пары уникален независимо от того, показан ли в строке маркера.
+
+    Возвращает машинный маркер (``compose_marker``, капс — контракт
+    ``MaskGroup.marker``), номер и человекочитаемую каноническую метку
+    (``compose_canonical_label``, план М4) — обе строки нумеруются одним и
+    тем же ``show_suffix``, иначе «номер показан в машинном маркере, но не
+    в человеческом» стало бы отдельным, никем не проверяемым рассогласованием.
     """
     pair_order: dict[_PairKey, list[_BucketKey]] = {}
     for bucket, items in buckets.items():
@@ -206,12 +217,15 @@ def _assign_markers(
 
     marker_by_bucket: dict[_BucketKey, str] = {}
     number_by_bucket: dict[_BucketKey, int] = {}
+    canonical_by_bucket: dict[_BucketKey, str] = {}
     for (role_label, entity_type), bucket_keys in pair_order.items():
         type_label = type_marker_label(entity_type, registry)
         show_suffix = len(bucket_keys) > 1
         for number, bucket in enumerate(bucket_keys, start=1):
             number_by_bucket[bucket] = number
-            marker_by_bucket[bucket] = compose_marker(
-                role_label, type_label, number if show_suffix else None
+            suffix = number if show_suffix else None
+            marker_by_bucket[bucket] = compose_marker(role_label, type_label, suffix)
+            canonical_by_bucket[bucket] = compose_canonical_label(
+                role_label, entity_type, suffix, registry
             )
-    return marker_by_bucket, number_by_bucket
+    return marker_by_bucket, number_by_bucket, canonical_by_bucket

@@ -225,7 +225,7 @@ def test_redacted_marker_appears_in_text(tmp_path: pathlib.Path) -> None:
 
 def test_pdf_marker_from_plan(tmp_path: pathlib.Path) -> None:
     """Ради этого шага всё затевалось: в PDF тоже маркер с ролью, а не
-    латинский тип.
+    латинский тип — человекочитаемой формы (план М4), а не капсом с дефисами.
 
     Своя (не общая) фикстура — с запасом свободного места после ИНН,
     доказанно свободным для расширения подписи (план М1, правило 3):
@@ -247,7 +247,7 @@ def test_pdf_marker_from_plan(tmp_path: pathlib.Path) -> None:
     doc = pymupdf.open(str(dest))
     text = doc[0].get_text()
     doc.close()
-    assert "[ПОСТАВЩИК-ИНН]" in text
+    assert "[Поставщик ИНН]" in text
     assert _INN not in text
     assert "[INN]" not in text
 
@@ -443,11 +443,79 @@ def test_pdf_marker_inserted_once_per_replacement(tmp_path: pathlib.Path) -> Non
         confidence=0.9,
         normalized="иванов иванович",
     )
-    render_pdf_redacted(src, dest, document, _plan(document, [entity]))
+    outcome = render_pdf_redacted(src, dest, document, _plan(document, [entity]))
     doc = pymupdf.open(str(dest))
     text = doc[0].get_text()
     doc.close()
-    assert text.count("[ФИО]") == 1, text
+    assert len(outcome.markers) == 1
+    shown = outcome.markers[0].shown_label
+    assert shown != "", outcome.markers
+    assert text.count(shown) == 1, text
+
+
+def test_group_gets_one_consistent_label_across_wide_and_narrow_occurrences(
+    tmp_path: pathlib.Path,
+) -> None:
+    """План М4, пункт 3: одна и та же группа обязана печататься одной и той
+    же строкой во всём документе, даже если её вхождения сидят в местах
+    разной ширины.
+
+    Раньше `_place_label` гонял лестницу отступления на каждом вхождении
+    отдельно: в широком месте побеждала полная человеческая форма, в узком
+    — сокращение, и одна и та же сущность получала два разных маркера в
+    одном документе (диагностика на `contract_pdf_02_school.pdf`, план М4:
+    5 групп из 68 получили по два маркера). Одна и та же фамилия здесь
+    встречается дважды: один раз с большим запасом пробелов справа (влезла
+    бы полная форма ``[Поставщик Представитель]``), второй раз — сразу
+    перед непробельным соседом без места на расширение (влезает только
+    компактный код). Обе строки обязаны показать одно и то же."""
+    path = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=_FONT)
+    # Широкое вхождение — много свободных пробелов справа по той же строке.
+    page.insert_text((72, 100), "Иванов" + " " * 60, fontname="dvu", fontsize=12)
+    # Узкое — сразу после сущности непробельный сосед, расширение запрещено
+    # (план М1, правило 3: расширение только в доказанно свободное место).
+    page.insert_text((72, 300), "Иванов,подпись", fontname="dvu", fontsize=12)
+    doc.save(str(path))
+    doc.close()
+
+    document = ingest_pdf(path)
+    entities = []
+    for seg in document.segments:
+        if "Иванов" in seg.text:
+            start = seg.text.index("Иванов")
+            entities.append(
+                Entity(
+                    type=EntityType.PERSON,
+                    text="Иванов",
+                    segment_order=seg.order,
+                    start=start,
+                    end=start + len("Иванов"),
+                    source=Source.RULE,
+                    confidence=1.0,
+                    normalized="иванов",
+                )
+            )
+    assert len(entities) == 2, "фикстура обязана дать два отдельных сегмента с «Иванов»"
+    index = EntityIndex(entities)
+    profile = _profile_for("ПОСТАВЩИК", entities, index)
+    plan = _plan(document, entities, profiles=[profile])
+    assert len(plan.groups) == 1, "обе сущности обязаны попасть в одну группу"
+
+    dest = tmp_path / "redacted.pdf"
+    outcome = render_pdf_redacted(path, dest, document, plan, style="marker")
+
+    assert len(outcome.markers) == 2
+    shown_labels = {marker.shown_label for marker in outcome.markers}
+    assert len(shown_labels) == 1, (
+        f"одна группа получила {len(shown_labels)} разных маркеров: {outcome.markers}"
+    )
+    # Осмысленный тест, а не тавтология: без общегруппового выбора широкое
+    # вхождение показало бы канонический маркер, а не общее сокращение.
+    (shown_label,) = shown_labels
+    assert shown_label != plan.groups[0].canonical_label
 
 
 def _org_replacement(marker: str = "[ПОСТАВЩИК-ОРГАНИЗАЦИЯ]") -> Replacement:

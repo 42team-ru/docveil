@@ -1,10 +1,16 @@
-"""Короткие русские метки типов сущностей для маркера обезличивания.
+"""Русские метки типов сущностей для маркера обезличивания — машинные и человеческие.
 
 Отдельно от `policy/agent.py::_TYPE_TITLES`: те подписи сделаны для текста
 вопроса человеку («Название организации», «Банковский счёт») и не влезают в
 компактный маркер вида `[ПОСТАВЩИК-ИНН-2]`. Смешивать два словаря нельзя —
 изменение формулировки вопроса не должно менять уже вставленные в документ
 маркеры, и наоборот.
+
+Два параллельных словаря типов, по той же причине раздельные: `MARKER_TYPE_LABELS`
+(капс, дефисы) — машинный формат `MaskGroup.marker`, контракт `eval.py`/`report`/
+`validate`, трогать нельзя; `HUMAN_TYPE_LABELS` (план М4) — обычный регистр,
+для `MaskGroup.canonical_label`, который печатается в PDF (`render/pdf_render.py`,
+лестница отступления). DOCX по-прежнему вставляет `MaskGroup.marker` как есть.
 """
 
 from __future__ import annotations
@@ -57,6 +63,113 @@ def type_marker_label(
     if registry is not None and entity_type in registry:
         return registry.spec(entity_type).marker_label
     raise KeyError(f"Unknown entity type: {entity_type!r}")
+
+
+#: Человеческая (не аббревиатурная) метка типа для читаемого маркера (план
+#: М4). Отдельно и от `MARKER_TYPE_LABELS` (капс — машинный `MaskGroup.marker`,
+#: контракт eval.py/report/validate, трогать который нельзя), и от
+#: `entity_types.py::EntityTypeSpec.title` (формулировка для отчёта/UI) — три
+#: словаря меняются по трём разным причинам, смешивать нельзя (см. докстринг
+#: модуля). Настоящие аббревиатуры (ИНН, КПП, ОГРН, СНИЛС, БИК, ФЗ) остаются
+#: капсом — это не «крик», а нормальное написание реквизита.
+HUMAN_TYPE_LABELS: dict[str, str] = {
+    EntityType.ORG_NAME: "Организация",
+    EntityType.PERSON: "Представитель",
+    EntityType.INN: "ИНН",
+    EntityType.KPP: "КПП",
+    EntityType.OGRN: "ОГРН",
+    EntityType.SNILS: "СНИЛС",
+    EntityType.BANK_ACCOUNT: "Расчётный счёт",
+    EntityType.BIK: "БИК",
+    EntityType.BANK_NAME: "Банк",
+    EntityType.ADDRESS: "Адрес",
+    EntityType.PHONE: "Телефон",
+    EntityType.EMAIL: "Почта",
+    EntityType.PASSPORT: "Паспорт",
+    EntityType.CONTRACT_NUMBER: "Номер договора",
+    EntityType.MONEY: "Сумма",
+    EntityType.DATE: "Дата договора",
+    EntityType.BIRTH_DATE: "Дата рождения",
+    EntityType.SITE: "Сайт",
+    EntityType.FEDERAL_LAW: "Федеральный закон",
+    EntityType.CONTRACT_AMOUNT: "Сумма договора",
+    EntityType.DELIVERY_PERIOD: "Срок поставки",
+    EntityType.PAYMENT_TERMS: "Условия оплаты",
+}
+
+
+def human_type_label(
+    entity_type: str,
+    registry: EntityTypeRegistry | None = None,
+) -> str:
+    """Вернуть человеческую метку типа для читаемого маркера (план М4).
+
+    Для встроенных типов — из ``HUMAN_TYPE_LABELS``. Для пользовательских —
+    ``registry.spec().title`` (та же формулировка, что заказчик типа указал
+    в конфигурации, а не выведенная из ``marker_label``). Падает ``KeyError``,
+    если тип неизвестен — молчаливая заглушка спрятала бы новый тип без
+    метки, а не подсказала бы, где её завести.
+    """
+    if entity_type in HUMAN_TYPE_LABELS:
+        return HUMAN_TYPE_LABELS[entity_type]
+    if registry is not None and entity_type in registry:
+        return registry.spec(entity_type).title
+    raise KeyError(f"Unknown entity type: {entity_type!r}")
+
+
+def humanize_role(role_label: str) -> str:
+    """Человеческая форма ролевой метки: обычный регистр, пробел вместо дефиса.
+
+    ``role_label`` приходит из ``Profile.marker_label`` в машинном формате —
+    капс, слова через дефис (``ЗАКАЗЧИК``, ``ФИНАНСОВОГО-УПРАВЛЯЮЩЕГО``,
+    ``СТОРОНА-2`` — числовой фолбэк, когда роль не найдена в тексте
+    документа). Строится он в ``profile/labels.py`` как
+    ``role_title(label).upper().replace(" ", "-")``, где
+    ``role_title = normalize_label(label).capitalize()`` — здесь та же
+    операция в обратную сторону: нижний регистр, пробелы, заглавная только
+    первая буква всей строки (``"Финансового управляющего"``, не
+    ``"Финансового Управляющего"``). Пустая строка (сущность без профиля)
+    возвращается как есть — добавлять роль там нечего.
+    """
+    if not role_label:
+        return ""
+    return role_label.replace("-", " ").lower().capitalize()
+
+
+def compose_canonical_label(
+    role_label: str,
+    entity_type: str,
+    number: int | None,
+    registry: EntityTypeRegistry | None = None,
+) -> str:
+    """Собрать человекочитаемую каноническую метку группы (план М4, пункт 1).
+
+    В отличие от ``compose_marker`` (капс, дефисы — машинный контракт
+    ``MaskGroup.marker``, менять который нельзя, см. его докстринг), роль
+    здесь выводится вперёд обычным регистром, слова разделены пробелом:
+    ``ЗАКАЗЧИК`` + ``ФИО`` → ``"Заказчик Представитель"``, а не
+    ``"ЗАКАЗЧИК-ФИО"``.
+
+    Для ``org_name`` с известной ролью тип не добавляется вовсе: группа и
+    есть эта сторона договора («Заказчик», а не «Заказчик Организация» —
+    второе слово не несёт смысла, раз роль уже называет организацию). Во
+    всех остальных случаях с известной ролью метка — ``"<Роль> <Тип>"``; без
+    роли — просто тип (``"Номер договора"``, ``"Дата договора"``). ``number``
+    добавляется только тогда, когда вызывающий код (``PlanAgent``) решил, что
+    сущностей такого рода больше одной — та же асимметрия «без номера у
+    единственной/с номером у нескольких», что и в ``compose_marker``.
+    """
+    role = humanize_role(role_label)
+    type_label = human_type_label(entity_type, registry)
+    if role and entity_type == EntityType.ORG_NAME:
+        text = role
+    elif role:
+        text = f"{role} {type_label}"
+    else:
+        text = type_label
+    if number is not None:
+        text = f"{text} {number}"
+    return f"[{text}]"
 
 
 def compose_marker(role_label: str, type_label: str, number: int | None) -> str:
@@ -142,42 +255,42 @@ def assign_compact_labels(
     return result
 
 
-def _abbreviate_role(role_label: str, length: int) -> str:
-    """Первые ``length`` букв роли, без цифр и дефисов-разделителей."""
-    letters = [ch for ch in role_label if ch.isalpha()]
-    return "".join(letters[:length]) or role_label[:length]
+def _role_only_label(role_label: str, number: int | None) -> str:
+    """Метка «только роль», без типа: ``[Заказчик]``/``[Заказчик 2]``."""
+    role = humanize_role(role_label)
+    text = f"{role} {number}" if number is not None else role
+    return f"[{text}]"
 
 
 def marker_ladder(
     group: MaskGroup,
     registry: EntityTypeRegistry | None = None,
 ) -> list[tuple[str, str]]:
-    """Лестница отступления маркера группы (план М1, правило 4):
+    """Лестница отступления маркера группы (план М1 правило 4, план М4 пункт 2):
 
-    `[ПОСТАВЩИК-ФИО-1]` → `[ПОСТ-ФИО-1]` → `[П-ФИО-1]` → `[Ф1]` → `ФИО` → ``""``.
+    ``[Заказчик Представитель]`` → ``[Заказчик]`` → ``[Ф1]`` → ``[Представитель]`` → ``""``.
 
-    Возвращает список ``(текст, fallback_reason)`` от лучшего к худшему.
-    Пустой ``fallback_reason`` у первого элемента — показан канонический
-    маркер без сокращений. Рунги, совпадающие текстом с предыдущим
-    (например, у сущности без роли рунги 2/3 равны канонической метке),
-    пропускаются — пробовать их отдельно бессмысленно.
+    Пробуем от самой полной человеческой формы (``group.canonical_label``,
+    план М4) к самой короткой — первая, что поместится, побеждает
+    (``render/pdf_render.py``). Возвращает список ``(текст, fallback_reason)``
+    от лучшего к худшему. Пустой ``fallback_reason`` у первого элемента —
+    показан канонический маркер без сокращений. Рунги, совпадающие текстом с
+    предыдущим (например, у сущности без роли рунг «только роль» не
+    строится вовсе), пропускаются — пробовать их отдельно бессмысленно.
     """
-    type_label = type_marker_label(group.type, registry)
+    type_label = human_type_label(group.type, registry)
     show_number = group.marker.endswith(f"-{group.number}]")
     suffix = group.number if show_number else None
 
     steps: list[tuple[str, str]] = [(group.canonical_label, "")]
     if group.role_label:
-        for role_variant, reason in (
-            (_abbreviate_role(group.role_label, 4), "role_short"),
-            (_abbreviate_role(group.role_label, 1), "role_initial"),
-        ):
-            candidate = compose_marker(role_variant, type_label, suffix)
-            if candidate != steps[-1][0]:
-                steps.append((candidate, reason))
+        role_only = _role_only_label(group.role_label, suffix)
+        if role_only != steps[-1][0]:
+            steps.append((role_only, "role_only"))
     if group.compact_label and group.compact_label != steps[-1][0]:
         steps.append((group.compact_label, "compact"))
-    if type_label != steps[-1][0]:
-        steps.append((type_label, "type_only"))
+    type_only = f"[{type_label}]"
+    if type_only != steps[-1][0]:
+        steps.append((type_only, "type_only"))
     steps.append(("", "blank"))
     return steps

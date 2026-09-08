@@ -477,9 +477,13 @@ def render_pdf_redacted(
     """Удалить сущности из content-stream и вставить заглушки с маркерами плана.
 
     style="marker"   — светлый фон и подпись читаемой лестницы отступления
-                       (план М1): канонический маркер → маркер с ролью в
-                       4 буквах → маркер с ролью-инициалом → компактная
-                       метка (``[Ф1]``) → голый тип (``ФИО``) → пусто.
+                       (план М1/М4): человекочитаемая полная форма →
+                       только роль → компактная метка (``[Ф1]``) → голый
+                       тип (``[Представитель]``) → пусто. Ступень выбирается
+                       **один раз на группу**, по самому тесному из всех её
+                       вхождений (план М4, пункт 3) — иначе одна и та же
+                       сущность получала бы разные маркеры в разных местах
+                       документа, что и было дефектом до этого плана.
     style="blackbox" — чёрный прямоугольник и ничего больше (план T2.2.2,
                        шаг 1): текст не вставляется ни одной ступенью.
 
@@ -523,6 +527,20 @@ def render_pdf_redacted(
     out_replacements: list[Replacement] = []
     markers: list[MarkerRenderResult] = []
     collisions: list[RenderCollision] = []
+    # План М4, пункт 3: ступень лестницы выбирается один раз на группу, а не
+    # на каждом вхождении отдельно — иначе широкое место печатало полную
+    # форму, узкое — сокращение, и одна и та же сущность получала два разных
+    # маркера в одном документе. Поэтому вставка текста для стиля `marker`
+    # идёт в два прохода: сначала по всем страницам собираются кандидаты
+    # подписи (геометрия, без рисования текста), затем для каждой группы
+    # выбирается общая ступень по самому тесному из её вхождений, и только
+    # потом эта фиксированная ступень вписывается в каждое вхождение.
+    pending_labels: list[
+        tuple[int, Replacement, tuple[PdfRegion, ...], list[tuple[pymupdf.Rect, pymupdf.Rect]]]
+    ] = []
+    candidates_by_group: dict[str, list[list[tuple[pymupdf.Rect, pymupdf.Rect]]]] = defaultdict(
+        list
+    )
 
     # Явная сортировка по номеру страницы — детерминизм не должен зависеть
     # от порядка обхода defaultdict (план T2.2.1, раздел «Детерминизм»).
@@ -580,23 +598,25 @@ def render_pdf_redacted(
                 PdfRegion(page=page_num, x0=r.x0, y0=r.y0, x1=r.x1, y1=r.y1)
                 for _line_id, r in trimmed_rects
             )
-            group = groups_by_id[job.replacement.group_id]
-            label_region, marker_result = _place_label(
-                page,
-                font,
-                cache,
-                page_num,
-                job.seg_char_start,
-                trimmed_rects,
-                job.replacement,
-                group,
-                fill_color,
+            candidates = _label_box_candidates(
+                cache, page_num, job.seg_char_start, job.replacement, trimmed_rects
+            )
+            candidates_by_group[job.replacement.group_id].append(candidates)
+            pending_labels.append((page_num, job.replacement, erase_regions, candidates))
+
+    if style == "marker":
+        rung_by_group = _choose_group_rungs(font, plan.groups, candidates_by_group)
+        for page_num, replacement, erase_regions, candidates in pending_labels:
+            page = doc[page_num]
+            group = groups_by_id[replacement.group_id]
+            label_region, marker_result = _place_label_fixed(
+                page, font, candidates, replacement, rung_by_group[group.id], fill_color
             )
             markers.append(marker_result)
             paint_regions = (*erase_regions, label_region)
             out_replacements.append(
                 dataclasses.replace(
-                    job.replacement,
+                    replacement,
                     erase_regions=erase_regions,
                     paint_regions=paint_regions,
                     label_region=label_region,
@@ -696,27 +716,23 @@ def _try_ladder(
     return None
 
 
-def _place_label(
-    page: pymupdf.Page,
-    font: pymupdf.Font,
+def _label_box_candidates(
     cache: _PageCharsCache,
     page_num: int,
     seg_char_start: int,
-    trimmed_rects: list[tuple[int, pymupdf.Rect]],
     replacement: Replacement,
-    group: MaskGroup,
-    fill_color: tuple[float, float, float],
-) -> tuple[PdfRegion, MarkerRenderResult]:
-    """Выбрать подходящий эрейз-прямоугольник сущности и вписать в него
-    подпись по лестнице отступления (план М1).
+    trimmed_rects: list[tuple[int, pymupdf.Rect]],
+) -> list[tuple[pymupdf.Rect, pymupdf.Rect]]:
+    """Кандидаты (эрейз-прямоугольник, поле подписи) одного вхождения.
+
+    Чистая геометрия, без рисования на странице — план М4 выбирает ступень
+    лестницы один раз на группу, по самому тесному из всех её вхождений
+    (``_choose_group_rungs``), а для этого нужны кандидаты **всех**
+    вхождений группы заранее, до того как рендер решит, что печатать.
 
     Кандидаты — все прямоугольники сущности (по одному на строку), каждый
     расширенный вправо в доказанно свободное место своей строки
-    (``_free_extension_right``). Перебираем от кандидата с наибольшей
-    итоговой шириной поля подписи (план М1, правило 2: не обязательно
-    первая строка), пробуя на каждом всю лестницу текста. Если не влезла
-    даже самая короткая непустая ступень ни на одном кандидате — подсветка
-    остаётся без текста (``fallback_reason="blank"``), но не падает.
+    (``_free_extension_right``) — план М1, правило 3.
     """
     for _line_id, rect in trimmed_rects:
         if rect.width <= 0 or rect.height <= 0:
@@ -741,36 +757,82 @@ def _place_label(
             erase_rect.y1 + 2,
         )
         candidates.append((erase_rect, label_box))
+    return candidates
 
-    ladder = marker_ladder(group)
 
-    # Правило 2 плана М1: подпись ставится в ПРИГОДНЫЙ прямоугольник.
-    # Пригодный — тот, где сущность НАЧИНАЛАСЬ, если туда влезает хоть
-    # одна ступень лестницы; переезд на другую строку — крайняя мера.
-    #
-    # Раньше здесь стоял порядок «от самого широкого кандидата», и это
-    # ломало главное свойство маркера — стоять там, где стоял оригинал.
-    # У сущности, разорванной переносом (``Общество с\nОграниченной
-    # Ответственностью`` на первой странице школьного договора), хвост на
-    # следующей строке шире головы: полный ``[ОРГАНИЗАЦИЯ-3]`` не влезал в
-    # 58 pt первой строки, зато влезал во вторую, и маркер уезжал на 455 pt
-    # влево и на строку вниз. Читатель искал сторону договора там, где она
-    # была написана, и находил пустоту.
-    #
-    # Сокращение на месте лучше переезда: позиция в договоре несёт смысл
-    # (кто из сторон где упомянут), а расшифровка сокращения — одна строка
-    # легенды в отчёте (план М1, правило 6). Поэтому кандидаты идут строго
-    # в порядке документа, и на каждом отрабатывает вся лестница; на
-    # следующую строку переходим, только если не влезла даже самая
-    # короткая ступень.
-    passes: list[tuple[list[int], list[tuple[str, str]]]] = [
-        (list(range(len(candidates))), ladder),
-    ]
+def _rung_fits_everywhere(
+    font: pymupdf.Font,
+    text: str,
+    occurrences: list[list[tuple[pymupdf.Rect, pymupdf.Rect]]],
+) -> bool:
+    """``text`` обязан поместиться хоть в одном кандидате **каждого** вхождения."""
+    return all(
+        any(
+            font.text_length(text, fontsize=size) <= label_box.width and label_box.height >= size
+            for _erase_rect, label_box in occurrence
+            for size in _MARKER_FONT_SIZES
+        )
+        for occurrence in occurrences
+    )
 
-    for order, rungs in passes:
-        for idx in order:
-            erase_rect, label_box = candidates[idx]
-            if not _ladder_fits(font, label_box, rungs):
+
+def _choose_group_rungs(
+    font: pymupdf.Font,
+    groups: tuple[MaskGroup, ...],
+    candidates_by_group: dict[str, list[list[tuple[pymupdf.Rect, pymupdf.Rect]]]],
+) -> dict[str, tuple[str, str]]:
+    """Выбрать одну ступень лестницы на группу (план М4, пункт 3).
+
+    Дефект, который здесь лечится: раньше ступень выбиралась на каждом
+    вхождении отдельно, поэтому широкое место печатало полную форму, а
+    узкое — сокращение, и одна и та же сущность получала два разных
+    маркера в одном документе — прямое нарушение инварианта согласованности
+    псевдонимов (AGENTS.md). Лечение — пробовать ступени от самой полной к
+    самой короткой (``marker_ladder``) и взять первую, что помещается **во
+    всех** вхождениях группы разом; она печатается везде. Одно узкое
+    вхождение честно огрубляет метку по всему документу — расшифровку даёт
+    легенда отчёта (``report/payload.py::marker_legend``).
+
+    Группа без единого вхождения среди собранных кандидатов (сюда рендер не
+    дошёл вовсе) получает ``("", "blank")`` — печатать для неё нечего.
+    """
+    result: dict[str, tuple[str, str]] = {}
+    for group in groups:
+        occurrences = candidates_by_group.get(group.id, [])
+        chosen: tuple[str, str] = ("", "blank")
+        if occurrences:
+            for text, reason in marker_ladder(group):
+                if not text:
+                    continue
+                if _rung_fits_everywhere(font, text, occurrences):
+                    chosen = (text, reason)
+                    break
+        result[group.id] = chosen
+    return result
+
+
+def _place_label_fixed(
+    page: pymupdf.Page,
+    font: pymupdf.Font,
+    candidates: list[tuple[pymupdf.Rect, pymupdf.Rect]],
+    replacement: Replacement,
+    rung: tuple[str, str],
+    fill_color: tuple[float, float, float],
+) -> tuple[PdfRegion, MarkerRenderResult]:
+    """Вписать в это вхождение ступень, уже выбранную для всей группы.
+
+    В отличие от прежнего ``_place_label``, ступень (``rung``) больше не
+    подбирается здесь — она одна на группу (``_choose_group_rungs``), общая
+    для всех вхождений. Задача этой функции — только найти, в какой из
+    кандидатов **этого** вхождения она влезет, в документном порядке (план
+    М1, правило 2: не обязательно первая строка — первая строка сущности,
+    разорванной переносом, может содержать один инициал).
+    """
+    text, reason = rung
+    if text:
+        single_rung = [(text, reason)]
+        for erase_rect, label_box in candidates:
+            if not _ladder_fits(font, label_box, single_rung):
                 continue
             if label_box.x1 > erase_rect.x1 + _GEOMETRY_EPS:
                 # Расширение вправо доказанно свободно
@@ -783,10 +845,10 @@ def _place_label(
                     fill=fill_color,
                     width=0,
                 )
-            outcome = _try_ladder(page, font, label_box, rungs)
+            outcome = _try_ladder(page, font, label_box, single_rung)
             if outcome is None:
                 continue
-            text, fallback_reason, size = outcome
+            shown_text, fallback_reason, size = outcome
             region = PdfRegion(
                 page=page.number,
                 x0=label_box.x0,
@@ -799,9 +861,17 @@ def _place_label(
                 group_id=replacement.group_id,
                 page=page.number,
                 font_size=size,
-                shown_label=text,
+                shown_label=shown_text,
                 fallback_reason=fallback_reason,
             )
+        # Ступень прошла общегрупповую проверку (``_rung_fits_everywhere``)
+        # той же формулой ширины/высоты, что и здесь — если ни один
+        # кандидат этого вхождения её всё же не принял, геометрия версий
+        # разъехалась выше по стеку, а не «место кончилось»: молчать нельзя.
+        raise MarkerDoesNotFitError(
+            f"ступень {text!r}, выбранная для группы {replacement.group_id!r}, "
+            "не поместилась ни в одном кандидате этого вхождения"
+        )
 
     erase_rect, _label_box = candidates[0]
     region = PdfRegion(

@@ -155,7 +155,15 @@ class ValidateAgent:
         layout: list[ArtifactLayout] = []
 
         group_id_by_key: dict[str, str] = {group.key: group.id for group in plan.groups}
-        markers = tuple(group.marker for group in plan.groups)
+        # И машинный `marker` (контракт eval.py/report), и человекочитаемый
+        # `canonical_label` (план М4) — в PDF реально печатается второй (плюс,
+        # на тесных местах, более короткая ступень его лестницы отступления,
+        # план М1/М4), но `_inside_any_marker`/`_strip_markers` должны узнавать
+        # обе формы — иначе смена формулировки маркера ложно всплыла бы как
+        # утечка (`_search_detector`) или как шум вёрстки (`layout_diff`).
+        markers = tuple(group.marker for group in plan.groups) + tuple(
+            group.canonical_label for group in plan.groups if group.canonical_label
+        )
         source_is_pdf = source is not None and source.suffix.lower() == ".pdf"
 
         for artifact in artifacts:

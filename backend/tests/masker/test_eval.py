@@ -526,6 +526,113 @@ def test_duplicate_marker_count_ignores_exact_match(tmp_path: Path) -> None:
     assert eval_module.duplicate_marker_count(plan, (artifact,)) == 0
 
 
+def _group_with_ladder(*, refs: tuple[str, ...] = ("R1", "R2")) -> MaskGroup:
+    """Группа ФИО с ролью, два вхождения — годится для обеих ступеней лестницы."""
+    return MaskGroup(
+        id="G1",
+        key="person:1",
+        type=EntityType.PERSON,
+        marker="[ПОСТАВЩИК-ФИО]",
+        profile_id="P1",
+        role_label="ПОСТАВЩИК",
+        number=1,
+        refs=refs,
+        sample="Иванов",
+        canonical_label="[Поставщик Представитель]",
+        compact_label="[Ф1]",
+    )
+
+
+def _degradation(
+    group_id: str, shown_label: str, *, fallback_reason: str = "compact"
+) -> dict[str, Any]:
+    """Один элемент `render_degradations` — контракт `graph/nodes.py::render_node`."""
+    return {
+        "artifact": "masked_highlight.pdf",
+        "role": "highlight",
+        "page": 0,
+        "group_id": group_id,
+        "entity_type": EntityType.PERSON,
+        "canonical_label": "[Поставщик Представитель]",
+        "shown_label": shown_label,
+        "font_size": 9.0,
+        "fallback_reason": fallback_reason,
+    }
+
+
+def test_inconsistent_marker_count_flags_two_labels_for_one_group() -> None:
+    """План М4: одна и та же группа не должна печататься двумя разными
+    строками — встречная проверка к `duplicate_marker_count`. Одно вхождение
+    спустилось по лестнице (``[Ф1]``), второе показало канонический маркер
+    как есть (не попадает в `render_degradations` — норма, план М1)."""
+    plan = MaskPlan(
+        replacements=(),
+        groups=(_group_with_ladder(refs=("R1", "R2")),),
+        skipped=(),
+        requested_types=(),
+    )
+    render_degradations = (_degradation("G1", "[Ф1]"),)
+    assert eval_module.inconsistent_marker_count(plan, render_degradations) == 1
+
+
+def test_inconsistent_marker_count_ignores_group_with_one_label() -> None:
+    """Оба вхождения группы спустились до одной и той же ступени — не дефект."""
+    plan = MaskPlan(
+        replacements=(),
+        groups=(_group_with_ladder(refs=("R1", "R2")),),
+        skipped=(),
+        requested_types=(),
+    )
+    render_degradations = (_degradation("G1", "[Ф1]"), _degradation("G1", "[Ф1]"))
+    assert eval_module.inconsistent_marker_count(plan, render_degradations) == 0
+
+
+def test_inconsistent_marker_count_ignores_group_without_degradations() -> None:
+    """Ни одно вхождение не спустилось по лестнице — все показали канонический
+    маркер как есть, `render_degradations` для группы пуст."""
+    plan = MaskPlan(
+        replacements=(),
+        groups=(_group_with_ladder(refs=("R1", "R2")),),
+        skipped=(),
+        requested_types=(),
+    )
+    assert eval_module.inconsistent_marker_count(plan, ()) == 0
+
+
+def test_eval_gate_fails_on_inconsistent_marker(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Группа, отрендеренная двумя разными строками, обязана провалить ворота."""
+    docx_path = tmp_path / "doc.docx"
+    docx_path.write_bytes(b"")
+    labels = {"entities": [{"type": "person", "text": "Иванов"}]}
+    _patch_common(monkeypatch, [(docx_path, labels)])
+
+    artifact = tmp_path / "masked_highlight.docx"
+    word_doc = WordDocument()
+    word_doc.add_paragraph("[Поставщик Представитель]")
+    word_doc.save(artifact)
+
+    plan = MaskPlan(
+        replacements=(),
+        groups=(_group_with_ladder(refs=("R1", "R2")),),
+        skipped=(),
+        requested_types=(),
+    )
+    result = MaskResult(
+        plan=plan,
+        validation=_EMPTY_VALIDATION,
+        artifacts=(artifact,),
+        render_degradations=(_degradation("G1", "[Ф1]"),),
+    )
+    _patch_mask_and_validate(monkeypatch, {str(docx_path): result})
+
+    code = eval_module.run(gate=True)
+    output = capsys.readouterr().out
+    assert code == 1, "рассогласованный маркер обязан провалить ворота"
+    assert _row(output, "inconsistent_markers").split()[-1] == "1"
+
+
 def test_eval_gate_fails_on_render_failure_but_keeps_measuring_the_rest(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

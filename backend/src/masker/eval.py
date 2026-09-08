@@ -98,6 +98,49 @@ def duplicate_marker_count(plan: MaskPlan, artifacts: tuple[pathlib.Path, ...]) 
     return total
 
 
+def inconsistent_marker_count(
+    plan: MaskPlan, render_degradations: tuple[dict[str, Any], ...]
+) -> int:
+    """Сколько групп плана отрендерены более чем одной строкой (план М4).
+
+    Встречная метрика к ``duplicate_marker_count``: та проверяет, что два
+    профиля с разными ролями не схлопнулись в одну метку; эта — что одна и
+    та же группа не расползлась на два разных маркера (`_place_label` в
+    `render/pdf_render.py` выбирал ступень лестницы отступления на каждом
+    вхождении отдельно — широкое место показывало ``canonical_label``, узкое
+    — сокращение).
+
+    Считать по вхождению подстроки в текст артефакта (как
+    ``duplicate_marker_count``) здесь нельзя: рунги разных групп с одной
+    ролью часто текстуально совпадают (``org_name`` с ролью показывает
+    ``"[Заказчик]"`` каноническим, а тот же текст — законный «только роль»
+    рунг совсем другой группы того же профиля), и подстрочный поиск даёт
+    ложные срабатывания. Вместо этого ``render_degradations`` (``report.json``,
+    один элемент на каждую **реально** спустившуюся по лестнице замену,
+    план М1) — точная запись, что показано для каждой конкретной замены.
+    Не попавшие в него замены группы показали ``canonical_label`` как есть
+    (пустой ``fallback_reason`` в отчёт не попадает, это норма, не факт).
+    """
+    degraded_labels_by_group: dict[str, set[str]] = defaultdict(set)
+    degraded_count_by_group: dict[str, int] = defaultdict(int)
+    for item in render_degradations:
+        group_id = str(item.get("group_id", ""))
+        shown = str(item.get("shown_label") or "")
+        degraded_count_by_group[group_id] += 1
+        if shown:
+            degraded_labels_by_group[group_id].add(shown)
+
+    total = 0
+    for group in plan.groups:
+        labels = set(degraded_labels_by_group.get(group.id, set()))
+        non_degraded_count = len(group.refs) - degraded_count_by_group.get(group.id, 0)
+        if non_degraded_count > 0 and group.canonical_label:
+            labels.add(group.canonical_label)
+        if len(labels) > 1:
+            total += 1
+    return total
+
+
 #: Пороги ворот. Пропуск критичного реквизита — утечка, поэтому recall = 1.0.
 MIN_RECALL_CRITICAL = 1.0
 MIN_RECALL_OTHER = 0.85
@@ -143,6 +186,12 @@ MAX_LEAKED_TOTAL = 0
 #: своей группы — дубль (Д1) означает, что исходный текст под ним уже
 #: удалён, а замена продублирована поверх пустого места.
 MAX_DUPLICATE_MARKERS = 0
+#: Встречная метрика к ``MAX_DUPLICATE_MARKERS`` (план М4): группа обязана
+#: печататься одной и той же строкой везде в документе — согласованность
+#: псевдонимов (AGENTS.md). Порог нулевой по той же причине: «немного
+#: разных маркеров у одной сущности» не бывает мелочью, читатель не может
+#: понять, одна это сторона или две.
+MAX_INCONSISTENT_MARKERS = 0
 #: Прогон корпуса — измерительный инструмент: одна аномальная сущность на
 #: одном документе (план T2.2.1, пачка 4) не имеет права ослепить ворота
 #: целиком и скрыть leaked_total/duplicate_markers по остальным документам.
@@ -391,6 +440,7 @@ class MaskingMetrics:
     )
     leaked_total: int = 0
     duplicate_markers: int = 0
+    inconsistent_markers: int = 0
     layout_removed_chars: int = 0
     layout_failures: list[str] = field(default_factory=list)
     render_failures: list[str] = field(default_factory=list)
@@ -429,6 +479,9 @@ def _mask_corpus(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> MaskingMe
                     metrics.by_format[fmt]["found"].add(key)
                 metrics.leaked_total += len(result.validation.leaked)
                 metrics.duplicate_markers += duplicate_marker_count(result.plan, result.artifacts)
+                metrics.inconsistent_markers += inconsistent_marker_count(
+                    result.plan, result.render_degradations
+                )
                 for layout in result.validation.layout:
                     metrics.layout_removed_chars += layout.removed_chars
                     if layout.removed_chars:
@@ -483,6 +536,7 @@ def _print_main_corpus(metrics: MaskingMetrics, registry: EntityTypeRegistry) ->
 
     print(f"\nleaked_total{metrics.leaked_total:>22}")
     print(f"duplicate_markers{metrics.duplicate_markers:>17}")
+    print(f"inconsistent_markers{metrics.inconsistent_markers:>14}")
     print(f"layout_removed_chars{metrics.layout_removed_chars:>14}")
     for failure in metrics.layout_failures:
         print(f"  {failure}")
@@ -500,6 +554,11 @@ def _print_main_corpus(metrics: MaskingMetrics, registry: EntityTypeRegistry) ->
         failures.append(
             f"duplicate_markers {metrics.duplicate_markers} > {MAX_DUPLICATE_MARKERS} — "
             "маркер вставлен не один раз на Replacement"
+        )
+    if metrics.inconsistent_markers > MAX_INCONSISTENT_MARKERS:
+        failures.append(
+            f"inconsistent_markers {metrics.inconsistent_markers} > "
+            f"{MAX_INCONSISTENT_MARKERS} — одна группа отрендерена больше чем одной строкой"
         )
     if metrics.layout_removed_chars > MAX_LAYOUT_REMOVED_CHARS:
         failures.append(
@@ -583,6 +642,7 @@ def _print_holdout(metrics: MaskingMetrics, registry: EntityTypeRegistry) -> lis
     )
     print(f"holdout_leaked_total{metrics.leaked_total:>13}")
     print(f"holdout_duplicate_markers{metrics.duplicate_markers:>8}")
+    print(f"holdout_inconsistent_markers{metrics.inconsistent_markers:>4}")
     print(f"holdout_certificate_failures{metrics.certificate_failures:>4}")
     for failure in metrics.certificate_failure_details:
         print(f"  {failure}")
@@ -606,6 +666,11 @@ def _print_holdout(metrics: MaskingMetrics, registry: EntityTypeRegistry) -> lis
     if metrics.duplicate_markers > MAX_DUPLICATE_MARKERS:
         failures.append(
             f"holdout duplicate_markers {metrics.duplicate_markers} > {MAX_DUPLICATE_MARKERS}"
+        )
+    if metrics.inconsistent_markers > MAX_INCONSISTENT_MARKERS:
+        failures.append(
+            f"holdout inconsistent_markers {metrics.inconsistent_markers} > "
+            f"{MAX_INCONSISTENT_MARKERS}"
         )
     if metrics.certificate_failures > MAX_CERTIFICATE_FAILURES:
         failures.append(

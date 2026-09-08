@@ -109,7 +109,7 @@ def test_layout_diff_ignores_inserted_markers(tmp_path: pathlib.Path) -> None:
     Своя фикстура с запасом свободного места после ``sekret`` (план М1,
     правило 3: подпись может расшириться в доказанно свободное место
     строки) — с полом читаемости 8 pt (правило 1) канонический маркер
-    ``[ОРГАНИЗАЦИЯ]`` не влезает в ширину голого слова «sekret», а тест
+    ``[Организация]`` не влезает в ширину голого слова «sekret», а тест
     целенаправленно проверяет именно вставку канонического маркера, а не
     лестницу отступления (ту проверяют тесты `render/test_pdf_render.py`).
     """
@@ -131,7 +131,12 @@ def test_layout_diff_ignores_inserted_markers(tmp_path: pathlib.Path) -> None:
     without_markers = layout_diff(source, artifact, plan)
     assert without_markers.inserted > 0, without_markers
 
-    markers = tuple(group.marker for group in plan.groups)
+    # План М4: в PDF реально печатается `canonical_label` (человекочитаемая
+    # форма), а не машинный `marker` — `markers` должен знать обе строки,
+    # см. тот же приём в `validate/agent.py`.
+    markers = tuple(group.marker for group in plan.groups) + tuple(
+        group.canonical_label for group in plan.groups if group.canonical_label
+    )
     with_markers = layout_diff(source, artifact, plan, markers=markers)
     assert with_markers.inserted == 0, with_markers
     assert with_markers.removed == 0, with_markers

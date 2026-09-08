@@ -48,9 +48,13 @@
 (корневая причина жалоб заказчика на мелкий шрифт): подпись подбирается
 лестницей отступления (``mask.labels.marker_ladder``) с полом читаемости
 **8 pt** — ниже этого текст не пробуется вовсе, вместо него берётся более
-короткая ступень лестницы. Подходящая строка для подписи у многострочной
-сущности выбирается по наибольшей итоговой ширине поля, а не всегда первая
-(первая строка ФИО через перенос может содержать один инициал).
+короткая ступень лестницы. Строка для подписи у многострочной
+сущности выбирается строго в порядке документа: подпись должна стоять
+там, где стоял оригинал. На каждом кандидате отрабатывает вся лестница, и
+на следующую строку рендер уходит, только если не влезла даже самая
+короткая ступень. Сокращение на месте лучше переезда — позиция в договоре
+несёт смысл (кто из сторон где упомянут), а расшифровка сокращения стоит
+одной строки легенды в отчёте.
 
 Стиль ``blackbox`` не запускает лестницу отступления вовсе (план T2.2.2,
 шаг 1, решение заказчика): чёрный прямоугольник — просто чёрный, без
@@ -119,6 +123,15 @@ _NO_LINE = -1
 #: вставляет вовсе (план T2.2.2, шаг 1, отменяет решение пачки 5 плана
 #: T2.2.1), поэтому цвет ему не нужен.
 _MARKER_TEXT_COLOR: tuple[float, float, float] = (0.20, 0.20, 0.20)
+
+#: Заливка подсвеченного варианта. Файл называется ``masked_highlight``, а
+#: продуктовое требование — «заменены на маркеры и **подсвечены**»
+#: (AGENTS.md, постановка). Белая заливка не подсвечивает ничего: на белой
+#: странице область удаления неотличима от пустого места, и человек не
+#: видит ни что было замаскировано, ни насколько длинным был оригинал.
+#: Янтарный фон делает удалённую область видимой, а тёмно-серый текст
+#: маркера (``_MARKER_TEXT_COLOR``) читается на нём без потери контраста.
+_HIGHLIGHT_FILL: tuple[float, float, float] = (1.0, 0.87, 0.40)
 
 
 class MarkerDoesNotFitError(ValueError):
@@ -506,7 +519,7 @@ def render_pdf_redacted(
             _PageJob(replacement=replacement, seg_char_start=seg_start, rects=rects)
         )
 
-    fill_color = (0.0, 0.0, 0.0) if style == "blackbox" else (1.0, 1.0, 1.0)
+    fill_color = (0.0, 0.0, 0.0) if style == "blackbox" else _HIGHLIGHT_FILL
     out_replacements: list[Replacement] = []
     markers: list[MarkerRenderResult] = []
     collisions: list[RenderCollision] = []
@@ -617,6 +630,30 @@ def _parse_locator(locator: tuple[str | int | float, ...]) -> tuple[int, int, in
     return int(page_num), int(char_start), int(char_end)
 
 
+def _ladder_fits(
+    font: pymupdf.Font,
+    box: pymupdf.Rect,
+    ladder: list[tuple[str, str]],
+) -> bool:
+    """Влезет ли хоть одна ступень в ``box`` — БЕЗ рисования на странице.
+
+    Нужна отдельно от ``_try_ladder``, потому что выбор кандидата и
+    закраска расширения обязаны произойти до вставки текста: закраска
+    после вставки затёрла бы сам текст, а закраска до неудачной попытки
+    оставляла бы на странице висячую полосу заливки. С белой заливкой
+    такая полоса была невидима, с янтарной (``_HIGHLIGHT_FILL``) — это
+    видимый мусор на странице.
+    """
+    if box.width <= 0 or box.height <= 0:
+        return False
+    return any(
+        font.text_length(text, fontsize=size) <= box.width and box.height >= size
+        for text, _reason in ladder
+        if text
+        for size in _MARKER_FONT_SIZES
+    )
+
+
 def _try_ladder(
     page: pymupdf.Page,
     font: pymupdf.Font,
@@ -705,28 +742,57 @@ def _place_label(
         )
         candidates.append((erase_rect, label_box))
 
-    # Правило 2: перебор от кандидата с наибольшей итоговой шириной поля
-    # подписи, а не всегда первая строка сущности.
-    ordered = sorted(range(len(candidates)), key=lambda i: -candidates[i][1].width)
-
     ladder = marker_ladder(group)
-    for idx in ordered:
-        erase_rect, label_box = candidates[idx]
-        if label_box.x1 > erase_rect.x1 + _GEOMETRY_EPS:
-            # Расширение вправо доказанно свободно (``_free_extension_right``)
-            # — красим его отдельно от удаления (план М1, правило 3): сама
-            # область удаления при этом не меняется ни на пункт.
-            page.draw_rect(
-                pymupdf.Rect(erase_rect.x1, label_box.y0, label_box.x1, label_box.y1),
-                color=fill_color,
-                fill=fill_color,
-                width=0,
-            )
-        outcome = _try_ladder(page, font, label_box, ladder)
-        if outcome is not None:
+
+    # Правило 2 плана М1: подпись ставится в ПРИГОДНЫЙ прямоугольник.
+    # Пригодный — тот, где сущность НАЧИНАЛАСЬ, если туда влезает хоть
+    # одна ступень лестницы; переезд на другую строку — крайняя мера.
+    #
+    # Раньше здесь стоял порядок «от самого широкого кандидата», и это
+    # ломало главное свойство маркера — стоять там, где стоял оригинал.
+    # У сущности, разорванной переносом (``Общество с\nОграниченной
+    # Ответственностью`` на первой странице школьного договора), хвост на
+    # следующей строке шире головы: полный ``[ОРГАНИЗАЦИЯ-3]`` не влезал в
+    # 58 pt первой строки, зато влезал во вторую, и маркер уезжал на 455 pt
+    # влево и на строку вниз. Читатель искал сторону договора там, где она
+    # была написана, и находил пустоту.
+    #
+    # Сокращение на месте лучше переезда: позиция в договоре несёт смысл
+    # (кто из сторон где упомянут), а расшифровка сокращения — одна строка
+    # легенды в отчёте (план М1, правило 6). Поэтому кандидаты идут строго
+    # в порядке документа, и на каждом отрабатывает вся лестница; на
+    # следующую строку переходим, только если не влезла даже самая
+    # короткая ступень.
+    passes: list[tuple[list[int], list[tuple[str, str]]]] = [
+        (list(range(len(candidates))), ladder),
+    ]
+
+    for order, rungs in passes:
+        for idx in order:
+            erase_rect, label_box = candidates[idx]
+            if not _ladder_fits(font, label_box, rungs):
+                continue
+            if label_box.x1 > erase_rect.x1 + _GEOMETRY_EPS:
+                # Расширение вправо доказанно свободно
+                # (``_free_extension_right``) — красим его отдельно от
+                # удаления (план М1, правило 3): сама область удаления при
+                # этом не меняется ни на пункт.
+                page.draw_rect(
+                    pymupdf.Rect(erase_rect.x1, label_box.y0, label_box.x1, label_box.y1),
+                    color=fill_color,
+                    fill=fill_color,
+                    width=0,
+                )
+            outcome = _try_ladder(page, font, label_box, rungs)
+            if outcome is None:
+                continue
             text, fallback_reason, size = outcome
             region = PdfRegion(
-                page=page.number, x0=label_box.x0, y0=label_box.y0, x1=label_box.x1, y1=label_box.y1
+                page=page.number,
+                x0=label_box.x0,
+                y0=label_box.y0,
+                x1=label_box.x1,
+                y1=label_box.y1,
             )
             return region, MarkerRenderResult(
                 ref=replacement.ref,
@@ -737,7 +803,7 @@ def _place_label(
                 fallback_reason=fallback_reason,
             )
 
-    erase_rect, _label_box = candidates[ordered[0]]
+    erase_rect, _label_box = candidates[0]
     region = PdfRegion(
         page=page.number, x0=erase_rect.x0, y0=erase_rect.y0, x1=erase_rect.x1, y1=erase_rect.y1
     )

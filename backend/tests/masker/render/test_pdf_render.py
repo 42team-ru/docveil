@@ -1012,3 +1012,65 @@ def test_compute_erase_geometry_ignores_docx_replacements(tmp_path: pathlib.Path
     )
 
     assert compute_erase_geometry(path, docx_only_plan) == {}
+
+
+def test_highlight_style_paints_visible_background_not_white(tmp_path: pathlib.Path) -> None:
+    """Файл называется `masked_highlight`, и постановка требует, чтобы
+    найденное было **подсвечено**. Белая заливка на белой странице не
+    подсвечивает ничего: область удаления неотличима от пустого места, и
+    человек не видит, что здесь вообще что-то было. Тест падает, если
+    заливка стиля `marker` вернётся к белому.
+    """
+    src = _make_pdf_with_inn(tmp_path)
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    outcome = render_pdf_redacted(src, dest, document, _plan(document, [entity]), style="marker")
+
+    region = outcome.replacements[0].erase_regions[0]
+    doc = pymupdf.open(dest)
+    page = doc[region.page]
+    # Точка внутри области удаления, заведомо не задетая глифом маркера:
+    # правый край полосы, по вертикали — середина.
+    pix = page.get_pixmap(clip=pymupdf.Rect(region.x1 - 2, region.y0 + 1, region.x1, region.y1 - 1))
+    samples = {pix.pixel(x, y) for x in range(pix.width) for y in range(pix.height)}
+    doc.close()
+
+    assert samples, "область удаления пуста — нечего проверять"
+    assert samples != {(255, 255, 255)}, (
+        f"подсвеченный вариант закрашен белым: подсветки нет, выборка пикселей {samples}"
+    )
+
+
+def test_label_stays_on_the_line_where_entity_started(tmp_path: pathlib.Path) -> None:
+    """Маркер обязан стоять там, где стоял оригинал.
+
+    Регресс с реального документа: у сущности, разорванной переносом,
+    хвост на следующей строке шире головы. Пока рендер выбирал кандидата
+    «по наибольшей ширине», полный маркер не влезал в узкую первую строку,
+    зато влезал во вторую — и уезжал на 455 pt влево и на строку вниз.
+    Читатель искал сторону договора там, где она написана, и находил
+    пустоту. Сокращение на месте лучше переезда: расшифровка стоит одной
+    строки легенды.
+    """
+    org = "Общество с Ограниченной Ответственностью Ромашка"
+    src = _make_pdf_block(
+        tmp_path,
+        [
+            "Заказчик просит Общество с",
+            "Ограниченной Ответственностью Ромашка оплатить счёт.",
+        ],
+    )
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, org, EntityType.ORG_NAME)
+    outcome = render_pdf_redacted(src, dest, document, _plan(document, [entity]), style="marker")
+
+    replacement = outcome.replacements[0]
+    label = replacement.label_region
+    assert label is not None
+    first_erase = min(replacement.erase_regions, key=lambda r: (r.y0, r.x0))
+    assert abs(label.y0 - first_erase.y0) < 3.0, (
+        "подпись уехала на другую строку: "
+        f"label.y0={label.y0:.1f}, первая область удаления y0={first_erase.y0:.1f}"
+    )

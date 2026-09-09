@@ -59,7 +59,7 @@ run'ов («ИНН 36» + «62103003» — обычное дело после п
 
 | Агент | Отвечает за | Чем работает |
 |---|---|---|
-| **IngestAgent** | файл → `Document`, сохранение структуры, OCR для сканов | python-docx, openpyxl, PyMuPDF, tesseract |
+| **IngestAgent** | файл → `Document`, сохранение структуры, OCR для сканов | python-docx, openpyxl, PyMuPDF, PaddleOCR (PP-OCR); абстракция `OCRProvider` (`src/masker/ocr/`), ключ `MASKER_OCR=paddle\|fake` |
 | **DetectAgent** | найти сущности | 3 слоя, см. ниже |
 | **ProfileAgent** | сгруппировать сущности в субъектов, определить роли | детерминированные блоки и ключи + LLM-уточнение всей пачки |
 | **JudgeAgent** | оценить уверенность, собрать вопросы человеку | пороги + LLM на профиль целиком |

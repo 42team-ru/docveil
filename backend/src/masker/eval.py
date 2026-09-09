@@ -330,6 +330,119 @@ MIN_HOLDOUT_PRECISION_OTHER = 0.80
 #: поставлен на фактическое значение, а не ниже: цель не спрятать эти два
 #: случая, а не дать добавиться третьему незамеченным.
 MAX_NEGATIVE_FALSE_POSITIVES = 2
+#: Скан-корпус (scan_synth_* в fixtures/labeled) — критичные типы обязаны
+#: находиться через FakeOCR так же, как в текстовых документах: если OCR
+#: возвращает строку с ИНН, пайплайн обязан его замаскировать.
+MIN_SCAN_CRITICAL_RECALL = 1.0
+
+
+def _make_fake_ocr_from_sidecar(pdf_path: pathlib.Path) -> Any:
+    """Построить FakeOCR из .fake_ocr.json рядом с PDF.
+
+    Возвращает None, если файла нет.
+    """
+    from masker.ocr.fake import FakeOCR
+    from masker.ocr.provider import OCRLine
+
+    sidecar = pdf_path.with_suffix("").with_suffix(".fake_ocr.json")
+    if not sidecar.exists():
+        return None
+    pages: list[dict[str, Any]] = json.loads(sidecar.read_text(encoding="utf-8"))
+
+    def _to_line(raw: dict[str, Any]) -> OCRLine:
+        b = [float(c) for c in raw["bbox"]]
+        p = [[float(c) for c in pt] for pt in raw["polygon"]]
+        return OCRLine(
+            text=str(raw["text"]),
+            bbox=(b[0], b[1], b[2], b[3]),
+            polygon=(
+                (p[0][0], p[0][1]),
+                (p[1][0], p[1][1]),
+                (p[2][0], p[2][1]),
+                (p[3][0], p[3][1]),
+            ),
+            confidence=float(raw.get("confidence", 1.0)),
+        )
+
+    if len(pages) == 1:
+        return FakeOCR(lines=tuple(_to_line(raw) for raw in pages[0]["lines"]))
+
+    # Многостраничный: маршрутизировать по размеру изображения (width, height).
+    by_size: dict[tuple[int, int], tuple[OCRLine, ...]] = {}
+    for page in pages:
+        key = (int(page["width_px"]), int(page["height_px"]))
+        lines = tuple(_to_line(raw) for raw in page["lines"])
+        by_size[key] = lines
+    return FakeOCR(by_size=by_size)
+
+
+def _mask_scan_corpus(
+    corpus: list[tuple[pathlib.Path, dict[str, Any]]],
+) -> MaskingMetrics:
+    """Прогнать mask_and_validate с FakeOCR по скан-корпусу."""
+    from masker.pipeline import mask_and_validate
+
+    metrics = MaskingMetrics()
+    for path, labels in corpus:
+        fmt = path.suffix.casefold().lstrip(".")
+        ocr = _make_fake_ocr_from_sidecar(path)
+        custom_types = labels.get("custom_types", [])
+        try:
+            with mask_and_validate(
+                path,
+                types=list(EntityType),
+                custom_types=custom_types,
+                ocr=ocr,
+            ) as result:
+                for item in labels["entities"]:
+                    key = (path.name, item["type"], _collapse(item["text"]))
+                    metrics.by_type[item["type"]]["expected"].add(key)
+                    metrics.by_format[fmt]["expected"].add(key)
+                for repl in result.plan.replacements:
+                    key = (path.name, repl.entity.type, _collapse(repl.entity.text))
+                    metrics.by_type[repl.entity.type]["found"].add(key)
+                    metrics.by_format[fmt]["found"].add(key)
+                metrics.leaked_total += len(result.validation.leaked)
+        except Exception as error:
+            metrics.render_failures.append(f"{path.name}: {error}")
+    return metrics
+
+
+def _print_scan_corpus(metrics: MaskingMetrics, registry: EntityTypeRegistry) -> list[str]:
+    print("\nСКАН-КОРПУС (scan_synth_* с FakeOCR)")
+    print(f"{'тип':<18}{'P':>7}{'R':>7}{'F1':>7}{'FN':>5}{'FP':>5}")
+    failures: list[str] = []
+    for name in sorted(metrics.by_type):
+        m = score(metrics.by_type[name]["expected"], metrics.by_type[name]["found"])
+        print(
+            f"{name:<18}{m['precision']:>7.3f}{m['recall']:>7.3f}"
+            f"{m['f1']:>7.3f}{m['fn']:>5}{m['fp']:>5}"
+        )
+        for missing in sorted(metrics.by_type[name]["expected"] - metrics.by_type[name]["found"]):
+            print(f"    НЕ НАЙДЕНО: {missing[0]}: {missing[2]!r}")
+    critical, _ = _aggregate(metrics.by_type, registry)
+    critical_recall = (
+        critical["tp"] / (critical["tp"] + critical["fn"])
+        if critical["tp"] + critical["fn"]
+        else 1.0
+    )
+    print(
+        f"scan_critical_recall{critical_recall:>13.3f}"
+        f"  ({critical['tp']}/{critical['tp'] + critical['fn']})"
+    )
+    print(f"scan_leaked_total{metrics.leaked_total:>16}")
+    for failure in metrics.render_failures:
+        print(f"  РЕНДЕР: {failure}")
+    if critical_recall < MIN_SCAN_CRITICAL_RECALL:
+        failures.append(
+            f"scan_critical_recall {critical_recall:.3f} < {MIN_SCAN_CRITICAL_RECALL} — "
+            "критичный тип не найден в OCR-сегменте"
+        )
+    if metrics.leaked_total > MAX_LEAKED_TOTAL:
+        failures.append(f"scan leaked_total {metrics.leaked_total} > {MAX_LEAKED_TOTAL}")
+    if metrics.render_failures:
+        failures.append(f"scan render_failures: {'; '.join(metrics.render_failures)}")
+    return failures
 
 
 def _print_metamorphic(report: evalgen.MetamorphicReport) -> list[str]:
@@ -377,7 +490,7 @@ def load_corpus(
             (
                 p
                 for p in fixtures.glob(labels.name.replace(".labels.json", ".*"))
-                if not p.name.endswith(".labels.json")
+                if not p.name.endswith(".labels.json") and p.suffix.casefold() in _INGEST_BY_SUFFIX
             ),
             None,
         )
@@ -825,7 +938,9 @@ def _print_negative(metrics: MaskingMetrics) -> list[str]:
 
 
 def run(gate: bool) -> int:
-    corpus = load_corpus()
+    corpus = [
+        (path, labels) for path, labels in load_corpus() if not path.stem.startswith("scan_synth_")
+    ]
     profile_failures = _print_profile_judge(_profile_judge_metrics(corpus)) if corpus else []
     # Метаморфный корпус (К1) не зависит от собранного pipeline — только от
     # слоя детекции, поэтому меряется и здесь до проверки на masker.pipeline.
@@ -861,6 +976,16 @@ def run(gate: bool) -> int:
         failures.extend(_print_negative(_mask_corpus(negative_corpus)))
     else:
         print("\nЛОЖНЫЕ ПРОПУЩЕНЫ: fixtures/negative пуст.")
+
+    # Скан-корпус: scan_synth_* — синтетические сканы, FakeOCR из .fake_ocr.json.
+    scan_corpus = [
+        (path, labels) for path, labels in load_corpus() if path.stem.startswith("scan_synth_")
+    ]
+    if scan_corpus:
+        scan_registry = corpus_registry(scan_corpus)
+        failures.extend(_print_scan_corpus(_mask_scan_corpus(scan_corpus), scan_registry))
+    else:
+        print("\nСКАН ПРОПУЩЕН: в fixtures/labeled нет scan_synth_* файлов.")
 
     if failures and gate:
         print("\nПОРОГИ НЕ ВЗЯТЫ:")

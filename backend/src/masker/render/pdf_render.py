@@ -140,6 +140,33 @@ _LINE_BREAK_RECT = pymupdf.Rect(0.0, 0.0, 0.0, 0.0)
 #: чтобы не заводить `int | None` там, где это мешает статической типизации.
 _NO_LINE = -1
 
+
+def _is_ocr_locator(locator: tuple[str | int | float, ...]) -> bool:
+    return len(locator) == 7 and locator[2] == "ocr"
+
+
+def _parse_ocr_locator(
+    locator: tuple[str | int | float, ...],
+) -> tuple[int, float, float, float, float]:
+    _, page_num, _ocr, x0, y0, x1, y1 = locator
+    return int(page_num), int(x0) / 100.0, int(y0) / 100.0, int(x1) / 100.0, int(y1) / 100.0
+
+
+def _entity_rect_ocr(
+    seg_rect: pymupdf.Rect,
+    seg_text_len: int,
+    entity_start: int,
+    entity_end: int,
+) -> pymupdf.Rect:
+    """Rect сущности из OCR-сегмента — линейная интерполяция по ширине строки."""
+    if seg_text_len <= 0 or seg_rect.width <= 0:
+        return seg_rect
+    w = seg_rect.width
+    x0 = seg_rect.x0 + w * entity_start / seg_text_len
+    x1 = seg_rect.x0 + w * entity_end / seg_text_len
+    return pymupdf.Rect(x0, seg_rect.y0, x1, seg_rect.y1)
+
+
 #: Цвет текста лестницы отступления — только стиль `marker` держит светлый
 #: фон и вставляет текст (тёмный текст на светлом); `blackbox` текста не
 #: вставляет вовсе (план T2.2.2, шаг 1, отменяет решение пачки 5 плана
@@ -504,6 +531,8 @@ def compute_erase_geometry(
         for replacement in plan.replacements:
             if replacement.anchor.fmt != "pdf":
                 continue
+            if _is_ocr_locator(replacement.anchor.locator):
+                continue
             page_num, seg_start, _seg_end = _parse_locator(replacement.anchor.locator)
             rects = _rects_for_entity(cache, page_num, seg_start, replacement)
             by_page[page_num].append(
@@ -596,6 +625,8 @@ def compute_label_geometry(
         by_page: dict[int, list[_PageJob]] = defaultdict(list)
         for replacement in plan.replacements:
             if replacement.anchor.fmt != "pdf":
+                continue
+            if _is_ocr_locator(replacement.anchor.locator):
                 continue
             page_num, seg_start, _seg_end = _parse_locator(replacement.anchor.locator)
             rects = _rects_for_entity(cache, page_num, seg_start, replacement)
@@ -801,9 +832,16 @@ def render_pdf_preview(
     doc = pymupdf.open(str(source_path))
     cache = _PageCharsCache(doc)
     for entity in entities:
-        page_num, seg_start, _seg_end = _parse_locator(
-            document.segments[entity.segment_order].anchor.locator
-        )
+        locator = document.segments[entity.segment_order].anchor.locator
+        if _is_ocr_locator(locator):
+            page_num, sx0, sy0, sx1, sy1 = _parse_ocr_locator(locator)
+            seg = document.segments[entity.segment_order]
+            seg_rect = pymupdf.Rect(sx0, sy0, sx1, sy1)
+            rect = _entity_rect_ocr(seg_rect, len(seg.text), entity.start, entity.end)
+            annot = doc[page_num].add_highlight_annot(rect)
+            annot.update()
+            continue
+        page_num, seg_start, _seg_end = _parse_locator(locator)
         page = doc[page_num]
         chars = cache.chars(page_num)
         abs_start = seg_start + entity.start
@@ -823,6 +861,34 @@ class _PageJob:
     replacement: Replacement
     seg_char_start: int
     rects: list[tuple[int, pymupdf.Rect]]  # (line_id, эрейз-прямоугольник до обрезки)
+
+
+@dataclass(slots=True)
+class _OcrPageJob:
+    """Замена с OCR-локатором — геометрия из bbox сегмента, не из символьных боксов."""
+
+    replacement: Replacement
+    seg_rect: pymupdf.Rect
+    entity_rect: pymupdf.Rect
+
+
+def _insert_invisible_ocr_layer(page: pymupdf.Page, jobs: list[_OcrPageJob]) -> None:
+    """Вставить невидимый текст маркеров на OCR-страницу (render_mode=3).
+
+    Copy-paste из результирующего PDF даёт маркеры, а не исходный текст сущностей.
+    Вызывается после apply_redactions, когда исходные пиксели уже стёрты.
+    """
+    page.insert_font(fontname=_FONT_NAME, fontfile=str(_FONT_FILE))
+    for job in jobs:
+        pos = pymupdf.Point(job.entity_rect.x0, job.entity_rect.y1)
+        page.insert_text(
+            pos,
+            job.replacement.marker,
+            fontname=_FONT_NAME,
+            fontfile=str(_FONT_FILE),
+            fontsize=1,
+            render_mode=3,
+        )
 
 
 def render_pdf_redacted(
@@ -875,12 +941,27 @@ def render_pdf_redacted(
 
     # Сгруппировать по страницам; боксы считаются до любых изменений документа.
     by_page: dict[int, list[_PageJob]] = defaultdict(list)
+    ocr_by_page: dict[int, list[_OcrPageJob]] = defaultdict(list)
     for replacement in plan.replacements:
-        page_num, seg_start, _seg_end = _parse_locator(replacement.anchor.locator)
-        rects = _rects_for_entity(cache, page_num, seg_start, replacement)
-        by_page[page_num].append(
-            _PageJob(replacement=replacement, seg_char_start=seg_start, rects=rects)
-        )
+        if replacement.anchor.fmt != "pdf":
+            continue
+        locator = replacement.anchor.locator
+        if _is_ocr_locator(locator):
+            page_num, sx0, sy0, sx1, sy1 = _parse_ocr_locator(locator)
+            seg = document.segments[replacement.entity.segment_order]
+            seg_rect = pymupdf.Rect(sx0, sy0, sx1, sy1)
+            e_rect = _entity_rect_ocr(
+                seg_rect, len(seg.text), replacement.entity.start, replacement.entity.end
+            )
+            ocr_by_page[page_num].append(
+                _OcrPageJob(replacement=replacement, seg_rect=seg_rect, entity_rect=e_rect)
+            )
+        else:
+            page_num, seg_start, _seg_end = _parse_locator(locator)
+            rects = _rects_for_entity(cache, page_num, seg_start, replacement)
+            by_page[page_num].append(
+                _PageJob(replacement=replacement, seg_char_start=seg_start, rects=rects)
+            )
 
     fill_color = (0.0, 0.0, 0.0) if style == "blackbox" else _HIGHLIGHT_FILL
     out_replacements: list[Replacement] = []
@@ -963,6 +1044,33 @@ def render_pdf_redacted(
             candidates_by_group[job.replacement.group_id].append(candidates)
             pending_labels.append((page_num, job.replacement, erase_regions, candidates))
 
+    for page_num in sorted(ocr_by_page):
+        ocr_jobs = ocr_by_page[page_num]
+        page = doc[page_num]
+        for job in ocr_jobs:
+            page.add_redact_annot(job.entity_rect, fill=fill_color)
+        page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_PIXELS)
+
+        if style == "blackbox":
+            for job in ocr_jobs:
+                e = job.entity_rect
+                e_regions = (PdfRegion(page=page_num, x0=e.x0, y0=e.y0, x1=e.x1, y1=e.y1),)
+                out_replacements.append(
+                    dataclasses.replace(
+                        job.replacement, erase_regions=e_regions, paint_regions=e_regions
+                    )
+                )
+            continue
+
+        page.insert_font(fontname=_FONT_NAME, fontfile=str(_FONT_FILE))
+        for job in ocr_jobs:
+            e = job.entity_rect
+            e_regions = (PdfRegion(page=page_num, x0=e.x0, y0=e.y0, x1=e.x1, y1=e.y1),)
+            label_box = pymupdf.Rect(e.x0, e.y0, job.seg_rect.x1, e.y1)
+            candidates = [(e, label_box)]
+            candidates_by_group[job.replacement.group_id].append(candidates)
+            pending_labels.append((page_num, job.replacement, e_regions, candidates))
+
     if style == "marker":
         rung_by_group = _choose_group_rungs(font, plan.groups, candidates_by_group)
         for page_num, replacement, erase_regions, candidates in pending_labels:
@@ -982,9 +1090,12 @@ def render_pdf_redacted(
                 )
             )
 
+    for page_num in sorted(ocr_by_page):
+        _insert_invisible_ocr_layer(doc[page_num], ocr_by_page[page_num])
+
     doc.set_metadata({})
     doc.del_xml_metadata()
-    doc.save(str(dest_path), garbage=4, deflate=True)
+    doc.save(str(dest_path), garbage=4, deflate=True, no_new_id=1)
     doc.close()
     os.chmod(dest_path, 0o600)
     # Сортировка по (page, line_id) — план T2.2.2, раздел «Детерминизм»:

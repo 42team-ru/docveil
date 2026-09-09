@@ -25,6 +25,45 @@ def test_fake_provider_is_scriptable_and_deterministic() -> None:
     assert provider.calls == 2
 
 
+_ANSWER_SCHEMA = {
+    "type": "object",
+    "properties": {"answer": {"type": "string"}},
+    "required": ["answer"],
+    "additionalProperties": False,
+}
+
+
+def test_fake_provider_call_without_schema_is_unchanged() -> None:
+    """Р7-3, п.2: вызов без `schema` ведёт себя как до контракта Р7-3."""
+    provider = FakeProvider(['{"unrelated": true}'])
+    assert provider.complete([Message("user", "test")]) == '{"unrelated": true}'
+
+
+def test_fake_provider_accepts_response_matching_schema() -> None:
+    provider = FakeProvider(['{"answer": "OK"}'])
+    result = provider.complete([Message("user", "test")], schema=_ANSWER_SCHEMA)
+    assert result == '{"answer": "OK"}'
+
+
+def test_fake_provider_rejects_response_not_matching_schema() -> None:
+    """Р7-3, п.3: несоответствие схеме — `LLMError`, а не тихий пустой результат."""
+    provider = FakeProvider(['{"answer": 42}'])
+    with pytest.raises(LLMError, match="schema"):
+        provider.complete([Message("user", "test")], schema=_ANSWER_SCHEMA)
+
+
+def test_fake_provider_rejects_response_missing_required_field() -> None:
+    provider = FakeProvider(["{}"])
+    with pytest.raises(LLMError, match="schema"):
+        provider.complete([Message("user", "test")], schema=_ANSWER_SCHEMA)
+
+
+def test_fake_provider_rejects_non_json_response_when_schema_given() -> None:
+    provider = FakeProvider(["не json вовсе"])
+    with pytest.raises(LLMError, match="JSON"):
+        provider.complete([Message("user", "test")], schema=_ANSWER_SCHEMA)
+
+
 def test_openrouter_provider_sends_openai_compatible_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -71,6 +110,80 @@ def test_openrouter_provider_sends_openai_compatible_request(
         ],
     }
     assert captured["timeout"] == 12.5
+
+
+def test_openrouter_sends_schema_as_strict_json_schema_response_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Р7-3: переданная `schema` уходит в OpenAI-совместимый `response_format`."""
+    captured: dict[str, object] = {}
+
+    class Response:
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            del exc_type, exc, traceback
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"{\\"answer\\":\\"OK\\"}"}}]}'
+
+    def fake_urlopen(request: object, *, timeout: float) -> Response:
+        del timeout
+        captured["request"] = request
+        return Response()
+
+    monkeypatch.setattr("masker.llm.openrouter.urlopen", fake_urlopen)
+    provider = OpenRouterProvider(api_key="secret", model="openrouter/auto")
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    }
+
+    result = provider.complete([Message("user", "test")], schema=schema)
+
+    assert result == '{"answer":"OK"}'
+    request = captured["request"]
+    assert isinstance(request, Request)
+    body = json.loads(request.data)
+    assert body["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {"name": "triema_masker_response", "strict": True, "schema": schema},
+    }
+
+
+def test_openrouter_without_schema_omits_response_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Обратная совместимость: без `schema` тело запроса как до Р7-3."""
+    captured: dict[str, object] = {}
+
+    class Response:
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            del exc_type, exc, traceback
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(request: object, *, timeout: float) -> Response:
+        del timeout
+        captured["request"] = request
+        return Response()
+
+    monkeypatch.setattr("masker.llm.openrouter.urlopen", fake_urlopen)
+    provider = OpenRouterProvider(api_key="secret", model="openrouter/auto")
+
+    result = provider.complete([Message("user", "test")])
+
+    assert result == "ok"
+    request = captured["request"]
+    assert isinstance(request, Request)
+    body = json.loads(request.data)
+    assert "response_format" not in body
 
 
 def test_openrouter_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:

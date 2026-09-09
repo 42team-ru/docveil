@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections import deque
@@ -48,10 +49,13 @@ class _FakeTransport:
     auth_bodies: deque[dict[str, object]] | None = None
     auth_calls: int = 0
     chat_call_headers: list[dict[str, str]] | None = None
+    chat_call_bodies: list[str] | None = None
 
     def __post_init__(self) -> None:
         if self.chat_call_headers is None:
             self.chat_call_headers = []
+        if self.chat_call_bodies is None:
+            self.chat_call_bodies = []
 
     def request(self, **kwargs: object) -> httpx.Response:
         method = str(kwargs["method"])
@@ -70,6 +74,9 @@ class _FakeTransport:
         headers = dict(kwargs.get("headers") or {})
         assert self.chat_call_headers is not None
         self.chat_call_headers.append(headers)
+        assert self.chat_call_bodies is not None
+        content = kwargs.get("content")
+        self.chat_call_bodies.append(str(content) if content is not None else "")
         if not self.chat_responses:
             raise AssertionError("неожиданный дополнительный вызов chat-эндпоинта GigaChat")
         status, body = self.chat_responses.popleft()
@@ -269,6 +276,45 @@ def test_get_provider_respects_custom_api_key_env_from_config(
     assert provider.model == "GigaChat-Pro"
 
 
+def test_gigachat_sends_schema_as_strict_json_schema_response_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Р7-3: переданная `schema` уходит в `response_format` со `strict: true`."""
+    transport = _FakeTransport(chat_responses=deque([(200, _success_body('{"a": "x"}'))]))
+    _install_transport(monkeypatch, transport)
+    schema = {
+        "type": "object",
+        "properties": {"a": {"type": "string"}},
+        "required": ["a"],
+    }
+
+    provider = _provider()
+    result = provider.complete([Message("user", "вопрос")], schema=schema)
+
+    assert result == '{"a": "x"}'
+    assert transport.chat_call_bodies is not None
+    sent = json.loads(transport.chat_call_bodies[0])
+    assert sent["response_format"] == {
+        "type": "json_schema",
+        "schema": schema,
+        "strict": True,
+    }
+
+
+def test_gigachat_without_schema_omits_response_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Обратная совместимость: без `schema` запрос выглядит как раньше."""
+    transport = _FakeTransport(chat_responses=deque([(200, _success_body("ответ"))]))
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider()
+    result = provider.complete([Message("user", "вопрос")])
+
+    assert result == "ответ"
+    assert transport.chat_call_bodies is not None
+    sent = json.loads(transport.chat_call_bodies[0])
+    assert "response_format" not in sent
+
+
 def test_masker_llm_fake_still_works_without_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MASKER_LLM", "fake")
     provider = get_provider()
@@ -283,3 +329,25 @@ def test_gigachat_live_smoke() -> None:
     provider = get_provider()
     response = provider.complete([Message("user", "Ответь только словом OK")])
     assert response.strip()
+
+
+@pytest.mark.e2e
+def test_gigachat_live_strict_schema_returns_schema_valid_json() -> None:
+    """Р7-3, п.4: живой GigaChat со `strict: true` возвращает валидный по схеме JSON."""
+    if os.environ.get("MASKER_LLM") != "gigachat" or not os.environ.get("GIGACHAT_CREDENTIALS"):
+        pytest.skip("нужны MASKER_LLM=gigachat и GIGACHAT_CREDENTIALS")
+    import jsonschema
+
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
+    provider = get_provider()
+    response = provider.complete(
+        [Message("user", 'Ответь JSON-объектом {"answer": "OK"} и ничем больше')],
+        schema=schema,
+    )
+    parsed = json.loads(response)
+    jsonschema.validate(instance=parsed, schema=schema)

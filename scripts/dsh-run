@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# One-shot automation runner retained after dsh-top moved to dsh-TUI.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if "$ROOT/scripts/dsh.sh" --profile headless "$@"; then
+    status=0
+    title="DSH batch task completed"
+else
+    status=$?
+    title="DSH batch task failed"
+fi
+
+if command -v notify-send >/dev/null 2>&1; then
+    notify-send --app-name=DSH "$title" "Exit status: $status" >/dev/null 2>&1 || true
+fi
+
+exit "$status"

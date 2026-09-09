@@ -35,8 +35,9 @@ if [ -d "$farm" ]; then
 fi
 
 case "${1:-}" in
-    -*|"") set -- web "$@" ;;   # без подкоманды поднимаем веб-профиль
+    "") set -- web ;;   # без подкоманды поднимаем веб-профиль
+    --port|--host|--no-open|--trusted-host) set -- web "$@" ;;
 esac
 
 cd "$HARNESS"
-exec pnpm dsh "$@"
+exec node --import tsx/esm "$HARNESS/apps/cli/src/bin.ts" "$@"

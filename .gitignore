@@ -114,6 +114,9 @@ backend/models/
 .agents/cache/
 .claude
 .dsh/**
+.reasonix/
+reasonix.toml
+REASONIX.md
 .codex
 
 docs/ECONOMICS.md

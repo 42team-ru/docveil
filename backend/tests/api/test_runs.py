@@ -170,7 +170,7 @@ def test_report_and_artifacts_appear_only_after_answers(client: TestClient, stor
     assert client.get(f"/api/runs/{run_id}").json()["status"] == "awaiting_review"
 
     report = client.get(f"/api/runs/{run_id}/report").json()
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     assert report["input"] == "contract_01.docx"
 
     artifacts = client.get(f"/api/runs/{run_id}/artifacts").json()
@@ -189,7 +189,7 @@ def test_review_edits_finish_the_run(client: TestClient, storage: Path) -> None:
 
     payload = client.get(f"/api/runs/{run_id}/review").json()
     assert payload["schema_version"] == 1
-    assert payload["report"]["report_version"] == 3
+    assert payload["report"]["report_version"] == 4
 
     applied = client.post(
         f"/api/runs/{run_id}/review",

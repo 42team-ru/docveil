@@ -43,20 +43,22 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 200', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const body = pm.response.json();",
-                  "pm.test('access_token present', function () {",
-                  "    pm.expect(body.access_token).to.be.a('string').and.not.empty;",
-                  "});",
-                  "pm.test('refresh_token present in body (mobile device)', function () {",
-                  "    pm.expect(body.refresh_token).to.be.a('string').and.not.empty;",
-                  "});",
-                  "",
-                  "pm.environment.set('admin_access_token', body.access_token);",
-                  "pm.environment.set('admin_refresh_token', body.refresh_token);"
+                  "if (pm.response.code !== 200) {",
+                  "    pm.execution.setNextRequest(null);",
+                  "    pm.test('administrator login prerequisite', function () {",
+                  "        pm.expect.fail(`Не удалось войти администратором (HTTP ${pm.response.code}). Заполните admin_email и admin_password; если пароль меняли через сид, используйте make seed-admin ... reset_password=1.`);",
+                  "    });",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('access_token present', function () {",
+                  "        pm.expect(body.access_token).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "    pm.test('refresh_token present in body (mobile device)', function () {",
+                  "        pm.expect(body.refresh_token).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "    pm.environment.set('admin_access_token', body.access_token);",
+                  "    pm.environment.set('admin_refresh_token', body.refresh_token);",
+                  "}"
                 ]
               }
             }
@@ -86,19 +88,21 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 200', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const body = pm.response.json();",
-                  "pm.test('refresh_token is null in body for web device', function () {",
-                  "    pm.expect(body.refresh_token).to.be.null;",
-                  "});",
-                  "pm.test('refresh_token cookie is set', function () {",
-                  "    pm.expect(pm.cookies.has('refresh_token')).to.be.true;",
-                  "});",
-                  "",
-                  "pm.environment.set('access_token', body.access_token);"
+                  "if (pm.response.code !== 200) {",
+                  "    pm.execution.setNextRequest(null);",
+                  "    pm.test('test-user login prerequisite', function () {",
+                  "        pm.expect.fail(`Не удалось войти тестовым пользователем (HTTP ${pm.response.code}). Сначала успешно выполните Create User и проверьте user_email/user_password.`);",
+                  "    });",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('refresh_token is null in body for web device', function () {",
+                  "        pm.expect(body.refresh_token).to.be.null;",
+                  "    });",
+                  "    pm.test('refresh_token cookie is set', function () {",
+                  "        pm.expect(pm.cookies.has('refresh_token')).to.be.true;",
+                  "    });",
+                  "    pm.environment.set('access_token', body.access_token);",
+                  "}"
                 ]
               }
             }
@@ -128,13 +132,16 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 200', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const body = pm.response.json();",
-                  "pm.environment.set('access_token', body.access_token);",
-                  "pm.environment.set('refresh_token', body.refresh_token);"
+                  "if (pm.response.code !== 200) {",
+                  "    pm.execution.setNextRequest(null);",
+                  "    pm.test('test-user login prerequisite', function () {",
+                  "        pm.expect.fail(`Не удалось войти тестовым пользователем (HTTP ${pm.response.code}). Сначала успешно выполните Create User и проверьте user_email/user_password.`);",
+                  "    });",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set('access_token', body.access_token);",
+                  "    pm.environment.set('refresh_token', body.refresh_token);",
+                  "}"
                 ]
               }
             }
@@ -390,22 +397,44 @@
           "response": [],
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const template = pm.environment.get('new_user_email_template');",
+                  "const at = template ? template.lastIndexOf('@') : -1;",
+                  "if (at <= 0 || at === template.length - 1) {",
+                  "    pm.execution.setNextRequest(null);",
+                  "    pm.execution.skipRequest();",
+                  "    pm.test('new_user_email_template is configured', function () {",
+                  "        pm.expect.fail('Заполните new_user_email_template корректным email (например newuser@example.com).');",
+                  "    });",
+                  "} else {",
+                  "    const suffix = pm.variables.replaceIn('{{$guid}}').replaceAll('-', '');",
+                  "    pm.environment.set('new_user_email', `${template.slice(0, at)}+postman-${suffix}${template.slice(at)}`);",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 201', function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "",
-                  "const body = pm.response.json();",
-                  "pm.test('no password_hash leaked', function () {",
-                  "    pm.expect(body).to.not.have.property('password_hash');",
-                  "});",
-                  "",
-                  "pm.environment.set('created_user_id', body.id);",
-                  "pm.environment.set('user_email', pm.environment.get('new_user_email'));",
-                  "pm.environment.set('user_password', pm.environment.get('new_user_password'));"
+                  "if (pm.response.code !== 201) {",
+                  "    pm.execution.setNextRequest(null);",
+                  "    pm.test('test-user creation prerequisite', function () {",
+                  "        pm.expect.fail(`Не удалось создать тестового пользователя (HTTP ${pm.response.code}). Зависимые запросы остановлены; проверьте логин администратора и new_user_password.`);",
+                  "    });",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('no password_hash leaked', function () {",
+                  "        pm.expect(body).to.not.have.property('password_hash');",
+                  "    });",
+                  "    pm.environment.set('created_user_id', body.id);",
+                  "    pm.environment.set('user_email', pm.environment.get('new_user_email'));",
+                  "    pm.environment.set('user_password', pm.environment.get('new_user_password'));",
+                  "}"
                 ]
               }
             }
@@ -606,17 +635,29 @@
     {
       "name": "E2E - Mask document",
       "description": "Запускайте в Collection Runner как единственную папку. В окружении нужны user_email, user_password и абсолютный путь input_file. Для polling установите в Runner Request delay 1000 ms: лимит poll_max_attempts=60 означает примерно минуту ожидания.",
+      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+        "const inputFile = pm.environment.get('input_file');",
+        "if (!inputFile || /^<[^>]+>$/.test(inputFile.trim())) {",
+        "  pm.execution.setNextRequest(null);",
+        "  pm.execution.skipRequest();",
+        "  pm.test('input_file prerequisite', () => pm.expect.fail('Заполните input_file абсолютным путём к существующему DOCX или PDF на машине, где запущен Postman.'));",
+        "}"
+      ] } }],
       "item": [
         {
           "name": "E2E - Login",
           "request": { "auth": { "type": "noauth" }, "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device\": \"mobile\"\n}" }, "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] } },
           "response": [],
           "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "const body = pm.response.json();",
-            "pm.test('mobile login returns usable tokens', () => { pm.expect(body.access_token).to.be.a('string').and.not.empty; pm.expect(body.refresh_token).to.be.a('string').and.not.empty; });",
-            "pm.environment.set('access_token', body.access_token);",
-            "pm.environment.set('refresh_token', body.refresh_token);"
+            "if (pm.response.code !== 200) {",
+            "  pm.execution.setNextRequest(null);",
+            "  pm.test('E2E login prerequisite', () => pm.expect.fail(`Не удалось войти для E2E (HTTP ${pm.response.code}). Сначала создайте пользователя и проверьте user_email/user_password.`));",
+            "} else {",
+            "  const body = pm.response.json();",
+            "  pm.test('mobile login returns usable tokens', () => { pm.expect(body.access_token).to.be.a('string').and.not.empty; pm.expect(body.refresh_token).to.be.a('string').and.not.empty; });",
+            "  pm.environment.set('access_token', body.access_token);",
+            "  pm.environment.set('refresh_token', body.refresh_token);",
+            "}"
           ] } }]
         },
         {
@@ -745,7 +786,17 @@
         {
           "name": "Get another user's run (404)",
           "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{foreign_run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{foreign_run_id}}"] } },
-          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('foreign run is not disclosed', () => pm.response.to.have.status(404));"] } }]
+          "response": [], "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "const runId = pm.environment.get('foreign_run_id');",
+              "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
+              "  pm.execution.setNextRequest(null);",
+              "  pm.execution.skipRequest();",
+              "  pm.test('foreign_run_id prerequisite', () => pm.expect.fail('Заполните foreign_run_id UUID настоящего прогона другого пользователя.'));",
+              "}"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('foreign run is not disclosed', () => pm.response.to.have.status(404));"] } }
+          ]
         },
         {
           "name": "Get run without token (401)",
@@ -757,6 +808,14 @@
     {
       "name": "Run questions and answers",
       "description": "Для этой ветки нужен question_run_id прогона в awaiting_answers. Сначала выполните GET: он извлечёт id первого вопроса и его default в переменные, затем POST answers.",
+      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+        "const runId = pm.environment.get('question_run_id');",
+        "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
+        "  pm.execution.setNextRequest(null);",
+        "  pm.execution.skipRequest();",
+        "  pm.test('question_run_id prerequisite', () => pm.expect.fail('Заполните question_run_id UUID прогона в статусе awaiting_answers.'));",
+        "}"
+      ] } }],
       "item": [
         {
           "name": "Get questions",
@@ -774,6 +833,14 @@
     {
       "name": "Operator review edits",
       "description": "Для этой ветки нужен review_run_id прогона в awaiting_review с хотя бы одной сущностью. GET сохраняет ref первой сущности; POST демонстрирует решение оператора keep для этой ссылки.",
+      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+        "const runId = pm.environment.get('review_run_id');",
+        "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
+        "  pm.execution.setNextRequest(null);",
+        "  pm.execution.skipRequest();",
+        "  pm.test('review_run_id prerequisite', () => pm.expect.fail('Заполните review_run_id UUID прогона в статусе awaiting_review.'));",
+        "}"
+      ] } }],
       "item": [
         {
           "name": "Get review payload",

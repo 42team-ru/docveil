@@ -9,7 +9,7 @@ import pytest
 
 from api.core.security import verify_password
 from api.schemas.user import Role, UserCreate
-from api.services.user_service import create_user, email_exists, list_users
+from api.services.user_service import create_user, email_exists, list_users, reset_password
 
 
 def _session_returning(scalar_result):
@@ -66,6 +66,30 @@ async def test_create_user_defaults_to_user_role():
     user = await create_user(session, payload)
 
     assert user.roles == ["user"]
+
+
+@pytest.mark.asyncio
+async def test_reset_password_hashes_new_value_and_persists():
+    user = MagicMock(password_hash="old-hash")
+    session = _session_returning(user)
+
+    result = await reset_password(session, "taken@example.com", "new-password")
+
+    assert result is user
+    assert verify_password("new-password", user.password_hash) is True
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(user)
+
+
+@pytest.mark.asyncio
+async def test_reset_password_returns_none_for_missing_user():
+    session = _session_returning(None)
+
+    result = await reset_password(session, "missing@example.com", "new-password")
+
+    assert result is None
+    session.commit.assert_not_awaited()
+    session.refresh.assert_not_awaited()
 
 
 @pytest.mark.asyncio

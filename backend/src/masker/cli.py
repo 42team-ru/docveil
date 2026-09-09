@@ -44,8 +44,7 @@ from masker.run import (
 
 DEFAULT_OUTPUT = Path("out") / "inspect"
 
-#: 0 успех, 2 argparse, 3 ошибка треда, 4 Validate нашёл утечку,
-#: 5 RunFailedError (узел уронил OSError/ValueError), 10 приостановлен.
+#: 0 успех, 2 argparse, 3 ошибка треда, 4 утечка, 5 RunFailedError, 10 пауза.
 EXIT_LEAK = 4
 EXIT_RUN_FAILED = 5
 

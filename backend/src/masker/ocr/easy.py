@@ -58,9 +58,7 @@ class EasyOCRProvider:
     def recognize(self, image: np.ndarray, dpi: int) -> tuple[OCRLine, ...]:
         del dpi  # EasyOCR не калибрует пороги по DPI, масштаб задаёт ingest
         if image.dtype != np.uint8:
-            raise ValueError(
-                f"EasyOCRProvider ожидает uint8, получил dtype={image.dtype!r}"
-            )
+            raise ValueError(f"EasyOCRProvider ожидает uint8, получил dtype={image.dtype!r}")
         if image.ndim != 3 or image.shape[2] != 3:
             raise ValueError(
                 f"EasyOCRProvider ожидает изображение формы (H, W, 3), получил {image.shape!r}"

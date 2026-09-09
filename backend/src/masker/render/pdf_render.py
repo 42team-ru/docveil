@@ -130,6 +130,28 @@ _ERASE_WIDTH_GRID = 12.0
 #: на `contract_pdf_02_school.pdf`, план М1). `0.01pt` на три порядка больше
 #: наблюдаемого шума и на два порядка меньше ширины любого реального глифа.
 _GEOMETRY_EPS = 0.01
+#: Доля высоты собственной строки, начиная с которой пересечение по
+#: вертикали с другим прямоугольником строки считается «это та же физическая
+#: строка» (остаток собственной строки после ``apply_redactions``), а не
+#: соседняя строка сверху/снизу (``_free_extension_vertical``, план М6-1).
+#: Настоящие соседние строки перекрываются лишь на 1–2pt выносными
+#: элементами шрифта (Д10) — доля от полной высоты строки (обычно
+#: 10–15pt) далеко меньше половины; остаток собственной строки после
+#: редактирования, наоборот, занимает весь тот же вертикальный диапазон
+#: (сама строка никуда не движется, редактирование только убирает часть
+#: символов из неё) — отсюда порог `0.5`, с большим запасом между двумя
+#: случаями. Сравнение на точное равенство прямоугольников (``other ==
+#: own_line``), которое было здесь раньше, не срабатывает на настоящей
+#: редакции вовсе: `own_line` — это `pre_line_boxes[line_id]`, включающий
+#: боксы самой (ещё не стёртой) сущности, а построенный по `post_chars`
+#: остаток той же строки этих боксов уже не содержит — прямоугольники
+#: даже в тривиальном случае отличаются по `x0`. Без этой замены остаток
+#: собственной строки ложно считался чужой строкой снизу/сверху и обрезал
+#: вертикальный отступ до долей пункта там, где настоящего соседа нет
+#: вовсе (регресс, найденный при разборе `highlight_overlaps` 315 → 1090,
+#: `fix/r9-span-boundaries`).
+_OWN_LINE_OVERLAP_RATIO = 0.5
+
 #: Нулевой прямоугольник — сигнатура символа-склейки строк, который
 #: `page_chars`/`ingest_pdf` вставляют строго на границе физической строки
 #: внутри блока (план T2.2.1, шаг 8). Настоящие пробелы получают от
@@ -222,15 +244,47 @@ class _PageCharsCache:
         return self._line_boxes[page_num]
 
 
-def _line_boxes(chars: PageChars) -> dict[int, pymupdf.Rect]:
+def _line_boxes(chars: PageChars, *, skip_space: bool = False) -> dict[int, pymupdf.Rect]:
     """Полоса каждой строки страницы — объединение боксов **всех** её
     символов, не только символов сущности (план T2.2.2, шаг 3, п. 2): так
-    полоса не зависит от того, какой кусок строки маскируется."""
+    полоса не зависит от того, какой кусок строки маскируется.
+
+    ``skip_space=True`` (план М6-1) исключает из результата строки, целиком
+    состоящие из пробелов, — нужно только пост-редакционным «чужим» строкам
+    в ``_free_extension_vertical``. ``apply_redactions`` умеет разрезать
+    один физический ряд текста на несколько ``line_id`` при переписывании
+    потока (диагностика: «ИНН <стёрто>          » — хвост из одних пробелов
+    после стирания получает отдельный ``line_id`` с тем же вертикальным
+    диапазоном, что и у собственной строки). Полоса, целиком состоящая из
+    пробелов, не несёт ни одного видимого символа — преградой её считать
+    нельзя, а без фильтра она давала вертикальный центр, совпадающий с
+    центром собственной строки, и обрезала отступ пополам без единого
+    настоящего соседа рядом (регресс на тесте с «И» перед «Незыблемовна» и
+    на приёмочном сценарии ИНН — обе диагностики привели к этому фильтру).
+
+    Фильтр отбрасывает строку **целиком**, а не отдельные пробельные
+    символы внутри строки с настоящим текстом (регресс, найденный при
+    разборе ``fix/r9-span-boundaries``, ``highlight_overlaps`` 315 → 1090:
+    хвостовой пробел строки с реальным текстом нередко имеет более высокий
+    или низкий бокс, чем у соседних букв — артефакт метрик шрифта PyMuPDF,
+    не признак «здесь нет текста». Вырезание такого пробела из объединения
+    укорачивало полосу строки с реальным текстом ниже её настоящей видимой
+    границы, и середина полосы перекрытия (``_free_extension_vertical``)
+    придвигалась к собственной строке ближе, чем позволяет последняя
+    настоящая буква соседа — подпись заезжала на неё). Ни один из
+    до-редакционных путей (``_trim_to_own_line``/``_quantize_erase_rect``)
+    этот фильтр не запрашивает — они обязаны остаться на прежней геометрии
+    побайтово (план М6-1, эталонный дамп ``compute_erase_geometry``)."""
     boxes: dict[int, pymupdf.Rect] = {}
-    for box, line_id in zip(chars.boxes, chars.line_ids, strict=True):
+    has_visible: dict[int, bool] = {}
+    for index, (box, line_id) in enumerate(zip(chars.boxes, chars.line_ids, strict=True)):
         if box == _LINE_BREAK_RECT:
             continue
         boxes[line_id] = box if line_id not in boxes else boxes[line_id] | box
+        if not chars.text[index].isspace():
+            has_visible[line_id] = True
+    if skip_space:
+        boxes = {line_id: box for line_id, box in boxes.items() if has_visible.get(line_id, False)}
     return boxes
 
 
@@ -381,13 +435,39 @@ def _free_extension_right(
 
 def _free_extension_vertical(
     line_boxes: dict[int, pymupdf.Rect],
-    own_line_id: int,
+    own_line: pymupdf.Rect,
     x0: float,
     x1: float,
+    other_erase_rects: list[pymupdf.Rect] | tuple[pymupdf.Rect, ...] = (),
 ) -> tuple[float, float]:
     """Границы, до которых поле подписи может раздвинуться вверх и вниз, не
     заходя за середину полосы перекрытия с соседней строкой (план М5,
     вертикальная симметрия ``_free_extension_right``).
+
+    ``own_line`` передаётся уже готовым прямоугольником, а не ``line_id`` для
+    поиска в ``line_boxes`` (план М6-1): вызывающий (``_label_box_candidates``)
+    строит ``line_boxes`` для соседей заново по **уже отредактированной**
+    странице — ``apply_redactions`` перенумеровывает ``line_id`` (71→75 строк
+    на ``contract_pdf_02_school.pdf``), поэтому старый ``own_line_id``,
+    посчитанный до редактирования, не индексирует новый словарь. Собственная
+    строка при этом не меняет положения от редактирования — она передаётся
+    той же, что была посчитана в проходе 1 (``pre_line_boxes[line_id]``).
+
+    ``line_boxes`` (пост-редакционные «чужие» строки) обязаны быть построены
+    с ``_line_boxes(chars, skip_space=True)`` (план М6-1): полоса, целиком
+    состоящая из пробелов — например, разрезанный ``apply_redactions`` хвост
+    из одних пробелов, доставшийся отдельному ``line_id`` с тем же
+    вертикальным диапазоном, что и у собственной строки, — не преграда и не
+    должна участвовать в этом поиске вовсе; такая строка отбрасывается ещё в
+    ``_line_boxes`` (не попадает в словарь).
+
+    Остаток самой собственной строки (реальный текст той же физической
+    строки, оставшийся после того, как сущность стёрта) отсеивается здесь —
+    по доле пересечения с ``own_line`` по вертикали (``_OWN_LINE_OVERLAP_RATIO``),
+    а не по точному равенству прямоугольников: `own_line` включает боксы ещё
+    не стёртой сущности, а построенный по `post_chars` остаток той же строки
+    их уже не содержит, поэтому прямоугольники не совпадают побайтово даже в
+    простейшем случае.
 
     Раньше отступ на воздух под глифы (``-1`` сверху, ``+2`` снизу) считался
     безусловно, без единой проверки соседних строк — дефект, найденный
@@ -415,17 +495,29 @@ def _free_extension_vertical(
     половину** промежутка — ровно то, что нужно, чтобы отступ не рос за
     счёт соседней строки, как раньше.
 
+    ``other_erase_rects`` (план М6-1, регресс на ``contract_pdf_02_school.pdf``,
+    стр. 26) — эрейз-регионы **других** замен той же страницы: к моменту
+    вызова текст других замен ещё не вписан, их регион в ``post_chars``
+    пуст, но не свободен — туда скоро впишется чужой маркер (см.
+    докстринг ``_label_box_candidates``). Участвуют в поиске преград той же
+    формулой, что и строки из ``line_boxes`` — включая фильтр «тот же
+    физический ряд»: чужая замена на одной строке с нашей не должна
+    ограничивать вертикальный отступ (это забота горизонтального
+    расширения, не этой функции), только настоящая замена на другой строке.
+
     Возвращает ``(top_limit, bottom_limit)`` — абсолютные координаты,
     дальше которых заходить нельзя. Преграды сверху нет — ``-inf``
     (отступ вверх ничем не ограничен), преграды снизу нет — ``+inf``.
     """
-    own_line = line_boxes[own_line_id]
     own_center = (own_line.y0 + own_line.y1) / 2
+    own_height = own_line.y1 - own_line.y0
     top_limit = -math.inf
     bottom_limit = math.inf
-    for other_line_id, other in line_boxes.items():
-        if other_line_id == own_line_id:
-            continue
+    for other in (*line_boxes.values(), *other_erase_rects):
+        vertical_overlap = min(other.y1, own_line.y1) - max(other.y0, own_line.y0)
+        if own_height > 0 and vertical_overlap > own_height * _OWN_LINE_OVERLAP_RATIO:
+            continue  # тот же физический ряд (остаток собственной строки
+            # после редактирования) — не преграда сама себе
         if other.x1 <= x0 + _GEOMETRY_EPS or other.x0 >= x1 - _GEOMETRY_EPS:
             continue  # не пересекается по горизонтали с полем подписи
         other_center = (other.y0 + other.y1) / 2
@@ -565,16 +657,25 @@ def compute_label_geometry(
 
     Тот же путь вычисления, что и ``render_pdf_redacted`` при
     ``style="marker"`` (группировка по странице → ``_rects_for_entity`` →
-    ``_trim_to_own_line`` → ``_quantize_erase_rect`` → ``_label_box_candidates``
-    → ``_choose_group_rungs`` → тот же выбор конкретного кандидата, что и
-    ``_place_label_fixed`` — первый по порядку документа, где выбранная
+    ``_trim_to_own_line`` → ``_quantize_erase_rect`` → ``add_redact_annot`` +
+    ``apply_redactions`` → ``_label_box_candidates`` по уже отредактированной
+    странице → ``_choose_group_rungs`` → тот же выбор конкретного кандидата,
+    что и ``_place_label_fixed`` — первый по порядку документа, где выбранная
     ступень группы влезает) — детерминированная функция только от
-    ``(source_path, plan)``, как и ``compute_erase_geometry``. Ни
-    ``add_redact_annot``, ни вставка текста здесь не выполняются: страница
-    нужна только для чтения символьных боксов и метрик шрифта, не для
-    записи. Именно поэтому эту геометрию можно (и нужно) проверять против
-    уже готового ВЫХОДНОГО артефакта отдельно — здесь она только
-    пересчитана, не нарисована.
+    ``(source_path, plan)``, как и ``compute_erase_geometry``. Текст здесь не
+    вставляется, но редактирование — да (план М6-1): страница открыта на
+    **собственной** копии документа в памяти (``pymupdf.open(source_path)``
+    внутри этой функции, ни разу не сохранённой на диск), поэтому
+    редактирование этой копии не трогает ни файл на диске, ни артефакт,
+    построенный отдельным вызовом ``render_pdf_redacted``. Без этого прохода
+    граница подписи считалась бы по символам, которых уже нет на бумаге:
+    ``apply_redactions`` при удалении части кернингового рана перерисовывает
+    выживший хвост со смещением (доказано на ``contract_pdf_02_school.pdf``
+    — «(далее» уезжает на 7 pt влево), и посчитанная по старым координатам
+    граница накрывала соседа, реально сдвинувшегося на 12 pt ближе. Именно
+    поэтому эту геометрию можно (и нужно) проверять против уже готового
+    ВЫХОДНОГО артефакта отдельно — здесь она пересчитана тем же путём, что
+    и сам рендер, а не подсмотрена в нём.
 
     Кегль возвращается вместе с регионом и текстом не просто для справки:
     ``count_highlight_overlaps`` воспроизводит ровно эту вставку
@@ -610,20 +711,39 @@ def compute_label_geometry(
         page_by_ref: dict[str, int] = {}
 
         for page_num in sorted(by_page):
-            line_boxes = cache.line_boxes(page_num)
-            chars = cache.chars(page_num)
+            page = doc[page_num]
+            pre_line_boxes = cache.line_boxes(page_num)
+            pre_chars = cache.chars(page_num)
+            trimmed_jobs: list[tuple[_PageJob, list[tuple[int, pymupdf.Rect]]]] = []
             for job in by_page[page_num]:
                 abs_start = job.seg_char_start + job.replacement.entity.start
                 abs_end = job.seg_char_start + job.replacement.entity.end
                 trimmed_rects: list[tuple[int, pymupdf.Rect]] = []
                 for line_id, rect in job.rects:
-                    trimmed_rect, _collided = _trim_to_own_line(rect, line_id, line_boxes)
+                    trimmed_rect, _collided = _trim_to_own_line(rect, line_id, pre_line_boxes)
                     quantized_rect = _quantize_erase_rect(
-                        chars, line_id, trimmed_rect, abs_start, abs_end, line_boxes[line_id]
+                        pre_chars,
+                        line_id,
+                        trimmed_rect,
+                        abs_start,
+                        abs_end,
+                        pre_line_boxes[line_id],
                     )
+                    # Тот же ``add_redact_annot``, что и ``render_pdf_redacted``
+                    # (план М6-1) — иначе символьные боксы, прочитанные ниже
+                    # после ``apply_redactions``, не отразят настоящего
+                    # редактирования вовсе.
+                    page.add_redact_annot(quantized_rect, fill=_HIGHLIGHT_FILL)
                     trimmed_rects.append((line_id, quantized_rect))
+                trimmed_jobs.append((job, trimmed_rects))
+            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
+
+            post_chars = page_chars(page)
+            post_line_boxes = _line_boxes(post_chars, skip_space=True)
+            for job, trimmed_rects in trimmed_jobs:
+                other_erase_rects = _other_jobs_erase_rects(trimmed_jobs, job)
                 candidates = _label_box_candidates(
-                    cache, page_num, job.seg_char_start, job.replacement, trimmed_rects
+                    post_chars, pre_line_boxes, post_line_boxes, trimmed_rects, other_erase_rects
                 )
                 candidates_by_group[job.replacement.group_id].append(candidates)
                 candidates_by_ref[job.replacement.ref] = candidates
@@ -951,14 +1071,26 @@ def render_pdf_redacted(
                 )
             continue
 
+        # План М6-1: геометрия подписи считается по уже отредактированной
+        # странице, не по снимку, снятому до ``apply_redactions`` (тот всё
+        # ещё лежит в ``cache``/``line_boxes``/``chars`` выше — он остаётся
+        # источником для эрейз-геометрии, которая от редактирования не
+        # меняется). Свежий, некэшированный ``page_chars`` — единственный
+        # способ увидеть настоящий сдвиг хвоста кернингового рана, который
+        # ``apply_redactions`` оставляет после себя (доказано на
+        # ``contract_pdf_02_school.pdf`` — «(далее» уезжает на 7 pt влево).
+        post_chars = page_chars(page)
+        post_line_boxes = _line_boxes(post_chars, skip_space=True)
+
         page.insert_font(fontname=_FONT_NAME, fontfile=str(_FONT_FILE))
         for job, trimmed_rects in trimmed_jobs:
             erase_regions = tuple(
                 PdfRegion(page=page_num, x0=r.x0, y0=r.y0, x1=r.x1, y1=r.y1)
                 for _line_id, r in trimmed_rects
             )
+            other_erase_rects = _other_jobs_erase_rects(trimmed_jobs, job)
             candidates = _label_box_candidates(
-                cache, page_num, job.seg_char_start, job.replacement, trimmed_rects
+                post_chars, line_boxes, post_line_boxes, trimmed_rects, other_erase_rects
             )
             candidates_by_group[job.replacement.group_id].append(candidates)
             pending_labels.append((page_num, job.replacement, erase_regions, candidates))
@@ -1076,12 +1208,29 @@ def _try_ladder(
     return None
 
 
+def _other_jobs_erase_rects(
+    trimmed_jobs: list[tuple[_PageJob, list[tuple[int, pymupdf.Rect]]]],
+    current: _PageJob,
+) -> list[pymupdf.Rect]:
+    """Эрейз-регионы всех остальных замен той же страницы, кроме ``current``
+    (план М6-1, регресс на ``contract_pdf_02_school.pdf``, стр. 26,
+    ``highlight_overlaps`` 1090 → 813) — см. докстринг ``_label_box_candidates``
+    про то, зачем расширению подписи нужно видеть их, хотя их текст в
+    ``post_chars`` к этому моменту ещё пуст."""
+    return [
+        rect
+        for job, rects in trimmed_jobs
+        if job.replacement.ref != current.replacement.ref
+        for _line_id, rect in rects
+    ]
+
+
 def _label_box_candidates(
-    cache: _PageCharsCache,
-    page_num: int,
-    seg_char_start: int,
-    replacement: Replacement,
+    post_chars: PageChars,
+    pre_line_boxes: dict[int, pymupdf.Rect],
+    post_line_boxes: dict[int, pymupdf.Rect],
     trimmed_rects: list[tuple[int, pymupdf.Rect]],
+    other_erase_rects: list[pymupdf.Rect] | tuple[pymupdf.Rect, ...] = (),
 ) -> list[tuple[pymupdf.Rect, pymupdf.Rect]]:
     """Кандидаты (эрейз-прямоугольник, поле подписи) одного вхождения.
 
@@ -1099,6 +1248,46 @@ def _label_box_candidates(
     заливка заезжала на живой символ соседней строки или строки-соседа
     справа (заказчик нашёл это глазами 08.09.2026 — «№» сразу за
     замаскированной датой).
+
+    План М6-1: свободные границы (и справа, и сверху/снизу) ищутся по
+    ``post_chars``/``post_line_boxes`` — символьным боксам страницы **после**
+    ``apply_redactions``, а не до него. ``apply_redactions`` при удалении
+    части кернингового рана перерисовывает выживший хвост со смещением
+    (доказано на ``contract_pdf_02_school.pdf`` — «(далее» уезжает на 7 pt
+    влево), поэтому граница, посчитанная по дореди­акционным боксам, была
+    честной для документа, которого уже нет на диске: реальный сосед в
+    сохранённом файле мог стоять на 12 pt ближе, и подпись накрывала его
+    целиком видимым образом. ``pre_line_boxes`` (полоса строки **до**
+    редактирования, посчитанная в проходе 1 вместе с ``trimmed_rects``)
+    остаётся источником для собственной строки — её положение
+    редактирование не двигает, только переписывает содержимое соседей —
+    и передаётся ``_free_extension_vertical`` готовым прямоугольником, а не
+    ``line_id``: тот же ``line_id`` после редактирования индексирует уже
+    другую строку (``line_id`` физически перенумерован, план М6-1).
+
+    Символы самой сущности в ``post_chars`` уже не существуют — их стёр
+    ``apply_redactions`` — поэтому пропускать диапазон ``[abs_start,
+    abs_end)`` (как это делает ``_quantize_erase_rect`` для до-редакционных
+    боксов) здесь не нужно: единственный признак «это не преграда» —
+    положение левее эрейз-прямоугольника, а не совпадение индекса символа
+    с самой сущностью. ``_free_extension_right`` получает поэтому заведомо
+    пустой диапазон ``(0, 0)`` и часовой (никогда не встречающийся в
+    ``post_chars``) ``_NO_LINE`` вместо ``line_id`` — сравнение «та же
+    строка» после редактирования не имеет смысла (то же перенумерование),
+    остаётся только геометрический критерий — пересечение по вертикали с
+    самим ``erase_rect``, который редактирование не двигает.
+
+    ``other_erase_rects`` — эрейз-регионы **других** замен той же страницы
+    (план М6-1, регресс на ``contract_pdf_02_school.pdf``, стр. 26, группа
+    «Муниципальное автономное...», найденный при разборе
+    ``highlight_overlaps`` 1090 → 813): к моменту вызова этой функции текст
+    других замен ещё не вписан (ступень лестницы выбирается один раз на
+    группу уже после того, как собраны кандидаты всех замен страницы,
+    план М4), поэтому их эрейз-регион в ``post_chars`` уже пуст — но не
+    свободен, туда скоро впишется чужой маркер. Без этого списка расширение
+    видело там только пустоту и заезжало в чужую область, а не на реальный
+    символ — так наложение просто переносилось с исходного текста соседа
+    на будущий маркер соседа, оставаясь тем же дефектом читаемости.
     """
     for _line_id, rect in trimmed_rects:
         if rect.width <= 0 or rect.height <= 0:
@@ -1106,24 +1295,27 @@ def _label_box_candidates(
                 f"вырожденный прямоугольник {rect!r} — вставлять текст некуда"
             )
 
-    chars = cache.chars(page_num)
-    line_boxes = cache.line_boxes(page_num)
-    abs_start = seg_char_start + replacement.entity.start
-    abs_end = seg_char_start + replacement.entity.end
-
     candidates: list[tuple[pymupdf.Rect, pymupdf.Rect]] = []  # (erase_rect, label_box)
     for line_id, erase_rect in trimmed_rects:
+        own_line = pre_line_boxes[line_id]
         # Горизонтальная безопасная граница уже доказанно свободна
         # (``_free_extension_right`` возвращает ``max(limit, erase_rect.x1)``
         # — никогда не бывает уже эрейз-прямоугольника). Раньше сюда сверху
         # добавлялось ``+ 2`` — ровно те два пункта, что заезжали на первый
         # чужой символ, стоящий вплотную к границе (план М5): граница сама
         # по себе уже воздух, добавлять к ней ничего нельзя, только зажимать.
-        label_x1 = _free_extension_right(
-            chars, line_id, erase_rect, abs_start, abs_end, line_boxes[line_id]
-        )
+        label_x1 = _free_extension_right(post_chars, _NO_LINE, erase_rect, 0, 0, own_line)
+        for other in other_erase_rects:
+            if other.y1 <= erase_rect.y0 + _GEOMETRY_EPS or other.y0 >= erase_rect.y1 - (
+                _GEOMETRY_EPS
+            ):
+                continue  # не пересекается по вертикали с нашей строкой — не преграда
+            if other.x0 < erase_rect.x1 - _GEOMETRY_EPS:
+                continue  # чужой эрейз-регион левее нас — не мешает расширению вправо
+            label_x1 = min(label_x1, other.x0)
+        label_x1 = max(label_x1, erase_rect.x1)
         top_limit, bottom_limit = _free_extension_vertical(
-            line_boxes, line_id, erase_rect.x0, label_x1
+            post_line_boxes, own_line, erase_rect.x0, label_x1, other_erase_rects
         )
         # Желаемый отступ на воздух под глифы — не безусловный, а зажатый
         # доказанно свободной вертикальной границей (план М5): без соседа

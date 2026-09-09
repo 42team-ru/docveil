@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import pathlib
 import stat
 
@@ -30,7 +32,7 @@ from masker.render.pdf_render import (
     MarkerDoesNotFitError,
     _entity_rects,
     _label_box_candidates,
-    _PageCharsCache,
+    _line_boxes,
     _quantize_erase_rect,
     _try_ladder,
     compute_erase_geometry,
@@ -1089,6 +1091,91 @@ def test_compute_erase_geometry_ignores_docx_replacements(tmp_path: pathlib.Path
     assert compute_erase_geometry(path, docx_only_plan) == {}
 
 
+# ── М6-1: erase_regions не имеют права измениться ни на pt ────────────────────
+#
+# label_region (подпись) план М6-1 обязан считать по **уже отредактированной**
+# странице, а erase_regions (что реально стирается ``apply_redactions``) —
+# нет: они остаются на до-редакционной геометрии, как и раньше, иначе
+# `add_redact_annot` мог бы стереть больше, чем безопасно доказано
+# (`_free_extension_right` строится по ещё не тронутым боксам соседей). Этот
+# файл — эталон, сгенерированный ДО правки М6-1 (тем же кодом
+# `compute_erase_geometry`, который правка не касается: `_trim_to_own_line`,
+# `_quantize_erase_rect`, `_entity_rects` в диффе М6-1 не менялись ни строкой)
+# — побайтовое совпадение здесь и есть страховка от утечки при обрезке
+# `label_box` (план, риск «М6-2 схлопывает прямоугольник и сущность утекает»).
+_ERASE_GEOMETRY_GOLDEN = pathlib.Path(__file__).parent / "erase_geometry_golden.json"
+
+
+def _make_pdf_erase_geometry_scenarios(tmp_path: pathlib.Path) -> pathlib.Path:
+    """Четыре страницы, каждая — отдельная ветка ``_trim_to_own_line``/
+    ``_quantize_erase_rect``, уже покрытая другими тестами этого файла по
+    отдельности: квантование до полного 12pt-шага (план М1, правило 5),
+    квантование, остановленное соседом без единого pt зазора (план М5),
+    обрезка серединой полосы перекрытия строк (Д10), отменённая обрезка при
+    полном перекрытии строк — коллизия (план T2.2.2, шаг 3, п. 4)."""
+    path = tmp_path / "erase_geometry_scenarios.pdf"
+    doc = pymupdf.open()
+
+    page0 = doc.new_page()
+    page0.insert_font(fontname="dvu", fontfile=_FONT)
+    page0.insert_text((72, 100), "Попов        далее", fontname="dvu", fontsize=12)
+
+    page1 = doc.new_page()
+    page1.insert_font(fontname="dvu", fontfile=_FONT)
+    page1.insert_text((72, 100), "от 08.09.2026№158-ПК", fontname="dvu", fontsize=12)
+
+    page2 = doc.new_page()
+    page2.insert_font(fontname="dvu", fontfile=_FONT)
+    page2.insert_text((72, 100), "Verhnyaya stroka sekret", fontname="dvu", fontsize=13)
+    page2.insert_text((72, 112.7), "Nizhnyaya stroka tekst", fontname="dvu", fontsize=13)
+
+    page3 = doc.new_page()
+    page3.insert_font(fontname="dvu", fontfile=_FONT)
+    page3.insert_text((72, 100), "sekretnoe slovo tut", fontname="dvu", fontsize=10)
+    page3.insert_text((72, 108), "SHTAMP NALOZHEN SVERHU I SNIZU", fontname="dvu", fontsize=44)
+
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+def _erase_geometry_scenario_plan(path: pathlib.Path) -> MaskPlan:
+    document = ingest_pdf(path)
+    entities = [
+        _person_entity(document, "Попов", "Попов"),
+        _entity_for_bare_text_m5(document, "08.09.2026№158-ПК", "08.09.2026"),
+        _entity_for_bare_text(document, "Verhnyaya", "sekret"),
+        _entity_for_bare_text(document, "sekretnoe", "sekretnoe"),
+    ]
+    return _plan(document, entities)
+
+
+def _dump_erase_geometry(
+    geometry: dict[str, tuple[PdfRegion, ...]],
+) -> dict[str, list[dict[str, float | int]]]:
+    """Сериализация, устойчивая к порядку обхода словаря (план, риск
+    «недетерминизм от порядка обхода») — ключи отсортированы явно, а не
+    оставлены в порядке вставки ``dict``."""
+    return {
+        ref: [dataclasses.asdict(region) for region in regions]
+        for ref, regions in sorted(geometry.items())
+    }
+
+
+def test_compute_erase_geometry_golden_dump_unchanged_by_m6_1(tmp_path: pathlib.Path) -> None:
+    """Приёмка М6-1, п. 2: ``compute_erase_geometry`` даёт побайтово тот же
+    JSON-дамп, что и до правки — обрезке в М6-1 подлежит только
+    ``label_box`` (подпись), эрейз-геометрия остаётся до-редакционной."""
+    path = _make_pdf_erase_geometry_scenarios(tmp_path)
+    plan = _erase_geometry_scenario_plan(path)
+
+    geometry = compute_erase_geometry(path, plan)
+    dump = _dump_erase_geometry(geometry)
+
+    golden = json.loads(_ERASE_GEOMETRY_GOLDEN.read_text(encoding="utf-8"))
+    assert dump == golden
+
+
 def test_highlight_style_paints_visible_background_not_white(tmp_path: pathlib.Path) -> None:
     """Файл называется `masked_highlight`, и постановка требует, чтобы
     найденное было **подсвечено**. Белая заливка на белой странице не
@@ -1154,54 +1241,25 @@ def test_label_stays_on_the_line_where_entity_started(tmp_path: pathlib.Path) ->
 # ── М5: подсветка не смеет накрывать чужой символ ─────────────────────────────
 
 
-def _bare_pdf_replacement(entity_start: int, entity_end: int) -> Replacement:
-    """Голая замена одной сущности на странице 0 без прохода через
-    ``PlanAgent`` — нужна тестам, которые проверяют геометрию
-    ``_label_box_candidates`` напрямую, без реального PDF."""
-    entity = Entity(
-        type=EntityType.PERSON,
-        text="W",
-        segment_order=0,
-        start=entity_start,
-        end=entity_end,
-        source=Source.RULE,
-        confidence=1.0,
-        normalized="w",
-    )
-    return Replacement(
-        ref="R1",
-        entity=entity,
-        marker="[М1]",
-        group_id="G1",
-        profile_id="",
-        anchor=Anchor(fmt="pdf", locator=("page", 0, 0, 100)),
-    )
-
-
-def _cache_with_page(chars: PageChars) -> _PageCharsCache:
-    """``_PageCharsCache`` с подставленной вручную страницей — без открытия
-    настоящего PDF (сама страница ``chars()``/``line_boxes()`` не читает
-    ``self._doc``, если запись уже есть в кэше)."""
-    cache = _PageCharsCache(pymupdf.open())
-    cache._chars[0] = chars  # type: ignore[attr-defined]
-    return cache
-
-
 def test_label_box_candidates_stops_exactly_at_free_extension_boundary() -> None:
     """Прямое воспроизведение дефекта плана М5: сосед («№») начинается
     ровно на границе доказанно свободного расширения вправо
     (``_free_extension_right``) — свободного места вообще нет. Старый код
     добавлял к этой границе безусловные ``+2pt`` — ровно те пункты, что
     заезжали на живой символ на реальном документе (заказчик нашёл это
-    глазами 08.09.2026). Новый код обязан остановиться ровно на границе."""
+    глазами 08.09.2026). Новый код обязан остановиться ровно на границе.
+
+    ``post_chars`` здесь совпадает с тем, что было бы «до» редактирования —
+    в этих тестах нет своего прохода ``apply_redactions``, а проверяется
+    сама формула границы (план М6-1 меняет только **источник** боксов, не
+    саму формулу «до первого чужого непробельного символа»)."""
     text = "W№"
     boxes = (pymupdf.Rect(0.0, 0.0, 10.0, 10.0), pymupdf.Rect(10.0, 0.0, 16.0, 10.0))
     chars = PageChars(text=text, boxes=boxes, line_ids=(0, 0))
-    cache = _cache_with_page(chars)
+    line_boxes = _line_boxes(chars)
 
-    replacement = _bare_pdf_replacement(0, 1)
     trimmed_rects = [(0, pymupdf.Rect(0.0, 0.0, 10.0, 10.0))]
-    candidates = _label_box_candidates(cache, 0, 0, replacement, trimmed_rects)
+    candidates = _label_box_candidates(chars, line_boxes, line_boxes, trimmed_rects)
 
     assert len(candidates) == 1
     _erase_rect, label_box = candidates[0]
@@ -1225,11 +1283,10 @@ def test_label_box_candidates_vertical_padding_does_not_cross_into_line_below() 
         pymupdf.Rect(0.0, 10.5, 10.0, 20.5),
     )
     chars = PageChars(text=text, boxes=boxes, line_ids=(0, 0, 1))
-    cache = _cache_with_page(chars)
+    line_boxes = _line_boxes(chars)
 
-    replacement = _bare_pdf_replacement(0, 1)
     trimmed_rects = [(0, pymupdf.Rect(0.0, 0.0, 10.0, 10.0))]
-    candidates = _label_box_candidates(cache, 0, 0, replacement, trimmed_rects)
+    candidates = _label_box_candidates(chars, line_boxes, line_boxes, trimmed_rects)
 
     assert len(candidates) == 1
     _erase_rect, label_box = candidates[0]
@@ -1247,11 +1304,10 @@ def test_label_box_candidates_vertical_padding_does_not_cross_into_line_above() 
         pymupdf.Rect(0.0, 0.0, 10.0, 10.0),
     )
     chars = PageChars(text=text, boxes=boxes, line_ids=(0, 0, 1))
-    cache = _cache_with_page(chars)
+    line_boxes = _line_boxes(chars)
 
-    replacement = _bare_pdf_replacement(2, 3)
     trimmed_rects = [(1, pymupdf.Rect(0.0, 0.0, 10.0, 10.0))]
-    candidates = _label_box_candidates(cache, 0, 0, replacement, trimmed_rects)
+    candidates = _label_box_candidates(chars, line_boxes, line_boxes, trimmed_rects)
 
     assert len(candidates) == 1
     _erase_rect, label_box = candidates[0]
@@ -1266,16 +1322,203 @@ def test_label_box_candidates_keep_default_margin_without_neighbours() -> None:
     читаемость там, где расширяться было безопасно."""
     text = "W"
     chars = PageChars(text=text, boxes=(pymupdf.Rect(0.0, 0.0, 10.0, 10.0),), line_ids=(0,))
-    cache = _cache_with_page(chars)
+    line_boxes = _line_boxes(chars)
 
-    replacement = _bare_pdf_replacement(0, 1)
     trimmed_rects = [(0, pymupdf.Rect(0.0, 0.0, 10.0, 10.0))]
-    candidates = _label_box_candidates(cache, 0, 0, replacement, trimmed_rects)
+    candidates = _label_box_candidates(chars, line_boxes, line_boxes, trimmed_rects)
 
     assert len(candidates) == 1
     _erase_rect, label_box = candidates[0]
     assert label_box.y0 == pytest.approx(-1.0)
     assert label_box.y1 == pytest.approx(12.0)
+
+
+def test_line_boxes_skip_space_drops_lines_made_only_of_space() -> None:
+    """План М6-1: строка, целиком состоящая из пробелов (искусственный
+    «хвост» после ``apply_redactions``), не должна попасть в результат
+    вовсе — иначе она давала бы вертикальный центр, совпадающий с центром
+    собственной строки, и обрезала бы отступ пополам без единого
+    настоящего соседа рядом."""
+    text = "   "
+    boxes = (
+        pymupdf.Rect(0.0, 0.0, 5.0, 10.0),
+        pymupdf.Rect(5.0, 0.0, 10.0, 10.0),
+        pymupdf.Rect(10.0, 0.0, 15.0, 10.0),
+    )
+    chars = PageChars(text=text, boxes=boxes, line_ids=(3, 3, 3))
+    result = _line_boxes(chars, skip_space=True)
+    assert 3 not in result, "строка целиком из пробелов не должна считаться преградой вовсе"
+
+
+def test_label_box_candidates_keeps_protective_margin_when_neighbour_line_has_real_text() -> None:
+    """Регресс, найденный при разборе ``fix/r9-span-boundaries``
+    (``highlight_overlaps`` 315 → 1090 после М6-1,
+    ``contract_pdf_02_school.pdf``, стр. 42, группа «МАОУ гимназия №144»):
+    у соседней строки сверху хвостовой пробел стоит ниже последней
+    настоящей буквы (частый артефакт метрик шрифта PyMuPDF — бокс пробела
+    не совпадает по высоте с боксами букв). Прежний ``skip_space=True``
+    вырезал пробел из объединения **любой** строки, а не только строки,
+    целиком состоящей из пробелов, — из-за этого полоса соседней строки с
+    реальным текстом становилась короче своего настоящего видимого текста,
+    середина полосы перекрытия сдвигалась ближе к собственной строке, чем
+    позволяет настоящая буква соседа, и подпись заезжала на неё."""
+    text = "X W"
+    boxes = (
+        pymupdf.Rect(0.0, -10.0, 10.0, 0.3),  # 'X' — настоящая буква соседней строки
+        pymupdf.Rect(10.0, -10.5, 15.0, 1.5),  # ' ' — хвостовой пробел, ниже буквы
+        pymupdf.Rect(0.0, 0.0, 10.0, 20.0),  # 'W' — собственная строка
+    )
+    chars = PageChars(text=text, boxes=boxes, line_ids=(0, 0, 1))
+    pre_line_boxes = _line_boxes(chars)  # источник own_line, как «до» редактирования
+    post_line_boxes = _line_boxes(chars, skip_space=True)  # план М6-1
+
+    trimmed_rects = [(1, pymupdf.Rect(0.0, 0.9, 10.0, 20.0))]
+    candidates = _label_box_candidates(chars, pre_line_boxes, post_line_boxes, trimmed_rects)
+
+    assert len(candidates) == 1
+    _erase_rect, label_box = candidates[0]
+    assert label_box.y0 >= 0.3 - 0.01, (
+        "подпись залезла на настоящую букву соседней строки сверху "
+        f"(её низ y=0.3): label.y0={label_box.y0:.2f}"
+    )
+
+
+def test_label_box_candidates_own_line_remainder_after_redaction_is_not_a_neighbour() -> None:
+    """Второй регресс, вскрытый при том же разборе (``highlight_overlaps``
+    315 → 1090): исправление предыдущего теста включает пробелы обратно в
+    объединение остатка собственной строки, и тогда этот остаток перестаёт
+    быть равен ``pre_line_boxes[line_id]`` (тот включает ещё и саму
+    стёртую сущность) — сравнение ``other == own_line`` в
+    ``_free_extension_vertical`` никогда не срабатывает на настоящей
+    редакции, только в синтетических тестах, где «до» и «после» совпадают
+    буквально. Без более общего критерия остаток собственной строки
+    (реальный текст **после** сущности на той же строке) ложно считается
+    отдельной строкой снизу и обрезает вертикальный отступ до долей пункта,
+    хотя настоящего соседа на другой физической строке нет вовсе."""
+    text_pre = "WXY"
+    pre_boxes = (
+        pymupdf.Rect(0.0, 0.0, 10.0, 10.0),  # 'W' — сущность
+        pymupdf.Rect(10.0, 0.0, 20.0, 10.0),  # 'X' — станет пробелом после apply_redactions
+        pymupdf.Rect(20.0, 0.0, 30.0, 10.0),  # 'Y' — реальный текст той же строки после сущности
+    )
+    pre_chars = PageChars(text=text_pre, boxes=pre_boxes, line_ids=(0, 0, 0))
+    pre_line_boxes = _line_boxes(pre_chars)
+
+    # После apply_redactions символа сущности в page_chars уже нет вовсе,
+    # остаток строки — пробел на месте «X» (тот же приём, что и в тесте
+    # плана М6-1 выше) и настоящий «Y» после него.
+    text_post = " Y"
+    post_boxes = (
+        pymupdf.Rect(10.0, 0.0, 20.0, 10.0),
+        pymupdf.Rect(20.0, 0.0, 30.0, 10.0),
+    )
+    post_chars = PageChars(text=text_post, boxes=post_boxes, line_ids=(0, 0))
+    post_line_boxes = _line_boxes(post_chars, skip_space=True)
+
+    trimmed_rects = [(0, pymupdf.Rect(0.0, 0.0, 10.0, 10.0))]
+    candidates = _label_box_candidates(post_chars, pre_line_boxes, post_line_boxes, trimmed_rects)
+
+    assert len(candidates) == 1
+    _erase_rect, label_box = candidates[0]
+    assert label_box.y1 == pytest.approx(12.0), (
+        "остаток собственной строки после редакции ложно принят за чужую "
+        f"строку снизу: label.y1={label_box.y1:.2f}, ожидалось 12.0 "
+        "(без постороннего соседа отступ снизу — стандартный +2)"
+    )
+
+
+def test_label_box_candidates_never_extends_into_another_replacements_erase_rect() -> None:
+    """Третий регресс того же разбора (``highlight_overlaps`` 1090 → 813
+    после первых двух фиксов, ``contract_pdf_02_school.pdf``, стр. 26,
+    группа «Муниципальное автономное...», сосед — уже вставленный маркер
+    «[Заказчик 2]» другой замены той же страницы). ``compute_label_geometry``
+    считает геометрию всех замен страницы ДО того, как в какую-либо из них
+    вписан текст маркера: эрейз-регион чужой замены к этому моменту уже
+    пуст в ``post_chars`` (``apply_redactions`` стёр его исходный текст),
+    но не свободен — туда скоро впишется чужой маркер. Расширение обязано
+    остановиться на границе чужого эрейз-региона, даже если в
+    ``post_chars`` там сейчас буквально пусто."""
+    text = "W "
+    chars = PageChars(
+        text=text,
+        boxes=(
+            pymupdf.Rect(0.0, 0.0, 10.0, 13.0),  # 'W' — сущность
+            pymupdf.Rect(10.0, 0.0, 200.0, 13.0),  # хвост строки — доказанно свободное место
+        ),
+        line_ids=(0, 0),
+    )
+    pre_line_boxes = _line_boxes(chars)
+    post_line_boxes = _line_boxes(chars, skip_space=True)
+
+    trimmed_rects = [(0, pymupdf.Rect(0.0, 0.0, 10.0, 13.0))]
+    # Чужая замена того же прогона: её эрейз-регион уже пуст (её символы
+    # стёрты), но скоро туда впишется её собственный маркер.
+    other_erase_rects = [pymupdf.Rect(50.0, -2.0, 90.0, 9.0)]
+
+    candidates = _label_box_candidates(
+        chars, pre_line_boxes, post_line_boxes, trimmed_rects, other_erase_rects
+    )
+
+    assert len(candidates) == 1
+    _erase_rect, label_box = candidates[0]
+    assert label_box.x1 <= 50.0 + 0.01, (
+        f"подпись залезла в эрейз-регион другой замены: label.x1={label_box.x1:.2f}"
+    )
+
+
+def test_label_box_candidates_uses_post_redaction_chars_not_pre() -> None:
+    """Сердце плана М6-1: свободная граница ищется по ``post_chars``
+    (аргумент функции), а ``pre_line_boxes`` не подмешивает в поиск соседей
+    ничего, кроме собственной строки. Здесь сосед, реально стоявший на
+    границе в ``pre_line_boxes``/до печати, в ``post_chars`` уже стёрт
+    (апостериорная страница) — граница обязана уйти дальше, а не
+    остановиться там, где сосед стоял до редактирования. Старый код (проход
+    один раз, до ``apply_redactions``) в точности этот сосед и видел бы —
+    прямое воспроизведение регресса, который чинит М6-1 (сдвиг хвоста
+    кернингового рана после ``apply_redactions``, план TASKS.md М6)."""
+    # До редактирования: "W" (сущность) следом "X" (сосед, который на
+    # настоящей странице к моменту вставки подписи уже будет стёрт другой
+    # заменой того же прогона) следом "Y" (настоящий, непустой сосед).
+    text = "WXY"
+    pre_boxes = (
+        pymupdf.Rect(0.0, 0.0, 10.0, 10.0),
+        pymupdf.Rect(10.0, 0.0, 20.0, 10.0),
+        pymupdf.Rect(20.0, 0.0, 30.0, 10.0),
+    )
+    pre_chars = PageChars(text=text, boxes=pre_boxes, line_ids=(0, 0, 0))
+    pre_line_boxes = _line_boxes(pre_chars)
+
+    # После редактирования "X" стёрт (apply_redactions вычистил его —
+    # символа для него в page_chars больше нет вовсе), "Y" остался на месте.
+    post_text = "W Y"
+    post_boxes = (
+        pymupdf.Rect(0.0, 0.0, 10.0, 10.0),
+        pymupdf.Rect(10.0, 0.0, 20.0, 10.0),  # пробел там, где было "X"
+        pymupdf.Rect(20.0, 0.0, 30.0, 10.0),
+    )
+    post_chars = PageChars(text=post_text, boxes=post_boxes, line_ids=(0, 0, 0))
+    post_line_boxes = _line_boxes(post_chars)
+
+    trimmed_rects = [(0, pymupdf.Rect(0.0, 0.0, 10.0, 10.0))]
+
+    old_style_candidates = _label_box_candidates(
+        pre_chars, pre_line_boxes, pre_line_boxes, trimmed_rects
+    )
+    new_style_candidates = _label_box_candidates(
+        post_chars, pre_line_boxes, post_line_boxes, trimmed_rects
+    )
+
+    _erase_rect, old_label_box = old_style_candidates[0]
+    _erase_rect, new_label_box = new_style_candidates[0]
+    assert old_label_box.x1 == pytest.approx(10.0), (
+        "контроль: поиск по до-редакционным боксам обязан остановиться "
+        f"на «X» (x=10.0), получено {old_label_box.x1:.2f}"
+    )
+    assert new_label_box.x1 == pytest.approx(20.0), (
+        "план М6-1: поиск по пост-редакционным боксам обязан пройти сквозь "
+        f"уже стёртое место «X» до настоящего соседа «Y» (x=20.0), "
+        f"получено {new_label_box.x1:.2f}"
+    )
 
 
 def _entity_for_bare_text_m5(document: Document, containing: str, text: str) -> Entity:

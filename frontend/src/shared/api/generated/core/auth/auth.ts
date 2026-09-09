@@ -78,7 +78,7 @@ export const getLoginApiAuthLoginPostUrl = () => {
 
 
 
-  return `/api/auth/login`
+  return `/auth/login`
 }
 
 /**
@@ -152,6 +152,104 @@ export const useLoginApiAuthLoginPost = <TError = ErrorType<HTTPValidationError>
       > => {
       return useMutation(getLoginApiAuthLoginPostMutationOptions(options), queryClient);
     }
+    export type refreshApiAuthRefreshPostResponse200 = {
+  data: TokenResponse
+  status: 200
+}
+
+export type refreshApiAuthRefreshPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type refreshApiAuthRefreshPostResponseSuccess = (refreshApiAuthRefreshPostResponse200) & {
+  headers: Headers;
+};
+export type refreshApiAuthRefreshPostResponseError = (refreshApiAuthRefreshPostResponse422) & {
+  headers: Headers;
+};
+
+export type refreshApiAuthRefreshPostResponse = (refreshApiAuthRefreshPostResponseSuccess | refreshApiAuthRefreshPostResponseError)
+
+export const getRefreshApiAuthRefreshPostUrl = () => {
+
+
+
+
+  return `/auth/refresh`
+}
+
+/**
+ * @summary Refresh
+ */
+export const refreshApiAuthRefreshPost = async (refreshRequestNull?: RefreshRequest | null, options?: Parameters<typeof authMutator>[1]): Promise<refreshApiAuthRefreshPostResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return authMutator<refreshApiAuthRefreshPostResponse>(getRefreshApiAuthRefreshPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(refreshRequestNull)
+  }
+);}
+
+
+
+
+
+export const getRefreshApiAuthRefreshPostMutationKey = () => ['refreshApiAuthRefreshPost'] as const;
+
+export const getRefreshApiAuthRefreshPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>, TError,RefreshApiAuthRefreshPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>, TError,RefreshApiAuthRefreshPostMutationVariables, TContext> => {
+
+const mutationKey = getRefreshApiAuthRefreshPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>, RefreshApiAuthRefreshPostMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  refreshApiAuthRefreshPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RefreshApiAuthRefreshPostMutationResult = NonNullable<Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>>
+    export type RefreshApiAuthRefreshPostMutationBody = RefreshRequest | null | undefined
+    export type RefreshApiAuthRefreshPostMutationError = ErrorType<HTTPValidationError>
+    export type RefreshApiAuthRefreshPostMutationVariables = {data?: RefreshRequest | null}
+
+    /**
+ * @summary Refresh
+ */
+export const useRefreshApiAuthRefreshPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>, TError,RefreshApiAuthRefreshPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>,
+        TError,
+        RefreshApiAuthRefreshPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRefreshApiAuthRefreshPostMutationOptions(options), queryClient);
+    }
     export type logoutApiAuthLogoutPostResponse204 = {
   data: void
   status: 204
@@ -176,7 +274,7 @@ export const getLogoutApiAuthLogoutPostUrl = () => {
 
 
 
-  return `/api/auth/logout`
+  return `/auth/logout`
 }
 
 /**
@@ -267,7 +365,7 @@ export const getMeApiAuthMeGetUrl = () => {
 
 
 
-  return `/api/auth/me`
+  return `/auth/me`
 }
 
 /**
@@ -290,7 +388,7 @@ export const meApiAuthMeGet = async ( options?: Parameters<typeof authMutator>[1
 
 export const getMeApiAuthMeGetQueryKey = () => {
     return [
-    `/api/auth/me`
+    `/auth/me`
     ] as const;
     }
 
@@ -362,101 +460,3 @@ export function useMeApiAuthMeGet<TData = Awaited<ReturnType<typeof meApiAuthMeG
 
 
 
-export type refreshApiAuthRefreshPostResponse200 = {
-  data: TokenResponse
-  status: 200
-}
-
-export type refreshApiAuthRefreshPostResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type refreshApiAuthRefreshPostResponseSuccess = (refreshApiAuthRefreshPostResponse200) & {
-  headers: Headers;
-};
-export type refreshApiAuthRefreshPostResponseError = (refreshApiAuthRefreshPostResponse422) & {
-  headers: Headers;
-};
-
-export type refreshApiAuthRefreshPostResponse = (refreshApiAuthRefreshPostResponseSuccess | refreshApiAuthRefreshPostResponseError)
-
-export const getRefreshApiAuthRefreshPostUrl = () => {
-
-
-
-
-  return `/api/auth/refresh`
-}
-
-/**
- * @summary Refresh
- */
-export const refreshApiAuthRefreshPost = async (refreshRequestNull?: RefreshRequest | null, options?: Parameters<typeof authMutator>[1]): Promise<refreshApiAuthRefreshPostResponse> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return authMutator<refreshApiAuthRefreshPostResponse>(getRefreshApiAuthRefreshPostUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(refreshRequestNull)
-  }
-);}
-
-
-
-
-
-export const getRefreshApiAuthRefreshPostMutationKey = () => ['refreshApiAuthRefreshPost'] as const;
-
-export const getRefreshApiAuthRefreshPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>, TError,RefreshApiAuthRefreshPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
-): UseMutationOptions<Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>, TError,RefreshApiAuthRefreshPostMutationVariables, TContext> => {
-
-const mutationKey = getRefreshApiAuthRefreshPostMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>, RefreshApiAuthRefreshPostMutationVariables> = (props) => {
-          const {data} = props ?? {};
-
-          return  refreshApiAuthRefreshPost(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type RefreshApiAuthRefreshPostMutationResult = NonNullable<Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>>
-    export type RefreshApiAuthRefreshPostMutationBody = RefreshRequest | null | undefined
-    export type RefreshApiAuthRefreshPostMutationError = ErrorType<HTTPValidationError>
-    export type RefreshApiAuthRefreshPostMutationVariables = {data?: RefreshRequest | null}
-
-    /**
- * @summary Refresh
- */
-export const useRefreshApiAuthRefreshPost = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>, TError,RefreshApiAuthRefreshPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof refreshApiAuthRefreshPost>>,
-        TError,
-        RefreshApiAuthRefreshPostMutationVariables,
-        TContext
-      > => {
-      return useMutation(getRefreshApiAuthRefreshPostMutationOptions(options), queryClient);
-    }

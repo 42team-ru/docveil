@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { getAccessToken, setAccessToken } from "../api/auth-token";
-import { clientApi } from "../api/mutators/authMutator";
+import { clientApi, REFRESH_ENDPOINT } from "../api/mutators/authMutator";
 
 type SessionState = "checking" | "ready" | "anonymous";
 
@@ -36,7 +36,7 @@ export function useAuthSession(): SessionState {
 
     let cancelled = false;
     clientApi
-      .post<{ access_token?: string }>("/api/auth/refresh")
+      .post<{ access_token?: string }>(REFRESH_ENDPOINT)
       .then((response) => {
         if (cancelled) return;
         const token = response.data?.access_token;

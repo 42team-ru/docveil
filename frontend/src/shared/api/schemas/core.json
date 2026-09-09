@@ -1,1154 +1,16 @@
 {
-  "components": {
-    "schemas": {
-      "AnswerRequest": {
-        "description": "Тело `POST /custom_types/compile/{thread_id}/answers` — ответы на `questions`.\n\nКонверт с версией, а не голый словарь — по той же причине, что и у\nосновного графа (`masker.run.resume_run`): пустой `answers` не должен\nмолча трактоваться как «нет значения» на стороне LangGraph.",
-        "properties": {
-          "answers": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Answers",
-            "type": "object"
-          },
-          "schema_version": {
-            "const": 1,
-            "default": 1,
-            "title": "Schema Version",
-            "type": "integer"
-          }
-        },
-        "title": "AnswerRequest",
-        "type": "object"
-      },
-      "AnswersRequest": {
-        "description": "Конверт ответов человека — ровно то, что ждёт `masker.graph.questions.parse_answers`.",
-        "properties": {
-          "answers": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Answers",
-            "type": "object"
-          },
-          "schema_version": {
-            "const": 1,
-            "default": 1,
-            "title": "Schema Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "answers"
-        ],
-        "title": "AnswersRequest",
-        "type": "object"
-      },
-      "ArtifactOut": {
-        "description": "Артефакт рендера: `preview`, `masked_highlight`, `masked_black`.",
-        "properties": {
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "redacting": {
-            "title": "Redacting",
-            "type": "boolean"
-          },
-          "role": {
-            "title": "Role",
-            "type": "string"
-          },
-          "url": {
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "role",
-          "name",
-          "redacting",
-          "url"
-        ],
-        "title": "ArtifactOut",
-        "type": "object"
-      },
-      "Body_upload_api_files_upload_post": {
-        "properties": {
-          "file": {
-            "contentMediaType": "application/octet-stream",
-            "title": "File",
-            "type": "string"
-          }
-        },
-        "required": [
-          "file"
-        ],
-        "title": "Body_upload_api_files_upload_post",
-        "type": "object"
-      },
-      "CompileQuestionOut": {
-        "description": "Один вопрос уточнения от компилятора — конверт `ask_types` (T1.13, шаг 11).",
-        "properties": {
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "options": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Options",
-            "type": "array"
-          },
-          "target": {
-            "title": "Target",
-            "type": "string"
-          },
-          "text": {
-            "title": "Text",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "text",
-          "target"
-        ],
-        "title": "CompileQuestionOut",
-        "type": "object"
-      },
-      "CompileRequest": {
-        "description": "Тело `POST /custom_types/compile`.\n\n``object_name`` — файл в MinIO (тот же идентификатор, что возвращает\n`POST /files/upload`, `api.schemas.file.FileUploadResponse`): live\npreview (шаг 10) исполняет executor'ы по настоящим сегментам этого\nдокумента, а не по синтетике. ``descriptions`` — по одному пользовательскому\nтипу словами на элемент списка; частичный успех (design notes, вопрос 3)\nразбирает их независимо друг от друга.",
-        "properties": {
-          "descriptions": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Descriptions",
-            "type": "array"
-          },
-          "object_name": {
-            "minLength": 1,
-            "title": "Object Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "object_name",
-          "descriptions"
-        ],
-        "title": "CompileRequest",
-        "type": "object"
-      },
-      "CompileResponse": {
-        "description": "Ответ `POST /custom_types/compile` и `.../compile/{thread_id}/answers`.",
-        "properties": {
-          "compiled": {
-            "items": {
-              "$ref": "#/components/schemas/CompiledTypeOut"
-            },
-            "title": "Compiled",
-            "type": "array"
-          },
-          "engine_capabilities": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Engine Capabilities",
-            "type": "array"
-          },
-          "failed": {
-            "items": {
-              "$ref": "#/components/schemas/FailedTypeOut"
-            },
-            "title": "Failed",
-            "type": "array"
-          },
-          "questions": {
-            "items": {
-              "$ref": "#/components/schemas/CompileQuestionOut"
-            },
-            "title": "Questions",
-            "type": "array"
-          },
-          "status": {
-            "enum": [
-              "done",
-              "waiting"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "thread_id": {
-            "title": "Thread Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "thread_id",
-          "status"
-        ],
-        "title": "CompileResponse",
-        "type": "object"
-      },
-      "CompiledTypeOut": {
-        "description": "Один успешно обработанный элемент `CompileRequest.descriptions`.\n\n``outcome == \"compile\"``: заполнен ``spec`` — готовая спека. ``outcome\n== \"use_builtin\"``: спеки нет (тип уже покрыт встроенным детектором,\nкомпилировать нечего) — заполнены ``type_id`` и, если пользователь\nпопросил другую метку маркера, ``marker_override`` (design notes T1.13,\nраздел 2.6). Ровно один из ``spec``/``type_id`` осмыслен для данного\n``outcome`` — второй остаётся ``None``.",
-        "properties": {
-          "marker_override": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Marker Override"
-          },
-          "outcome": {
-            "enum": [
-              "compile",
-              "use_builtin"
-            ],
-            "title": "Outcome",
-            "type": "string"
-          },
-          "preview": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PreviewOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "spec": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CustomTypeSpecIn"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "type_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Type Id"
-          }
-        },
-        "required": [
-          "outcome"
-        ],
-        "title": "CompiledTypeOut",
-        "type": "object"
-      },
-      "CustomTypeSpecIn": {
-        "description": "Пользовательский тип из тела REST-запроса — вход `load_type_config`.\n\nПолей меньше, чем проверяет `load_type_config` (например, формат\n`id` и плейсхолдер в `marker` здесь не проверяются намеренно —\n«тонкий фронт», раздел докстринга модуля).",
-        "properties": {
-          "critical": {
-            "default": false,
-            "title": "Critical",
-            "type": "boolean"
-          },
-          "detect": {
-            "discriminator": {
-              "mapping": {
-                "gliner_label": "#/components/schemas/GlinerLabelDetectIn",
-                "gliner_structure": "#/components/schemas/GlinerStructureDetectIn",
-                "literals": "#/components/schemas/LiteralsDetectIn",
-                "regex": "#/components/schemas/RegexDetectIn"
-              },
-              "propertyName": "kind"
-            },
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/LiteralsDetectIn"
-              },
-              {
-                "$ref": "#/components/schemas/RegexDetectIn"
-              },
-              {
-                "$ref": "#/components/schemas/GlinerLabelDetectIn"
-              },
-              {
-                "$ref": "#/components/schemas/GlinerStructureDetectIn"
-              }
-            ],
-            "title": "Detect"
-          },
-          "id": {
-            "minLength": 1,
-            "title": "Id",
-            "type": "string"
-          },
-          "marker": {
-            "minLength": 1,
-            "title": "Marker",
-            "type": "string"
-          },
-          "schema_version": {
-            "const": 1,
-            "default": 1,
-            "title": "Schema Version",
-            "type": "integer"
-          },
-          "title": {
-            "minLength": 1,
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "marker",
-          "detect"
-        ],
-        "title": "CustomTypeSpecIn",
-        "type": "object"
-      },
-      "DeviceType": {
-        "description": "Тип клиента, выполняющего вход.\n\nWEB получает refresh-токен только в httponly-cookie; остальные — в теле ответа,\nчтобы сами отвечали за его хранение (secure storage на мобильном/десктопе).",
-        "enum": [
-          "web",
-          "mobile",
-          "desktop"
-        ],
-        "title": "DeviceType",
-        "type": "string"
-      },
-      "FailedTypeOut": {
-        "description": "Элемент `CompileRequest.descriptions`, который компилятор не осилил\n(после ретрая на невалидном JSON/регулярке или после `MAX_ASK_ROUNDS`).",
-        "properties": {
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "index": {
-            "title": "Index",
-            "type": "integer"
-          },
-          "reason": {
-            "title": "Reason",
-            "type": "string"
-          }
-        },
-        "required": [
-          "index",
-          "description",
-          "reason"
-        ],
-        "title": "FailedTypeOut",
-        "type": "object"
-      },
-      "FileUploadResponse": {
-        "properties": {
-          "bucket": {
-            "title": "Bucket",
-            "type": "string"
-          },
-          "content_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Content Type"
-          },
-          "object_name": {
-            "title": "Object Name",
-            "type": "string"
-          },
-          "size": {
-            "title": "Size",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "bucket",
-          "object_name",
-          "size"
-        ],
-        "title": "FileUploadResponse",
-        "type": "object"
-      },
-      "GlinerLabelDetectIn": {
-        "description": "Именованная семантическая категория (executor ``gliner_label``, T1.13.1).",
-        "properties": {
-          "description": {
-            "minLength": 1,
-            "title": "Description",
-            "type": "string"
-          },
-          "kind": {
-            "const": "gliner_label",
-            "title": "Kind",
-            "type": "string"
-          },
-          "label": {
-            "minLength": 1,
-            "title": "Label",
-            "type": "string"
-          },
-          "threshold": {
-            "default": 0.3,
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Threshold",
-            "type": "number"
-          }
-        },
-        "required": [
-          "kind",
-          "label",
-          "description"
-        ],
-        "title": "GlinerLabelDetectIn",
-        "type": "object"
-      },
-      "GlinerStructureDetectIn": {
-        "description": "Роль поверх структуры документа (executor ``gliner_structure``, T1.13.1).",
-        "properties": {
-          "description": {
-            "minLength": 1,
-            "title": "Description",
-            "type": "string"
-          },
-          "field": {
-            "minLength": 1,
-            "title": "Field",
-            "type": "string"
-          },
-          "kind": {
-            "const": "gliner_structure",
-            "title": "Kind",
-            "type": "string"
-          },
-          "label": {
-            "minLength": 1,
-            "title": "Label",
-            "type": "string"
-          },
-          "structure": {
-            "minLength": 1,
-            "title": "Structure",
-            "type": "string"
-          },
-          "threshold": {
-            "default": 0.3,
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Threshold",
-            "type": "number"
-          }
-        },
-        "required": [
-          "kind",
-          "label",
-          "description",
-          "structure",
-          "field"
-        ],
-        "title": "GlinerStructureDetectIn",
-        "type": "object"
-      },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
-        "type": "object"
-      },
-      "LiteralsDetectIn": {
-        "description": "Точный список значений (executor ``literals``, `typeconfig.py`).",
-        "properties": {
-          "ignorecase": {
-            "default": false,
-            "title": "Ignorecase",
-            "type": "boolean"
-          },
-          "kind": {
-            "const": "literals",
-            "title": "Kind",
-            "type": "string"
-          },
-          "match": {
-            "default": "whole_word",
-            "enum": [
-              "whole_word",
-              "substring"
-            ],
-            "title": "Match",
-            "type": "string"
-          },
-          "values": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Values",
-            "type": "array"
-          }
-        },
-        "required": [
-          "kind",
-          "values"
-        ],
-        "title": "LiteralsDetectIn",
-        "type": "object"
-      },
-      "LoginRequest": {
-        "properties": {
-          "device": {
-            "$ref": "#/components/schemas/DeviceType",
-            "default": "web"
-          },
-          "email": {
-            "title": "Email",
-            "type": "string"
-          },
-          "password": {
-            "title": "Password",
-            "type": "string"
-          }
-        },
-        "required": [
-          "email",
-          "password"
-        ],
-        "title": "LoginRequest",
-        "type": "object"
-      },
-      "ManualEntityIn": {
-        "description": "Значение, которое движок пропустил, а оператор нашёл глазами.",
-        "properties": {
-          "text": {
-            "title": "Text",
-            "type": "string"
-          },
-          "type": {
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "text"
-        ],
-        "title": "ManualEntityIn",
-        "type": "object"
-      },
-      "PreviewMatchOut": {
-        "description": "Одно совпадение внутри окна ``PreviewSegmentOut.text``.",
-        "properties": {
-          "end": {
-            "title": "End",
-            "type": "integer"
-          },
-          "start": {
-            "title": "Start",
-            "type": "integer"
-          },
-          "value": {
-            "title": "Value",
-            "type": "string"
-          }
-        },
-        "required": [
-          "start",
-          "end",
-          "value"
-        ],
-        "title": "PreviewMatchOut",
-        "type": "object"
-      },
-      "PreviewOut": {
-        "description": "Итог live preview (T1.13, шаг 10): до трёх сегментов, реально исполненных.",
-        "properties": {
-          "segments": {
-            "items": {
-              "$ref": "#/components/schemas/PreviewSegmentOut"
-            },
-            "title": "Segments",
-            "type": "array"
-          },
-          "total_matches": {
-            "default": 0,
-            "title": "Total Matches",
-            "type": "integer"
-          }
-        },
-        "title": "PreviewOut",
-        "type": "object"
-      },
-      "PreviewSegmentOut": {
-        "description": "Сегмент документа с окном ±120 символов вокруг совпадения (план, шаг 7).\n\nСмещения ``matches`` локальны в этом ``text``, а не в документе целиком\n— фронту не нужно пересчитывать координаты (design notes, вопрос 2).",
-        "properties": {
-          "anchor_label": {
-            "title": "Anchor Label",
-            "type": "string"
-          },
-          "matches": {
-            "items": {
-              "$ref": "#/components/schemas/PreviewMatchOut"
-            },
-            "title": "Matches",
-            "type": "array"
-          },
-          "segment_order": {
-            "title": "Segment Order",
-            "type": "integer"
-          },
-          "text": {
-            "title": "Text",
-            "type": "string"
-          }
-        },
-        "required": [
-          "segment_order",
-          "anchor_label",
-          "text"
-        ],
-        "title": "PreviewSegmentOut",
-        "type": "object"
-      },
-      "RefreshRequest": {
-        "description": "Для не-WEB клиентов: передают refresh-токен явно, а не через cookie.",
-        "properties": {
-          "refresh_token": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Refresh Token"
-          }
-        },
-        "title": "RefreshRequest",
-        "type": "object"
-      },
-      "RegexDetectIn": {
-        "description": "Регулярка, опционально с якорными словами контекста (``regex``/``regex_context``).\n\nИмя ``regex_context`` — только для промпта LLM-компилятора (план,\nраздел «Отвергнутые альтернативы»): на схеме это тот же ``kind=\"regex\"``\nс непустым ``context``.",
-        "properties": {
-          "context": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Context",
-            "type": "array"
-          },
-          "ignorecase": {
-            "default": false,
-            "title": "Ignorecase",
-            "type": "boolean"
-          },
-          "kind": {
-            "const": "regex",
-            "title": "Kind",
-            "type": "string"
-          },
-          "pattern": {
-            "minLength": 1,
-            "title": "Pattern",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "pattern"
-        ],
-        "title": "RegexDetectIn",
-        "type": "object"
-      },
-      "ReviewEdits": {
-        "description": "Правки оператора: решения по ссылкам, смена типа, добавленные значения.",
-        "properties": {
-          "decisions": {
-            "additionalProperties": {
-              "enum": [
-                "mask",
-                "keep"
-              ],
-              "type": "string"
-            },
-            "title": "Decisions",
-            "type": "object"
-          },
-          "manual": {
-            "items": {
-              "$ref": "#/components/schemas/ManualEntityIn"
-            },
-            "title": "Manual",
-            "type": "array"
-          },
-          "type_overrides": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Type Overrides",
-            "type": "object"
-          }
-        },
-        "title": "ReviewEdits",
-        "type": "object"
-      },
-      "ReviewRequest": {
-        "description": "Конверт правок — то, что ждёт `masker.graph.review.parse_review_edits`.",
-        "properties": {
-          "edits": {
-            "$ref": "#/components/schemas/ReviewEdits"
-          },
-          "schema_version": {
-            "const": 1,
-            "default": 1,
-            "title": "Schema Version",
-            "type": "integer"
-          }
-        },
-        "title": "ReviewRequest",
-        "type": "object"
-      },
-      "Role": {
-        "enum": [
-          "admin",
-          "user"
-        ],
-        "title": "Role",
-        "type": "string"
-      },
-      "RunCreateRequest": {
-        "description": "Запуск прогона по уже загруженному в MinIO файлу (`/api/files/upload`).",
-        "properties": {
-          "custom_types": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Custom Types",
-            "type": "array"
-          },
-          "mask_style": {
-            "default": "marker",
-            "enum": [
-              "marker",
-              "blackbox",
-              "both"
-            ],
-            "title": "Mask Style",
-            "type": "string"
-          },
-          "object_name": {
-            "title": "Object Name",
-            "type": "string"
-          },
-          "profile": {
-            "default": true,
-            "title": "Profile",
-            "type": "boolean"
-          },
-          "review": {
-            "default": true,
-            "title": "Review",
-            "type": "boolean"
-          },
-          "rules_only": {
-            "default": false,
-            "title": "Rules Only",
-            "type": "boolean"
-          },
-          "types": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Types"
-          },
-          "unmask_critical": {
-            "default": false,
-            "title": "Unmask Critical",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "object_name"
-        ],
-        "title": "RunCreateRequest",
-        "type": "object"
-      },
-      "RunDocument": {
-        "description": "Документ прогона — то, что нужно вьюеру и журналу.",
-        "properties": {
-          "format": {
-            "title": "Format",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "format"
-        ],
-        "title": "RunDocument",
-        "type": "object"
-      },
-      "RunListItem": {
-        "description": "Строка журнала обработок (`/history`).",
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "document": {
-            "$ref": "#/components/schemas/RunDocument"
-          },
-          "finished_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Finished At"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "queued",
-              "running",
-              "awaiting_answers",
-              "awaiting_review",
-              "done",
-              "failed",
-              "leaked"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "status",
-          "document",
-          "created_at"
-        ],
-        "title": "RunListItem",
-        "type": "object"
-      },
-      "RunListResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/RunListItem"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "items",
-          "total"
-        ],
-        "title": "RunListResponse",
-        "type": "object"
-      },
-      "RunResponse": {
-        "description": "Состояние одного прогона.",
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "document": {
-            "$ref": "#/components/schemas/RunDocument"
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error"
-          },
-          "finished_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Finished At"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "node_hint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Node Hint"
-          },
-          "status": {
-            "enum": [
-              "queued",
-              "running",
-              "awaiting_answers",
-              "awaiting_review",
-              "done",
-              "failed",
-              "leaked"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "thread_id": {
-            "title": "Thread Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "thread_id",
-          "status",
-          "document",
-          "created_at"
-        ],
-        "title": "RunResponse",
-        "type": "object"
-      },
-      "TokenResponse": {
-        "properties": {
-          "access_token": {
-            "title": "Access Token",
-            "type": "string"
-          },
-          "refresh_token": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Refresh Token"
-          },
-          "token_type": {
-            "default": "bearer",
-            "title": "Token Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "access_token"
-        ],
-        "title": "TokenResponse",
-        "type": "object"
-      },
-      "UserCreate": {
-        "description": "Тело запроса создания пользователя администратором.",
-        "properties": {
-          "email": {
-            "title": "Email",
-            "type": "string"
-          },
-          "full_name": {
-            "title": "Full Name",
-            "type": "string"
-          },
-          "password": {
-            "title": "Password",
-            "type": "string"
-          },
-          "roles": {
-            "default": [
-              "user"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/Role"
-            },
-            "title": "Roles",
-            "type": "array"
-          }
-        },
-        "required": [
-          "email",
-          "password",
-          "full_name"
-        ],
-        "title": "UserCreate",
-        "type": "object"
-      },
-      "UserPublic": {
-        "description": "Публичное представление пользователя — без password_hash.",
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "email": {
-            "title": "Email",
-            "type": "string"
-          },
-          "full_name": {
-            "title": "Full Name",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "is_active": {
-            "title": "Is Active",
-            "type": "boolean"
-          },
-          "last_login_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Login At"
-          },
-          "roles": {
-            "items": {
-              "$ref": "#/components/schemas/Role"
-            },
-            "title": "Roles",
-            "type": "array"
-          }
-        },
-        "required": [
-          "id",
-          "email",
-          "full_name",
-          "roles",
-          "is_active",
-          "created_at"
-        ],
-        "title": "UserPublic",
-        "type": "object"
-      },
-      "ValidationError": {
-        "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError",
-        "type": "object"
-      }
-    },
-    "securitySchemes": {
-      "HTTPBearer": {
-        "scheme": "bearer",
-        "type": "http"
-      }
-    }
-  },
+  "openapi": "3.1.0",
   "info": {
     "title": "Triema Masker API",
     "version": "0.1.0"
   },
-  "openapi": "3.1.0",
   "paths": {
-    "/api/auth/login": {
+    "/auth/login": {
       "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
         "operationId": "login_api_auth_login_post",
         "requestBody": {
           "content": {
@@ -1162,39 +24,105 @@
         },
         "responses": {
           "200": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TokenResponse"
                 }
               }
-            },
-            "description": "Successful Response"
+            }
           },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
-        },
-        "summary": "Login",
-        "tags": [
-          "auth"
-        ]
+        }
       }
     },
-    "/api/auth/logout": {
+    "/auth/refresh": {
       "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Refresh",
+        "operationId": "refresh_api_auth_refresh_post",
+        "parameters": [
+          {
+            "name": "refresh_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Refresh Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout",
         "operationId": "logout_api_auth_logout_post",
         "parameters": [
           {
-            "in": "cookie",
             "name": "refresh_token",
+            "in": "cookie",
             "required": false,
             "schema": {
               "anyOf": [
@@ -1231,116 +159,170 @@
             "description": "Successful Response"
           },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
-        },
-        "summary": "Logout",
-        "tags": [
-          "auth"
-        ]
+        }
       }
     },
-    "/api/auth/me": {
+    "/auth/me": {
       "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Me",
         "operationId": "me_api_auth_me_get",
         "responses": {
           "200": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UserPublic"
                 }
               }
-            },
-            "description": "Successful Response"
+            }
           }
         },
         "security": [
           {
             "HTTPBearer": []
           }
-        ],
-        "summary": "Me",
-        "tags": [
-          "auth"
         ]
       }
     },
-    "/api/auth/refresh": {
-      "post": {
-        "operationId": "refresh_api_auth_refresh_post",
-        "parameters": [
-          {
-            "in": "cookie",
-            "name": "refresh_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Refresh Token"
-            }
-          }
+    "/users": {
+      "get": {
+        "tags": [
+          "users"
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/RefreshRequest"
+        "summary": "List Users Endpoint",
+        "operationId": "list_users_endpoint_api_users_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserPublic"
                   },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Payload"
+                  "type": "array",
+                  "title": "Response List Users Endpoint Api Users Get"
+                }
               }
             }
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Create User Endpoint",
+        "operationId": "create_user_endpoint_api_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
-          "200": {
+          "201": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenResponse"
+                  "$ref": "#/components/schemas/UserPublic"
                 }
               }
-            },
-            "description": "Successful Response"
+            }
           },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
         },
-        "summary": "Refresh",
-        "tags": [
-          "auth"
+        "security": [
+          {
+            "HTTPBearer": []
+          }
         ]
       }
     },
-    "/api/custom_types/compile": {
+    "/files/upload": {
       "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Upload",
+        "operationId": "upload_api_files_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_api_files_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/custom_types/compile": {
+      "post": {
+        "tags": [
+          "custom_types"
+        ],
+        "summary": "Compile Types",
         "description": "Скомпилировать пользовательские описания типов по документу.",
         "operationId": "compile_types_api_custom_types_compile_post",
         "requestBody": {
@@ -1355,149 +337,153 @@
         },
         "responses": {
           "200": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CompileResponse"
                 }
               }
-            },
-            "description": "Successful Response"
+            }
           },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
         },
         "security": [
           {
             "HTTPBearer": []
           }
-        ],
-        "summary": "Compile Types",
-        "tags": [
-          "custom_types"
         ]
       }
     },
-    "/api/custom_types/compile/{thread_id}/answers": {
+    "/custom_types/compile/{thread_id}/answers": {
       "post": {
+        "tags": [
+          "custom_types"
+        ],
+        "summary": "Answer Questions",
         "description": "Прислать ответы на вопросы приостановленной компиляции.\n\nНеизвестный или уже завершённый `thread_id` — 404: отвечать сервису\nздесь нечего, а не молча создавать состояние, которого не было.",
         "operationId": "answer_questions_api_custom_types_compile__thread_id__answers_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
-            "in": "path",
             "name": "thread_id",
+            "in": "path",
             "required": true,
             "schema": {
-              "title": "Thread Id",
-              "type": "string"
+              "type": "string",
+              "title": "Thread Id"
             }
           }
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AnswerRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CompileResponse"
                 }
               }
-            },
-            "description": "Successful Response"
+            }
           },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
-        },
+        }
+      }
+    },
+    "/runs": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Create Run",
+        "description": "Запустить прогон по загруженному файлу; граф крутится фоном.",
+        "operationId": "create_run_api_runs_post",
         "security": [
           {
             "HTTPBearer": []
           }
         ],
-        "summary": "Answer Questions",
-        "tags": [
-          "custom_types"
-        ]
-      }
-    },
-    "/api/files/upload": {
-      "post": {
-        "operationId": "upload_api_files_upload_post",
         "requestBody": {
+          "required": true,
           "content": {
-            "multipart/form-data": {
+            "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_api_files_upload_post"
+                "$ref": "#/components/schemas/RunCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
               }
             }
           },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FileUploadResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
-        },
+        }
+      },
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "List Runs",
+        "description": "Журнал обработок текущего пользователя.",
+        "operationId": "list_runs_api_runs_get",
         "security": [
           {
             "HTTPBearer": []
           }
         ],
-        "summary": "Upload",
-        "tags": [
-          "files"
-        ]
-      }
-    },
-    "/api/runs": {
-      "get": {
-        "description": "Журнал обработок текущего пользователя.",
-        "operationId": "list_runs_api_runs_get",
         "parameters": [
           {
-            "in": "query",
             "name": "query",
+            "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
@@ -1512,8 +498,8 @@
             }
           },
           {
-            "in": "query",
             "name": "status",
+            "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
@@ -1537,607 +523,1626 @@
             }
           },
           {
-            "in": "query",
             "name": "limit",
+            "in": "query",
             "required": false,
             "schema": {
-              "default": 50,
+              "type": "integer",
               "maximum": 200,
               "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
+              "default": 50,
+              "title": "Limit"
             }
           },
           {
-            "in": "query",
             "name": "offset",
+            "in": "query",
             "required": false,
             "schema": {
-              "default": 0,
+              "type": "integer",
               "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "default": 0,
+              "title": "Offset"
             }
           }
         ],
         "responses": {
           "200": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RunListResponse"
                 }
               }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "List Runs",
-        "tags": [
-          "runs"
-        ]
-      },
-      "post": {
-        "description": "Запустить прогон по загруженному файлу; граф крутится фоном.",
-        "operationId": "create_run_api_runs_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RunCreateRequest"
-              }
             }
           },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
-        },
+        }
+      }
+    },
+    "/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Run",
+        "description": "Состояние прогона — то, что опрашивает фронт.",
+        "operationId": "get_run_api_runs__run_id__get",
         "security": [
           {
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Run",
-        "tags": [
-          "runs"
-        ]
-      }
-    },
-    "/api/runs/{run_id}": {
-      "get": {
-        "description": "Состояние прогона — то, что опрашивает фронт.",
-        "operationId": "get_run_api_runs__run_id__get",
         "parameters": [
           {
-            "in": "path",
             "name": "run_id",
+            "in": "path",
             "required": true,
             "schema": {
+              "type": "string",
               "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
+              "title": "Run Id"
             }
           }
         ],
         "responses": {
           "200": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RunResponse"
                 }
               }
-            },
-            "description": "Successful Response"
+            }
           },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
-        },
+        }
+      }
+    },
+    "/runs/{run_id}/questions": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Questions",
+        "description": "Конверт вопросов приостановленного прогона (`ask_human`).\n\n404 — прогон ещё не дошёл до паузы или уже завершён: вопросов нет, и\nвыдумывать пустой конверт вместо честного «нечего спрашивать» нельзя.",
+        "operationId": "get_questions_api_runs__run_id__questions_get",
         "security": [
           {
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Run",
-        "tags": [
-          "runs"
-        ]
-      }
-    },
-    "/api/runs/{run_id}/answers": {
-      "post": {
-        "description": "Прислать ответы человека и продолжить прогон фоном.",
-        "operationId": "post_answers_api_runs__run_id__answers_post",
         "parameters": [
           {
-            "in": "path",
             "name": "run_id",
+            "in": "path",
             "required": true,
             "schema": {
+              "type": "string",
               "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Questions Api Runs  Run Id  Questions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/answers": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Post Answers",
+        "description": "Прислать ответы человека и продолжить прогон фоном.",
+        "operationId": "post_answers_api_runs__run_id__answers_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
             }
           }
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AnswersRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "202": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RunResponse"
                 }
               }
-            },
-            "description": "Successful Response"
+            }
           },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Post Answers",
-        "tags": [
-          "runs"
-        ]
+        }
       }
     },
-    "/api/runs/{run_id}/artifacts": {
-      "get": {
-        "description": "Список файлов рендера со ссылками на скачивание.",
-        "operationId": "get_artifacts_api_runs__run_id__artifacts_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ArtifactOut"
-                  },
-                  "title": "Response Get Artifacts Api Runs  Run Id  Artifacts Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Artifacts",
-        "tags": [
-          "runs"
-        ]
-      }
-    },
-    "/api/runs/{run_id}/artifacts/{role}": {
-      "get": {
-        "description": "Отдать файл рендера — им фронт кормит вьюер и кнопку «Скачать».",
-        "operationId": "download_artifact_api_runs__run_id__artifacts__role__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "role",
-            "required": true,
-            "schema": {
-              "title": "Role",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Download Artifact",
-        "tags": [
-          "runs"
-        ]
-      }
-    },
-    "/api/runs/{run_id}/questions": {
-      "get": {
-        "description": "Конверт вопросов приостановленного прогона (`ask_human`).\n\n404 — прогон ещё не дошёл до паузы или уже завершён: вопросов нет, и\nвыдумывать пустой конверт вместо честного «нечего спрашивать» нельзя.",
-        "operationId": "get_questions_api_runs__run_id__questions_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Questions Api Runs  Run Id  Questions Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Questions",
-        "tags": [
-          "runs"
-        ]
-      }
-    },
-    "/api/runs/{run_id}/report": {
-      "get": {
-        "description": "`report.json` прогона — ровно то, что собрал узел `report`.",
-        "operationId": "get_report_api_runs__run_id__report_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Report Api Runs  Run Id  Report Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Report",
-        "tags": [
-          "runs"
-        ]
-      }
-    },
-    "/api/runs/{run_id}/review": {
-      "get": {
-        "description": "Конверт паузы раунда правок: отчёт, который правит оператор.",
-        "operationId": "get_review_payload_api_runs__run_id__review_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Review Payload Api Runs  Run Id  Review Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Review Payload",
-        "tags": [
-          "runs"
-        ]
-      },
+    "/runs/{run_id}/review": {
       "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Post Review",
         "description": "Утвердить документ с правками оператора.\n\nПравки не применяются здесь: они уходят вторым прерыванием в граф, и\nдокумент пересобирается штатным путём `plan → … → report`. Поэтому маркеры\nостаются согласованными, критичные типы — под защитой, а результат заново\nпроверяется на утечки.",
         "operationId": "post_review_api_runs__run_id__review_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
-            "in": "path",
             "name": "run_id",
+            "in": "path",
             "required": true,
             "schema": {
+              "type": "string",
               "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
+              "title": "Run Id"
             }
           }
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReviewRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "202": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RunResponse"
                 }
               }
-            },
-            "description": "Successful Response"
+            }
           },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
-        },
+        }
+      },
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Review Payload",
+        "description": "Конверт паузы раунда правок: отчёт, который правит оператор.",
+        "operationId": "get_review_payload_api_runs__run_id__review_get",
         "security": [
           {
             "HTTPBearer": []
           }
         ],
-        "summary": "Post Review",
-        "tags": [
-          "runs"
-        ]
-      }
-    },
-    "/api/users": {
-      "get": {
-        "operationId": "list_users_endpoint_api_users_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/UserPublic"
-                  },
-                  "title": "Response List Users Endpoint Api Users Get",
-                  "type": "array"
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Review Payload Api Runs  Run Id  Review Get"
                 }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "List Users Endpoint",
-        "tags": [
-          "users"
-        ]
-      },
-      "post": {
-        "operationId": "create_user_endpoint_api_users_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserCreate"
               }
             }
           },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserPublic"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
           "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            },
-            "description": "Validation Error"
+            }
           }
-        },
+        }
+      }
+    },
+    "/runs/{run_id}/report": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Report",
+        "description": "`report.json` прогона — ровно то, что собрал узел `report`.",
+        "operationId": "get_report_api_runs__run_id__report_get",
         "security": [
           {
             "HTTPBearer": []
           }
         ],
-        "summary": "Create User Endpoint",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Report Api Runs  Run Id  Report Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/artifacts": {
+      "get": {
         "tags": [
-          "users"
-        ]
+          "runs"
+        ],
+        "summary": "Get Artifacts",
+        "description": "Список файлов рендера со ссылками на скачивание.",
+        "operationId": "get_artifacts_api_runs__run_id__artifacts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactOut"
+                  },
+                  "title": "Response Get Artifacts Api Runs  Run Id  Artifacts Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/artifacts/{role}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Download Artifact",
+        "description": "Отдать файл рендера — им фронт кормит вьюер и кнопку «Скачать».",
+        "operationId": "download_artifact_api_runs__run_id__artifacts__role__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     }
-  }
+  },
+  "components": {
+    "schemas": {
+      "AnswerRequest": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "answers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "title": "AnswerRequest",
+        "description": "Тело `POST /custom_types/compile/{thread_id}/answers` — ответы на `questions`.\n\nКонверт с версией, а не голый словарь — по той же причине, что и у\nосновного графа (`masker.run.resume_run`): пустой `answers` не должен\nмолча трактоваться как «нет значения» на стороне LangGraph."
+      },
+      "AnswersRequest": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "answers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "answers"
+        ],
+        "title": "AnswersRequest",
+        "description": "Конверт ответов человека — ровно то, что ждёт `masker.graph.questions.parse_answers`."
+      },
+      "ArtifactOut": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "redacting": {
+            "type": "boolean",
+            "title": "Redacting"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "name",
+          "redacting",
+          "url"
+        ],
+        "title": "ArtifactOut",
+        "description": "Артефакт рендера: `preview`, `masked_highlight`, `masked_black`."
+      },
+      "Body_upload_api_files_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_api_files_upload_post"
+      },
+      "CompileQuestionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "text",
+          "target"
+        ],
+        "title": "CompileQuestionOut",
+        "description": "Один вопрос уточнения от компилятора — конверт `ask_types` (T1.13, шаг 11)."
+      },
+      "CompileRequest": {
+        "properties": {
+          "object_name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Object Name"
+          },
+          "descriptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Descriptions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_name",
+          "descriptions"
+        ],
+        "title": "CompileRequest",
+        "description": "Тело `POST /custom_types/compile`.\n\n``object_name`` — файл в MinIO (тот же идентификатор, что возвращает\n`POST /files/upload`, `api.schemas.file.FileUploadResponse`): live\npreview (шаг 10) исполняет executor'ы по настоящим сегментам этого\nдокумента, а не по синтетике. ``descriptions`` — по одному пользовательскому\nтипу словами на элемент списка; частичный успех (design notes, вопрос 3)\nразбирает их независимо друг от друга."
+      },
+      "CompileResponse": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "waiting"
+            ],
+            "title": "Status"
+          },
+          "engine_capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Engine Capabilities"
+          },
+          "compiled": {
+            "items": {
+              "$ref": "#/components/schemas/CompiledTypeOut"
+            },
+            "type": "array",
+            "title": "Compiled"
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/FailedTypeOut"
+            },
+            "type": "array",
+            "title": "Failed"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/CompileQuestionOut"
+            },
+            "type": "array",
+            "title": "Questions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "status"
+        ],
+        "title": "CompileResponse",
+        "description": "Ответ `POST /custom_types/compile` и `.../compile/{thread_id}/answers`."
+      },
+      "CompiledTypeOut": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "compile",
+              "use_builtin"
+            ],
+            "title": "Outcome"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomTypeSpecIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type Id"
+          },
+          "marker_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marker Override"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreviewOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "title": "CompiledTypeOut",
+        "description": "Один успешно обработанный элемент `CompileRequest.descriptions`.\n\n``outcome == \"compile\"``: заполнен ``spec`` — готовая спека. ``outcome\n== \"use_builtin\"``: спеки нет (тип уже покрыт встроенным детектором,\nкомпилировать нечего) — заполнены ``type_id`` и, если пользователь\nпопросил другую метку маркера, ``marker_override`` (design notes T1.13,\nраздел 2.6). Ровно один из ``spec``/``type_id`` осмыслен для данного\n``outcome`` — второй остаётся ``None``."
+      },
+      "CustomTypeSpecIn": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Title"
+          },
+          "marker": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Marker"
+          },
+          "critical": {
+            "type": "boolean",
+            "title": "Critical",
+            "default": false
+          },
+          "detect": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LiteralsDetectIn"
+              },
+              {
+                "$ref": "#/components/schemas/RegexDetectIn"
+              },
+              {
+                "$ref": "#/components/schemas/GlinerLabelDetectIn"
+              },
+              {
+                "$ref": "#/components/schemas/GlinerStructureDetectIn"
+              }
+            ],
+            "title": "Detect",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "gliner_label": "#/components/schemas/GlinerLabelDetectIn",
+                "gliner_structure": "#/components/schemas/GlinerStructureDetectIn",
+                "literals": "#/components/schemas/LiteralsDetectIn",
+                "regex": "#/components/schemas/RegexDetectIn"
+              }
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "marker",
+          "detect"
+        ],
+        "title": "CustomTypeSpecIn",
+        "description": "Пользовательский тип из тела REST-запроса — вход `load_type_config`.\n\nПолей меньше, чем проверяет `load_type_config` (например, формат\n`id` и плейсхолдер в `marker` здесь не проверяются намеренно —\n«тонкий фронт», раздел докстринга модуля)."
+      },
+      "DeviceType": {
+        "type": "string",
+        "enum": [
+          "web",
+          "mobile",
+          "desktop"
+        ],
+        "title": "DeviceType",
+        "description": "Тип клиента, выполняющего вход.\n\nWEB получает refresh-токен только в httponly-cookie; остальные — в теле ответа,\nчтобы сами отвечали за его хранение (secure storage на мобильном/десктопе)."
+      },
+      "FailedTypeOut": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "description",
+          "reason"
+        ],
+        "title": "FailedTypeOut",
+        "description": "Элемент `CompileRequest.descriptions`, который компилятор не осилил\n(после ретрая на невалидном JSON/регулярке или после `MAX_ASK_ROUNDS`)."
+      },
+      "FileUploadResponse": {
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "title": "Bucket"
+          },
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "content_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket",
+          "object_name",
+          "size"
+        ],
+        "title": "FileUploadResponse"
+      },
+      "GlinerLabelDetectIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "gliner_label",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Description"
+          },
+          "threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold",
+            "default": 0.3
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "description"
+        ],
+        "title": "GlinerLabelDetectIn",
+        "description": "Именованная семантическая категория (executor ``gliner_label``, T1.13.1)."
+      },
+      "GlinerStructureDetectIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "gliner_structure",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Description"
+          },
+          "structure": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Structure"
+          },
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Field"
+          },
+          "threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold",
+            "default": 0.3
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "description",
+          "structure",
+          "field"
+        ],
+        "title": "GlinerStructureDetectIn",
+        "description": "Роль поверх структуры документа (executor ``gliner_structure``, T1.13.1)."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LiteralsDetectIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "literals",
+            "title": "Kind"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Values"
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "whole_word",
+              "substring"
+            ],
+            "title": "Match",
+            "default": "whole_word"
+          },
+          "ignorecase": {
+            "type": "boolean",
+            "title": "Ignorecase",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "values"
+        ],
+        "title": "LiteralsDetectIn",
+        "description": "Точный список значений (executor ``literals``, `typeconfig.py`)."
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "device": {
+            "$ref": "#/components/schemas/DeviceType",
+            "default": "web"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "ManualEntityIn": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text"
+        ],
+        "title": "ManualEntityIn",
+        "description": "Значение, которое движок пропустил, а оператор нашёл глазами."
+      },
+      "PreviewMatchOut": {
+        "properties": {
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "value"
+        ],
+        "title": "PreviewMatchOut",
+        "description": "Одно совпадение внутри окна ``PreviewSegmentOut.text``."
+      },
+      "PreviewOut": {
+        "properties": {
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewSegmentOut"
+            },
+            "type": "array",
+            "title": "Segments"
+          },
+          "total_matches": {
+            "type": "integer",
+            "title": "Total Matches",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "PreviewOut",
+        "description": "Итог live preview (T1.13, шаг 10): до трёх сегментов, реально исполненных."
+      },
+      "PreviewSegmentOut": {
+        "properties": {
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "anchor_label": {
+            "type": "string",
+            "title": "Anchor Label"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewMatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "segment_order",
+          "anchor_label",
+          "text"
+        ],
+        "title": "PreviewSegmentOut",
+        "description": "Сегмент документа с окном ±120 символов вокруг совпадения (план, шаг 7).\n\nСмещения ``matches`` локальны в этом ``text``, а не в документе целиком\n— фронту не нужно пересчитывать координаты (design notes, вопрос 2)."
+      },
+      "RefreshRequest": {
+        "properties": {
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          }
+        },
+        "type": "object",
+        "title": "RefreshRequest",
+        "description": "Для не-WEB клиентов: передают refresh-токен явно, а не через cookie."
+      },
+      "RegexDetectIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "regex",
+            "title": "Kind"
+          },
+          "pattern": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Pattern"
+          },
+          "context": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Context"
+          },
+          "ignorecase": {
+            "type": "boolean",
+            "title": "Ignorecase",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "pattern"
+        ],
+        "title": "RegexDetectIn",
+        "description": "Регулярка, опционально с якорными словами контекста (``regex``/``regex_context``).\n\nИмя ``regex_context`` — только для промпта LLM-компилятора (план,\nраздел «Отвергнутые альтернативы»): на схеме это тот же ``kind=\"regex\"``\nс непустым ``context``."
+      },
+      "ReviewEdits": {
+        "properties": {
+          "decisions": {
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "mask",
+                "keep"
+              ]
+            },
+            "type": "object",
+            "title": "Decisions"
+          },
+          "type_overrides": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Type Overrides"
+          },
+          "manual": {
+            "items": {
+              "$ref": "#/components/schemas/ManualEntityIn"
+            },
+            "type": "array",
+            "title": "Manual"
+          }
+        },
+        "type": "object",
+        "title": "ReviewEdits",
+        "description": "Правки оператора: решения по ссылкам, смена типа, добавленные значения."
+      },
+      "ReviewRequest": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "edits": {
+            "$ref": "#/components/schemas/ReviewEdits"
+          }
+        },
+        "type": "object",
+        "title": "ReviewRequest",
+        "description": "Конверт правок — то, что ждёт `masker.graph.review.parse_review_edits`."
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "user"
+        ],
+        "title": "Role"
+      },
+      "RunCreateRequest": {
+        "properties": {
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Types"
+          },
+          "mask_style": {
+            "type": "string",
+            "enum": [
+              "marker",
+              "blackbox",
+              "both"
+            ],
+            "title": "Mask Style",
+            "default": "marker"
+          },
+          "rules_only": {
+            "type": "boolean",
+            "title": "Rules Only",
+            "default": false
+          },
+          "profile": {
+            "type": "boolean",
+            "title": "Profile",
+            "default": true
+          },
+          "unmask_critical": {
+            "type": "boolean",
+            "title": "Unmask Critical",
+            "default": false
+          },
+          "review": {
+            "type": "boolean",
+            "title": "Review",
+            "default": true
+          },
+          "custom_types": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Custom Types"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_name"
+        ],
+        "title": "RunCreateRequest",
+        "description": "Запуск прогона по уже загруженному в MinIO файлу (`/api/files/upload`)."
+      },
+      "RunDocument": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "format"
+        ],
+        "title": "RunDocument",
+        "description": "Документ прогона — то, что нужно вьюеру и журналу."
+      },
+      "RunListItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_answers",
+              "awaiting_review",
+              "done",
+              "failed",
+              "leaked"
+            ],
+            "title": "Status"
+          },
+          "document": {
+            "$ref": "#/components/schemas/RunDocument"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "document",
+          "created_at"
+        ],
+        "title": "RunListItem",
+        "description": "Строка журнала обработок (`/history`)."
+      },
+      "RunListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "RunListResponse"
+      },
+      "RunResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_answers",
+              "awaiting_review",
+              "done",
+              "failed",
+              "leaked"
+            ],
+            "title": "Status"
+          },
+          "document": {
+            "$ref": "#/components/schemas/RunDocument"
+          },
+          "node_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Hint"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "thread_id",
+          "status",
+          "document",
+          "created_at"
+        ],
+        "title": "RunResponse",
+        "description": "Состояние одного прогона."
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token"
+        ],
+        "title": "TokenResponse"
+      },
+      "UserCreate": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "type": "array",
+            "title": "Roles",
+            "default": [
+              "user"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password",
+          "full_name"
+        ],
+        "title": "UserCreate",
+        "description": "Тело запроса создания пользователя администратором."
+      },
+      "UserPublic": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "full_name",
+          "roles",
+          "is_active",
+          "created_at"
+        ],
+        "title": "UserPublic",
+        "description": "Публичное представление пользователя — без password_hash."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ]
 }

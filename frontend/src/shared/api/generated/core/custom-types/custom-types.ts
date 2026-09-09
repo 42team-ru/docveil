@@ -53,7 +53,7 @@ export const getCompileTypesApiCustomTypesCompilePostUrl = () => {
 
 
 
-  return `/api/custom_types/compile`
+  return `/custom_types/compile`
 }
 
 /**
@@ -152,7 +152,7 @@ export const getAnswerQuestionsApiCustomTypesCompileThreadIdAnswersPostUrl = (th
 
 
 
-  return `/api/custom_types/compile/${threadId}/answers`
+  return `/custom_types/compile/${threadId}/answers`
 }
 
 /**

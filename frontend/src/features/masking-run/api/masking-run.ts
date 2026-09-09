@@ -262,7 +262,7 @@ export async function downloadArtifact(
   fileName: string,
 ): Promise<void> {
   const response = await clientApiWithAuth.get<Blob>(
-    `/api/runs/${runId}/artifacts/${role}`,
+    `/runs/${runId}/artifacts/${role}`,
     { responseType: "blob" },
   );
 
@@ -295,7 +295,7 @@ export function useArtifactObjectUrl(runId: string | null, role: string, enabled
     let created: string | null = null;
 
     clientApiWithAuth
-      .get<Blob>(`/api/runs/${runId}/artifacts/${role}`, { responseType: "blob" })
+      .get<Blob>(`/runs/${runId}/artifacts/${role}`, { responseType: "blob" })
       .then((response) => {
         if (cancelled) return;
         created = URL.createObjectURL(response.data);

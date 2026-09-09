@@ -14,8 +14,8 @@ export type AnswerRequestAnswers = {[key: string]: string};
  * молча трактоваться как «нет значения» на стороне LangGraph.
  */
 export interface AnswerRequest {
-  answers?: AnswerRequestAnswers;
   schema_version?: 1;
+  answers?: AnswerRequestAnswers;
 }
 
 export type AnswersRequestAnswers = {[key: string]: string};
@@ -24,17 +24,17 @@ export type AnswersRequestAnswers = {[key: string]: string};
  * Конверт ответов человека — ровно то, что ждёт `masker.graph.questions.parse_answers`.
  */
 export interface AnswersRequest {
-  answers: AnswersRequestAnswers;
   schema_version?: 1;
+  answers: AnswersRequestAnswers;
 }
 
 /**
  * Артефакт рендера: `preview`, `masked_highlight`, `masked_black`.
  */
 export interface ArtifactOut {
+  role: string;
   name: string;
   redacting: boolean;
-  role: string;
   url: string;
 }
 
@@ -47,9 +47,9 @@ export interface BodyUploadApiFilesUploadPost {
  */
 export interface CompileQuestionOut {
   id: string;
+  text: string;
   options?: string[];
   target: string;
-  text: string;
 }
 
 /**
@@ -63,10 +63,10 @@ export interface CompileQuestionOut {
  * разбирает их независимо друг от друга.
  */
 export interface CompileRequest {
-  /** @minItems 1 */
-  descriptions: string[];
   /** @minLength 1 */
   object_name: string;
+  /** @minItems 1 */
+  descriptions: string[];
 }
 
 export type CompileResponseStatus = typeof CompileResponseStatus[keyof typeof CompileResponseStatus];
@@ -85,36 +85,6 @@ export const CompiledTypeOutOutcome = {
   use_builtin: 'use_builtin',
 } as const;
 
-/**
- * Одно совпадение внутри окна ``PreviewSegmentOut.text``.
- */
-export interface PreviewMatchOut {
-  end: number;
-  start: number;
-  value: string;
-}
-
-/**
- * Сегмент документа с окном ±120 символов вокруг совпадения (план, шаг 7).
- *
- * Смещения ``matches`` локальны в этом ``text``, а не в документе целиком
- * — фронту не нужно пересчитывать координаты (design notes, вопрос 2).
- */
-export interface PreviewSegmentOut {
-  anchor_label: string;
-  matches?: PreviewMatchOut[];
-  segment_order: number;
-  text: string;
-}
-
-/**
- * Итог live preview (T1.13, шаг 10): до трёх сегментов, реально исполненных.
- */
-export interface PreviewOut {
-  segments?: PreviewSegmentOut[];
-  total_matches?: number;
-}
-
 export type LiteralsDetectInMatch = typeof LiteralsDetectInMatch[keyof typeof LiteralsDetectInMatch];
 
 
@@ -127,11 +97,11 @@ export const LiteralsDetectInMatch = {
  * Точный список значений (executor ``literals``, `typeconfig.py`).
  */
 export interface LiteralsDetectIn {
-  ignorecase?: boolean;
   kind: 'literals';
-  match?: LiteralsDetectInMatch;
   /** @minItems 1 */
   values: string[];
+  match?: LiteralsDetectInMatch;
+  ignorecase?: boolean;
 }
 
 /**
@@ -142,22 +112,22 @@ export interface LiteralsDetectIn {
  * с непустым ``context``.
  */
 export interface RegexDetectIn {
-  context?: string[];
-  ignorecase?: boolean;
   kind: 'regex';
   /** @minLength 1 */
   pattern: string;
+  context?: string[];
+  ignorecase?: boolean;
 }
 
 /**
  * Именованная семантическая категория (executor ``gliner_label``, T1.13.1).
  */
 export interface GlinerLabelDetectIn {
-  /** @minLength 1 */
-  description: string;
   kind: 'gliner_label';
   /** @minLength 1 */
   label: string;
+  /** @minLength 1 */
+  description: string;
   /**
      * @minimum 0
      * @maximum 1
@@ -169,15 +139,15 @@ export interface GlinerLabelDetectIn {
  * Роль поверх структуры документа (executor ``gliner_structure``, T1.13.1).
  */
 export interface GlinerStructureDetectIn {
-  /** @minLength 1 */
-  description: string;
-  /** @minLength 1 */
-  field: string;
   kind: 'gliner_structure';
   /** @minLength 1 */
   label: string;
   /** @minLength 1 */
+  description: string;
+  /** @minLength 1 */
   structure: string;
+  /** @minLength 1 */
+  field: string;
   /**
      * @minimum 0
      * @maximum 1
@@ -193,15 +163,45 @@ export interface GlinerStructureDetectIn {
  * «тонкий фронт», раздел докстринга модуля).
  */
 export interface CustomTypeSpecIn {
-  critical?: boolean;
-  detect: LiteralsDetectIn | RegexDetectIn | GlinerLabelDetectIn | GlinerStructureDetectIn;
+  schema_version?: 1;
   /** @minLength 1 */
   id: string;
   /** @minLength 1 */
-  marker: string;
-  schema_version?: 1;
-  /** @minLength 1 */
   title: string;
+  /** @minLength 1 */
+  marker: string;
+  critical?: boolean;
+  detect: LiteralsDetectIn | RegexDetectIn | GlinerLabelDetectIn | GlinerStructureDetectIn;
+}
+
+/**
+ * Одно совпадение внутри окна ``PreviewSegmentOut.text``.
+ */
+export interface PreviewMatchOut {
+  start: number;
+  end: number;
+  value: string;
+}
+
+/**
+ * Сегмент документа с окном ±120 символов вокруг совпадения (план, шаг 7).
+ *
+ * Смещения ``matches`` локальны в этом ``text``, а не в документе целиком
+ * — фронту не нужно пересчитывать координаты (design notes, вопрос 2).
+ */
+export interface PreviewSegmentOut {
+  segment_order: number;
+  anchor_label: string;
+  text: string;
+  matches?: PreviewMatchOut[];
+}
+
+/**
+ * Итог live preview (T1.13, шаг 10): до трёх сегментов, реально исполненных.
+ */
+export interface PreviewOut {
+  segments?: PreviewSegmentOut[];
+  total_matches?: number;
 }
 
 /**
@@ -215,11 +215,11 @@ export interface CustomTypeSpecIn {
  * ``outcome`` — второй остаётся ``None``.
  */
 export interface CompiledTypeOut {
-  marker_override?: string | null;
   outcome: CompiledTypeOutOutcome;
-  preview?: PreviewOut | null;
   spec?: CustomTypeSpecIn | null;
   type_id?: string | null;
+  marker_override?: string | null;
+  preview?: PreviewOut | null;
 }
 
 /**
@@ -227,8 +227,8 @@ export interface CompiledTypeOut {
  * (после ретрая на невалидном JSON/регулярке или после `MAX_ASK_ROUNDS`).
  */
 export interface FailedTypeOut {
-  description: string;
   index: number;
+  description: string;
   reason: string;
 }
 
@@ -236,12 +236,12 @@ export interface FailedTypeOut {
  * Ответ `POST /custom_types/compile` и `.../compile/{thread_id}/answers`.
  */
 export interface CompileResponse {
-  compiled?: CompiledTypeOut[];
+  thread_id: string;
+  status: CompileResponseStatus;
   engine_capabilities?: string[];
+  compiled?: CompiledTypeOut[];
   failed?: FailedTypeOut[];
   questions?: CompileQuestionOut[];
-  status: CompileResponseStatus;
-  thread_id: string;
 }
 
 /**
@@ -261,19 +261,19 @@ export const DeviceType = {
 
 export interface FileUploadResponse {
   bucket: string;
-  content_type?: string | null;
   object_name: string;
   size: number;
+  content_type?: string | null;
 }
 
 export type ValidationErrorCtx = { [key: string]: unknown };
 
 export interface ValidationError {
-  ctx?: ValidationErrorCtx;
-  input?: unknown;
   loc: (string | number)[];
   msg: string;
   type: string;
+  input?: unknown;
+  ctx?: ValidationErrorCtx;
 }
 
 export interface HTTPValidationError {
@@ -281,17 +281,17 @@ export interface HTTPValidationError {
 }
 
 export interface LoginRequest {
-  device?: DeviceType;
   email: string;
   password: string;
+  device?: DeviceType;
 }
 
 /**
  * Значение, которое движок пропустил, а оператор нашёл глазами.
  */
 export interface ManualEntityIn {
-  text: string;
   type: string;
+  text: string;
 }
 
 /**
@@ -310,16 +310,16 @@ export type ReviewEditsTypeOverrides = {[key: string]: string};
  */
 export interface ReviewEdits {
   decisions?: ReviewEditsDecisions;
-  manual?: ManualEntityIn[];
   type_overrides?: ReviewEditsTypeOverrides;
+  manual?: ManualEntityIn[];
 }
 
 /**
  * Конверт правок — то, что ждёт `masker.graph.review.parse_review_edits`.
  */
 export interface ReviewRequest {
-  edits?: ReviewEdits;
   schema_version?: 1;
+  edits?: ReviewEdits;
 }
 
 export type Role = typeof Role[keyof typeof Role];
@@ -330,8 +330,6 @@ export const Role = {
   user: 'user',
 } as const;
 
-export type RunCreateRequestCustomTypesItem = { [key: string]: unknown };
-
 export type RunCreateRequestMaskStyle = typeof RunCreateRequestMaskStyle[keyof typeof RunCreateRequestMaskStyle];
 
 
@@ -341,26 +339,28 @@ export const RunCreateRequestMaskStyle = {
   both: 'both',
 } as const;
 
+export type RunCreateRequestCustomTypesItem = { [key: string]: unknown };
+
 /**
  * Запуск прогона по уже загруженному в MinIO файлу (`/api/files/upload`).
  */
 export interface RunCreateRequest {
-  custom_types?: RunCreateRequestCustomTypesItem[];
-  mask_style?: RunCreateRequestMaskStyle;
   object_name: string;
-  profile?: boolean;
-  review?: boolean;
-  rules_only?: boolean;
   types?: string[] | null;
+  mask_style?: RunCreateRequestMaskStyle;
+  rules_only?: boolean;
+  profile?: boolean;
   unmask_critical?: boolean;
+  review?: boolean;
+  custom_types?: RunCreateRequestCustomTypesItem[];
 }
 
 /**
  * Документ прогона — то, что нужно вьюеру и журналу.
  */
 export interface RunDocument {
-  format: string;
   name: string;
+  format: string;
 }
 
 export type RunListItemStatus = typeof RunListItemStatus[keyof typeof RunListItemStatus];
@@ -380,11 +380,11 @@ export const RunListItemStatus = {
  * Строка журнала обработок (`/history`).
  */
 export interface RunListItem {
-  created_at: string;
-  document: RunDocument;
-  finished_at?: string | null;
   id: string;
   status: RunListItemStatus;
+  document: RunDocument;
+  created_at: string;
+  finished_at?: string | null;
 }
 
 export interface RunListResponse {
@@ -409,14 +409,14 @@ export const RunResponseStatus = {
  * Состояние одного прогона.
  */
 export interface RunResponse {
-  created_at: string;
-  document: RunDocument;
-  error?: string | null;
-  finished_at?: string | null;
   id: string;
-  node_hint?: string | null;
-  status: RunResponseStatus;
   thread_id: string;
+  status: RunResponseStatus;
+  document: RunDocument;
+  node_hint?: string | null;
+  error?: string | null;
+  created_at: string;
+  finished_at?: string | null;
 }
 
 export interface TokenResponse {
@@ -430,8 +430,8 @@ export interface TokenResponse {
  */
 export interface UserCreate {
   email: string;
-  full_name: string;
   password: string;
+  full_name: string;
   roles?: Role[];
 }
 
@@ -439,13 +439,13 @@ export interface UserCreate {
  * Публичное представление пользователя — без password_hash.
  */
 export interface UserPublic {
-  created_at: string;
+  id: string;
   email: string;
   full_name: string;
-  id: string;
-  is_active: boolean;
-  last_login_at?: string | null;
   roles: Role[];
+  is_active: boolean;
+  created_at: string;
+  last_login_at?: string | null;
 }
 
 export type ListRunsApiRunsGetParams = {
@@ -477,7 +477,7 @@ export const ListRunsApiRunsGetStatus = {
 
 export type GetQuestionsApiRunsRunIdQuestionsGet200 = { [key: string]: unknown };
 
-export type GetReportApiRunsRunIdReportGet200 = { [key: string]: unknown };
-
 export type GetReviewPayloadApiRunsRunIdReviewGet200 = { [key: string]: unknown };
+
+export type GetReportApiRunsRunIdReportGet200 = { [key: string]: unknown };
 

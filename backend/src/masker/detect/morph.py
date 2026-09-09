@@ -81,6 +81,31 @@ def _morph_vocab():  # type: ignore[no-untyped-def]
 
 
 @functools.lru_cache(maxsize=4096)
+def has_name_grammeme(word: str) -> bool:
+    """Есть ли у слова ХОТЯ БЫ ОДИН морфоразбор OpenCorpora с граммемой
+    ``Surn``/``Name``/``Patr`` (план Р9-1).
+
+    В отличие от `_classify_word` (тот смотрит только на ПЕРВЫЙ, самый
+    вероятный разбор — так и нужно детектору, который сам решает,
+    маскировать ли найденное) здесь решение другое: расширять ли уже
+    найденный Natasha спан ФИО влево на соседний токен. Первый разбор
+    здесь непригоден — «Мокиной» и «Зубрицкая» первым разбором получают не
+    `Surn` (омонимы с нарицательным/нестандартным окончанием), и расширение
+    сломалось бы ровно на тех случаях, ради которых оно и придумано (см.
+    `expand_person_left`). Нужен любой разбор — тот же приём, что уже
+    применяет `verifier._any_name_grammeme` для отбора спорных мест."""
+    if not word or not (word[0].isalpha() and word[0].isupper()):
+        return False
+    if word.casefold() in org_forms().requisite_labels:
+        return False
+    for form in _morph_vocab()(word):
+        tag = str(getattr(form, "tag", ""))
+        if any(name_tag in tag for name_tag in _NAME_TAGS):
+            return True
+    return False
+
+
+@functools.lru_cache(maxsize=4096)
 def _classify_word(word: str) -> str | None:
     """Вернуть граммему `Surn`/`Name`/`Patr` первого (наиболее вероятного)
     морфологического разбора слова, иначе `None`.

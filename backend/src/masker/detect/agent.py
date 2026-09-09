@@ -2,21 +2,30 @@
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from masker.detect.base import EntityDetector
+from masker.detect.confidence import classify_level
 from masker.detect.normalize import normalize_value
+from masker.detect.normalize_layout import normalize_for_detection
 from masker.detect.orgforms import (
     has_organization_evidence,
     is_organization_form_only,
     is_role_stopword,
     shrink_span,
 )
+from masker.detect.requisite_blocks import find_requisite_block_candidates
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.detect.sweep import sweep
 from masker.entity_types import EntityTypeRegistry
-from masker.model import Document, Entity, EntityType, Source
+from masker.llm import LLMProvider
+from masker.model import Document, Entity, EntityType, Segment, Source
+
+if TYPE_CHECKING:
+    from masker.detect.verifier import VerifierReport
 
 MIN_FRAGMENT_LEN = 2
 
@@ -36,6 +45,7 @@ class DetectAgent:
         self,
         detectors: Iterable[EntityDetector] | None = None,
         registry: EntityTypeRegistry | None = None,
+        llm: LLMProvider | None = None,
     ) -> None:
         if detectors is None:
             from masker.detect import default_detectors
@@ -43,6 +53,12 @@ class DetectAgent:
             detectors = default_detectors()
         self._detectors = list(detectors)
         self._registry = registry if registry is not None else EntityTypeRegistry.builtin()
+        # Р7 (TASKS.md): верификатор на recall — опциональный последний шаг,
+        # включается, только если вызывающий явно передал `LLMProvider`.
+        # `None` по умолчанию — офлайн-ворота (`make gate`, весь остальной
+        # корпус тестов) продолжают работать без единого сетевого вызова, как
+        # и раньше; см. `masker.detect.verifier.verify_recall`.
+        self._llm = llm
 
     @property
     def detectors(self) -> tuple[EntityDetector, ...]:
@@ -158,6 +174,47 @@ class DetectAgent:
         return carved
 
     @staticmethod
+    def _count_signals(entity: Entity, found: list[tuple[EntityDetector, Entity]]) -> int:
+        """Сколько разных детекторов независимо нашли пересекающийся спан (Р8).
+
+        Считается по «сырым» находкам (``found``), собранным ДО разрешения
+        перекрытий — именно там ещё видно, что, например, оргформа-правило и
+        локальная NER независимо указали на одно и то же имя. После
+        ``_resolve_overlaps`` из двух перекрывшихся спанов остаётся один, и
+        сам факт согласия исчез бы, если бы его не посчитали здесь.
+        """
+        names = {
+            detector.name
+            for detector, candidate in found
+            if _overlaps(entity, candidate) and candidate.type == entity.type
+        }
+        return len(names)
+
+    def _levelled(
+        self, entities: list[Entity], found: list[tuple[EntityDetector, Entity]]
+    ) -> list[Entity]:
+        """Проставить уровень уверенности (Р8) каждой принятой сущности.
+
+        Сквозной досмотр (``sweep``) не участвует в ``found`` — его находки
+        не от отдельного детектора, а копия уже принятого значения в другом
+        месте документа, поэтому им достаётся тот же классификатор с
+        ``signal_count=1``: без второго независимого детектора и без
+        критичности/контрольной суммы они не станут ``CONFIRMED`` только за
+        счёт повторения текста.
+        """
+        return [
+            dataclasses.replace(
+                entity,
+                level=classify_level(
+                    entity,
+                    signal_count=self._count_signals(entity, found),
+                    registry=self._registry,
+                ),
+            )
+            for entity in entities
+        ]
+
+    @staticmethod
     def _has_fragment_evidence(entity_type: str, text: str) -> bool:
         if entity_type == EntityType.ORG_NAME:
             return has_organization_evidence(text)
@@ -170,16 +227,103 @@ class DetectAgent:
             for token in tokens
         )
 
+    @staticmethod
+    def _normalize_document(document: Document) -> tuple[Document, dict[int, list[int]]]:
+        """Построить документ с «чистым» текстом для детекторов (Р1).
+
+        Каждый сегмент нормализуется независимо (`normalize_for_detection`),
+        якорь и порядок сохраняются — детекторы адресуются к тем же
+        сегментам, что и раньше, только текст в них уже без вёрстки:
+        схлопнутых пробельных вариантов, переноса строки посреди номера,
+        разрядки меток, гомоглифов. Карта смещений на сегмент нужна
+        `_remap_entities`, чтобы вернуть найденные спаны в координаты
+        исходного документа — контракт `model.py` наружу не меняется.
+        """
+        segments: list[Segment] = []
+        maps: dict[int, list[int]] = {}
+        for segment in document.segments:
+            normalized_text, mapping = normalize_for_detection(segment.text)
+            maps[segment.order] = mapping
+            segments.append(
+                Segment(text=normalized_text, anchor=segment.anchor, order=segment.order)
+            )
+        normalized = Document(
+            path=document.path, fmt=document.fmt, segments=segments, meta=document.meta
+        )
+        return normalized, maps
+
+    @staticmethod
+    def _remap_entities(
+        entities: list[Entity],
+        maps: dict[int, list[int]],
+        original_segments: dict[int, Segment],
+    ) -> list[Entity]:
+        """Отобразить спаны детектора с нормализованного текста на исходный.
+
+        Детектор искал по `normalize_for_detection(segment.text)` и вернул
+        смещения в ЭТОМ тексте — они не совпадают по длине с исходным
+        (два пробела схлопнуты в один, перенос строки внутри номера
+        удалён), поэтому пересчёт через простую разницу длин здесь неверен:
+        конец спана обязан идти через ту же карту, что и начало
+        (``mapping[end]``), а не через ``mapping[start] + (end - start)``.
+
+        ``entity.normalized`` не пересчитывается: детектор уже посчитал его
+        от «чистого» значения, которое сам нашёл (``normalize_value`` в
+        ``rules.py``/``morph.py`` и т.п.), — это и есть канонический ключ.
+        Пересчёт от восстановленного исходного текста был бы ХУЖЕ: в нём
+        может остаться необработанный мягкий перенос или неразрывный
+        пробел (см. кейсы Р1), которые `normalize_value` не обязан знать,
+        и один и тот же реквизит с вёрсткой и без неё получил бы разные
+        ключи согласованности.
+        """
+        remapped: list[Entity] = []
+        for entity in entities:
+            mapping = maps[entity.segment_order]
+            original_text = original_segments[entity.segment_order].text
+            start = mapping[entity.start]
+            end = mapping[entity.end]
+            remapped.append(
+                Entity(
+                    type=entity.type,
+                    text=original_text[start:end],
+                    segment_order=entity.segment_order,
+                    start=start,
+                    end=end,
+                    source=entity.source,
+                    confidence=entity.confidence,
+                    normalized=entity.normalized,
+                )
+            )
+        return remapped
+
     def detect(self, document: Document) -> DetectionResult:
         """Запустить детекторы и вернуть проверенный, объединённый результат.
+
+        Все детекторы получают один и тот же нормализованный документ
+        (Р1) — так вёрсточные варианты (NBSP, перенос строки в номере,
+        разрядка «И Н Н», гомоглифы) чинятся один раз для всех детекторов
+        разом, а не в каждом из них по отдельности. Найденные спаны сразу
+        отображаются назад на координаты исходного сегмента, поэтому
+        дальше по конвейеру (``_validate``, ``_resolve_overlaps``, ``sweep``)
+        ничего не знает о нормализации — она полностью прозрачна снаружи.
 
         Сквозной досмотр (``sweep``, план T2.2.2, шаг 8, Д13) — последний
         проход, после разрешения перекрытий: расширяет уже принятые
         значения по всему документу, а не ищет новые типы сущностей.
         """
+        normalized_document, maps = self._normalize_document(document)
+        original_segments = {segment.order: segment for segment in document.segments}
         found: list[tuple[EntityDetector, Entity]] = []
         for detector in self._detectors:
-            entities = detector.detect(document)
+            entities = detector.detect(normalized_document)
+            # Контракт детектора проверяется на том же тексте, по которому
+            # он искал (нормализованном) — иначе сломанный плагин, который
+            # сам себе противоречит (текст не совпадает со своим спаном),
+            # прошёл бы незамеченным: `_remap_entities` берёт текст среза
+            # ИСХОДНОГО сегмента по координатам, а не то, что вернул
+            # детектор, и молча «чинит» результат несогласованного плагина.
+            self._validate(detector, normalized_document, entities)
+            entities = self._remap_entities(entities, maps, original_segments)
             self._validate(detector, document, entities)
             found.extend((detector, entity) for entity in entities)
         entities = self._resolve_overlaps(found)
@@ -192,5 +336,35 @@ class DetectAgent:
             [*entities, *sweep(document, entities, extra_sweep_types)],
             key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
+        # Блоки реквизитов/подписей как источник кандидатов (Р6, план
+        # TASKS.md): тот же класс шага, что и `sweep` выше, — не
+        # `EntityDetector` (протокол не видит уже найденные сущности, а
+        # построение блока в них нуждается, см. докстринг модуля), а
+        # отдельный проход после разрешения перекрытий, ДО простановки
+        # уровня уверенности, чтобы новым кандидатам тоже достался обычный
+        # путь `classify_level` (Р8), а не отдельная жёстко прибитая метка.
+        entities = sorted(
+            [*entities, *find_requisite_block_candidates(document, entities)],
+            key=lambda item: (item.segment_order, item.start, item.end, item.type),
+        )
+        verifier_report: VerifierReport | None = None
+        if self._llm is not None:
+            # Р7: верификатор смотрит только на то, что осталось непокрытым
+            # ПОСЛЕ Р4/Р5/Р6 (морфология, оргформы, блоки реквизитов) — их
+            # находки уже в `entities` к этому моменту, поэтому кандидатные
+            # окна строятся от актуального остатка, а не от «сырых» правил.
+            from masker.detect.verifier import summarize_verdicts, verify_recall
+
+            verifier_result = verify_recall(document, entities, self._llm)
+            verifier_report = summarize_verdicts(document, verifier_result)
+            entities = sorted(
+                [*entities, *verifier_result.entities],
+                key=lambda item: (item.segment_order, item.start, item.end, item.type),
+            )
+        # Уровень уверенности (Р8) — последний шаг, после того как состав
+        # принятых сущностей окончательно определён: `_count_signals` читает
+        # ещё не разрешённые `found`, а `sweep`-находки уже сами по себе
+        # заведомо однодетекторные (см. докстринг `_levelled`).
+        entities = self._levelled(entities, found)
         chunks = build_pii_chunks(document.segments, entities)
-        return DetectionResult(entities=entities, chunks=chunks)
+        return DetectionResult(entities=entities, chunks=chunks, verifier=verifier_report)

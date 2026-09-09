@@ -249,18 +249,69 @@ def is_role_phrase(text: str) -> bool:
 
 
 def _quotes_balanced(text: str) -> bool:
-    return all(
-        text.count(opening) % 2 == 0
-        if opening == closing
-        else text.count(opening) == text.count(closing)
-        for opening, closing in org_forms().quote_pairs
-    )
+    """Проверить, что кавычки в тексте замкнуты, разбирая их стеком, а не
+    по независимым счётчикам символов открытия/закрытия.
+
+    До Р5 каждая пара использовала собственные, нигде больше не встречающиеся
+    символы (``«»``, ``""``, ``“”``), и проверка ``count(opening) ==
+    count(closing)`` по каждой паре отдельно работала. Р5 добавил пары,
+    делящие закрывающий символ ``"`` с уже существующей симметричной парой
+    (``„...\"``, ``‟...\"``): независимая проверка по парам считает
+    ``count('„')`` против ``count('"')`` и ошибочно объявляет текст
+    несбалансированным, даже когда в нём вообще нет ``„`` и обычные
+    ``"..."`` идеально закрыты (см. регрессию — `shrink_span` переставал
+    резать реквизит после `ООО "Ромашка"`). Стек, пробующий закрыть текущий
+    открытый символ раньше, чем открыть новый, снимает эту неоднозначность:
+    один и тот же ``"`` то закрывает то, что уже открыто, то сам становится
+    открывающим для следующей пары.
+    """
+    closers_for: dict[str, set[str]] = {}
+    for opening, closing in org_forms().quote_pairs:
+        closers_for.setdefault(opening, set()).add(closing)
+    stack: list[str] = []
+    for char in text:
+        if stack and char in closers_for.get(stack[-1], ()):
+            stack.pop()
+            continue
+        if char in closers_for:
+            stack.append(char)
+    return not stack
+
+
+#: Хвост «…Х.» (инициал) или «…Х.Y.о./оглы/кызы/кизи/угли.» (инициал(ы) +
+#: этнический суффикс отчества) на самом конце строки — план Р4, кейсы 2 и
+#: 3: точку после такого хвоста нельзя стричь как случайную пунктуацию.
+_TRAILING_NAME_DOT_RE = re.compile(
+    r"(?:^|[^А-ЯЁа-яё0-9_])[А-ЯЁ](?:\.[А-ЯЁ])*\.(?:(?:оглы|кызы|кизи|угли|о)\.)?$",
+    re.IGNORECASE,
+)
+
+
+def _is_initial_final_dot(text: str, end: int) -> bool:
+    """Точка на ``text[end - 1]`` — завершающая точка инициала («…С.А.») или
+    хвоста «…Э.Г.о.», а не случайная замыкающая пунктуация (план Р4, кейс 3:
+    точку срезала безусловная обрезка ``_trim_shrink_bounds`` до того, как
+    до неё доходила проверка «убираемого» токена в ``shrink_span``).
+
+    Защита работает, только когда точка стоит на самом конце ``text``
+    (последний символ сегмента/строки): установленный размеченный корпус
+    (``ИП Сидоров С.С. направил документ`` в `contract_03_ner.docx` и
+    аналоги в `contract_06_address.docx`, `contract_08_roles.docx`)
+    ожидает спан БЕЗ этой точки, когда после инициалов текст продолжается —
+    точка там срезается как и раньше. Разница только в позиции: если
+    абзац/сегмент реально обрывается на этой точке (`Пилипенко С.А.` в
+    конце подписи), стричь её — терять реальный символ документа."""
+    if end != len(text) or end < 2 or text[end - 1] != ".":
+        return False
+    return _TRAILING_NAME_DOT_RE.search(text[:end]) is not None
 
 
 def _trim_shrink_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     while start < end and text[start] in _SHRINK_TRIM_CHARS:
         start += 1
-    while start < end and text[end - 1] in _SHRINK_TRIM_CHARS:
+    while (
+        start < end and text[end - 1] in _SHRINK_TRIM_CHARS and not _is_initial_final_dot(text, end)
+    ):
         end -= 1
     return start, end
 
@@ -292,12 +343,37 @@ def shrink_span(text: str, start: int, end: int) -> tuple[int, int] | None:
     return start, end
 
 
+#: Отчество/этнический суффикс, который Natasha систематически отдаёт вне
+#: спана PER, — «Мамедов Э.Г.о.» (сокращение «оглы») режется по «Э.Г» (план
+#: Р4, кейс 2). Многобуквенные варианты — первыми, чтобы альтернация не
+#: остановилась на префиксе «о» раньше полного «оглы».
+#: Без ``^``: паттерн используется через ``match(text, pos=end)``, где
+#: ``match`` уже анкерует поиск ровно на ``pos`` — ведущий ``^`` в пределах
+#: полной строки означал бы «только позиция 0» и никогда бы не совпал.
+_PATRONYMIC_SUFFIX_RE = re.compile(r"(оглы|кызы|кизи|угли|о)\.?", re.IGNORECASE)
+
+
+def _extend_patronymic_suffix(text: str, end: int) -> int:
+    """Продлить спан за только что добавленную точку инициала на суффикс
+    вида «оглы»/«кызы»/сокращённое «о.», если он идёт впритык (план Р4,
+    кейс 2). Без предшествующей точки суффикс не трогаем — это не
+    инициальная позиция, а обычное слово где-то дальше в предложении."""
+    if end == 0 or text[end - 1] != ".":
+        return end
+    match = _PATRONYMIC_SUFFIX_RE.match(text, end)
+    if match is None:
+        return end
+    return match.end()
+
+
 def fix_person_initials(text: str, start: int, end: int) -> tuple[int, int] | None:
-    """Добавить точку к последнему инициалу, если Natasha её не включила."""
+    """Добавить точку к последнему инициалу и хвост «оглы»/«кызы» за ней,
+    если Natasha их не включила (план Р4, кейсы 2 и 3)."""
     start, end = _trim_bounds(text, start, end)
     if start == end:
         return None
     initials_without_dot = re.search(r"\b[А-ЯЁ]\.[А-ЯЁ]$", text[start:end], re.IGNORECASE)
     if end < len(text) and text[end] == "." and initials_without_dot:
         end += 1
+        end = _extend_patronymic_suffix(text, end)
     return start, end

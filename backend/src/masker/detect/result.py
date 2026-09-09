@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from masker.model import Entity, Segment
+
+if TYPE_CHECKING:
+    from masker.detect.verifier import VerifierReport
 
 CHUNK_TARGET = 300
 CHUNK_MIN = 200
@@ -23,10 +27,20 @@ class PiiChunk:
 
 @dataclass(slots=True)
 class DetectionResult:
-    """Принятые сущности и пригодные для контекстных стадий чанки."""
+    """Принятые сущности и пригодные для контекстных стадий чанки.
+
+    ``verifier`` — сводка LLM-верификатора на recall (Р7), если он вообще
+    включался: `None`, когда `DetectAgent` собран без `llm=` (офлайн-путь,
+    ``make gate`` и весь остальной корпус тестов без единого сетевого
+    вызова). Заполняется `DetectAgent.detect()` результатом
+    `masker.detect.verifier.summarize_verdicts` — сюда попадают только
+    вердикты и счётчики, а не сами найденные сущности: они уже слиты в
+    ``entities`` выше.
+    """
 
     entities: list[Entity]
     chunks: list[PiiChunk]
+    verifier: VerifierReport | None = None
 
 
 def _desired_window(text_length: int, entity: Entity) -> tuple[int, int]:

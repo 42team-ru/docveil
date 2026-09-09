@@ -55,6 +55,7 @@ from masker.graph.serde import (
 from masker.graph.state import State
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
+from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.judge import JudgeAgent
 from masker.judge.agent import JudgeResult
 from masker.llm import LLMProvider, TracingProvider
@@ -68,12 +69,14 @@ from masker.refs import EntityIndex
 from masker.render import docx_preview as docx_preview_module
 from masker.render import docx_redact as docx_redact_module
 from masker.render import pdf_render as pdf_render_module
-from masker.report.coverage import detection_coverage, docx_coverage, pdf_coverage
+from masker.render import xlsx_redact as xlsx_redact_module
+from masker.report.coverage import detection_coverage, docx_coverage, pdf_coverage, xlsx_coverage
 from masker.report.payload import (
     _leak_record,
     _validation_record,
     _validation_skipped,
     build_report_payload,
+    marker_legend,
 )
 from masker.typeconfig import CustomTypeSpec, load_type_config
 from masker.validate import ValidateAgent
@@ -120,7 +123,7 @@ def _registry_and_specs(
 def extract_node(state: State) -> dict[str, object]:
     """Разобрать документ по ``state["path"]``: формат — по расширению файла.
 
-    DOCX и PDF (регистронезависимо); прочие расширения — явный ``ValueError``
+    DOCX, PDF и XLSX (регистронезависимо); прочие расширения — явный ``ValueError``
     с именем файла, а не тихий разбор мимо формата.
     """
     path = Path(state["path"])
@@ -131,6 +134,9 @@ def extract_node(state: State) -> dict[str, object]:
     elif suffix == ".pdf":
         document = ingest_pdf(path)
         coverage = pdf_coverage(path, document)
+    elif suffix == ".xlsx":
+        document = ingest_xlsx(path)
+        coverage = xlsx_coverage(path, document)
     else:
         raise ValueError(f"неподдерживаемый формат файла: {path.name}")
     return {
@@ -155,10 +161,16 @@ def extract_node(state: State) -> dict[str, object]:
 def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """Собрать ``detect_node``, замыкающий ``LLMProvider`` из ``deps``.
 
-    LLM нужен только `regex_llm_filter` executor'у (шаг 13 T1.13), поэтому
-    в ``rules_only`` пути и в детекции без пользовательских спеков он не
-    используется. Тем же приёмом, что и ``make_profile_node``, замыкание
-    держит зависимость вне ``State`` (только JSON) — раздел 6 плана T1.5.1.
+    ``deps.llm`` идёт в детекцию по двум независимым дорожкам: в
+    ``default_detectors`` — он нужен только `regex_llm_filter` executor'у
+    (шаг 13 T1.13) и без пользовательских спеков не используется, — и в
+    сам ``DetectAgent`` — это включает LLM-верификатор на recall (Р7,
+    TASKS.md, `masker.detect.verifier.verify_recall`). ``rules_only`` не
+    передаёт LLM ни туда, ни туда: «только правила» обязано означать «ни
+    одного сетевого вызова», а не «без пользовательских детекторов, но с
+    LLM-верификатором». Тем же приёмом, что и ``make_profile_node``,
+    замыкание держит зависимость вне ``State`` (только JSON) — раздел 6
+    плана T1.5.1.
     """
 
     def detect_node(state: State) -> dict[str, object]:
@@ -192,7 +204,8 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                 detectors.append(ConfigDetector(specs))
         else:
             detectors = default_detectors(specs, llm=deps.llm)
-        detector = DetectAgent(detectors, registry)
+        verifier_llm = None if rules_only else deps.llm
+        detector = DetectAgent(detectors, registry, llm=verifier_llm)
         raw_types = options.get("types")
         selected_types = resolve_requested_types(
             tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
@@ -675,7 +688,9 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         # путей CLI, см. раздел 5 плана T1.10).
         masked_entities = [replacement.entity for replacement in plan.replacements]
         fmt = state.get("fmt", "docx")
-        suffix = ".pdf" if fmt == "pdf" else ".docx"
+        suffix = {"docx": ".docx", "pdf": ".pdf", "xlsx": ".xlsx"}.get(fmt)
+        if suffix is None:
+            raise ValueError(f"render_node: неподдерживаемый формат {fmt!r}")
         options = state.get("options", {})
         preview_enabled = bool(options.get("preview", True))
         styles = set(options.get("styles") or ())
@@ -694,6 +709,11 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     pdf_render_module.render_pdf_preview(
                         source, destination, document, masked_entities
                     )
+                elif fmt == "xlsx":
+                    # XLSX-preview пока не реализован. Нельзя молча копировать
+                    # источник: такой файл не подсвечен, но внешне выглядел бы
+                    # как preview. Редактирующие артефакты ниже строятся всегда.
+                    continue
                 else:
                     docx_preview_module.render_docx_preview(
                         source, destination, document, masked_entities
@@ -708,16 +728,33 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     outcome = pdf_render_module.render_pdf_redacted(
                         source, destination, document, plan, style=style
                     )
+                    groups_by_id = {group.id: group for group in plan.groups}
+                    # Только реальные спуски по лестнице отступления (план
+                    # М1) — пустой ``fallback_reason`` означает «показан
+                    # канонический маркер без сокращений», это не факт для
+                    # отчёта человеку, а норма.
                     render_degradations.extend(
                         {
                             "artifact": destination.name,
                             "role": role,
                             "page": item.page,
-                            "entity_type": item.entity_type,
-                            "marker": item.marker,
-                            "shown_as": item.shown_as,
+                            "group_id": item.group_id,
+                            "entity_type": groups_by_id[item.group_id].type
+                            if item.group_id in groups_by_id
+                            else "",
+                            "canonical_label": groups_by_id[item.group_id].canonical_label
+                            if item.group_id in groups_by_id
+                            else "",
+                            "shown_label": item.shown_label,
+                            "font_size": item.font_size,
+                            "fallback_reason": item.fallback_reason,
                         }
-                        for item in outcome.degradations
+                        for item in outcome.markers
+                        if item.fallback_reason
+                    )
+                elif fmt == "xlsx":
+                    xlsx_redact_module.render_xlsx_redacted(
+                        source, destination, document, plan, style=style
                     )
                 else:
                     docx_redact_module.render_docx_redacted(
@@ -870,10 +907,17 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
     )
     report["leaked"] = state.get("leaked", [])
     report["render_degradations"] = state.get("render_degradations", [])
+    # План М1, правило 6: любое сокращение маркера — строка легенды
+    # («[Ф1] = [ПОСТАВЩИК-ФИО-1], стр. 3»), а не молчаливая деградация.
+    report["marker_legend"] = marker_legend(report["render_degradations"])
     # Дубль report["validation"]["layout"] на верхнем уровне — план T2.2.2,
     # шаг 5: сохранность вёрстки PDF читается тем же взглядом, что и
     # leaked/render_degradations, а не через вложенный validation.layout.
     report["layout"] = report["validation"].get("layout", [])
+    # Дубль report["validation"]["certificate"] на верхнем уровне — план М3:
+    # сертификат обезличивания читается одним взглядом, не через вложенный
+    # validation.certificate (тот же приём, что и layout строкой выше).
+    report["certificate"] = report["validation"].get("certificate")
     contract_summary = state.get("contract_summary")
     if contract_summary:
         report["contract_summary"] = contract_summary

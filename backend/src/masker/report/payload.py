@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import dataclasses
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,7 @@ from masker.detect.result import PiiChunk
 from masker.entity_types import EntityTypeRegistry
 from masker.graph.serde import judge_to_dicts, profiles_to_dicts
 from masker.judge.agent import JudgeResult
-from masker.model import Document, Entity, Leak, MaskPlan, ValidationReport
+from masker.model import ConfidenceLevel, Document, Entity, Leak, MaskPlan, ValidationReport
 from masker.profile.agent import ProfileResult
 
 REPORT_VERSION = 3
@@ -43,6 +43,10 @@ def _entity_record(
         "normalized": entity.normalized,
         "source": entity.source.value,
         "confidence": entity.confidence,
+        #: Уровень уверенности (Р8) — "confirmed"/"probable"/"possible".
+        #: "possible" дублируется в ``report["review_possible"]`` по группам,
+        #: чтобы UI мог снять лишнюю маску одним кликом.
+        "level": entity.level.value,
         "segment_order": entity.segment_order,
         "start": entity.start,
         "end": entity.end,
@@ -120,10 +124,14 @@ def _annotate_chunk(text: str, chunk: PiiChunk) -> str:
 def _summary(entities: list[Entity]) -> dict[str, Any]:
     by_type = Counter(entity.type for entity in entities)
     by_source = Counter(entity.source.value for entity in entities)
+    by_level = Counter(entity.level.value for entity in entities)
     return {
         "entities_total": len(entities),
         "by_type": dict(sorted(by_type.items())),
         "by_source": dict(sorted(by_source.items())),
+        #: Р8 — сколько сущностей на каждом уровне уверенности; "possible"
+        #: здесь же считает то, что попадёт в ``review_possible``.
+        "by_level": dict(sorted(by_level.items())),
         "minimum_confidence": min((entity.confidence for entity in entities), default=None),
     }
 
@@ -167,9 +175,40 @@ def _limitations_pdf(coverage: dict[str, Any]) -> list[str]:
     ]
 
 
-def _plan_record(plan: MaskPlan, registry: EntityTypeRegistry) -> dict[str, Any]:
+def _limitations_xlsx(coverage: dict[str, Any]) -> list[str]:
+    return [
+        "Проверяются непустые ячейки всех листов XLSX.",
+        "Формулы читаются по кэшированному отображаемому значению; "
+        "зависимые от маски формулы заменяются заглушкой.",
+        "Книги со сводными таблицами отклоняются: их кэш пока нельзя безопасно очистить.",
+        "Метаданные до рендера не входят в детекцию; "
+        "в выходных вариантах очищаются свойства книги.",
+    ]
+
+
+#: Порядок «силы» уровня для группы (Р8): группа наследует самый уверенный
+#: уровень, встреченный хоть у одной её сущности — единственное вхождение,
+#: подтверждённое дважды или контрольной суммой, снимает подозрение со
+#: всей группы одинаковых значений в документе.
+_LEVEL_RANK: dict[str, int] = {
+    ConfidenceLevel.POSSIBLE.value: 0,
+    ConfidenceLevel.PROBABLE.value: 1,
+    ConfidenceLevel.CONFIRMED.value: 2,
+}
+
+
+def _best_level(levels: list[str]) -> str:
+    return max(levels, key=lambda level: _LEVEL_RANK.get(level, -1))
+
+
+def _plan_record(
+    plan: MaskPlan,
+    registry: EntityTypeRegistry,
+    level_by_ref: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Сериализовать план масок для report.json — раздел «Проводка плана в CLI»."""
     skipped_by_reason: Counter[str] = Counter(item.reason for item in plan.skipped)
+    level_by_ref = level_by_ref or {}
     return {
         "requested_types": list(plan.requested_types),
         "groups": [
@@ -181,6 +220,13 @@ def _plan_record(plan: MaskPlan, registry: EntityTypeRegistry) -> dict[str, Any]
                 "profile_id": group.profile_id,
                 "ref_count": len(group.refs),
                 "sample": group.sample,
+                #: Р8 — лучший (самый уверенный) уровень среди ссылок группы;
+                #: "" — ни для одной ссылки уровень не известен report'у.
+                "level": _best_level(
+                    [level_by_ref[ref] for ref in group.refs if ref in level_by_ref]
+                )
+                if any(ref in level_by_ref for ref in group.refs)
+                else "",
             }
             for group in plan.groups
         ],
@@ -206,7 +252,10 @@ def _validation_record(report: ValidationReport) -> dict[str, Any]:
     ``TASKS.md``/``T1.9`` называют по имени (``leaked`` — единственный
     список, обязанный быть top-level ключом). ``layout`` — сохранность
     вёрстки PDF вне замен (план T2.2.2, шаг 4), пуст для DOCX и для
-    прогонов без переданного ``source``.
+    прогонов без переданного ``source``. ``certificate`` — сертификат
+    обезличивания (план М3, ``masker.validate.certificate``) —
+    ``None``, только если ``ValidationReport`` собран в обход
+    ``ValidateAgent.validate`` (тесты).
     """
     return {
         "status": "checked",
@@ -216,6 +265,7 @@ def _validation_record(report: ValidationReport) -> dict[str, Any]:
         "leaked_count": len(report.leaked),
         "residual_count": len(report.residual),
         "layout": [dataclasses.asdict(item) for item in report.layout],
+        "certificate": dataclasses.asdict(report.certificate) if report.certificate else None,
     }
 
 
@@ -227,6 +277,38 @@ def _validation_skipped(reason: str) -> dict[str, Any]:
     редактирующего рендера, значит и результата проверки нет).
     """
     return {"status": "skipped", "reason": reason}
+
+
+def marker_legend(render_degradations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Собрать строки легенды сокращений маркера (план М1, правило 6).
+
+    Вход — ``report["render_degradations"]``: один элемент на каждую замену,
+    для которой лестница отступления (``mask/labels.py::marker_ladder``)
+    реально спустилась со ступени — то есть на странице показан не
+    ``canonical_label``, а его сокращение (``shown_label`` != пусто и не
+    равен каноническому). Заказчик видит в документе, например, ``[Ф1]`` —
+    легенда объясняет, что это значит и на каких страницах встречается:
+    ``{"shown_label": "[Ф1]", "canonical_label": "[ПОСТАВЩИК-ФИО-1]",
+    "pages": [3, 5]}``.
+
+    Деградации со ступенью «blank» (``shown_label == ""``, вообще ничего не
+    вписано) в легенду не попадают — расшифровывать в документе нечего, там
+    только закраска без текста. Страницы — человекочитаемая нумерация с 1,
+    а не 0-based индекс PyMuPDF, которым оперирует рендер. Результат
+    отсортирован по (``shown_label``, ``canonical_label``) — детерминизм
+    отчёта не должен зависеть от порядка ``render_degradations`` на входе.
+    """
+    pages_by_key: dict[tuple[str, str], set[int]] = defaultdict(set)
+    for item in render_degradations:
+        shown = str(item.get("shown_label") or "")
+        canonical = str(item.get("canonical_label") or "")
+        if not shown or not canonical or shown == canonical:
+            continue
+        pages_by_key[(shown, canonical)].add(int(item.get("page", 0)) + 1)
+    return [
+        {"shown_label": shown, "canonical_label": canonical, "pages": sorted(pages)}
+        for (shown, canonical), pages in sorted(pages_by_key.items())
+    ]
 
 
 def build_report_payload(
@@ -261,17 +343,31 @@ def build_report_payload(
     group_id_by_ref = (
         {repl.ref: repl.group_id for repl in plan.replacements} if plan is not None else {}
     )
+    # Р8: уровень уверенности по ссылке — читается прямо из `entities`
+    # (``Entity.level`` проставляет ``DetectAgent.detect()``), а не
+    # пересчитывается здесь заново — единственный источник правды один раз
+    # посчитан на детекции.
+    level_by_ref: dict[str, str] = (
+        {
+            ref_by_entity_id[id(entity)]: entity.level.value
+            for entity in entities
+            if id(entity) in ref_by_entity_id
+        }
+        if ref_by_entity_id is not None
+        else {}
+    )
     # ``document_coverage`` PDF-варианта не содержит ключа "tables" —
     # ``_limitations`` (докс-специфичные пункты) на нём упал бы KeyError;
     # PDF всегда идёт по ``_limitations_pdf`` (T1.10, шаг 9: единый путь
     # для обоих форматов).
-    limitations = (
-        _limitations_pdf(document_coverage)
-        if document.fmt == "pdf"
-        else _limitations(
+    if document.fmt == "pdf":
+        limitations = _limitations_pdf(document_coverage)
+    elif document.fmt == "xlsx":
+        limitations = _limitations_xlsx(document_coverage)
+    else:
+        limitations = _limitations(
             document_coverage, llm_trace=llm_trace, critical_unmasked=critical_unmasked
         )
-    )
     report: dict[str, Any] = {
         "report_version": REPORT_VERSION,
         "input": source.name,
@@ -307,8 +403,17 @@ def build_report_payload(
         ],
         "limitations": limitations,
     }
+    review_possible: list[dict[str, Any]] = []
     if plan is not None:
-        report["plan"] = _plan_record(plan, registry or EntityTypeRegistry.builtin())
+        plan_record = _plan_record(plan, registry or EntityTypeRegistry.builtin(), level_by_ref)
+        report["plan"] = plan_record
+        # Р8, «снять одним кликом»: отдельная секция с группами уровня
+        # "possible" — ровно то, что заказчик просил не искать по всему
+        # отчёту, а увидеть одним списком.
+        review_possible = [
+            group for group in plan_record["groups"] if group["level"] == ConfidenceLevel.POSSIBLE
+        ]
+    report["review_possible"] = review_possible
     if profile_result is not None and judge_result is not None:
         # Сериализаторы графа задают единый публичный JSON-формат для CLI и State.
         report["profile_judge"] = {

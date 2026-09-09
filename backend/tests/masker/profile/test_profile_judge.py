@@ -1,11 +1,23 @@
 from pathlib import Path
 
+import pytest
+
 from masker.detect.agent import DetectAgent
+from masker.detect.confidence import classify_level
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.ingest.docx_ingest import ingest_docx
 from masker.judge import JudgeAgent
 from masker.mask.agent import PlanAgent
-from masker.model import Action, Anchor, Document, Entity, EntityType, Segment, Source
+from masker.model import (
+    Action,
+    Anchor,
+    ConfidenceLevel,
+    Document,
+    Entity,
+    EntityType,
+    Segment,
+    Source,
+)
 from masker.profile import ProfileAgent
 from masker.refs import EntityIndex
 
@@ -98,6 +110,31 @@ def test_critical_never_asked_and_repeated_phone_is_one_question() -> None:
         verdict.action is Action.KEEP
         for verdict in JudgeAgent().apply_answers(result, {"Q1": "оставить"})[1:]
     )
+
+
+@pytest.mark.parametrize("ask_below", [0.0, 0.3, 0.75, 1.0])
+def test_critical_type_masked_silently_regardless_of_ask_policy(ask_below: float) -> None:
+    """Р8, приёмка: «переключение политики не меняет поведение критичных
+    типов» — критичный тип (ИНН, source=NER, confidence=0.1 — заведомо
+    ниже любого разумного порога) маскируется молча при любом ``ask_below``,
+    от «спрашивать почти всегда» (1.0) до «никогда не спрашивать» (0.0).
+    Уровень уверенности (Р8) той же сущности остаётся ``CONFIRMED`` — это
+    решает критичность типа, а не порог судьи."""
+    segment = Segment("ИНН 7707083893 указан в реквизитах.", Anchor("docx", ("body", 0)), 0)
+    weak_inn = Entity(
+        EntityType.INN, "7707083893", 0, 4, 14, Source.NER, confidence=0.1, normalized="7707083893"
+    )
+    entities = [weak_inn]
+    document = Document("test.docx", "docx", [segment])
+    detection = DetectionResult(entities, build_pii_chunks(document.segments, entities))
+    profiles = ProfileAgent().profile(document, detection)
+
+    result = JudgeAgent(ask_below=ask_below).judge(detection, profiles)
+
+    assert result.verdicts[0].action is Action.MASK
+    assert result.verdicts[0].question_id == ""
+    assert result.questions == []
+    assert classify_level(weak_inn, signal_count=1) == ConfidenceLevel.CONFIRMED
 
 
 def test_judge_handles_llm_candidates_that_are_not_in_detection_index() -> None:

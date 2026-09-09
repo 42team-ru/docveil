@@ -1,0 +1,149 @@
+{
+  "entities": [
+    {
+      "type": "org_name",
+      "text": "Общество с ограниченной ответственностью «Волга-Техномаш»",
+      "party": "supplier"
+    },
+    {
+      "type": "inn",
+      "text": "1658123405",
+      "party": "supplier"
+    },
+    {
+      "type": "kpp",
+      "text": "165801001",
+      "party": "supplier"
+    },
+    {
+      "type": "ogrn",
+      "text": "1021602345016",
+      "party": "supplier"
+    },
+    {
+      "type": "person",
+      "text": "Морозова Артёма Викторовича",
+      "party": "supplier"
+    },
+    {
+      "type": "org_name",
+      "text": "Государственное бюджетное учреждение здравоохранения «Городская клиническая больница № 15»",
+      "party": "customer"
+    },
+    {
+      "type": "inn",
+      "text": "7701234560",
+      "party": "customer"
+    },
+    {
+      "type": "kpp",
+      "text": "770101001",
+      "party": "customer"
+    },
+    {
+      "type": "ogrn",
+      "text": "1037700123405",
+      "party": "customer"
+    },
+    {
+      "type": "person",
+      "text": "Беляевой Дарьи Игоревны",
+      "party": "customer"
+    },
+    {
+      "type": "federal_law",
+      "text": "44-ФЗ"
+    },
+    {
+      "type": "address",
+      "text": "420111, Респ. Татарстан, г. Казань, ул. Профсоюзная, д. 15, оф. 302"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810800000000003",
+      "party": "supplier"
+    },
+    {
+      "type": "bik",
+      "text": "049205603",
+      "party": "supplier"
+    },
+    {
+      "type": "phone",
+      "text": "+7-917-123-45-67",
+      "party": "supplier"
+    },
+    {
+      "type": "email",
+      "text": "sales@volga-technomash.example",
+      "party": "supplier"
+    },
+    {
+      "type": "snils",
+      "text": "223-344-556 39",
+      "party": "supplier"
+    },
+    {
+      "type": "address",
+      "text": "115280, г. Москва, ул. Ленинская Слобода, д. 26"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810100000000004",
+      "party": "customer"
+    },
+    {
+      "type": "bik",
+      "text": "044525225",
+      "party": "customer"
+    },
+    {
+      "type": "phone",
+      "text": "8 (495) 987-65-43",
+      "party": "customer"
+    },
+    {
+      "type": "email",
+      "text": "info@gkb15.example",
+      "party": "customer"
+    },
+    {
+      "type": "contract_amount",
+      "text": "2 480 000 рублей"
+    },
+    {
+      "type": "delivery_period",
+      "text": "Срок поставки — 45 рабочих дней"
+    },
+    {
+      "type": "payment_terms",
+      "text": "в течение 15 банковских дней с момента подписания"
+    },
+    {
+      "type": "payment_terms",
+      "text": "Аванс — 30%"
+    },
+    {
+      "type": "payment_terms",
+      "text": "в течение 10 рабочих дней после подписания"
+    },
+    {
+      "type": "person",
+      "text": "А.В. Морозов",
+      "party": "supplier"
+    },
+    {
+      "type": "person",
+      "text": "Д.И. Беляева",
+      "party": "customer"
+    },
+    {
+      "type": "date",
+      "text": "12 февраля 2026"
+    },
+    {
+      "type": "contract_number",
+      "text": "87/2026"
+    }
+  ]
+}

@@ -26,8 +26,8 @@
       "party": "buyer"
     },
     {
-      "type": "person",
-      "text": "Сидоров С.С",
+      "type": "org_name",
+      "text": "ИП Сидоров С.С.",
       "party": "third_party"
     },
     {

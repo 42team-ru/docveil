@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import functools
 import re
 import unicodedata
+from pathlib import Path
+
+import yaml
 
 PREAMBLE = re.compile(r"именуем\w*\s+в\s+дальнейшем\s+[«\"]([^»\"]+)[»\"]", re.IGNORECASE)
 # Захват без ограничения длины (было `[А-ЯЁа-яё\- ]+`) на сегменте-строке не
@@ -14,12 +18,107 @@ PREAMBLE = re.compile(r"именуем\w*\s+в\s+дальнейшем\s+[«\"]([
 # МАОУ гимназия» целиком стало одной «ролью». Роль — максимум два слова
 # («Поставщика», «Финансового управляющего»), как и было в каждом реальном
 # употреблении REQUISITES до этого дефекта.
+# И2-2: тот же заголовок «РЕКВИЗИТЫ И ПОДПИСИ СТОРОН» после укорачивания
+# захвата стал ловить союз «И» как начало «роли» («и подписи») — это не
+# роль стороны, а мусор из заголовка раздела. Мусорная метка склеивала
+# профили заказчика и исполнителя в один: `cluster.py` объединяет блоки с
+# одинаковой меткой независимо от того, о какой стороне блок на самом деле
+# (contract_pdf_02_school.pdf, где обе стороны идут двумя соседними
+# абзацами реквизитов без общего заголовка). Союзы-исключения — не
+# хардкод роли, а фильтр служебных слов, которые ролью быть не могут.
 REQUISITES = re.compile(
-    r"(?:^|\b)реквизиты\s+([А-ЯЁ][а-яёА-ЯЁ\-]*(?:\s+[А-ЯЁ][а-яёА-ЯЁ\-]*)?)", re.IGNORECASE
+    r"(?:^|\b)реквизиты\s+(?!и\b|или\b)([А-ЯЁ][а-яёА-ЯЁ\-]*(?:\s+[А-ЯЁ][а-яёА-ЯЁ\-]*)?)",
+    re.IGNORECASE,
 )
 SIGNATURE = re.compile(
     r"^\s*(?:\d+(?:\.\d+)*\.?\s*)?([А-ЯЁ][А-ЯЁа-яё\- ]{1,40}):\s*(?=[_—-]{2,}|[А-ЯЁ])"
 )
+# И2-2: роль из формулировки обязательств. Документы без преамбулы
+# «именуемое в дальнейшем» (school-контракт) вообще не называют роль ни
+# разу в именительном падеже рядом со стороной — единственная связка роли
+# с конкретным лицом идёт через оборот «Уполномоченным представителем
+# <РОЛЬ> ... является <ФИО>». Роль после «представител…» всегда стоит в
+# родительном падеже — приводится к именительному через `_to_nominative`,
+# иначе она разъезжается по форме с той же ролью, найденной SIGNATURE/
+# PREAMBLE в именительном, и `blocks.py::_known_label` их не склеит.
+REPRESENTATIVE = re.compile(
+    r"представител[а-яёА-ЯЁ]*\s+([А-ЯЁа-яё]+)[^.]{0,250}?явля(?:ется|ются)\b",
+    re.IGNORECASE,
+)
+# И2-2: роль из шапки подписей «Заказчик Исполнитель». В школьном договоре
+# (contract_pdf_02_school.pdf) двухколоночная подпись на каждой странице
+# расплющивается PDF-экстракцией в одну строку «Заказчик Исполнитель
+# Директор МАОУ гимназии № 144» — рядом с этой же строкой (или сразу
+# следом) идёт наименование первой стороны, а второй — в следующем
+# сегменте. Формулировка «Х обязуется... по заданию Y», которую называет
+# план, в этом документе выглядит как эта голая пара ролей: два известных
+# слова-роли подряд без знаков препинания между ними, порядок слов и есть
+# порядок появления сторон. Список ролей — тот же `party_roles.yaml`, что и
+# у `SIGNATURE`, а не хардкод: пара валидна только если ОБА слова в ней —
+# известные роли стороны, и это разные роли (не повтор одного слова).
+ROLE_PAIR = re.compile(r"\b([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)\b")
+
+
+@functools.lru_cache(maxsize=1)
+def _party_role_stems() -> tuple[str, ...]:
+    """Прочитать список ролей сторон из данных (не из кода) один раз за процесс."""
+    path = Path(__file__).with_name("data") / "party_roles.yaml"
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return tuple(raw["role_stems"])
+
+
+def _is_known_party_role(label: str) -> bool:
+    """Проверить метку по списку ролей-сторон (данные `data/party_roles.yaml`).
+
+    Матч по усечённой основе, а не по точному слову: `SIGNATURE` обычно
+    захватывает именительный падеж («Поставщик:»), но основа не ломается на
+    случайной словоформе. Короткая метка не может «начинаться» с более
+    длинной основы — `str.startswith` на строке короче образца сам по себе
+    вернёт `False`, отдельная проверка длины не нужна.
+    """
+    return any(label.startswith(stem) for stem in _party_role_stems())
+
+
+@functools.lru_cache(maxsize=1)
+def _morph_vocab():  # type: ignore[no-untyped-def]
+    """Собрать `natasha.MorphVocab` один раз за процесс (лениво, как в `detect/morph.py`)."""
+    from natasha import MorphVocab
+
+    return MorphVocab()
+
+
+def _to_nominative(label: str) -> str:
+    """Привести словоформу роли к именительному падежу по словарю OpenCorpora.
+
+    Нужно только для `REPRESENTATIVE`: захваченное слово («заказчика») стоит
+    в родительном падеже по самой грамматике оборота «представителем X», а
+    роль должна выглядеть и сравниваться так же, как та же роль, введённая
+    `PREAMBLE`/`SIGNATURE` в именительном («заказчик»). Без явного разбора
+    существительного эвристика может по ошибке привести к нормальной форме
+    вообще другую часть речи — фильтр `pos == "NOUN"` обязателен.
+    """
+    for parse in _morph_vocab().parse(label):
+        if parse.pos == "NOUN":
+            return str(parse.normal)
+    return label
+
+
+def _is_nominative_role(label: str) -> bool:
+    """Проверить, что слово — существительное в именительном падеже.
+
+    Нужно для `ROLE_PAIR`: голая пара слов-ролей рядом («Заказчик
+    Исполнитель») — это шапка подписи, где обе роли названы именем стороны
+    (именительный). Та же пара слов в обычном предложении («уведомления
+    Заказчиком Исполнителя об отказе») называет не шапку, а падежные formы
+    существительных внутри фразы — это НЕ шапка с ролями сторон, а просто
+    два слова-роли, упомянутые по ходу текста; без проверки падежа
+    `_known_label` в `blocks.py` склеивала бы «заказчиком» с «заказчик» по
+    первым буквам основы и портила уже верно найденную метку.
+    """
+    return any(
+        parse.pos == "NOUN" and parse.tag.case == "nomn" and parse.tag.number == "sing"
+        for parse in _morph_vocab().parse(label)
+    )
 
 
 def normalize_label(label: str) -> str:
@@ -43,13 +142,60 @@ def _is_collective(label: str) -> bool:
 
 
 def find_labels(text: str) -> list[tuple[int, str]]:
-    """Найти ролевые метки только в контекстах, явно задающих роль."""
+    """Найти ролевые метки только в контекстах, явно задающих роль.
+
+    `PREAMBLE` и `REQUISITES` по построению обрамляют роль стороны словами
+    самой формулировки («именуемое в дальнейшем», «реквизиты …») — их
+    результат не проверяется дополнительно. `SIGNATURE` — это голая
+    регулярка «Слово:» в начале строки, ей ничего не мешает поймать
+    должность подписанта («Директор:») или текст ячейки таблицы
+    («Объединённая ячейка: ИНН …»), поэтому её находки допускаются только
+    если метка либо входит в список ролей-сторон, либо уже введена этим же
+    текстом через `PREAMBLE` (план И2-1, `docs/plans/tasks-krmi-2026-09-09.md`).
+    `REPRESENTATIVE` (план И2-2) — та же голая регулярка «представителем X …
+    является Y», её находки проверяются точно так же.
+    """
     found: list[tuple[int, str]] = []
-    for expression in (PREAMBLE, REQUISITES, SIGNATURE):
-        for match in expression.finditer(text):
-            label = normalize_label(match.group(1))
-            if label and not _is_collective(label):
-                found.append((match.start(1), label))
+    preamble_labels: set[str] = set()
+    for match in PREAMBLE.finditer(text):
+        label = normalize_label(match.group(1))
+        if label and not _is_collective(label):
+            preamble_labels.add(label)
+            found.append((match.start(1), label))
+    for match in REQUISITES.finditer(text):
+        label = normalize_label(match.group(1))
+        if label and not _is_collective(label):
+            found.append((match.start(1), label))
+    for match in SIGNATURE.finditer(text):
+        label = normalize_label(match.group(1))
+        if not label or _is_collective(label):
+            continue
+        if label in preamble_labels or _is_known_party_role(label):
+            found.append((match.start(1), label))
+    for match in REPRESENTATIVE.finditer(text):
+        label = normalize_label(match.group(1))
+        if not label or _is_collective(label):
+            continue
+        if label in preamble_labels:
+            found.append((match.start(1), label))
+        elif _is_known_party_role(label):
+            found.append((match.start(1), _to_nominative(label)))
+    for match in ROLE_PAIR.finditer(text):
+        first = normalize_label(match.group(1))
+        second = normalize_label(match.group(2))
+        if (
+            first
+            and second
+            and first != second
+            and not _is_collective(first)
+            and not _is_collective(second)
+            and _is_known_party_role(first)
+            and _is_known_party_role(second)
+            and _is_nominative_role(match.group(1))
+            and _is_nominative_role(match.group(2))
+        ):
+            found.append((match.start(1), first))
+            found.append((match.start(2), second))
     return sorted(set(found), key=lambda item: item[0])
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import shutil
+import zipfile
 
 import pymupdf
 import pytest
@@ -13,12 +14,15 @@ import masker.render.docx_redact as docx_redact_module
 from masker.detect.agent import DetectAgent
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
+from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.mask.agent import PlanAgent
 from masker.model import Action, Document, Entity, EntityType, Source
 from masker.refs import EntityIndex
 from masker.render.docx_redact import render_docx_redacted
 from masker.render.pdf_render import render_pdf_redacted
+from masker.render.xlsx_redact import render_xlsx_redacted
 from masker.validate.agent import ValidateAgent
+from masker.validate.parts import xlsx_parts
 
 ROOT = next(
     parent
@@ -112,6 +116,72 @@ def test_broken_render_is_caught(tmp_path: pathlib.Path, monkeypatch: pytest.Mon
     assert report.leaked
     assert any(leak.kind == "raw" for leak in report.leaked)
     assert any(leak.kind == "detector" for leak in report.leaked)
+
+
+def test_xlsx_render_is_checked_for_leaks_and_gets_certificate(tmp_path: pathlib.Path) -> None:
+    """XLSX проходит те же validate/certificate-ворота, что DOCX и PDF."""
+    source = FIXTURES / "order_01.xlsx"
+    document = ingest_xlsx(source)
+    entities = DetectAgent().detect(document).entities
+    plan = PlanAgent().plan(document, entities)
+    destination = tmp_path / "masked.xlsx"
+
+    render_xlsx_redacted(source, destination, document, plan, style="marker")
+    report = ValidateAgent().validate(plan, [destination], source=source)
+
+    assert report.ok is True
+    assert report.leaked == ()
+    assert any(part.endswith("xl/worksheets/sheet1.xml") for part in report.checked_parts)
+    assert report.certificate is not None
+    assert report.certificate.ok is True
+    source_worksheet_text = {part.name: part.text for part in xlsx_parts(source)}
+    assert "3662103003" in source_worksheet_text["xl/worksheets/sheet1.xml"]
+    # Текст первого листа не подставляется в каждый XML лист: иначе eval
+    # посчитает маркер повторно и получит ложный duplicate_markers.
+    assert "3662103003" not in source_worksheet_text["xl/worksheets/sheet2.xml"]
+
+
+def test_xlsx_validate_scans_worksheets_shared_strings_and_calc_chain(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Скан контейнера не ограничен видимыми ячейками.
+
+    В ``calcChain.xml`` обычно нет значения, но он всё равно должен быть
+    частью побайтового прохода: Excel-файлы от внешних систем не обязаны
+    соблюдать это ожидание. В листе хранится и обычное значение, и кэш
+    формулы, поэтому проверка листа покрывает оба носителя.
+    """
+    source = FIXTURES / "order_01.xlsx"
+    document = ingest_xlsx(source)
+    entities = DetectAgent().detect(document).entities
+    plan = PlanAgent().plan(document, entities)
+    value = next(replacement.entity.text for replacement in plan.replacements)
+    artifact = tmp_path / "leaking.xlsx"
+    shutil.copy2(source, artifact)
+    with zipfile.ZipFile(artifact, "a") as archive:
+        archive.writestr(
+            "xl/sharedStrings.xml",
+            (
+                '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                f"<si><t>{value}</t></si></sst>"
+            ),
+        )
+        archive.writestr(
+            "xl/calcChain.xml",
+            (
+                '<calcChain xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                f'<c r="A1" i="{value}"/>'
+                "</calcChain>"
+            ),
+        )
+
+    report = ValidateAgent().validate(plan, [artifact], source=source)
+
+    assert report.ok is False
+    raw_parts = {leak.part for leak in report.leaked if leak.kind == "raw"}
+    assert any(name.startswith("xl/worksheets/") for name in raw_parts)
+    assert "xl/sharedStrings.xml" in raw_parts
+    assert "xl/calcChain.xml" in raw_parts
 
 
 def test_clean_render_has_no_leaks(tmp_path: pathlib.Path) -> None:
@@ -333,3 +403,57 @@ def test_render_pdf_redacted_is_actually_clean(tmp_path: pathlib.Path) -> None:
 
     assert report.ok is True
     assert report.leaked == ()
+
+
+def test_validate_attaches_certificate_for_pdf_with_source(tmp_path: pathlib.Path) -> None:
+    """План М3: ``ValidateAgent.validate`` обязан вернуть заполненный
+    ``ValidationReport.certificate`` (не ``None``) с тремя проверенными
+    пунктами, когда передан ``source`` PDF-документа — иначе сертификат
+    просто не появляется ни в ``report.json``, ни в отчёте человеку."""
+    src = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), f"ИНН {_INN}", fontsize=12)
+    doc.save(str(src))
+    doc.close()
+
+    document = ingest_pdf(src)
+    entity = _entity_for(document, _INN, EntityType.INN)
+    plan = PlanAgent().plan(document, [entity])
+
+    dest = tmp_path / "redacted.pdf"
+    render_pdf_redacted(src, dest, document, plan, style="marker")
+
+    report = ValidateAgent().validate(plan, [dest], source=src)
+
+    assert report.certificate is not None
+    assert report.certificate.ok is True
+    assert {check.name for check in report.certificate.checks} == {
+        "leak_scan",
+        "metadata_cleared",
+        "width_quantization",
+    }
+
+
+def test_validate_certificate_leak_scan_fails_when_render_is_broken(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Симметрия с ``test_broken_render_is_caught``: утечка не только
+    попадает в ``report.leaked``, но и роняет пункт ``leak_scan`` сертификата
+    — иначе сертификат мог бы «пройти», пока настоящий отчёт кричит об
+    утечке."""
+    src = _make_docx(tmp_path, f"ИНН {_INN}")
+    document = ingest_docx(src)
+    entity = _entity_for(document, _INN, EntityType.INN)
+    plan = PlanAgent().plan(document, [entity])
+
+    # "Сломанный" рендер: копия исходника без какой-либо правки.
+    dest = tmp_path / "redacted.docx"
+    shutil.copy2(src, dest)
+
+    report = ValidateAgent().validate(plan, [dest])
+
+    assert report.certificate is not None
+    assert report.certificate.ok is False
+    leak_check = next(check for check in report.certificate.checks if check.name == "leak_scan")
+    assert leak_check.ok is False

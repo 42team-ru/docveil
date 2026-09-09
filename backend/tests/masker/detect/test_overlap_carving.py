@@ -1,7 +1,8 @@
+import dataclasses
 from dataclasses import dataclass
 
 from masker.detect.agent import DetectAgent
-from masker.model import Anchor, Document, Entity, EntityType, Segment, Source
+from masker.model import Anchor, ConfidenceLevel, Document, Entity, EntityType, Segment, Source
 
 
 @dataclass
@@ -62,7 +63,14 @@ def test_carved_fragment_without_letters_dropped() -> None:
         [Entity(EntityType.INN, "3662103003", 0, number, number + 10, Source.RULE)],
     )
 
-    assert DetectAgent([model, rule]).detect(document).entities == rule.entities
+    # Уровень уверенности (Р8) не проверяется здесь — сущность критичного
+    # типа (ИНН) всегда `CONFIRMED`, вне зависимости от того, что творится с
+    # обрезкой соседних спанов, поэтому ожидание достраивается явным полем,
+    # а не выясняется заново тем же кодом.
+    expected = [
+        dataclasses.replace(entity, level=ConfidenceLevel.CONFIRMED) for entity in rule.entities
+    ]
+    assert DetectAgent([model, rule]).detect(document).entities == expected
 
 
 def test_rule_entity_is_never_carved() -> None:
@@ -74,7 +82,12 @@ def test_rule_entity_is_never_carved() -> None:
         "second", Source.RULE, 90, [Entity(EntityType.PASSPORT, "2103003", 0, 7, 14, Source.RULE)]
     )
 
-    assert DetectAgent([first, second]).detect(document).entities == first.entities
+    # ИНН — критичный тип, поэтому уровень (Р8) всегда `CONFIRMED` независимо
+    # от исхода разрешения перекрытий, проверяемого этим тестом.
+    expected = [
+        dataclasses.replace(entity, level=ConfidenceLevel.CONFIRMED) for entity in first.entities
+    ]
+    assert DetectAgent([first, second]).detect(document).entities == expected
 
 
 def test_detector_order_does_not_change_result() -> None:

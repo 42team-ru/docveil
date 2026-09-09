@@ -74,8 +74,38 @@ _STOP_PAIR_SECOND = frozenset({"одной", "другой"})
 #: Не более 6 слов в названии, набранном без кавычек.
 _MAX_WORDS = 6
 #: Формы, за которыми в тексте следует ФИО владельца, а не название
-#: организации, — см. докстринг модуля.
+#: организации, — см. докстринг модуля и раздел Р5 ниже.
 _PERSON_IDENTIFIED_FORMS = frozenset({"ип", "индивидуальный предприниматель"})
+
+#: Р5: «ИП Фамилия И.О.» и «Индивидуальный предприниматель Фамилия Имя
+#: Отчество» — сторона договора без юридического лица, но с полным ФИО
+#: вместо названия. Форма не даёт кавычек, поэтому имя ищется отдельным,
+#: специально ФИО-образным паттерном, а не общим `_expand_right_plain`:
+#: у последнего нет естественного стоп-условия на конце личного имени
+#: (нет запятой/номера) — он захватил бы «Сидоров С.С. направил документы»
+#: целиком до первой запятой/предела в 6 слов. Порядок альтернатив важен:
+#: полное ФИО (3 слова) проверяется первым, иначе на «Пётр» жадно
+#: сработала бы попытка инициалов и откусила бы только «Пётр» как единственное
+#: слово (не совпадёт, но альтернация должна пробовать более длинный вариант
+#: первым по стилю кода).
+_PERSON_NAME_TAIL_RE = re.compile(
+    r"[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+|\s+(?:[А-ЯЁ]\.){1,3})"
+)
+
+
+def _followed_by_requisite_label(text: str, end: int) -> bool:
+    """ФИО сразу сопровождается реквизитной меткой («, ИНН 500100732259,
+    СНИЛС …») — это блок персональных данных физлица (реальный кейс
+    `contract_02_hard.docx`, Акт сверки), а не представление стороны
+    договора. В этом контексте `org_name` не нужен — единственный источник
+    остаётся `person` (`NatashaDetector`), как и до Р5."""
+    cursor = end
+    while cursor < len(text) and text[cursor] in " \t ,":
+        cursor += 1
+    match = re.match(r"[А-Яа-яЁёA-Za-z./]+", text[cursor:])
+    if match is None:
+        return False
+    return match.group().strip(".").casefold() in org_forms().requisite_labels
 
 
 def _quote_chars() -> frozenset[str]:
@@ -174,9 +204,28 @@ class OrgFormDetector:
             for match in pattern.finditer(text):
                 if not text[match.start()].isupper():
                     continue
-                if " ".join(match.group().casefold().split()) in _PERSON_IDENTIFIED_FORMS:
-                    continue
                 start, end = match.start(), match.end()
+                if " ".join(match.group().casefold().split()) in _PERSON_IDENTIFIED_FORMS:
+                    name_cursor = end
+                    while name_cursor < len(text) and text[name_cursor] in " \t ":
+                        name_cursor += 1
+                    name_match = _PERSON_NAME_TAIL_RE.match(text, name_cursor)
+                    if name_match is None or _followed_by_requisite_label(text, name_match.end()):
+                        continue
+                    value = text[start : name_match.end()]
+                    found.append(
+                        Entity(
+                            type=EntityType.ORG_NAME,
+                            text=value,
+                            segment_order=segment.order,
+                            start=start,
+                            end=name_match.end(),
+                            source=Source.RULE,
+                            confidence=0.95,
+                            normalized=normalize_value(EntityType.ORG_NAME, value),
+                        )
+                    )
+                    continue
                 cursor = end
                 while cursor < len(text) and text[cursor] in " \t ":
                     cursor += 1

@@ -11,6 +11,7 @@ dependencies = [
     "pytesseract>=0.3.13",
     "pillow>=12",
     "gigachat>=0.1",
+    "jsonschema>=4.20",
     "pyyaml>=6",
     "langgraph>=1.2",
     "langgraph-checkpoint-sqlite>=2",
@@ -27,6 +28,14 @@ dependencies = [
     "bcrypt>=4.2",
     "minio>=7.2",
     "python-multipart>=0.0.12",
+    # pymorphy2 (транзитивная зависимость natasha) на импорте лезет в
+    # pkg_resources (analyzer.py, utils.py). setuptools>=81 этот модуль уже
+    # не поставляет — без пина сборка по uv.lock без extra `gliner` вообще
+    # не тянет setuptools в venv, и любой тест с морфологией падает с
+    # ModuleNotFoundError. Снять пин можно, когда natasha перейдёт на
+    # pymorphy3 (не использует pkg_resources) или когда pymorphy2 сам
+    # перестанет его импортировать.
+    "setuptools<81",
 ]
 
 [project.optional-dependencies]
@@ -101,5 +110,6 @@ module = [
     "masker.render.pdf_render",
     "masker.validate.parts",
     "masker.validate.pdf_layout",
+    "masker.validate.certificate",
 ]
 ignore_errors = true

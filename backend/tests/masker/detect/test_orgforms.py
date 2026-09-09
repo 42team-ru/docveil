@@ -63,6 +63,19 @@ def test_role_stopword_does_not_drop_org_names() -> None:
     assert not is_role_stopword("Продавцов и сыновья")
 
 
+def test_budgetary_institution_form_expanded() -> None:
+    """Р9-2: `expand_org_span` тянет влево полную форму бюджетного
+    учреждения, а не только название в кавычках (holdout_01_supply.docx,
+    план `docs/plans/tasks-krmi-2026-09-09.md`, §0.2 и Р9-2)."""
+    text = (
+        "Государственное бюджетное учреждение здравоохранения "
+        "«Городская клиническая больница № 15», ИНН 7701234560"
+    )
+    start = text.index("«")
+    end = text.index("»") + 1
+    assert expand_org_span(text, start, end) == (0, end)
+
+
 def test_common_prefix_forms_are_deterministic() -> None:
     text = "Закрытое акционерное общество «Ромашка»"
     start = text.index("Ромашка")
@@ -128,6 +141,31 @@ def test_public_body_is_dropped_without_prefix_collisions() -> None:
 def test_person_initial_gets_trailing_dot() -> None:
     text = "ИП Сидоров С.С."
     assert fix_person_initials(text, 3, len(text) - 1) == (3, len(text))
+
+
+def test_person_initial_dot_survives_shrink_span() -> None:
+    """Р4, кейс 3 (`Пилипенко С.А.`): NER-спан уже содержит завершающую точку
+    инициала, но `shrink_span` стриг её безусловно первой же операцией
+    (``_trim_shrink_bounds``), не заглянув, что это не случайная пунктуация,
+    а точка после одиночной заглавной буквы («С.А.»). Обычную сентенс-точку
+    ``shrink_span`` по-прежнему обязан снимать — второй кейс ниже."""
+    text = "Пилипенко С.А."
+    assert shrink_span(text, 0, len(text)) == (0, len(text))
+
+
+def test_shrink_span_still_drops_plain_trailing_dot() -> None:
+    text = "ООО «Ромашка»."
+    assert shrink_span(text, 0, len(text)) == (0, len("ООО «Ромашка»"))
+
+
+def test_fix_person_initials_extends_oglu_suffix() -> None:
+    """Р4, кейс 2 (`Мамедов Э.Г.о.`): NER отдаёт спан только по последний
+    инициал без точки («Мамедов Э.Г»), хвост «о.» (сокращение «оглы») —
+    за пределами спана."""
+    text = "Согласовано: Мамедов Э.Г.о., начальник ОТК"
+    start = text.index("Мамедов")
+    raw_end = start + len("Мамедов Э.Г")
+    assert fix_person_initials(text, start, raw_end) == (start, start + len("Мамедов Э.Г.о."))
 
 
 # ---------------------------------------------------------------------------

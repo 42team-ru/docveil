@@ -232,6 +232,51 @@ def test_redacted_marker_appears_in_text(tmp_path: pathlib.Path) -> None:
     assert "[ИНН]" in text
 
 
+def test_centered_marker_uses_vector_dots_without_polluting_text_layer(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Маркер стоит в центре своей области, а точки остаются только графикой.
+
+    Возврат ``insert_textbox(... TEXT_ALIGN_LEFT)`` оставит заметно большой
+    левый зазор и уронит это сравнение координат. Если заменить векторные
+    точки строкой ``"..."``, упадёт проверка text layer.
+    """
+    src = _make_pdf_with_inn(tmp_path)
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    outcome = render_pdf_redacted(src, dest, document, _plan(document, [entity]))
+
+    replacement = outcome.replacements[0]
+    region = replacement.label_region
+    assert region is not None
+    shown = outcome.markers[0].shown_label
+    assert shown == "[ИНН]"
+
+    result = pymupdf.open(str(dest))
+    try:
+        chars = page_chars(result[0])
+        start = chars.text.index(shown)
+        marker_boxes = chars.boxes[start : start + len(shown)]
+        marker_box = pymupdf.Rect(marker_boxes[0])
+        for char_box in marker_boxes[1:]:
+            marker_box |= char_box
+        assert marker_box.x0 > region.x0 + 5.0  # не возвращаться к левому краю
+        assert abs(marker_box.x0 + marker_box.x1 - region.x0 - region.x1) < 0.2
+        assert "." not in chars.text
+        dot_drawings = [
+            drawing
+            for drawing in result[0].get_drawings()
+            if drawing["type"] == "f"
+            and drawing["items"]
+            and all(item[0] == "c" for item in drawing["items"])
+        ]
+        assert any(drawing["rect"].x1 < marker_box.x0 for drawing in dot_drawings)
+        assert any(drawing["rect"].x0 > marker_box.x1 for drawing in dot_drawings)
+    finally:
+        result.close()
+
+
 def test_pdf_marker_from_plan(tmp_path: pathlib.Path) -> None:
     """Ради этого шага всё затевалось: в PDF тоже маркер с ролью, а не
     латинский тип — человекочитаемой формы (план М4), а не капсом с дефисами.
@@ -1611,8 +1656,12 @@ def test_highlight_overlap_count_detects_a_widened_region_over_a_neighbour(
     ref = plan.replacements[0].ref
     real_geometry = compute_label_geometry(path, plan)
     region, text, size = real_geometry[ref]
+    # Центрированный маркер при расширении только справа сдвинулся бы в
+    # черновой реконструкции на 1pt и мог бы ложно «съесть» символ соседа.
+    # Расширяем поле симметрично: это по-прежнему намеренно испорченная
+    # подсветка над «№», но позиция настоящего маркера остаётся той же.
     widened_region = PdfRegion(
-        page=region.page, x0=region.x0, y0=region.y0, x1=region.x1 + 2.0, y1=region.y1
+        page=region.page, x0=region.x0 - 2.0, y0=region.y0, x1=region.x1 + 2.0, y1=region.y1
     )
     monkeypatch.setattr(
         pdf_render_module,

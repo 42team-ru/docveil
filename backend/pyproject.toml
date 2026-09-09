@@ -56,6 +56,9 @@ ocr = [
     # `make gate` работает через MASKER_OCR=fake, реальный движок нужен
     # только локально и в приёмочных прогонах.
     "paddleocr>=3.0",
+    # RapidOCR — альтернативный провайдер без зависимости от paddlepaddle;
+    # использует те же ONNX-веса из кэша PaddleX. MASKER_OCR=rapid.
+    "rapidocr-onnxruntime>=1.4",
 ]
 
 [project.scripts]

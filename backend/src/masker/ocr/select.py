@@ -81,11 +81,26 @@ def _make_paddle_vl() -> OCRProvider:
     return provider
 
 
+def _make_rapid() -> OCRProvider:
+    """Ленивая инициализация RapidOCR. Модуль импортируется здесь, чтобы
+    установка без extra ``ocr`` не падала на импорте."""
+    try:
+        from masker.ocr.rapid import RapidOCRProvider
+    except ImportError as error:
+        raise OCRError(
+            "провайдер 'rapid' требует rapidocr-onnxruntime: "
+            "`uv pip install --python .venv/bin/python rapidocr-onnxruntime`"
+        ) from error
+    provider: OCRProvider = RapidOCRProvider()
+    return provider
+
+
 #: Реестр фабрик провайдеров — единственное место, где перечислены имена
 #: и их реализации. Расширяется добавлением строки, снаружи не изменяется.
 _REGISTRY: dict[str, Callable[[], OCRProvider]] = {
     "fake": _make_fake,
     "paddle": _make_paddle,
     "paddle_vl": _make_paddle_vl,
+    "rapid": _make_rapid,
     "tesseract": _make_tesseract,
 }

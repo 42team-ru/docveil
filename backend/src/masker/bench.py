@@ -95,21 +95,34 @@ CARD_DOCS: tuple[Path, ...] = (
 )
 
 #: Форматы, которые граф умеет прогонять целиком (`extract_node`, CLI —
-#: `masker.cli._SUPPORTED_SUFFIXES`). XLSX уже есть в `fixtures/labeled`
-#: (М7 — ingest и рендер), но подключение к `extract_node`/графу — отдельная,
-#: ещё не сделанная задача (см. коммит М7: «не входит: подключение xlsx к
-#: воротам»). Документы других форматов из ``fixtures`` не выдумываем гонять
-#: через граф — честно исключаем и печатаем, что и почему пропущено.
-_GRAPH_SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf"})
+#: `masker.cli._SUPPORTED_SUFFIXES`). XLSX добавлен 09.09.2026: проводка
+#: через граф сделана вместе с М7, и оговорка «не входит: подключение xlsx
+#: к воротам» из того коммита больше не действует. Документы формата, который
+#: граф не умеет, не выдумываем гонять — честно исключаем и печатаем, что и
+#: почему пропущено.
+_GRAPH_SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf", ".xlsx"})
+
+#: Скан-документы OCR-корпуса (`scan_synth_*`) в замер не входят: у них нет
+#: текстового слоя, и без OCR-провайдера граф честно не находит в них ничего.
+#: `masker.eval.run` исключает их из основного корпуса по той же причине —
+#: числа bench и ворот обязаны считаться по одному и тому же множеству
+#: документов, иначе одно из них выглядит провалом на ровном месте (замерено
+#: 09.09.2026: bench давал recall 0.854 при 1.000 в воротах, вся разница —
+#: шесть критичных сущностей одного скана). Качество OCR меряется отдельно,
+#: своей метрикой `scan_critical_recall`.
+_SCAN_PREFIX = "scan_synth_"
 
 
 def _filter_graph_supported(
     corpus: list[tuple[Path, dict[str, Any]]],
 ) -> tuple[list[tuple[Path, dict[str, Any]]], list[Path]]:
-    supported = [item for item in corpus if item[0].suffix.casefold() in _GRAPH_SUPPORTED_SUFFIXES]
-    skipped = [
-        path for path, _labels in corpus if path.suffix.casefold() not in _GRAPH_SUPPORTED_SUFFIXES
-    ]
+    def _runnable(path: Path) -> bool:
+        return path.suffix.casefold() in _GRAPH_SUPPORTED_SUFFIXES and not path.stem.startswith(
+            _SCAN_PREFIX
+        )
+
+    supported = [item for item in corpus if _runnable(item[0])]
+    skipped = [path for path, _labels in corpus if not _runnable(path)]
     return supported, skipped
 
 
@@ -418,10 +431,17 @@ def run(args: argparse.Namespace) -> int:
     registry = corpus_registry(labeled_corpus + holdout_corpus)
 
     for skipped in (*labeled_skipped, *holdout_skipped):
-        print(
-            f"{skipped.name}: пропущен в замерах — граф ещё не прогоняет "
-            f"{skipped.suffix} целиком (extract_node знает только .docx/.pdf)"
-        )
+        if skipped.stem.startswith(_SCAN_PREFIX):
+            reason = (
+                "скан без текстового слоя, замер идёт без OCR-провайдера; "
+                "качество OCR меряется своей метрикой scan_critical_recall"
+            )
+        else:
+            reason = (
+                f"граф не прогоняет {skipped.suffix} целиком "
+                f"(extract_node знает {', '.join(sorted(_GRAPH_SUPPORTED_SUFFIXES))})"
+            )
+        print(f"{skipped.name}: пропущен в замерах — {reason}")
 
     print()
     labeled_metrics = measure_corpus(labeled_corpus, registry)

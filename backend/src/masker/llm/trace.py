@@ -24,6 +24,7 @@ _OUTCOME_LABELS: dict[str, str] = {
     "applied": "роль применена",
     "empty_role": "отклонена: модель вернула пустой role_title",
     "confidence_not_higher": "отклонена: уверенность модели не выше структурной",
+    "confidence_below_threshold": "отклонена: уверенность модели ниже порога роли",
     "rejected_by_validation": "отклонена валидацией",
 }
 

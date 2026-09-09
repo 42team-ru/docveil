@@ -28,18 +28,19 @@ ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
 )
 FIXTURE = ROOT / "fixtures" / "labeled" / "contract_01.docx"
+#: Только для теста конверта вопросов: в `contract_02_hard.docx` есть профиль
+#: без структурно подтверждённой роли, поэтому после И2-3 ProfileAgent
+#: действительно зовёт модель. Остальные тесты файла рассчитаны на
+#: `contract_01.docx` (там есть phone, на котором проверяется отказ от типа),
+#: поэтому общая фикстура остаётся прежней.
+OPEN_ROLE_FIXTURE = ROOT / "fixtures" / "labeled" / "contract_02_hard.docx"
 
-#: Ни одна сущность в contract_01.docx не набирает уверенность ниже порога
-#: судьи (все правила/NER дают >= 0.8) — вопрос "entity" естественным путём
-#: не возникает. Кандидат от LLM (Source.LLM, confidence <= 0.6) даёт его
-#: детерминированно, без сети — FakeProvider. Тип — "money": для него в
-#: проекте нет ни правила, ни NER (в отличие от "date" после T1.15), а
-#: сегмент 4 ("1. Реквизиты Поставщика") свободен от других сущностей,
-#: значит кандидат не столкнётся с уже принятой сущностью того же сегмента
-#: (`profile/candidates.py::build_candidates` отбрасывает такие пересечения).
+#: В contract_02_hard.docx есть профиль без структурно подтверждённой роли,
+#: поэтому после И2-3 ProfileAgent действительно вызывает LLM. Кандидат
+#: ``money`` в свободном заголовке даёт вопрос ``entity`` детерминированно.
 _CANDIDATE_RESPONSE = (
     '{"profiles": [], "candidates": ['
-    '{"segment_order": 4, "text": "Реквизиты", "type": "money", "confidence": 0.6}'
+    '{"segment_order": 0, "text": "АКТ", "type": "money", "confidence": 0.6}'
     "]}"
 )
 
@@ -83,8 +84,10 @@ def _options(*, interactive: bool, thread_id: str = "t1") -> dict[str, object]:
     }
 
 
-def _initial_state(*, interactive: bool, thread_id: str = "t1") -> dict[str, object]:
-    return {"path": str(FIXTURE), "options": _options(interactive=interactive, thread_id=thread_id)}
+def _initial_state(
+    *, interactive: bool, thread_id: str = "t1", source: Path = FIXTURE
+) -> dict[str, object]:
+    return {"path": str(source), "options": _options(interactive=interactive, thread_id=thread_id)}
 
 
 def test_interactive_run_pauses_with_one_interrupt_before_finalize(tmp_path: Path) -> None:
@@ -107,15 +110,20 @@ def test_envelope_has_type_profile_and_entity_questions(tmp_path: Path) -> None:
     with SqliteSaver.from_conn_string(str(db)) as saver:
         provider = _RoutingProvider(_CANDIDATE_RESPONSE)
         graph = compile_graph(RunDeps(llm=provider), saver)
-        first = graph.invoke(_initial_state(interactive=True), config)
+        # `contract_01` даёт окно верификатора, но роли в нём уже уверенно
+        # собраны структурно; отдельный запуск нужен именно после И2-3.
+        graph.invoke(
+            _initial_state(interactive=True, thread_id="verifier"),
+            {"configurable": {"thread_id": "verifier"}},
+        )
+        first = graph.invoke(_initial_state(interactive=True, source=OPEN_ROLE_FIXTURE), config)
 
     payload = first["__interrupt__"][0].value
     kinds = {question["kind"] for question in payload["questions"]}
     assert "type" in kinds
     assert "profile" in kinds
     assert "entity" in kinds
-    # Верификатор в графе жив (Р7-1) — тест обязан падать, если его снова
-    # отключат, а не только если сломается конверт вопросов.
+    # Верификатор в графе жив (Р7-1) — тест обязан падать, если его отключат.
     assert provider.verifier_calls > 0
 
 

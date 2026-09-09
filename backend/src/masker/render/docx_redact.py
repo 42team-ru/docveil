@@ -19,6 +19,11 @@ from docx.shared import RGBColor
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
+from masker.highlight import (
+    DEFAULT_HIGHLIGHT_BACKGROUND,
+    docx_fill_color,
+    parse_highlight_background,
+)
 from masker.ingest.docx_ingest import DocxLocator, iter_runs, resolve_anchor
 from masker.model import Document, MaskPlan, Replacement
 
@@ -34,9 +39,19 @@ def _set_run_shading(run: Run, fill: str) -> None:
     rPr.append(shd)
 
 
-def _apply_style(run: Run, style: str) -> None:
+def _remove_run_shading(run: Run) -> None:
+    rPr = run._r.get_or_add_rPr()
+    for old in rPr.findall(qn("w:shd")):
+        rPr.remove(old)
+
+
+def _apply_style(run: Run, style: str, highlight_background: str | None) -> None:
     if style == "marker":
-        _set_run_shading(run, "E8E8E8")
+        fill = docx_fill_color(highlight_background)
+        if fill is None:
+            _remove_run_shading(run)
+        else:
+            _set_run_shading(run, fill)
         run.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
     else:
         _set_run_shading(run, "000000")
@@ -92,6 +107,7 @@ def _redact_run_parts(
     run_start: int,
     replacements: list[Replacement],
     style: str,
+    highlight_background: str | None,
     templates: dict[int, BaseOxmlElement | None],
 ) -> None:
     text = run.text
@@ -131,7 +147,7 @@ def _redact_run_parts(
                 # `render_docx_redacted` про отказ от совпадения ширины).
                 _apply_dominant_rpr(clone, templates[id(replacement)])
                 cloned_run.text = replacement.marker
-                _apply_style(cloned_run, style)
+                _apply_style(cloned_run, style, highlight_background)
             else:
                 # Продолжение сущности из предыдущего run — обнуляем
                 cloned_run.text = ""
@@ -144,13 +160,20 @@ def _redact_run_parts(
     parent.remove(element)
 
 
-def _redact_paragraph(paragraph: Paragraph, replacements: list[Replacement], style: str) -> None:
+def _redact_paragraph(
+    paragraph: Paragraph,
+    replacements: list[Replacement],
+    style: str,
+    highlight_background: str | None,
+) -> None:
     # Доминирующий run считаем по исходному, ещё не тронутому абзацу —
     # для всех замен сразу, до того как цикл ниже начнёт его мутировать.
     templates = {id(r): _dominant_run_rpr(paragraph, r) for r in replacements}
     offset = 0
     for run in list(iter_runs(paragraph)):
-        _redact_run_parts(paragraph, run, offset, replacements, style, templates)
+        _redact_run_parts(
+            paragraph, run, offset, replacements, style, highlight_background, templates
+        )
         offset += len(run.text)
 
 
@@ -161,10 +184,11 @@ def render_docx_redacted(
     plan: MaskPlan,
     *,
     style: str = "marker",
+    highlight_background: str | None = DEFAULT_HIGHLIGHT_BACKGROUND,
 ) -> None:
     """Создать обезличенную копию DOCX: текст сущностей заменён маркерами плана.
 
-    style="marker"   — светло-серый фон, маркер плана тёмным текстом.
+    style="marker"   — выбранный фон (или без него), маркер плана тёмным текстом.
     style="blackbox" — чёрный фон, маркер плана чёрным текстом (визуально невидим).
 
     Маркер вставляется как есть, без символьного паддинга пробелами или
@@ -196,9 +220,14 @@ def render_docx_redacted(
     ``plan.replacements[].anchor``. Параметр оставлен для единообразия
     сигнатуры с ``render_docx_preview`` и на будущее — T1.10 подключает оба
     рендера как узлы графа с общим набором аргументов.
+
+    ``highlight_background=None`` не скрывает изменение от ручной проверки:
+    маркер в квадратных скобках остаётся на месте. Это именно отсутствие
+    заливки, а не белый прямоугольник поверх исходного оформления.
     """
     if style not in ("marker", "blackbox"):
         raise ValueError(f"неизвестный стиль редактирования: {style!r}")
+    highlight_background = parse_highlight_background(highlight_background)
 
     source = pathlib.Path(source)
     destination = pathlib.Path(destination)
@@ -217,7 +246,7 @@ def render_docx_redacted(
     for locator, paragraph_replacements in by_locator.items():
         paragraph = resolve_anchor(doc, locator)
         if paragraph is not None:
-            _redact_paragraph(paragraph, paragraph_replacements, style)
+            _redact_paragraph(paragraph, paragraph_replacements, style, highlight_background)
 
     props = doc.core_properties
     for attr in ("author", "last_modified_by", "title", "subject", "keywords", "comments"):

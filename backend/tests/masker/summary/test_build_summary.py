@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
-from masker.model import Anchor, Entity, EntityType, Profile, ProfileMember, Source
-from masker.summary import ContractSummary, build_summary
+from masker.model import (
+    Anchor,
+    Document,
+    Entity,
+    EntityType,
+    MaskPlan,
+    Profile,
+    ProfileMember,
+    Replacement,
+    Segment,
+    Source,
+)
+from masker.summary import ContractSummary, build_summary, export_summary
 
 _ANCHOR = Anchor(fmt="docx", locator=("body", 0))
 
@@ -56,13 +67,14 @@ def test_federal_law_collected_unique_ordered() -> None:
     assert s.federal_law == ["44-ФЗ", "223-ФЗ"]
 
 
-def test_contract_amount_first_match() -> None:
+def test_equal_contract_amount_candidates_are_ambiguous_not_first_match() -> None:
     entities = [
         _entity(EntityType.CONTRACT_AMOUNT, "500 000 руб."),
         _entity(EntityType.CONTRACT_AMOUNT, "1 000 000 руб."),
     ]
     s = build_summary(entities, [])
-    assert s.contract_amount == "500 000 руб."
+    assert s.contract_amount is None
+    assert s.contract_amount_fact.status == "ambiguous"
 
 
 def test_delivery_periods_unique_ordered() -> None:
@@ -145,3 +157,112 @@ def test_model_dump_is_json_serialisable() -> None:
     dumped = json.loads(json.dumps(data))
     assert dumped["federal_law"] == ["44-ФЗ"]
     assert dumped["contract_amount"] == "100 000 руб."
+
+
+def test_amount_selects_contract_price_and_keeps_vat_and_advance_as_alternatives() -> None:
+    text = (
+        "Цена договора составляет 500 000 руб., включая НДС 100 000 руб.; "
+        "аванс составляет 150 000 руб."
+    )
+    document = Document(
+        path="contract.docx",
+        fmt="docx",
+        segments=[Segment(text=text, anchor=_ANCHOR, order=0)],
+    )
+    values = ["500 000 руб.", "100 000 руб.", "150 000 руб."]
+    entities = [
+        Entity(
+            type=EntityType.CONTRACT_AMOUNT,
+            text=value,
+            segment_order=0,
+            start=text.index(value),
+            end=text.index(value) + len(value),
+            source=Source.RULE,
+        )
+        for value in values
+    ]
+
+    summary = build_summary(entities, [], document=document)
+
+    assert summary.contract_amount_fact.value == "500 000 руб."
+    assert summary.contract_amount_fact.currency == "RUB"
+    assert summary.contract_amount_fact.status == "found"
+    assert summary.contract_amount_fact.anchors[0].locator == ["body", 0]
+    assert {(item.value, item.purpose) for item in summary.contract_amount_fact.alternatives} == {
+        ("100 000 руб.", "vat"),
+        ("150 000 руб.", "advance"),
+    }
+
+
+def test_payment_fact_keeps_stage_fields_and_not_found_is_not_procurement_regime() -> None:
+    text = "Условия оплаты: 100% постоплата в течение 90 календарных дней после подписания акта."
+    entity = Entity(
+        type=EntityType.PAYMENT_TERMS,
+        text="100% постоплата",
+        segment_order=0,
+        start=text.index("100%"),
+        end=text.index("постоплата") + len("постоплата"),
+        source=Source.RULE,
+    )
+    document = Document(
+        path="contract.docx",
+        fmt="docx",
+        segments=[Segment(text=text, anchor=_ANCHOR, order=0)],
+    )
+
+    summary = build_summary([entity], [], document=document)
+
+    stage = summary.payment_facts[0].stages[0]
+    assert (stage.percentage, stage.days, stage.day_kind) == ("100%", 90, "календарных")
+    assert stage.onset_event == "подписания акта"
+    assert summary.procurement_regime.status == "not_found"
+    assert summary.procurement_regime.value is None
+
+
+def test_export_summary_masks_values_quotes_and_manual_mask_from_plan() -> None:
+    original_name = "ООО «Ромашка»"
+    original_inn = "7707000001"
+    source = f"Заказчик {original_name}, ИНН {original_inn}."
+    name = Entity(
+        type=EntityType.ORG_NAME,
+        text=original_name,
+        segment_order=0,
+        start=source.index(original_name),
+        end=source.index(original_name) + len(original_name),
+        source=Source.RULE,
+    )
+    inn = Entity(
+        type=EntityType.INN,
+        text=original_inn,
+        segment_order=0,
+        start=source.index(original_inn),
+        end=source.index(original_inn) + len(original_inn),
+        source=Source.USER,
+    )
+    profile = _profile("Заказчик", name, inn)
+    summary = build_summary(
+        [name, inn],
+        [profile],
+        document=Document(
+            path="contract.docx",
+            fmt="docx",
+            segments=[Segment(text=source, anchor=_ANCHOR, order=0)],
+        ),
+    )
+    plan = MaskPlan(
+        replacements=(
+            Replacement("E1", name, "[ЗАКАЗЧИК-ОРГАНИЗАЦИЯ]", "G1", "P1", _ANCHOR),
+            Replacement("E2", inn, "[ЗАКАЗЧИК-ИНН]", "G2", "P1", _ANCHOR),
+        ),
+        groups=(),
+        skipped=(),
+        requested_types=(),
+    )
+
+    exported = export_summary(summary, plan)
+    payload = str(exported).encode("utf-8")
+
+    assert original_name.encode("utf-8") not in payload
+    assert original_inn.encode("utf-8") not in payload
+    assert exported["customer"]["name"] == "[ЗАКАЗЧИК-ОРГАНИЗАЦИЯ]"
+    assert exported["customer"]["inn"] == "[ЗАКАЗЧИК-ИНН]"

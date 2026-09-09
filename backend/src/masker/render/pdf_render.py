@@ -79,6 +79,12 @@ from dataclasses import dataclass
 
 import pymupdf
 
+from masker.highlight import (
+    DEFAULT_HIGHLIGHT_BACKGROUND,
+    DEFAULT_PDF_HIGHLIGHT_FILL,
+    parse_highlight_background,
+    pdf_fill_color,
+)
 from masker.ingest.pdf_ingest import PageChars, page_chars
 from masker.mask.labels import marker_ladder
 from masker.model import (
@@ -175,7 +181,7 @@ _MARKER_TEXT_COLOR: tuple[float, float, float] = (0.20, 0.20, 0.20)
 #: видит ни что было замаскировано, ни насколько длинным был оригинал.
 #: Янтарный фон делает удалённую область видимой, а тёмно-серый текст
 #: маркера (``_MARKER_TEXT_COLOR``) читается на нём без потери контраста.
-_HIGHLIGHT_FILL: tuple[float, float, float] = (1.0, 0.87, 0.40)
+_HIGHLIGHT_FILL = DEFAULT_PDF_HIGHLIGHT_FILL
 
 
 class MarkerDoesNotFitError(ValueError):
@@ -799,7 +805,12 @@ _SCRATCH_PAGE_SIZE = 5000.0
 
 
 def _scratch_marker_boxes(
-    font: pymupdf.Font, box: pymupdf.Rect, text: str, size: float
+    font: pymupdf.Font,
+    box: pymupdf.Rect,
+    text: str,
+    size: float,
+    *,
+    align: int = pymupdf.TEXT_ALIGN_CENTER,
 ) -> list[pymupdf.Rect]:
     """Настоящие боксы глифов, которые оставит ``insert_textbox(box, text,
     fontsize=size)`` — план М5, метрика ``count_highlight_overlaps``.
@@ -836,7 +847,7 @@ def _scratch_marker_boxes(
             fontfile=str(_FONT_FILE),
             fontsize=size,
             color=_MARKER_TEXT_COLOR,
-            align=pymupdf.TEXT_ALIGN_LEFT,
+            align=align,
         )
         data = page.get_text("rawdict", clip=box)
         boxes: list[pymupdf.Rect] = []
@@ -852,7 +863,11 @@ def _scratch_marker_boxes(
 
 
 def count_highlight_overlaps(
-    plan: MaskPlan, source: str | pathlib.Path, artifact: str | pathlib.Path
+    plan: MaskPlan,
+    source: str | pathlib.Path,
+    artifact: str | pathlib.Path,
+    *,
+    highlight_background: str | None = DEFAULT_HIGHLIGHT_BACKGROUND,
 ) -> int:
     """Сколько раз область подсветки маркера в ``artifact`` накрыла живой,
     не свой символ (план М5, метрика ворот ``eval.highlight_overlap_count``).
@@ -875,6 +890,9 @@ def count_highlight_overlaps(
     черновой странице (``_scratch_marker_boxes``) — см. её докстринг про
     то, почему ни поиск строки, ни имя шрифта в ``rawdict`` не годятся.
     """
+    if parse_highlight_background(highlight_background) is None:
+        return 0
+
     label_regions = compute_label_geometry(source, plan)
     if not label_regions:
         return 0
@@ -889,6 +907,15 @@ def count_highlight_overlaps(
         for region, text, size in label_regions.values():
             rect = pymupdf.Rect(region.x0, region.y0, region.x1, region.y1)
             marker_boxes = _scratch_marker_boxes(font, rect, text, size)
+            # PyMuPDF rawdict не связывает глиф с оператором content stream:
+            # если живой глиф лежит точно под подписью, его нельзя отличить
+            # от нашей подписи только по bbox. До центровки историческая
+            # метрика исключала левый след подписи; сохраняем его в
+            # исключающем envelope, иначе та же неизменная область подсветки
+            # получила бы ложный рост счётчика лишь от смены align.
+            marker_boxes.extend(
+                _scratch_marker_boxes(font, rect, text, size, align=pymupdf.TEXT_ALIGN_LEFT)
+            )
             chars = chars_by_page[region.page]
             for index, box in enumerate(chars.boxes):
                 if box == _LINE_BREAK_RECT:
@@ -952,10 +979,11 @@ def render_pdf_redacted(
     plan: MaskPlan,
     *,
     style: str = "marker",
+    highlight_background: str | None = DEFAULT_HIGHLIGHT_BACKGROUND,
 ) -> RenderOutcome:
     """Удалить сущности из content-stream и вставить заглушки с маркерами плана.
 
-    style="marker"   — светлый фон и подпись читаемой лестницы отступления
+    style="marker"   — выбранный фон (или без него) и подпись читаемой лестницы отступления
                        (план М1/М4): человекочитаемая полная форма →
                        только роль → компактная метка (``[Ф1]``) → голый
                        тип (``[Представитель]``) → пусто. Ступень выбирается
@@ -985,6 +1013,7 @@ def render_pdf_redacted(
     """
     if style not in ("marker", "blackbox"):
         raise ValueError(f"неизвестный стиль редактирования: {style!r}")
+    highlight_background = parse_highlight_background(highlight_background)
 
     source_path = pathlib.Path(source_path)
     dest_path = pathlib.Path(dest_path)
@@ -1002,7 +1031,7 @@ def render_pdf_redacted(
             _PageJob(replacement=replacement, seg_char_start=seg_start, rects=rects)
         )
 
-    fill_color = (0.0, 0.0, 0.0) if style == "blackbox" else _HIGHLIGHT_FILL
+    fill_color = (0.0, 0.0, 0.0) if style == "blackbox" else pdf_fill_color(highlight_background)
     out_replacements: list[Replacement] = []
     markers: list[MarkerRenderResult] = []
     collisions: list[RenderCollision] = []
@@ -1104,7 +1133,7 @@ def render_pdf_redacted(
                 page, font, candidates, replacement, rung_by_group[group.id], fill_color
             )
             markers.append(marker_result)
-            paint_regions = (*erase_regions, label_region)
+            paint_regions = (*erase_regions, label_region) if fill_color is not None else ()
             out_replacements.append(
                 dataclasses.replace(
                     replacement,
@@ -1116,7 +1145,10 @@ def render_pdf_redacted(
 
     doc.set_metadata({})
     doc.del_xml_metadata()
-    doc.save(str(dest_path), garbage=4, deflate=True)
+    # PyMuPDF по умолчанию генерирует новый случайный /ID при каждом save(),
+    # даже когда content stream совпадает. Сохраняем ID исходника: два прогона
+    # одного документа тогда дают побайтово одинаковый PDF, как и отчёт.
+    doc.save(str(dest_path), garbage=4, deflate=True, no_new_id=True)
     doc.close()
     os.chmod(dest_path, 0o600)
     # Сортировка по (page, line_id) — план T2.2.2, раздел «Детерминизм»:
@@ -1201,11 +1233,92 @@ def _try_ladder(
                 fontfile=str(_FONT_FILE),
                 fontsize=size,
                 color=_MARKER_TEXT_COLOR,
-                align=pymupdf.TEXT_ALIGN_LEFT,
+                # Маркер занимает центр уже вычисленной безопасной области.
+                # Это не меняет условие влезания: PyMuPDF переносит/отвергает
+                # тот же текст в том же поле, меняется только x-координата.
+                align=pymupdf.TEXT_ALIGN_CENTER,
             )
             if result >= 0:
                 return text, fallback_reason, size
     return None
+
+
+def _marker_dot_counts(
+    font: pymupdf.Font, box: pymupdf.Rect, text: str, size: float
+) -> tuple[int, int]:
+    """Вернуть число векторных точек слева и справа от центрированного маркера.
+
+    Шаг между точками — настоящая ширина глифа ``.`` в шрифте подписи, а не
+    подобранная константа. Точки остаются обычной графикой, а не текстом PDF:
+    текстовый слой содержит только маркер и не получает искусственного
+    заполнителя. Если суммарно помещается нечётное число точек, лишняя сначала
+    назначается справа; если там для полного шага места всё же нет, кандидат
+    отбрасывается. В симметричном поле это естественно даёт одинаковое число
+    точек с обеих сторон.
+    """
+    dot_advance = font.text_length(".", fontsize=size)
+    marker_width = font.text_length(text, fontsize=size)
+    free_width = box.width - marker_width
+    if dot_advance <= 0 or free_width <= _GEOMETRY_EPS:
+        return 0, 0
+
+    left_free = free_width / 2
+    right_free = free_width - left_free
+    total = math.floor((left_free + right_free + _GEOMETRY_EPS) / dot_advance)
+    while total:
+        left_count = total // 2
+        right_count = total - left_count  # лишняя точка детерминированно справа
+        if (
+            left_count * dot_advance <= left_free + _GEOMETRY_EPS
+            and right_count * dot_advance <= right_free + _GEOMETRY_EPS
+        ):
+            return left_count, right_count
+        total -= 1
+    return 0, 0
+
+
+def _draw_marker_dots(
+    page: pymupdf.Page,
+    font: pymupdf.Font,
+    box: pymupdf.Rect,
+    text: str,
+    size: float,
+) -> None:
+    """Нарисовать точки-заполнители в ``box`` без добавления их в text layer.
+
+    Каждый кружок стоит на обычном шаге глифа ``.``. Последовательность
+    центрируется в своей свободной половине, поэтому остаток от деления не
+    сдвигает маркер и не создаёт визуального перекоса. Центр по вертикали
+    соответствует базовой линии ``insert_textbox`` для текущего шрифта.
+    """
+    left_count, right_count = _marker_dot_counts(font, box, text, size)
+    if not left_count and not right_count:
+        return
+
+    dot_advance = font.text_length(".", fontsize=size)
+    marker_width = font.text_length(text, fontsize=size)
+    left_free = (box.width - marker_width) / 2
+    marker_x0 = box.x0 + left_free
+    marker_x1 = marker_x0 + marker_width
+    # insert_textbox начинает первую базовую линию на ascender * fontsize
+    # от верхней границы. У точки DejaVu центр расположен чуть выше неё.
+    dot_y = box.y0 + size * (font.ascender - 0.10)
+    radius = min(dot_advance * 0.22, size * 0.09)
+
+    def draw_run(start: float, available: float, count: int) -> None:
+        run_width = count * dot_advance
+        first_center = start + (available - run_width) / 2 + dot_advance / 2
+        for index in range(count):
+            page.draw_circle(
+                (first_center + index * dot_advance, dot_y),
+                radius,
+                color=None,
+                fill=_MARKER_TEXT_COLOR,
+                width=0,
+            )
+
+    draw_run(box.x0, left_free, left_count)
+    draw_run(marker_x1, box.x1 - marker_x1, right_count)
 
 
 def _other_jobs_erase_rects(
@@ -1385,7 +1498,7 @@ def _place_label_fixed(
     candidates: list[tuple[pymupdf.Rect, pymupdf.Rect]],
     replacement: Replacement,
     rung: tuple[str, str],
-    fill_color: tuple[float, float, float],
+    fill_color: tuple[float, float, float] | None,
 ) -> tuple[PdfRegion, MarkerRenderResult]:
     """Вписать в это вхождение ступень, уже выбранную для всей группы.
 
@@ -1402,7 +1515,7 @@ def _place_label_fixed(
         for erase_rect, label_box in candidates:
             if not _ladder_fits(font, label_box, single_rung):
                 continue
-            if label_box.x1 > erase_rect.x1 + _GEOMETRY_EPS:
+            if fill_color is not None and label_box.x1 > erase_rect.x1 + _GEOMETRY_EPS:
                 # Расширение вправо доказанно свободно
                 # (``_free_extension_right``) — красим его отдельно от
                 # удаления (план М1, правило 3): сама область удаления при
@@ -1417,6 +1530,10 @@ def _place_label_fixed(
             if outcome is None:
                 continue
             shown_text, fallback_reason, size = outcome
+            # Точки рисуются только внутри уже принятого поля подписи. Они
+            # никогда не меняют erase/paint/label-геометрию и потому не могут
+            # накрыть символ, который безопасная область раньше не накрывала.
+            _draw_marker_dots(page, font, label_box, shown_text, size)
             region = PdfRegion(
                 page=page.number,
                 x0=label_box.x0,

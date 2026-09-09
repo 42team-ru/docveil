@@ -7,10 +7,12 @@ from dataclasses import dataclass, field
 
 from masker.llm import Message
 from masker.model import Document, EntityType, Profile
-from masker.profile.blocks import ContextBlock, block_text
 from masker.refs import EntityIndex
 
-LLM_BATCH_CHARS = 6000
+# Меньшее число означает, что модель честно не знает роль. Порог намеренно
+# живёт рядом со схемой ответа, а не в eval: это правило применения роли в
+# рабочем графе, не порог приёмочных метрик.
+MIN_LLM_ROLE_CONFIDENCE = 0.8
 
 # Прежняя инструкция состояла из одной строки «верни JSON с profiles и
 # candidates». На реальном договоре модель вернула запрос дословно обратно:
@@ -23,13 +25,12 @@ SYSTEM_PROMPT = """Ты определяешь роли сторон в росс
 
 На вход подаётся один JSON-объект:
 - entities — найденные сущности; у каждой есть ref, type и дословный text;
-- profiles — сущности, сгруппированные по субъектам; пустой role_title значит,
-  что роль не удалось определить по структуре документа;
-- blocks — фрагменты документа, где встречаются эти сущности; segments
-  перечисляет номера сегментов блока.
+- profiles — только субъекты, для которых эвристика не определила роль либо
+  определила её неуверенно;
+- segments — текст всего документа с номерами сегментов.
 
-Верни ровно один JSON-объект с полями profiles и candidates. Без пояснений,
-без markdown, без текста вокруг.
+Верни ровно один JSON-объект с полем profiles. Без пояснений, без markdown,
+без текста вокруг.
 
 Поле profiles — по одному элементу на каждый входной профиль:
 - id — идентификатор входного профиля без изменений;
@@ -42,22 +43,51 @@ SYSTEM_PROMPT = """Ты определяешь роли сторон в росс
   имущество продают, суд, орган власти), верни пустой role_title
   и confidence 0.0;
 - confidence — обязательное число от 0 до 1: твоя уверенность в role_title.
-  Профиль без поля confidence отбрасывается целиком. Роль применяется, только
-  если твоя уверенность строго выше уже имеющейся, поэтому 0.0 означает
-  «оставить как есть».
+  Профиль без поля confidence отбрасывается целиком. При confidence ниже 0.8
+  роль не будет назначена, поэтому верни пустой role_title и 0.0, если
+  документ не даёт уверенного основания.
 
-Поле candidates — персональные данные, которые видны в blocks, но отсутствуют
-в entities. По одному объекту на находку:
-- segment_order — номер сегмента, где встретился текст, из segments
-  соответствующего блока;
-- text — фрагмент этого сегмента, скопированный посимвольно; несовпадающий
-  дословно кандидат отбрасывается;
-- type — одно из значений: {types};
-- confidence — число от 0 до 1.
-Не предлагай текст, пересекающийся с уже найденными сущностями. Если находок
-нет, верни пустой список.""".format(
-    types=", ".join(entity_type.value for entity_type in EntityType)
-)
+Поле candidates необязательно: это персональные данные из segments, которых
+нет в entities. Если находок нет, верни пустой список. У кандидата обязательны
+segment_order, text, type и confidence; type — одно из: {types}.
+Не предлагай текст, пересекающийся с уже найденными сущностями.
+""".format(types=", ".join(entity_type.value for entity_type in EntityType))
+
+ROLE_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "profiles": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "members": {"type": "array", "items": {"type": "string"}},
+                    "role_title": {"type": "string"},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": ["id", "members", "role_title", "confidence"],
+                "additionalProperties": False,
+            },
+        },
+        "candidates": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "segment_order": {"type": "integer", "minimum": 0},
+                    "text": {"type": "string"},
+                    "type": {"type": "string", "enum": [item.value for item in EntityType]},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": ["segment_order", "text", "type", "confidence"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["profiles"],
+    "additionalProperties": False,
+}
 
 
 @dataclass(slots=True)
@@ -75,10 +105,8 @@ class Decision:
     diagnostics: list[str] = field(default_factory=list)
 
 
-def build_request(
-    document: Document, profiles: list[Profile], blocks: list[ContextBlock], index: EntityIndex
-) -> list[list[Message]]:
-    """Собрать стабильные пачки запроса, разделяя только по объёму текста."""
+def build_request(document: Document, profiles: list[Profile], index: EntityIndex) -> list[Message]:
+    """Собрать один стабильный запрос роли для всего документа."""
     payload = {
         "entities": [
             {
@@ -98,41 +126,18 @@ def build_request(
             for profile in profiles
         ],
     }
-    # Модели нечего решать по блокам без сущностей — отправка всего документа
-    # стоит лишних денег и лишний раз выносит текст наружу.
-    chunks = [(block, block_text(document.segments, block)) for block in blocks if block.entities]
-    batches: list[list[dict[str, object]]] = [[]]
-    length = 0
-    for block, text in chunks:
-        if batches[-1] and length + len(text) > LLM_BATCH_CHARS:
-            batches.append([])
-            length = 0
-        batches[-1].append(
-            {
-                "id": block.id,
-                "label": block.label,
-                "heading": block.heading,
-                # Без номеров сегментов кандидату не на что сослаться:
-                # segment_order известен только по entities, а находка модели —
-                # как раз то, чего в entities нет.
-                "segments": [span.segment_order for span in block.spans],
-                "text": text,
-            }
-        )
-        length += len(text)
-    messages: list[list[Message]] = []
-    for batch in batches:
-        request = {**payload, "blocks": batch}
-        messages.append(
-            [
-                Message("system", SYSTEM_PROMPT),
-                Message(
-                    "user",
-                    json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
-                ),
-            ]
-        )
-    return messages
+    request = {
+        **payload,
+        "segments": [
+            {"order": segment.order, "text": segment.text} for segment in document.segments
+        ],
+    }
+    return [
+        Message("system", SYSTEM_PROMPT),
+        Message(
+            "user", json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        ),
+    ]
 
 
 def parse_response(raw: str) -> Decision:

@@ -454,8 +454,8 @@ def plan_node(state: State) -> dict[str, object]:
 
 
 def summary_node(state: State) -> dict[str, object]:
-    """Собрать карточку договора из entities + profiles — детерминированно, без LLM."""
-    from masker.summary import build_summary
+    """Собрать и экспортировать карточку через тот же план масок, что документ."""
+    from masker.summary import build_summary, export_summary
 
     entities = [entity_from_dict(item) for item in state.get("entities", [])]
     profiles = profiles_from_dicts(state.get("profiles", []))
@@ -464,8 +464,14 @@ def summary_node(state: State) -> dict[str, object]:
     # (AGENTS.md: «два прогона на одном файле дают побайтово одинаковый отчёт»).
     # Временная метка сборки хранится в артефактах файловой системы, не в отчёте.
     # Пустая строка (не None) → детерминированный вывод без datetime.now().
-    summary = build_summary(entities, profiles, llm_calls=llm_calls, generated_at="")
-    return {"contract_summary": summary.model_dump()}
+    summary = build_summary(
+        entities,
+        profiles,
+        llm_calls=llm_calls,
+        generated_at="",
+        document=_document(state),
+    )
+    return {"contract_summary": export_summary(summary, plan_from_dict(state.get("plan", {})))}
 
 
 #: Порядок ролей артефактов — фиксированный, не по обходу множества стилей

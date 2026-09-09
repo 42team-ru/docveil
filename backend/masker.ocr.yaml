@@ -1,0 +1,19 @@
+# Конфигурация OCR-провайдера для скан-PDF.
+# Дефолт совпадает с MASKER_OCR=fake (см. src/masker/ocr/select.py):
+# в CI и на юнит-тестах реальный движок не запускается.
+#
+# Локальный полный прогон:
+#   uv sync --extra ocr
+#   MASKER_OCR=paddle make demo
+#
+# PaddleOCR-VL 1.7B (SGLang) на этой итерации не реализован; слот
+# оставлен под будущий провайдер `paddle_vl` — см. docs/plans/T2.3-*.md.
+ocr:
+  provider: fake       # fake | paddle | tesseract
+  lang: ru             # для paddle: ru | cyrillic; для tesseract: rus+eng
+  dpi: 300             # с каким dpi ingest рендерит скан-страницы
+  # Опциональные параметры движка передаются как есть в реализацию:
+  # options:
+  #   use_doc_orientation_classify: true
+  #   use_textline_orientation: true
+  #   use_doc_unwarping: false

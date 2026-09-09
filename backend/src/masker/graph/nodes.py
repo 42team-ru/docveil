@@ -97,7 +97,14 @@ def _document(state: State) -> Document:
         path=state.get("path", ""),
         fmt=state.get("fmt", "docx"),
         segments=[
-            Segment(str(item["text"]), anchor_from_dict(item["anchor"]), int(item["order"]))
+            Segment(
+                str(item["text"]),
+                anchor_from_dict(item["anchor"]),
+                int(item["order"]),
+                # Старые чекпойнты (до T2.3) не знают об origin — дефолт
+                # ``"text"`` совпадает с сегодняшним поведением.
+                str(item.get("origin", "text")),
+            )
             for item in state["segments"]
         ],
     )
@@ -140,6 +147,7 @@ def extract_node(state: State) -> dict[str, object]:
                     "label": segment.anchor.label,
                 },
                 "order": segment.order,
+                "origin": segment.origin,
             }
             for segment in document.segments
         ],

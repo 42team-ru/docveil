@@ -74,10 +74,18 @@ def _make_tesseract() -> OCRProvider:
     return provider
 
 
+def _make_paddle_vl() -> OCRProvider:
+    from masker.ocr.paddle import PaddleVLProvider
+
+    provider: OCRProvider = PaddleVLProvider()
+    return provider
+
+
 #: Реестр фабрик провайдеров — единственное место, где перечислены имена
 #: и их реализации. Расширяется добавлением строки, снаружи не изменяется.
 _REGISTRY: dict[str, Callable[[], OCRProvider]] = {
     "fake": _make_fake,
     "paddle": _make_paddle,
+    "paddle_vl": _make_paddle_vl,
     "tesseract": _make_tesseract,
 }

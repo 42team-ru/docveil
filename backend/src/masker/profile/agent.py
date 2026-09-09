@@ -12,7 +12,13 @@ from masker.profile.blocks import ContextBlock, build_context_blocks
 from masker.profile.candidates import build_candidates
 from masker.profile.cluster import cluster
 from masker.profile.labels import marker_label, role_title, slugify
-from masker.profile.prompt import build_request, parse_response, valid_decision
+from masker.profile.prompt import (
+    MIN_LLM_ROLE_CONFIDENCE,
+    ROLE_RESPONSE_SCHEMA,
+    build_request,
+    parse_response,
+    valid_decision,
+)
 from masker.refs import EntityIndex
 
 #: Типы, которые не принадлежат ни одной стороне договора — факт о самом
@@ -69,96 +75,115 @@ class ProfileAgent:
         )
         if self._llm is None:
             return result
+        open_profiles = [
+            profile
+            for profile in profiles
+            if not profile.role_title or profile.role_confidence < MIN_LLM_ROLE_CONFIDENCE
+        ]
+        if not open_profiles:
+            return result
         raw_candidates: list[dict[str, object]] = []
-        for messages in build_request(document, profiles, blocks, index):
-            try:
-                response = self._llm.complete(messages)
-            except LLMError as error:
-                result.diagnostics.append(f"LLM недоступна: {error}")
+        messages = build_request(document, open_profiles, index)
+        try:
+            response = self._llm.complete(messages, schema=ROLE_RESPONSE_SCHEMA)
+        except LLMError as error:
+            result.diagnostics.append(f"LLM недоступна: {error}")
+            return result
+        parsed = parse_response(response)
+        decision = valid_decision(parsed, open_profiles, index)
+        result.llm_calls += 1
+        result.diagnostics.extend(decision.diagnostics)
+        raw_candidates.extend(decision.candidates)
+        by_id = {profile.id: profile for profile in profiles}
+        valid_ids = {proposal.id for proposal in decision.profiles}
+        outcomes: list[ProfileOutcome] = []
+        # Профили, отсеянные valid_decision (неизвестный id, неизвестная
+        # сущность, попытка сменить состав), иначе теряются молча.
+        for proposal in parsed.profiles:
+            if proposal.id in valid_ids:
                 continue
-            parsed = parse_response(response)
-            decision = valid_decision(parsed, profiles, index)
-            result.llm_calls += 1
-            result.diagnostics.extend(decision.diagnostics)
-            raw_candidates.extend(decision.candidates)
-            by_id = {profile.id: profile for profile in profiles}
-            valid_ids = {proposal.id for proposal in decision.profiles}
-            outcomes: list[ProfileOutcome] = []
-            # Профили, отсеянные valid_decision (неизвестный id, неизвестная
-            # сущность, попытка сменить состав), иначе теряются молча.
-            for proposal in parsed.profiles:
-                if proposal.id in valid_ids:
-                    continue
-                rejected = by_id.get(proposal.id)
-                outcomes.append(
-                    ProfileOutcome(
-                        profile_id=proposal.id,
-                        outcome="rejected_by_validation",
-                        old_role_title=rejected.role_title if rejected else "",
-                        new_role_title=proposal.role_title,
-                        old_confidence=rejected.role_confidence if rejected else 0.0,
-                        new_confidence=proposal.confidence,
-                        reason=_validation_reason(decision.diagnostics, proposal.id),
-                    )
+            rejected = by_id.get(proposal.id)
+            outcomes.append(
+                ProfileOutcome(
+                    profile_id=proposal.id,
+                    outcome="rejected_by_validation",
+                    old_role_title=rejected.role_title if rejected else "",
+                    new_role_title=proposal.role_title,
+                    old_confidence=rejected.role_confidence if rejected else 0.0,
+                    new_confidence=proposal.confidence,
+                    reason=_validation_reason(decision.diagnostics, proposal.id),
                 )
-            for proposed in decision.profiles:
-                profile = by_id[proposed.id]
-                if not proposed.role_title:
-                    outcomes.append(
-                        ProfileOutcome(
-                            profile_id=profile.id,
-                            outcome="empty_role",
-                            old_role_title=profile.role_title,
-                            new_role_title="",
-                            old_confidence=profile.role_confidence,
-                            new_confidence=proposed.confidence,
-                        )
-                    )
-                    continue
-                # Структурная роль надёжнее модели ровно тогда, когда сама модель
-                # не увереннее структуры: LLM не должна тихо подменять или
-                # понижать роль, в которую уже есть основания верить сильнее.
-                if proposed.confidence <= profile.role_confidence:
-                    outcomes.append(
-                        ProfileOutcome(
-                            profile_id=profile.id,
-                            outcome="confidence_not_higher",
-                            old_role_title=profile.role_title,
-                            new_role_title=proposed.role_title,
-                            old_confidence=profile.role_confidence,
-                            new_confidence=proposed.confidence,
-                        )
-                    )
-                    continue
-                old_role_title = profile.role_title
-                old_confidence = profile.role_confidence
-                new_role_title = role_title(proposed.role_title)
-                profile.role_title = new_role_title
-                profile.role_id = slugify(proposed.role_title)
-                profile.marker_label = marker_label(proposed.role_title)
-                profile.role_confidence = proposed.confidence
-                profile.source = Source.LLM
-                profile.evidence.append(
-                    f"LLM: роль «{new_role_title}» с уверенностью {proposed.confidence:.1f}"
-                )
+            )
+        for proposed in decision.profiles:
+            profile = by_id[proposed.id]
+            if not proposed.role_title:
                 outcomes.append(
                     ProfileOutcome(
                         profile_id=profile.id,
-                        outcome="applied",
-                        old_role_title=old_role_title,
-                        new_role_title=new_role_title,
-                        old_confidence=old_confidence,
+                        outcome="empty_role",
+                        old_role_title=profile.role_title,
+                        new_role_title="",
+                        old_confidence=profile.role_confidence,
                         new_confidence=proposed.confidence,
                     )
                 )
-            if isinstance(self._llm, TracingProvider):
-                self._llm.record_batch(
-                    call_index=self._llm.calls[-1].index,
-                    proposed_profiles=len(parsed.profiles),
-                    valid_profiles=len(decision.profiles),
-                    outcomes=outcomes,
-                    diagnostics=list(decision.diagnostics),
+                continue
+            if proposed.confidence < MIN_LLM_ROLE_CONFIDENCE:
+                outcomes.append(
+                    ProfileOutcome(
+                        profile_id=profile.id,
+                        outcome="confidence_below_threshold",
+                        old_role_title=profile.role_title,
+                        new_role_title=proposed.role_title,
+                        old_confidence=profile.role_confidence,
+                        new_confidence=proposed.confidence,
+                    )
                 )
+                continue
+            # Структурная роль надёжнее модели ровно тогда, когда сама модель
+            # не увереннее структуры: LLM не должна тихо подменять или
+            # понижать роль, в которую уже есть основания верить сильнее.
+            if proposed.confidence <= profile.role_confidence:
+                outcomes.append(
+                    ProfileOutcome(
+                        profile_id=profile.id,
+                        outcome="confidence_not_higher",
+                        old_role_title=profile.role_title,
+                        new_role_title=proposed.role_title,
+                        old_confidence=profile.role_confidence,
+                        new_confidence=proposed.confidence,
+                    )
+                )
+                continue
+            old_role_title = profile.role_title
+            old_confidence = profile.role_confidence
+            new_role_title = role_title(proposed.role_title)
+            profile.role_title = new_role_title
+            profile.role_id = slugify(proposed.role_title)
+            profile.marker_label = marker_label(proposed.role_title)
+            profile.role_confidence = proposed.confidence
+            profile.source = Source.LLM
+            profile.evidence.append(
+                f"LLM: роль «{new_role_title}» с уверенностью {proposed.confidence:.1f}"
+            )
+            outcomes.append(
+                ProfileOutcome(
+                    profile_id=profile.id,
+                    outcome="applied",
+                    old_role_title=old_role_title,
+                    new_role_title=new_role_title,
+                    old_confidence=old_confidence,
+                    new_confidence=proposed.confidence,
+                )
+            )
+        if isinstance(self._llm, TracingProvider):
+            self._llm.record_batch(
+                call_index=self._llm.calls[-1].index,
+                proposed_profiles=len(parsed.profiles),
+                valid_profiles=len(decision.profiles),
+                outcomes=outcomes,
+                diagnostics=list(decision.diagnostics),
+            )
         result.candidates = build_candidates(raw_candidates, document.segments, detection.entities)
         return result
 

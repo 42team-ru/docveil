@@ -24,6 +24,7 @@ from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.judge import JudgeAgent
+from masker.llm import get_provider
 from masker.model import Document, EntityType, MaskPlan, is_critical
 from masker.policy.agent import PolicyAgent
 from masker.profile import ProfileAgent
@@ -452,7 +453,7 @@ def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) ->
             for _offset, label in find_labels(segment.text)
         }
         detection = DetectAgent().detect(document)
-        profiles = ProfileAgent().profile(document, detection)
+        profiles = ProfileAgent(get_provider()).profile(document, detection)
         judge = JudgeAgent().judge(detection, profiles)
         profile_by_value = {
             (member.entity.type, _collapse(member.entity.text)): profile

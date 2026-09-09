@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -20,7 +21,7 @@ from masker.detect.agent import DetectAgent
 from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.serde import plan_from_dict
-from masker.llm.fake import FakeProvider
+from masker.llm.base import Message
 from masker.model import EntityType
 
 ROOT = next(
@@ -41,6 +42,35 @@ _CANDIDATE_RESPONSE = (
     '{"segment_order": 4, "text": "Реквизиты", "type": "money", "confidence": 0.6}'
     "]}"
 )
+
+
+class _RoutingProvider:
+    """Отвечает по СОДЕРЖАНИЮ запроса, а не по порядку вызовов.
+
+    После Р7-1 в графе два независимых потребителя модели: верификатор
+    в ``detect_node`` и судья в ``profile_node``. ``FakeProvider`` со
+    списком ответов раздаёт их по очереди, поэтому единственный
+    заготовленный ответ забирал тот, кто позвал первым, — тест ловил не
+    свой дефект. Верификатор здесь не выключен: он получает пустой, но
+    валидный по контракту ответ, и вопрос "entity" по-прежнему рождается
+    из ответа судьи.
+    """
+
+    def __init__(self, decision: str) -> None:
+        self._decision = decision
+        self.calls = 0
+        self.verifier_calls = 0
+
+    def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        del schema
+        self.calls += 1
+        # Запрос верификатора — это payload вида {"windows": [...]},
+        # запрос судьи — {"profiles": [...], ...}. Разбирать промпт целиком
+        # не нужно: ключ верхнего уровня однозначен.
+        if any('"windows"' in message.content for message in messages):
+            self.verifier_calls += 1
+            return '{"windows": []}'
+        return self._decision
 
 
 def _options(*, interactive: bool, thread_id: str = "t1") -> dict[str, object]:
@@ -75,7 +105,8 @@ def test_envelope_has_type_profile_and_entity_questions(tmp_path: Path) -> None:
     config = {"configurable": {"thread_id": "t1"}}
 
     with SqliteSaver.from_conn_string(str(db)) as saver:
-        graph = compile_graph(RunDeps(llm=FakeProvider([_CANDIDATE_RESPONSE])), saver)
+        provider = _RoutingProvider(_CANDIDATE_RESPONSE)
+        graph = compile_graph(RunDeps(llm=provider), saver)
         first = graph.invoke(_initial_state(interactive=True), config)
 
     payload = first["__interrupt__"][0].value
@@ -83,6 +114,9 @@ def test_envelope_has_type_profile_and_entity_questions(tmp_path: Path) -> None:
     assert "type" in kinds
     assert "profile" in kinds
     assert "entity" in kinds
+    # Верификатор в графе жив (Р7-1) — тест обязан падать, если его снова
+    # отключат, а не только если сломается конверт вопросов.
+    assert provider.verifier_calls > 0
 
 
 def test_durable_resume_survives_new_graph_and_saver_objects(tmp_path: Path) -> None:

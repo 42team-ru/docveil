@@ -14,6 +14,7 @@ import pathlib
 import pymupdf
 import pytest
 from docx import Document as open_docx
+from openpyxl import Workbook
 
 from masker.ingest.pdf_ingest import PageChars, ingest_pdf
 from masker.mask.agent import PlanAgent
@@ -256,10 +257,42 @@ def test_check_metadata_cleared_fails_on_dirty_pdf_author(tmp_path: pathlib.Path
 
 
 def test_check_metadata_cleared_rejects_unknown_format(tmp_path: pathlib.Path) -> None:
-    path = tmp_path / "artifact.xlsx"
+    path = tmp_path / "artifact.txt"
     path.write_bytes(b"")
-    with pytest.raises(ValueError, match="xlsx"):
+    with pytest.raises(ValueError, match="txt"):
         _check_metadata_cleared([path])
+
+
+def test_check_metadata_cleared_accepts_xlsx_tool_generated_creator(
+    tmp_path: pathlib.Path,
+) -> None:
+    """openpyxl сам записывает ``creator=openpyxl`` после очистки автора.
+
+    Это техническая метка библиотеки, не исходная персональная метаинформация;
+    сертификат не должен превращать каждый честный XLSX-рендер в провал.
+    """
+    path = tmp_path / "clean.xlsx"
+    workbook = Workbook()
+    workbook.properties.creator = "openpyxl"
+    workbook.save(path)
+    workbook.close()
+
+    check = _check_metadata_cleared([path])
+
+    assert check.ok is True
+
+
+def test_check_metadata_cleared_fails_on_dirty_xlsx_creator(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / "dirty.xlsx"
+    workbook = Workbook()
+    workbook.properties.creator = "Иванов Иван Иванович"
+    workbook.save(path)
+    workbook.close()
+
+    check = _check_metadata_cleared([path])
+
+    assert check.ok is False
+    assert "creator" in check.detail
 
 
 # ── build_certificate: конъюнкция трёх пунктов ────────────────────────────────

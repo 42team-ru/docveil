@@ -63,6 +63,19 @@ def test_role_stopword_does_not_drop_org_names() -> None:
     assert not is_role_stopword("Продавцов и сыновья")
 
 
+def test_budgetary_institution_form_expanded() -> None:
+    """Р9-2: `expand_org_span` тянет влево полную форму бюджетного
+    учреждения, а не только название в кавычках (holdout_01_supply.docx,
+    план `docs/plans/tasks-krmi-2026-09-09.md`, §0.2 и Р9-2)."""
+    text = (
+        "Государственное бюджетное учреждение здравоохранения "
+        "«Городская клиническая больница № 15», ИНН 7701234560"
+    )
+    start = text.index("«")
+    end = text.index("»") + 1
+    assert expand_org_span(text, start, end) == (0, end)
+
+
 def test_common_prefix_forms_are_deterministic() -> None:
     text = "Закрытое акционерное общество «Ромашка»"
     start = text.index("Ромашка")

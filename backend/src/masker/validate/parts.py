@@ -1,4 +1,4 @@
-"""Части контейнера (docx/pdf) для поиска утечек Validate (T1.8, шаг 8).
+"""Части контейнера (docx/pdf/xlsx) для поиска утечек Validate (T1.8, шаг 8).
 
 Побайтового поиска по частям контейнера недостаточно самого по себе: Word
 режет значение сущности по run'ам (`ИНН 36` + `62103003`, см.
@@ -19,6 +19,8 @@ from xml.etree import ElementTree
 import pymupdf
 
 from masker.ingest.docx_ingest import ingest_docx
+from masker.ingest.xlsx_ingest import ingest_xlsx
+from masker.model import Document
 
 #: Единственная часть docx, для которой видимый текст берём через полный
 #: разбор `ingest_docx` (склеенные run'ы), а не через наивную конкатенацию
@@ -121,3 +123,76 @@ def pdf_parts(path: Path) -> list[DocPart]:
     parts.append(DocPart(name="metadata", raw=combined_text.encode("utf-8"), text=combined_text))
     doc.close()
     return parts
+
+
+def xlsx_parts(path: Path) -> list[DocPart]:
+    """Вернуть все XML-части XLSX, где могут остаться данные пользователя.
+
+    Проверяются не только листы и ``sharedStrings.xml``, но весь XML
+    контейнера: кэш формулы хранится в ``xl/worksheets/*.xml``, а значения
+    могут оказаться также в ``calcChain.xml``, связях и пользовательских
+    свойствах. Бинарные части (картинки, шрифты) текста не содержат и не
+    участвуют в поиске.
+    """
+    with zipfile.ZipFile(path) as archive:
+        names = sorted(name for name in archive.namelist() if name.endswith(_XML_NAME_SUFFIXES))
+        raw_by_name = {name: archive.read(name) for name in names}
+
+    worksheet_text = _xlsx_worksheet_text(raw_by_name, ingest_xlsx(path))
+    parts: list[DocPart] = []
+    for name in names:
+        raw = raw_by_name[name]
+        # Ячейки читаются тем же ingest, что и основным графом: это находит
+        # отображаемое значение, даже если XML разрезал его на несколько узлов.
+        text = worksheet_text.get(name, _xml_text_nodes(raw))
+        parts.append(DocPart(name=name, raw=raw, text=text))
+    return parts
+
+
+def _xlsx_worksheet_text(raw_by_name: dict[str, bytes], document: Document) -> dict[str, str]:
+    """Сопоставить XML листа с текстом его сегментов.
+
+    Нельзя подставлять весь ``Document`` для каждого ``sheet*.xml``: это
+    удваивает видимые маркеры в многостраничной книге и искажает метрику
+    ``duplicate_markers``. Связь ``sheet name → XML part`` читаем из
+    ``workbook.xml`` и его relationships, а не предполагаем ``sheet1.xml``:
+    Excel вправе назначить файлу листа другое имя.
+    """
+    workbook_xml = raw_by_name.get("xl/workbook.xml")
+    relationships_xml = raw_by_name.get("xl/_rels/workbook.xml.rels")
+    if workbook_xml is None or relationships_xml is None:
+        return {}
+    try:
+        workbook = ElementTree.fromstring(workbook_xml)
+        relationships = ElementTree.fromstring(relationships_xml)
+    except ElementTree.ParseError:
+        return {}
+
+    relationship_targets: dict[str, str] = {}
+    for relationship in relationships:
+        target = relationship.attrib.get("Target")
+        identifier = relationship.attrib.get("Id")
+        if not target or not identifier:
+            continue
+        relationship_targets[identifier] = (
+            target.lstrip("/") if target.startswith("/") else "xl/" + target
+        )
+    worksheet_by_name: dict[str, str] = {}
+    relationship_id = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+    for sheet in workbook.iter():
+        if not sheet.tag.endswith("}sheet"):
+            continue
+        sheet_name = sheet.attrib.get("name")
+        target = relationship_targets.get(sheet.attrib.get(relationship_id, ""))
+        if sheet_name and target:
+            worksheet_by_name[sheet_name] = target
+
+    text_by_part: dict[str, list[str]] = {}
+    for segment in document.segments:
+        locator = segment.anchor.locator
+        if len(locator) != 4 or locator[0] != "cell" or not isinstance(locator[1], str):
+            continue
+        target = worksheet_by_name.get(locator[1])
+        if target:
+            text_by_part.setdefault(target, []).append(segment.text)
+    return {name: "\n".join(text) for name, text in text_by_part.items()}

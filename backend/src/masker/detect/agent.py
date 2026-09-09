@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import re
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from masker.detect.base import EntityDetector
 from masker.detect.confidence import classify_level
@@ -22,6 +23,9 @@ from masker.detect.sweep import sweep
 from masker.entity_types import EntityTypeRegistry
 from masker.llm import LLMProvider
 from masker.model import Document, Entity, EntityType, Segment, Source
+
+if TYPE_CHECKING:
+    from masker.detect.verifier import VerifierReport
 
 MIN_FRAGMENT_LEN = 2
 
@@ -343,14 +347,16 @@ class DetectAgent:
             [*entities, *find_requisite_block_candidates(document, entities)],
             key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
+        verifier_report: VerifierReport | None = None
         if self._llm is not None:
             # Р7: верификатор смотрит только на то, что осталось непокрытым
             # ПОСЛЕ Р4/Р5/Р6 (морфология, оргформы, блоки реквизитов) — их
             # находки уже в `entities` к этому моменту, поэтому кандидатные
             # окна строятся от актуального остатка, а не от «сырых» правил.
-            from masker.detect.verifier import verify_recall
+            from masker.detect.verifier import summarize_verdicts, verify_recall
 
             verifier_result = verify_recall(document, entities, self._llm)
+            verifier_report = summarize_verdicts(document, verifier_result)
             entities = sorted(
                 [*entities, *verifier_result.entities],
                 key=lambda item: (item.segment_order, item.start, item.end, item.type),
@@ -361,4 +367,4 @@ class DetectAgent:
         # заведомо однодетекторные (см. докстринг `_levelled`).
         entities = self._levelled(entities, found)
         chunks = build_pii_chunks(document.segments, entities)
-        return DetectionResult(entities=entities, chunks=chunks)
+        return DetectionResult(entities=entities, chunks=chunks, verifier=verifier_report)

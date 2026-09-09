@@ -151,10 +151,16 @@ def extract_node(state: State) -> dict[str, object]:
 def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """Собрать ``detect_node``, замыкающий ``LLMProvider`` из ``deps``.
 
-    LLM нужен только `regex_llm_filter` executor'у (шаг 13 T1.13), поэтому
-    в ``rules_only`` пути и в детекции без пользовательских спеков он не
-    используется. Тем же приёмом, что и ``make_profile_node``, замыкание
-    держит зависимость вне ``State`` (только JSON) — раздел 6 плана T1.5.1.
+    ``deps.llm`` идёт в детекцию по двум независимым дорожкам: в
+    ``default_detectors`` — он нужен только `regex_llm_filter` executor'у
+    (шаг 13 T1.13) и без пользовательских спеков не используется, — и в
+    сам ``DetectAgent`` — это включает LLM-верификатор на recall (Р7,
+    TASKS.md, `masker.detect.verifier.verify_recall`). ``rules_only`` не
+    передаёт LLM ни туда, ни туда: «только правила» обязано означать «ни
+    одного сетевого вызова», а не «без пользовательских детекторов, но с
+    LLM-верификатором». Тем же приёмом, что и ``make_profile_node``,
+    замыкание держит зависимость вне ``State`` (только JSON) — раздел 6
+    плана T1.5.1.
     """
 
     def detect_node(state: State) -> dict[str, object]:
@@ -188,7 +194,8 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                 detectors.append(ConfigDetector(specs))
         else:
             detectors = default_detectors(specs, llm=deps.llm)
-        detector = DetectAgent(detectors, registry)
+        verifier_llm = None if rules_only else deps.llm
+        detector = DetectAgent(detectors, registry, llm=verifier_llm)
         raw_types = options.get("types")
         selected_types = resolve_requested_types(
             tuple(str(value) for value in raw_types) if raw_types else ("all",), registry

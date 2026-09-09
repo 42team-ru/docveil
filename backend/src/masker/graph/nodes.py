@@ -48,6 +48,7 @@ from masker.graph.serde import (
     verdicts_to_dicts,
 )
 from masker.graph.state import State
+from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.ingest.xlsx_ingest import ingest_xlsx
@@ -515,6 +516,7 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         options = state.get("options", {})
         preview_enabled = bool(options.get("preview", True))
         styles = set(options.get("styles") or ())
+        highlight_background = options.get("highlight_background", DEFAULT_HIGHLIGHT_BACKGROUND)
 
         artifacts: list[dict[str, object]] = []
         # Спуски по лестнице отступления маркера (план T2.2.1, пачка 5,
@@ -547,7 +549,12 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                 destination = artifact_dir / f"{role}{suffix}"
                 if fmt == "pdf":
                     outcome = pdf_render_module.render_pdf_redacted(
-                        source, destination, document, plan, style=style
+                        source,
+                        destination,
+                        document,
+                        plan,
+                        style=style,
+                        highlight_background=highlight_background,
                     )
                     groups_by_id = {group.id: group for group in plan.groups}
                     # Только реальные спуски по лестнице отступления (план
@@ -579,7 +586,12 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     )
                 else:
                     docx_redact_module.render_docx_redacted(
-                        source, destination, document, plan, style=style
+                        source,
+                        destination,
+                        document,
+                        plan,
+                        style=style,
+                        highlight_background=highlight_background,
                     )
                 redacting = True
             artifacts.append(

@@ -17,6 +17,7 @@ from typing import Any
 from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.questions import parse_answers
+from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND, parse_highlight_background
 from masker.llm import (
     LLMError,
     LLMProvider,
@@ -60,6 +61,14 @@ _STYLES_BY_REDACT_OPTION: dict[str, tuple[str, ...]] = {
 }
 
 
+def _parse_highlight_background_arg(value: str) -> str | None:
+    """Адаптер ошибки формата фона к понятной диагностике argparse."""
+    try:
+        return parse_highlight_background(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
 def _parse_types(value: str) -> frozenset[EntityType]:
     if value.casefold() == "all":
         return frozenset(EntityType)
@@ -89,7 +98,10 @@ def _run_options_from_args(
     source: Path,
     interactive: bool,
 ) -> RunOptions:
-    """Опции графа из CLI. ``styles``/``preview`` вне ``thread_id`` (T1.10, раздел 4).
+    """Опции графа из CLI.
+
+    ``styles``/``preview`` вне ``thread_id`` (T1.10, раздел 4), но фон
+    читаемой маски в нём: разные цвета должны вести к разным артефактам.
 
     PDF всегда ``profile=False`` (риск R5): человек в цикле и профили для
     PDF не реализованы (T2.2 покрывает только детекцию).
@@ -109,6 +121,7 @@ def _run_options_from_args(
         interactive=interactive,
         styles=_STYLES_BY_REDACT_OPTION.get(args.redact_style, ()),
         preview=True,
+        highlight_background=args.highlight_background,
     )
 
 
@@ -346,6 +359,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="STYLE",
         help="marker → masked_highlight.*; blackbox → masked_black.*; both — оба",
+    )
+    parser.add_argument(
+        "--highlight-background",
+        "--highlight-color",
+        dest="highlight_background",
+        type=_parse_highlight_background_arg,
+        default=DEFAULT_HIGHLIGHT_BACKGROUND,
+        metavar="COLOR",
+        help="фон marker: #RRGGBB, RRGGBB или none (по умолчанию янтарный)",
     )
     parser.add_argument(
         "--profile", action="store_true", help="профили и вердикты судьи в report.json"

@@ -37,9 +37,11 @@ from masker.render.pdf_render import (
     _try_ladder,
     compute_erase_geometry,
     compute_label_geometry,
+    count_highlight_overlaps,
     render_pdf_preview,
     render_pdf_redacted,
 )
+from masker.validate.agent import ValidateAgent
 from masker.validate.pdf_layout import layout_diff
 
 _INN = "3662103003"
@@ -72,6 +74,19 @@ def _make_pdf_with_inn(tmp_path: pathlib.Path, pages: int = 1) -> pathlib.Path:
     doc.save(str(path))
     doc.close()
     return path
+
+
+def _filled_rect_colors(path: pathlib.Path) -> list[tuple[float, float, float]]:
+    """Цвета фактически нарисованных заполненных прямоугольников PDF."""
+    doc = pymupdf.open(path)
+    try:
+        return [
+            drawing["fill"]
+            for drawing in doc[0].get_drawings()
+            if drawing["fill"] is not None and any(item[0] == "re" for item in drawing["items"])
+        ]
+    finally:
+        doc.close()
 
 
 def _make_pdf_overlapping_lines(tmp_path: pathlib.Path) -> pathlib.Path:
@@ -787,6 +802,90 @@ def test_style_blackbox_fills_erase_and_paint_but_not_label(tmp_path: pathlib.Pa
     assert replacement.erase_regions
     assert replacement.paint_regions
     assert replacement.label_region is None
+
+
+def test_marker_uses_requested_pdf_background_color(tmp_path: pathlib.Path) -> None:
+    src = _make_pdf_with_inn(tmp_path)
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+
+    render_pdf_redacted(
+        src,
+        dest,
+        document,
+        _plan(document, [entity]),
+        style="marker",
+        highlight_background="#0080FF",
+    )
+
+    assert any(color == pytest.approx((0.0, 128 / 255, 1.0)) for color in _filled_rect_colors(dest))
+
+
+def test_marker_without_background_keeps_marker_but_draws_no_rectangle(
+    tmp_path: pathlib.Path,
+) -> None:
+    src = _make_pdf_with_inn(tmp_path)
+    dest = tmp_path / "redacted.pdf"
+    white = tmp_path / "white.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    plan = _plan(document, [entity])
+
+    render_pdf_redacted(src, white, document, plan, style="marker", highlight_background="#FFFFFF")
+    assert _filled_rect_colors(white) == [(1.0, 1.0, 1.0)]
+
+    outcome = render_pdf_redacted(
+        src, dest, document, plan, style="marker", highlight_background="none"
+    )
+
+    assert _filled_rect_colors(dest) == []
+    rendered = pymupdf.open(dest)
+    try:
+        assert "[ИНН]" in rendered[0].get_text()
+    finally:
+        rendered.close()
+    assert _INN.encode() not in dest.read_bytes()
+    assert outcome.replacements[0].paint_regions == ()
+    assert ValidateAgent().validate(plan, [dest]).leaked == ()
+    assert count_highlight_overlaps(plan, src, dest, highlight_background=None) == 0
+
+
+def test_blackbox_ignores_requested_highlight_background(tmp_path: pathlib.Path) -> None:
+    src = _make_pdf_with_inn(tmp_path)
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+
+    render_pdf_redacted(
+        src,
+        dest,
+        document,
+        _plan(document, [entity]),
+        style="blackbox",
+        highlight_background="#00FF00",
+    )
+
+    assert _filled_rect_colors(dest) == [(0.0, 0.0, 0.0)]
+
+
+def test_pdf_background_color_changes_artifact_but_remains_deterministic(
+    tmp_path: pathlib.Path,
+) -> None:
+    src = _make_pdf_with_inn(tmp_path)
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    plan = _plan(document, [entity])
+    first = tmp_path / "first.pdf"
+    same = tmp_path / "same.pdf"
+    other = tmp_path / "other.pdf"
+
+    render_pdf_redacted(src, first, document, plan, highlight_background="#0080FF")
+    render_pdf_redacted(src, same, document, plan, highlight_background="0080ff")
+    render_pdf_redacted(src, other, document, plan, highlight_background="#00FF00")
+
+    assert first.read_bytes() == same.read_bytes()
+    assert first.read_bytes() != other.read_bytes()
 
 
 def test_label_extension_does_not_erase_neighbouring_kept_word(tmp_path: pathlib.Path) -> None:

@@ -15,12 +15,14 @@ import os
 import time
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 import pytest
 
 from masker.llm import GigaChatProvider, LLMError, Message, get_provider
 from masker.llm.config import LLMConfig
+from masker.llm.gigachat import DEFAULT_TEMPERATURE
 
 AUTH_URL_FRAGMENT = "oauth"
 
@@ -251,6 +253,38 @@ def test_gigachat_requires_model(monkeypatch: pytest.MonkeyPatch) -> None:
         get_provider()
 
 
+def test_project_yaml_configures_all_gigachat_parameters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "masker.yaml"
+    path.write_text(
+        """llm:
+  provider: gigachat
+  model: GigaChat-Pro
+  api_key_env: TEST_GIGACHAT_CREDENTIALS
+  timeout_seconds: 12
+  gigachat:
+    scope: GIGACHAT_API_CORP
+    temperature: 0.4
+    ca_bundle_file: /etc/ssl/certs/trusted-ca.pem
+    insecure_skip_tls_verify: true
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MASKER_CONFIG", str(path))
+    monkeypatch.setenv("TEST_GIGACHAT_CREDENTIALS", "test-credentials")
+
+    provider = get_provider()
+
+    assert isinstance(provider, GigaChatProvider)
+    assert provider.model == "GigaChat-Pro"
+    assert provider.scope == "GIGACHAT_API_CORP"
+    assert provider.temperature == 0.4
+    assert provider.timeout_seconds == 12.0
+    assert provider.ca_bundle_file == "/etc/ssl/certs/trusted-ca.pem"
+    assert provider.verify_ssl_certs is False
+
+
 def test_get_provider_builds_gigachat_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIGACHAT_CREDENTIALS", "dGVzdDp0ZXN0")
     monkeypatch.setenv("MASKER_LLM", "gigachat")
@@ -313,6 +347,72 @@ def test_gigachat_without_schema_omits_response_format(monkeypatch: pytest.Monke
     assert transport.chat_call_bodies is not None
     sent = json.loads(transport.chat_call_bodies[0])
     assert "response_format" not in sent
+
+
+def test_gigachat_sends_default_temperature_in_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    """По умолчанию температура ниже порога строгого контроля Сбера (< 0.001)."""
+    transport = _FakeTransport(chat_responses=deque([(200, _success_body("ответ"))]))
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider()
+    provider.complete([Message("user", "вопрос")])
+
+    assert transport.chat_call_bodies is not None
+    sent = json.loads(transport.chat_call_bodies[0])
+    assert sent["temperature"] == DEFAULT_TEMPERATURE
+    assert DEFAULT_TEMPERATURE < 0.001
+
+
+def test_gigachat_forwards_custom_temperature_in_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = _FakeTransport(chat_responses=deque([(200, _success_body("ответ"))]))
+    _install_transport(monkeypatch, transport)
+
+    provider = _provider(temperature=0.9)
+    provider.complete([Message("user", "вопрос")])
+
+    assert transport.chat_call_bodies is not None
+    sent = json.loads(transport.chat_call_bodies[0])
+    assert sent["temperature"] == 0.9
+
+
+def test_get_provider_builds_gigachat_with_default_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GIGACHAT_CREDENTIALS", "dGVzdDp0ZXN0")
+    monkeypatch.setenv("MASKER_LLM", "gigachat")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "GigaChat")
+    monkeypatch.delenv("MASKER_LLM_GIGACHAT_TEMPERATURE", raising=False)
+
+    provider = get_provider()
+
+    assert isinstance(provider, GigaChatProvider)
+    assert provider.temperature == DEFAULT_TEMPERATURE
+
+
+def test_get_provider_reads_gigachat_temperature_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GIGACHAT_CREDENTIALS", "dGVzdDp0ZXN0")
+    monkeypatch.setenv("MASKER_LLM", "gigachat")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "GigaChat")
+    monkeypatch.setenv("MASKER_LLM_GIGACHAT_TEMPERATURE", "0.3")
+
+    provider = get_provider()
+
+    assert isinstance(provider, GigaChatProvider)
+    assert provider.temperature == 0.3
+
+
+def test_get_provider_rejects_non_numeric_gigachat_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GIGACHAT_CREDENTIALS", "dGVzdDp0ZXN0")
+    monkeypatch.setenv("MASKER_LLM", "gigachat")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "GigaChat")
+    monkeypatch.setenv("MASKER_LLM_GIGACHAT_TEMPERATURE", "много")
+
+    with pytest.raises(LLMError, match="MASKER_LLM_GIGACHAT_TEMPERATURE"):
+        get_provider()
 
 
 def test_masker_llm_fake_still_works_without_network(monkeypatch: pytest.MonkeyPatch) -> None:

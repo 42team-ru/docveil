@@ -7,6 +7,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from masker.config import project_section
 from masker.detect.normalize import normalize_value
 from masker.model import Document, Entity, Source
 from masker.typeconfig import CustomTypeSpec
@@ -28,7 +29,10 @@ class GlinerDetector:
             self._model = model
             return
 
-        model_path = Path(os.environ.get("MASKER_GLINER_PATH", DEFAULT_MODEL_PATH))
+        configured_path = project_section("models").get("gliner_path", str(DEFAULT_MODEL_PATH))
+        if not isinstance(configured_path, str):
+            raise ValueError("models.gliner_path в YAML-конфиге должен быть строкой")
+        model_path = Path(os.environ.get("MASKER_GLINER_PATH", configured_path))
         if not model_path.is_dir():
             raise RuntimeError(
                 f"Локальные веса GLiNER2 не найдены: {model_path}. "

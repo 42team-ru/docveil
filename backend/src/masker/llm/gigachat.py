@@ -60,6 +60,17 @@ from masker.llm.base import LLMError, Message
 
 DEFAULT_SCOPE = "GIGACHAT_API_PERS"
 
+# Документация Сбера про параметр `temperature`: "Когда температура меньше
+# 0.001, включается режим строгого контроля, дающий одинаковые ответы."
+# Обе роли, где используется GigaChat в проекте (ProfileAgent — определение
+# роли стороны договора, верификатор Р7 — поиск пропущенных персональных
+# данных), извлекают факты, а не сочиняют текст: разнообразие ответов только
+# вредит и ломает инвариант побайтовой воспроизводимости отчёта (кассеты
+# записывают ответ модели как истину). Поэтому по умолчанию берём значение
+# ниже порога строгого контроля, а не дефолт самой модели, рассчитанный на
+# «сбалансированные, слегка творческие ответы».
+DEFAULT_TEMPERATURE = 0.0001
+
 
 @dataclass(slots=True)
 class GigaChatProvider:
@@ -74,6 +85,7 @@ class GigaChatProvider:
     credentials: str
     model: str
     scope: str = DEFAULT_SCOPE
+    temperature: float = DEFAULT_TEMPERATURE
     timeout_seconds: float = 60.0
     max_retries: int = 3
     retry_backoff_factor: float = 0.5
@@ -93,6 +105,7 @@ class GigaChatProvider:
         client = self._get_client()
         payload: dict[str, Any] = {
             "messages": [{"role": item.role, "content": item.content} for item in messages],
+            "temperature": self.temperature,
         }
         if schema is not None:
             payload["response_format"] = {

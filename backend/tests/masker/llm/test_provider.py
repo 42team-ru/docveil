@@ -108,6 +108,7 @@ def test_openrouter_provider_sends_openai_compatible_request(
             {"role": "system", "content": "rules"},
             {"role": "user", "content": "document"},
         ],
+        "temperature": 0.0,
     }
     assert captured["timeout"] == 12.5
 
@@ -186,6 +187,78 @@ def test_openrouter_without_schema_omits_response_format(
     assert "response_format" not in body
 
 
+def test_openrouter_provider_forwards_custom_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Значение `temperature` из конструктора уходит в тело запроса как есть."""
+    captured: dict[str, object] = {}
+
+    class Response:
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            del exc_type, exc, traceback
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(request: object, *, timeout: float) -> Response:
+        del timeout
+        captured["request"] = request
+        return Response()
+
+    monkeypatch.setattr("masker.llm.openrouter.urlopen", fake_urlopen)
+    provider = OpenRouterProvider(api_key="secret", model="openrouter/auto", temperature=0.7)
+
+    provider.complete([Message("user", "test")])
+
+    request = captured["request"]
+    assert isinstance(request, Request)
+    body = json.loads(request.data)
+    assert body["temperature"] == 0.7
+
+
+def test_get_provider_builds_openrouter_with_default_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret")
+    monkeypatch.setenv("MASKER_LLM", "openrouter")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "openrouter/auto")
+    monkeypatch.delenv("MASKER_LLM_OPENROUTER_TEMPERATURE", raising=False)
+
+    provider = get_provider()
+
+    assert isinstance(provider, OpenRouterProvider)
+    assert provider.temperature == 0.0
+
+
+def test_get_provider_reads_openrouter_temperature_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret")
+    monkeypatch.setenv("MASKER_LLM", "openrouter")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "openrouter/auto")
+    monkeypatch.setenv("MASKER_LLM_OPENROUTER_TEMPERATURE", "0.5")
+
+    provider = get_provider()
+
+    assert isinstance(provider, OpenRouterProvider)
+    assert provider.temperature == 0.5
+
+
+def test_get_provider_rejects_non_numeric_openrouter_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret")
+    monkeypatch.setenv("MASKER_LLM", "openrouter")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "openrouter/auto")
+    monkeypatch.setenv("MASKER_LLM_OPENROUTER_TEMPERATURE", "не число")
+
+    with pytest.raises(LLMError, match="MASKER_LLM_OPENROUTER_TEMPERATURE"):
+        get_provider()
+
+
 def test_openrouter_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setenv("MASKER_LLM", "openrouter")
@@ -214,6 +287,34 @@ def test_load_llm_config_keeps_key_in_environment(tmp_path: Path) -> None:
     assert config.model == "openrouter/auto"
     assert config.api_key_env == "TEST_OPENROUTER_KEY"
     assert config.timeout_seconds == 5.0
+
+
+def test_project_yaml_configures_llm_and_environment_overrides_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "masker.yaml"
+    path.write_text(
+        """llm:
+  provider: openrouter
+  model: provider/from-yaml
+  api_key_env: YAML_OPENROUTER_KEY
+  timeout_seconds: 12
+  openrouter:
+    temperature: 0.25
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MASKER_CONFIG", str(path))
+    monkeypatch.setenv("YAML_OPENROUTER_KEY", "secret")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "provider/from-environment")
+    monkeypatch.setenv("MASKER_LLM_OPENROUTER_TEMPERATURE", "0.5")
+
+    provider = get_provider()
+
+    assert isinstance(provider, OpenRouterProvider)
+    assert provider.model == "provider/from-environment"
+    assert provider.timeout_seconds == 12.0
+    assert provider.temperature == 0.5
 
 
 @pytest.mark.e2e

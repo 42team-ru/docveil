@@ -8,9 +8,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from api.core.config import Settings
+from api.core.config import Settings, _yaml_settings_source
 
 _REQUIRED_ENV: dict[str, str] = {
     "DATABASE_URL": "postgresql+asyncpg://test:test@localhost:5432/test",
@@ -42,3 +44,59 @@ def test_app_port_reads_from_environment(monkeypatch: pytest.MonkeyPatch) -> Non
     config = Settings()
 
     assert config.app_port == 9100
+
+
+def test_yaml_port_is_used_until_environment_overrides_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "masker.yaml"
+    path.write_text("application:\n  port: 8100\n", encoding="utf-8")
+    monkeypatch.setenv("MASKER_CONFIG", str(path))
+    monkeypatch.delenv("APP_PORT", raising=False)
+    _set_required_env(monkeypatch)
+
+    assert Settings(_env_file=None).app_port == 8100
+
+    monkeypatch.setenv("APP_PORT", "9100")
+    assert Settings(_env_file=None).app_port == 9100
+
+
+def test_yaml_web_settings_resolve_named_secrets_without_storing_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "masker.yaml"
+    path.write_text(
+        """application:
+  port: 8100
+web:
+  database:
+    host: db.example.test
+    port: 5433
+    name: documents
+    user: api
+    password_env: TEST_DATABASE_PASSWORD
+  minio:
+    endpoint: minio.example.test:9000
+    access_key_env: TEST_MINIO_ACCESS_KEY
+    secret_key_env: TEST_MINIO_SECRET_KEY
+  jwt:
+    secret_env: TEST_JWT_SECRET
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MASKER_CONFIG", str(path))
+    monkeypatch.setenv("TEST_DATABASE_PASSWORD", "database-password")
+    monkeypatch.setenv("TEST_MINIO_ACCESS_KEY", "access-key")
+    monkeypatch.setenv("TEST_MINIO_SECRET_KEY", "secret-key")
+    monkeypatch.setenv("TEST_JWT_SECRET", "jwt-secret")
+
+    values = _yaml_settings_source()
+
+    assert values["app_port"] == 8100
+    assert (
+        values["database_url"]
+        == "postgresql+asyncpg://api:database-password@db.example.test:5433/documents"
+    )
+    assert values["minio_access_key"] == "access-key"
+    assert values["minio_secret_key"] == "secret-key"
+    assert values["jwt_secret"] == "jwt-secret"

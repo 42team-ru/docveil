@@ -19,15 +19,27 @@ _SCHEMA: dict[str, Any] = {
 }
 
 
-def test_cassette_returns_recorded_response_by_message_hash() -> None:
-    provider = CassetteProvider(FIXTURES)
+def test_cassette_returns_recorded_response_by_message_hash(tmp_path: Path) -> None:
+    """Механизм кассеты проверяем на синтетической записи, не на продуктовых данных.
+
+    Продуктовый каталог `fixtures/llm/roles/` содержит настоящие ответы живого
+    GigaChat — тест логики поиска по ключу не должен зависеть от того, что там
+    лежит именно сейчас (см. И2-3: заглушка `cassette-smoke.json` была удалена
+    вместе с остальными заглушками при записи настоящих кассет).
+    """
+    (tmp_path / "smoke.json").write_text(
+        json.dumps({"key": cassette_key(_MESSAGES), "response": '{"profiles": []}'}),
+        encoding="utf-8",
+    )
+    provider = CassetteProvider(tmp_path)
 
     assert provider.complete(_MESSAGES, schema=_SCHEMA) == '{"profiles": []}'
     assert provider.calls == 1
 
 
-def test_cassette_missing_key_is_explicit_error() -> None:
-    provider = CassetteProvider(FIXTURES)
+def test_cassette_missing_key_is_explicit_error(tmp_path: Path) -> None:
+    """Пустой каталог честнее, чем расчёт на отсутствие ключа в продуктовых данных."""
+    provider = CassetteProvider(tmp_path)
 
     with pytest.raises(LLMError, match="нет ответа для ключа"):
         provider.complete([Message("user", "absent")])

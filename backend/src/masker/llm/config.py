@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from masker.telemetry import LLMPricing, pricing_from_dict
+
 
 @dataclass(frozen=True, slots=True)
 class LLMConfig:
@@ -25,6 +27,7 @@ class LLMConfig:
     gigachat_temperature: float = 0.0001
     gigachat_ca_bundle_file: str = ""
     gigachat_insecure_skip_tls_verify: bool = False
+    pricing: LLMPricing | None = None
 
 
 def load_llm_config(path: Path) -> LLMConfig:
@@ -51,6 +54,7 @@ def llm_config_from_mapping(settings: Any) -> LLMConfig:
     api_key_env = _required_text(settings, "api_key_env", default="OPENROUTER_API_KEY")
     site_url = _required_text(settings, "site_url", default="")
     title = _required_text(settings, "title", default="triema-masker")
+    pricing = pricing_from_dict(settings.get("pricing"))
     timeout = _positive_number(settings, "timeout_seconds", default=60.0)
     cassette_directory = _required_text(settings, "cassette_directory", default="")
     openrouter = _mapping(settings, "openrouter")
@@ -79,6 +83,7 @@ def llm_config_from_mapping(settings: Any) -> LLMConfig:
         gigachat_temperature=gigachat_temperature,
         gigachat_ca_bundle_file=gigachat_ca_bundle_file,
         gigachat_insecure_skip_tls_verify=gigachat_insecure_skip_tls_verify,
+        pricing=pricing,
     )
 
 

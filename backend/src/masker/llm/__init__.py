@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from masker.config import project_section
-from masker.llm.base import LLMError, LLMProvider, Message
+from masker.llm.base import LLMError, LLMProvider, LLMUsage, Message
 from masker.llm.cassette import CassetteProvider
 from masker.llm.config import LLMConfig, llm_config_from_mapping, load_llm_config
 from masker.llm.fake import FakeProvider
@@ -24,6 +24,7 @@ __all__ = [
     "LLMConfig",
     "LLMError",
     "LLMProvider",
+    "LLMUsage",
     "Message",
     "OpenRouterProvider",
     "ProfileOutcome",

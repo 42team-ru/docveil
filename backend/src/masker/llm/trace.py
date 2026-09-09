@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from masker.llm.base import LLMError, LLMProvider, Message
+from masker.llm.base import LLMError, LLMProvider, LLMUsage, Message
 
 TRACE_JSONL_NAME = "llm-trace.jsonl"
 TRACE_MARKDOWN_NAME = "llm-trace.md"
@@ -78,6 +78,12 @@ class TracingProvider:
         self._inner = inner
         self.calls: list[CallTrace] = []
         self.batches: list[BatchTrace] = []
+
+    @property
+    def last_usage(self) -> LLMUsage | None:
+        """Прозрачно отдать usage внутреннего поставщика обёртке учёта."""
+        value = getattr(self._inner, "last_usage", None)
+        return value if isinstance(value, LLMUsage) else None
 
     def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
         """Выполнить вызов внутреннего поставщика и записать его дословно.

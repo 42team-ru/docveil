@@ -56,7 +56,7 @@ from typing import Any
 from gigachat import GigaChat
 from gigachat.exceptions import GigaChatException, ResponseError
 
-from masker.llm.base import LLMError, Message
+from masker.llm.base import LLMError, LLMUsage, Message
 
 DEFAULT_SCOPE = "GIGACHAT_API_PERS"
 
@@ -92,6 +92,10 @@ class GigaChatProvider:
     verify_ssl_certs: bool = True
     ca_bundle_file: str | None = None
     _client: GigaChat | None = field(default=None, init=False, repr=False, compare=False)
+    #: Usage последнего успешного ответа. Его читает только обёртка учёта
+    #: сразу после ``complete()``, поэтому строковый контракт провайдера не
+    #: меняется.
+    last_usage: LLMUsage | None = field(default=None, init=False)
 
     def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
         """Вернуть текст первого варианта chat completion GigaChat.
@@ -102,6 +106,7 @@ class GigaChatProvider:
         который `_describe_response_error` превращает в понятный `LLMError`,
         а не тихо возвращает произвольный текст.
         """
+        self.last_usage = None
         client = self._get_client()
         payload: dict[str, Any] = {
             "messages": [{"role": item.role, "content": item.content} for item in messages],
@@ -130,6 +135,7 @@ class GigaChatProvider:
         content = choice.message.content
         if not isinstance(content, str) or not content.strip():
             raise LLMError("GigaChat вернул пустой текст ответа")
+        self.last_usage = _usage_from_completion(completion)
         return content
 
     def _get_client(self) -> GigaChat:
@@ -159,3 +165,19 @@ def _describe_response_error(error: ResponseError) -> str:
     if status == 429:
         return f"GigaChat превысил лимит запросов (HTTP 429) после исчерпания повторов: {error}"
     return f"GigaChat вернул HTTP {status}: {error}"
+
+
+def _usage_from_completion(completion: Any) -> LLMUsage | None:
+    """Забрать v1 ``usage`` GigaChat, не подменяя отсутствующие данные нулём."""
+    usage = getattr(completion, "usage", None)
+    prompt = getattr(usage, "prompt_tokens", None)
+    completion_tokens = getattr(usage, "completion_tokens", None)
+    if not _token_count(prompt) or not _token_count(completion_tokens):
+        return None
+    assert isinstance(prompt, int)
+    assert isinstance(completion_tokens, int)
+    return LLMUsage(prompt_tokens=prompt, completion_tokens=completion_tokens)
+
+
+def _token_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0

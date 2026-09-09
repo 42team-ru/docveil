@@ -56,6 +56,7 @@ from masker.llm import LLMProvider, TracingProvider
 from masker.mask import PlanAgent
 from masker.mask.select import resolve_requested_types
 from masker.model import Action, Document, Question, Segment
+from masker.ocr.provider import OCRProvider
 from masker.policy.agent import CriticalUnmask, GroupAnswer, PolicyAgent
 from masker.profile import ProfileAgent
 from masker.profile.agent import ProfileResult
@@ -90,6 +91,7 @@ class RunDeps:
     llm: LLMProvider | None = None
     tracer: TracingProvider | None = None
     artifact_dir: Path | None = None
+    ocr: OCRProvider | None = None
 
 
 def _document(state: State) -> Document:
@@ -120,19 +122,14 @@ def _registry_and_specs(
     return registry, specs
 
 
-def extract_node(state: State) -> dict[str, object]:
-    """Разобрать документ по ``state["path"]``: формат — по расширению файла.
-
-    DOCX и PDF (регистронезависимо); прочие расширения — явный ``ValueError``
-    с именем файла, а не тихий разбор мимо формата.
-    """
+def _extract(state: State, ocr: OCRProvider | None) -> dict[str, object]:
     path = Path(state["path"])
     suffix = path.suffix.casefold()
     if suffix == ".docx":
         document = ingest_docx(path)
         coverage = docx_coverage(path, document)
     elif suffix == ".pdf":
-        document = ingest_pdf(path)
+        document = ingest_pdf(path, ocr=ocr)
         coverage = pdf_coverage(path, document)
     else:
         raise ValueError(f"неподдерживаемый формат файла: {path.name}")
@@ -154,6 +151,30 @@ def extract_node(state: State) -> dict[str, object]:
         "meta": {**document.meta, "name": path.name, "format": document.fmt},
         "coverage": coverage,
     }
+
+
+def extract_node(state: State) -> dict[str, object]:
+    """Разобрать документ по ``state["path"]``: формат — по расширению файла.
+
+    DOCX и PDF (регистронезависимо); прочие расширения — явный ``ValueError``
+    с именем файла, а не тихий разбор мимо формата. OCR не используется —
+    для OCR-прогонов используйте ``make_extract_node(deps)``.
+    """
+    return _extract(state, ocr=None)
+
+
+def make_extract_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
+    """Фабрика extract-узла с OCR из ``deps``.
+
+    Используется в ``build_graph``, чтобы передать ``deps.ocr`` в
+    ``ingest_pdf``; если ``deps.ocr is None`` — поведение как у
+    ``extract_node``.
+    """
+
+    def _node(state: State) -> dict[str, object]:
+        return _extract(state, ocr=deps.ocr)
+
+    return _node
 
 
 def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:

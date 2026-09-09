@@ -111,6 +111,7 @@ ignore_missing_imports = true
 # PyMuPDF не поставляет стабы — все ошибки в этих модулях артефакт библиотеки, а не логики.
 module = [
     "masker.ingest.pdf_ingest",
+    "masker.ingest.scan_ingest",
     "masker.render.pdf_render",
     "masker.validate.parts",
     "masker.validate.pdf_layout",

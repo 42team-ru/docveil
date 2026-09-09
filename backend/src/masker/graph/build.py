@@ -17,9 +17,9 @@ from masker.graph.nodes import (
     RunDeps,
     apply_answers_node,
     ask_human_node,
-    extract_node,
     finalize_node,
     make_detect_node,
+    make_extract_node,
     make_judge_node,
     make_profile_node,
     make_render_node,
@@ -44,14 +44,14 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     → report → END``.
     """
     graph: StateGraph[State] = StateGraph(State)
-    graph.add_node("extract", extract_node)
-    graph.add_node("detect", make_detect_node(deps))  # type: ignore[arg-type]
+    graph.add_node("extract", make_extract_node(deps))  # type: ignore[call-overload]
+    graph.add_node("detect", make_detect_node(deps))  # type: ignore[call-overload]
     # mypy не умеет вывести NodeInputT из значения типа Callable[[State], ...],
     # только из def-функции с конкретной сигнатурой (проверено минимальным
     # воспроизведением на langgraph 1.2.11): без игнора аргумент разрешается
     # в _Node[Never]. Реальная сигнатура узла типизирована в nodes.py.
-    graph.add_node("profile", make_profile_node(deps))  # type: ignore[arg-type]
-    graph.add_node("judge", make_judge_node(deps))  # type: ignore[arg-type]
+    graph.add_node("profile", make_profile_node(deps))  # type: ignore[call-overload]
+    graph.add_node("judge", make_judge_node(deps))  # type: ignore[call-overload]
     graph.add_node("policy", policy_node)
     graph.add_node("ask_human", ask_human_node)
     graph.add_node("apply_answers", apply_answers_node)

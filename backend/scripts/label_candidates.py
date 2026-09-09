@@ -100,9 +100,18 @@ def read_text(path: Path) -> str:
 
     Схлопывание обязательно: разметка сравнивается с текстом в однострочной
     форме, иначе перенос строки внутри значения делает совпадение невозможным.
+    Для скан-PDF (нет текстового слоя) дополнительно читает сайдкар
+    ``<stem>.fake_ocr.json`` — структуру, созданную ``gen_scan_fixtures.py``.
     """
     document = ingest_pdf(path) if path.suffix.casefold() == ".pdf" else ingest_docx(path)
-    return " ".join(" ".join(segment.text for segment in document.segments).split())
+    text = " ".join(" ".join(segment.text for segment in document.segments).split())
+    if not text and path.suffix.casefold() == ".pdf":
+        sidecar = path.with_suffix("").with_suffix(".fake_ocr.json")
+        if sidecar.exists():
+            pages = json.loads(sidecar.read_text(encoding="utf-8"))
+            text = " ".join(line["text"] for page in pages for line in page.get("lines", []))
+            text = " ".join(text.split())
+    return text
 
 
 def _digit_runs(text: str) -> Iterator[str]:

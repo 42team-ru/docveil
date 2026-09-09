@@ -178,7 +178,9 @@ def holdout_01_supply() -> tuple[DocxDocument, list[dict[str, str]]]:
     )
 
     doc.add_heading("1. Реквизиты Поставщика", level=2)
-    doc.add_paragraph("Юридический адрес: 420111, Респ. Татарстан, г. Казань, ул. Профсоюзная, д. 15, оф. 302")
+    doc.add_paragraph(
+        "Юридический адрес: 420111, Респ. Татарстан, г. Казань, ул. Профсоюзная, д. 15, оф. 302"
+    )
     doc.add_paragraph(f"Расчётный счёт № {acc_supplier}, БИК 049205603")
     doc.add_paragraph("Тел.: +7-917-123-45-67, эл. почта: sales@volga-technomash.example")
     doc.add_paragraph("СНИЛС генерального директора: " + snils_director)
@@ -222,7 +224,11 @@ def holdout_01_supply() -> tuple[DocxDocument, list[dict[str, str]]]:
     doc.add_paragraph("Заказчик: ______________ Д.И. Беляева")
 
     labels = [
-        {"type": "org_name", "text": "Общество с ограниченной ответственностью «Волга-Техномаш»", "party": "supplier"},
+        {
+            "type": "org_name",
+            "text": "Общество с ограниченной ответственностью «Волга-Техномаш»",
+            "party": "supplier",
+        },
         {"type": "inn", "text": inn_supplier, "party": "supplier"},
         {"type": "kpp", "text": "165801001", "party": "supplier"},
         {"type": "ogrn", "text": ogrn_supplier, "party": "supplier"},
@@ -237,7 +243,10 @@ def holdout_01_supply() -> tuple[DocxDocument, list[dict[str, str]]]:
         {"type": "ogrn", "text": ogrn_buyer, "party": "customer"},
         {"type": "person", "text": "Беляевой Дарьи Игоревны", "party": "customer"},
         {"type": "federal_law", "text": "44-ФЗ"},
-        {"type": "address", "text": "420111, Респ. Татарстан, г. Казань, ул. Профсоюзная, д. 15, оф. 302"},
+        {
+            "type": "address",
+            "text": "420111, Респ. Татарстан, г. Казань, ул. Профсоюзная, д. 15, оф. 302",
+        },
         {"type": "bank_account", "text": acc_supplier, "party": "supplier"},
         {"type": "bik", "text": "049205603", "party": "supplier"},
         {"type": "phone", "text": "+7-917-123-45-67", "party": "supplier"},
@@ -389,7 +398,9 @@ def holdout_03_transport() -> tuple[DocxDocument, list[dict[str, str]]]:
     )
 
     doc.add_heading("1. Реквизиты Перевозчика", level=2)
-    doc.add_paragraph("Адрес регистрации: 196006, г. Санкт-Петербург, Московский пр., д. 143, лит. А")
+    doc.add_paragraph(
+        "Адрес регистрации: 196006, г. Санкт-Петербург, Московский пр., д. 143, лит. А"
+    )
     doc.add_paragraph("Телефон: 8-800-555-01-23")
     doc.add_paragraph("СНИЛС: " + snils_carrier)
 
@@ -456,8 +467,7 @@ def negative_01_gost() -> tuple[DocxDocument, list[dict[str, str]]]:
     doc.core_properties.title = "Технические условия ТУ 3450-014-07622645-2020"
 
     doc.add_heading(
-        "ТЕХНИЧЕСКИЕ УСЛОВИЯ НА РЕЗИСТОРЫ ПОСТОЯННЫЕ НЕПРОВОЛОЧНЫЕ "
-        "ТУ 3450-014-07622645-2020",
+        "ТЕХНИЧЕСКИЕ УСЛОВИЯ НА РЕЗИСТОРЫ ПОСТОЯННЫЕ НЕПРОВОЛОЧНЫЕ ТУ 3450-014-07622645-2020",
         level=1,
     )
 

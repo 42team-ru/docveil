@@ -80,6 +80,8 @@ def _expected_ranges_by_page(plan: MaskPlan) -> dict[int, list[tuple[int, int]]]
     for replacement in plan.replacements:
         if replacement.anchor.fmt != "pdf":
             continue
+        if len(replacement.anchor.locator) != 4:
+            continue
         _, page_num, seg_start, _seg_end = replacement.anchor.locator
         abs_start = int(seg_start) + replacement.entity.start
         abs_end = int(seg_start) + replacement.entity.end

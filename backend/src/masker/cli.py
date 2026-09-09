@@ -27,6 +27,7 @@ from masker.llm import (
     write_trace,
 )
 from masker.model import EntityType
+from masker.ocr.select import select_ocr
 from masker.report.html import render_html_report
 from masker.run import (
     AlreadyFinishedError,
@@ -247,7 +248,7 @@ def _start(
     if args.llm_trace and llm is not None:
         tracer = TracingProvider(llm)
         run_llm = tracer
-    deps = RunDeps(llm=run_llm, tracer=tracer, artifact_dir=artifact_dir)
+    deps = RunDeps(llm=run_llm, tracer=tracer, artifact_dir=artifact_dir, ocr=select_ocr())
     pre_answers = _load_answers(args.answers, parser) if args.answers is not None else None
 
     try:

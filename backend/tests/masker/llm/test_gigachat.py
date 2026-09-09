@@ -321,6 +321,98 @@ def test_masker_llm_fake_still_works_without_network(monkeypatch: pytest.MonkeyP
     assert provider.complete([Message("user", "test")])
 
 
+def test_gigachat_provider_defaults_ca_bundle_file_to_none() -> None:
+    """Без явного указания сертификата поведение не меняется (verify_ssl_certs=True)."""
+    provider = _provider()
+    assert provider.ca_bundle_file is None
+    assert provider.verify_ssl_certs is True
+
+
+def test_gigachat_forwards_ca_bundle_file_to_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Р9: путь к доверенному корневому сертификату (Минцифры) доходит до `gigachat.GigaChat`.
+
+    Без этого параметра запрос падает на машинах без сертификатов Минцифры
+    в системном хранилище: `SSL: CERTIFICATE_VERIFY_FAILED`. Проверяем, что
+    провайдер прокидывает `ca_bundle_file` в клиент, не проверяя реальную сеть.
+    """
+    captured: dict[str, object] = {}
+
+    class _SpyGigaChat:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def chat(self, payload: object) -> None:  # pragma: no cover - не должен вызываться
+            raise AssertionError("chat не должен вызываться в этом тесте")
+
+    monkeypatch.setattr("masker.llm.gigachat.GigaChat", _SpyGigaChat)
+
+    provider = _provider(ca_bundle_file="/etc/ssl/certs/russian_trusted_root_ca.cer")
+    provider._get_client()
+
+    assert captured["ca_bundle_file"] == "/etc/ssl/certs/russian_trusted_root_ca.cer"
+    assert captured["verify_ssl_certs"] is True
+
+
+def test_get_provider_reads_gigachat_ca_bundle_file_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GIGACHAT_CREDENTIALS", "dGVzdDp0ZXN0")
+    monkeypatch.setenv("MASKER_LLM", "gigachat")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "GigaChat")
+    monkeypatch.setenv(
+        "MASKER_LLM_GIGACHAT_CA_BUNDLE", "/etc/ssl/certs/russian_trusted_root_ca.cer"
+    )
+
+    provider = get_provider()
+
+    assert isinstance(provider, GigaChatProvider)
+    assert provider.ca_bundle_file == "/etc/ssl/certs/russian_trusted_root_ca.cer"
+
+
+def test_get_provider_without_ca_bundle_env_leaves_it_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GIGACHAT_CREDENTIALS", "dGVzdDp0ZXN0")
+    monkeypatch.setenv("MASKER_LLM", "gigachat")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "GigaChat")
+    monkeypatch.delenv("MASKER_LLM_GIGACHAT_CA_BUNDLE", raising=False)
+
+    provider = get_provider()
+
+    assert isinstance(provider, GigaChatProvider)
+    assert provider.ca_bundle_file is None
+
+
+def test_get_provider_gigachat_verify_ssl_certs_defaults_to_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Небезопасный режим не включается сам по себе без явной переменной."""
+    monkeypatch.setenv("GIGACHAT_CREDENTIALS", "dGVzdDp0ZXN0")
+    monkeypatch.setenv("MASKER_LLM", "gigachat")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "GigaChat")
+    monkeypatch.delenv("MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY", raising=False)
+
+    provider = get_provider()
+
+    assert isinstance(provider, GigaChatProvider)
+    assert provider.verify_ssl_certs is True
+
+
+def test_get_provider_gigachat_insecure_flag_disables_tls_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Р9: отключение проверки TLS — только осознанным явным флагом, не по умолчанию."""
+    monkeypatch.setenv("GIGACHAT_CREDENTIALS", "dGVzdDp0ZXN0")
+    monkeypatch.setenv("MASKER_LLM", "gigachat")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "GigaChat")
+    monkeypatch.setenv("MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY", "1")
+
+    provider = get_provider()
+
+    assert isinstance(provider, GigaChatProvider)
+    assert provider.verify_ssl_certs is False
+
+
 @pytest.mark.e2e
 def test_gigachat_live_smoke() -> None:
     """Проверка сети запускается только при явной настройке настоящего GigaChat."""

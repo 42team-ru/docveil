@@ -82,10 +82,15 @@ def get_provider(config: LLMConfig | None = None) -> LLMProvider:
             )
         if not config.model:
             raise LLMError("для GigaChat задайте модель в конфиге или MASKER_LLM_MODEL")
+        insecure_skip_tls_verify = os.environ.get(
+            "MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY", ""
+        ).strip().casefold() in ("1", "true", "yes")
         return GigaChatProvider(
             credentials=credentials,
             model=config.model,
             scope=os.environ.get("MASKER_LLM_GIGACHAT_SCOPE", GIGACHAT_DEFAULT_SCOPE),
             timeout_seconds=config.timeout_seconds,
+            ca_bundle_file=os.environ.get("MASKER_LLM_GIGACHAT_CA_BUNDLE") or None,
+            verify_ssl_certs=not insecure_skip_tls_verify,
         )
     raise LLMError(f"неизвестный поставщик LLM: {provider!r}")

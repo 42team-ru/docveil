@@ -125,6 +125,8 @@ cd backend
 | `OPENROUTER_API_KEY` | ключ | — | авторизация `OpenRouterProvider` |
 | `GIGACHAT_CREDENTIALS` | ключ/токен | — | авторизация `GigaChatProvider` |
 | `MASKER_LLM_GIGACHAT_SCOPE` | scope GigaChat API | `GIGACHAT_API_PERS` (см. `gigachat.py`) | область токена GigaChat |
+| `MASKER_LLM_GIGACHAT_CA_BUNDLE` | путь к файлу `.pem`/`.cer` | не задана (системное хранилище) | доверенный корневой сертификат для TLS к GigaChat (например, сертификат Минцифры России), если он уже есть на машине; проект его не скачивает и не хранит |
+| `MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY` | `1`/`true`/`yes` | не задана (проверка TLS всегда включена) | полностью отключить проверку TLS-сертификата GigaChat — небезопасно, только осознанным включением; предпочтительно вместо этого задать `MASKER_LLM_GIGACHAT_CA_BUNDLE` |
 | `MASKER_LLM_CASSETTE_DIR` | путь к каталогу | `fixtures/llm/roles` | откуда `CassetteProvider` читает записанные ответы |
 | `MASKER_OCR` | `fake` \| `paddle` \| `paddle_vl` \| `rapid` \| `tesseract` | `fake` | какой OCR-провайдер обрабатывает сканированные PDF |
 | `MASKER_GLINER_PATH` | путь к каталогу | `models/gliner` | откуда GLiNER2 читает веса (опционально, только с extra `gliner`) |
@@ -247,6 +249,14 @@ make down                      # остановить контейнеры
 - **CLI создал только `preview.docx`, обезличенных файлов нет.** Не был
   передан `--redact-style marker|blackbox|both` — см. «Быстрая проверка»
   выше.
+- **GigaChat падает с `SSL: CERTIFICATE_VERIFY_FAILED: self-signed
+  certificate in certificate chain`.** GigaChat работает через сертификаты
+  Минцифры России, которых обычно нет в стандартном системном хранилище
+  доверенных корневых сертификатов. Если такой сертификат у вас уже есть —
+  укажите путь к нему в `MASKER_LLM_GIGACHAT_CA_BUNDLE`. Полное отключение
+  проверки TLS (`MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY=1`) технически
+  возможно, но небезопасно и не включено по умолчанию — используйте только
+  осознанно.
 - **`make gate` красный на метрике, а не на тесте.** Это ворота работают
   как задумано: порог в `masker/eval.py` подобран по фактическому замеру
   (см. «Правило порогов», `TASKS.md`), и его нельзя тихо понизить, чтобы

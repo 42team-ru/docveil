@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 
 from masker.ocr import OCRError, OCRProvider, select_ocr
@@ -40,20 +42,31 @@ def test_unknown_provider_raises_with_available_names(
     assert "fake" in message
     assert "paddle" in message
     assert "tesseract" in message
+    assert "easy" in message
 
 
-def test_paddle_without_extra_raises_clear_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Пока ``paddleocr`` не установлен, ``select_ocr('paddle')`` даёт понятную ошибку.
+@pytest.mark.parametrize(
+    ("name", "pkg_name", "hint_fragment"),
+    [
+        ("paddle", "paddleocr", "triema-masker[ocr]"),
+        ("easy", "easyocr", "easyocr>=1.7"),
+    ],
+)
+def test_provider_without_extra_raises_clear_error(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    pkg_name: str,
+    hint_fragment: str,
+) -> None:
+    """Пока клиентский пакет не установлен, ``select_ocr(name)`` даёт понятную ошибку.
 
-    Как только пакет реально появится в extra ``ocr``, этот тест сам скажет:
-    маркер надо перевесить на "провайдер не сумел инициализироваться", а не
-    "не хватает пакета". До той поры проверка защищает от голого
-    ``ModuleNotFoundError`` в лицо пользователю.
+    Как только пакет реально появится в extra ``ocr``, соответствующая ветка
+    сама скажет: маркер надо перевесить на «провайдер не сумел
+    инициализироваться», а не «не хватает пакета». До той поры проверка
+    защищает от голого ``ModuleNotFoundError`` в лицо пользователю.
     """
-    import importlib.util
-
-    if importlib.util.find_spec("paddleocr") is not None:
-        pytest.skip("paddleocr установлен — проверка ветки 'нет пакета' неприменима")
+    if importlib.util.find_spec(pkg_name) is not None:
+        pytest.skip(f"{pkg_name} установлен — проверка ветки 'нет пакета' неприменима")
     with pytest.raises(OCRError) as excinfo:
-        select_ocr("paddle")
-    assert "triema-masker[ocr]" in str(excinfo.value)
+        select_ocr(name)
+    assert hint_fragment in str(excinfo.value)

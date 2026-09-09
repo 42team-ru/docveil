@@ -95,9 +95,24 @@ def _make_rapid() -> OCRProvider:
     return provider
 
 
+def _make_easy() -> OCRProvider:
+    """Ленивая инициализация EasyOCR. Модуль импортируется здесь, чтобы
+    установка без extra ``ocr`` не падала на импорте (easyocr тянет torch)."""
+    try:
+        from masker.ocr.easy import EasyOCRProvider
+    except ImportError as error:
+        raise OCRError(
+            "провайдер 'easy' требует easyocr: "
+            "`uv pip install --python .venv/bin/python easyocr>=1.7`"
+        ) from error
+    provider: OCRProvider = EasyOCRProvider()
+    return provider
+
+
 #: Реестр фабрик провайдеров — единственное место, где перечислены имена
 #: и их реализации. Расширяется добавлением строки, снаружи не изменяется.
 _REGISTRY: dict[str, Callable[[], OCRProvider]] = {
+    "easy": _make_easy,
     "fake": _make_fake,
     "paddle": _make_paddle,
     "paddle_vl": _make_paddle_vl,

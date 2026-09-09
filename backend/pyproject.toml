@@ -59,6 +59,10 @@ ocr = [
     # RapidOCR — альтернативный провайдер без зависимости от paddlepaddle;
     # использует те же ONNX-веса из кэша PaddleX. MASKER_OCR=rapid.
     "rapidocr-onnxruntime>=1.4",
+    # EasyOCR (JaidedAI) — альтернативный нейронный движок на PyTorch.
+    # Медленнее RapidOCR на CPU, но иногда точнее на плохих русских
+    # сканах. MASKER_OCR=easy. Веса скачиваются в ~/.EasyOCR/model/.
+    "easyocr>=1.7",
 ]
 
 [project.scripts]

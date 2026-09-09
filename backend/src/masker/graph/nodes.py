@@ -48,8 +48,10 @@ from masker.graph.serde import (
     verdicts_to_dicts,
 )
 from masker.graph.state import State
+from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
+from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.judge import JudgeAgent
 from masker.judge.agent import JudgeResult
 from masker.llm import LLMProvider, TracingProvider
@@ -64,7 +66,8 @@ from masker.refs import EntityIndex
 from masker.render import docx_preview as docx_preview_module
 from masker.render import docx_redact as docx_redact_module
 from masker.render import pdf_render as pdf_render_module
-from masker.report.coverage import detection_coverage, docx_coverage, pdf_coverage
+from masker.render import xlsx_redact as xlsx_redact_module
+from masker.report.coverage import detection_coverage, docx_coverage, pdf_coverage, xlsx_coverage
 from masker.report.payload import (
     _leak_record,
     _validation_record,
@@ -123,6 +126,12 @@ def _registry_and_specs(
 
 
 def _extract(state: State, ocr: OCRProvider | None) -> dict[str, object]:
+    """Разобрать документ по ``state["path"]``: формат — по расширению файла.
+
+    DOCX, PDF и XLSX (регистронезависимо); прочие расширения — явный ``ValueError``
+    с именем файла, а не тихий разбор мимо формата. Сканированный PDF идёт
+    через ``ocr``; без провайдера поведение прежнее.
+    """
     path = Path(state["path"])
     suffix = path.suffix.casefold()
     if suffix == ".docx":
@@ -131,6 +140,9 @@ def _extract(state: State, ocr: OCRProvider | None) -> dict[str, object]:
     elif suffix == ".pdf":
         document = ingest_pdf(path, ocr=ocr)
         coverage = pdf_coverage(path, document)
+    elif suffix == ".xlsx":
+        document = ingest_xlsx(path)
+        coverage = xlsx_coverage(path, document)
     else:
         raise ValueError(f"неподдерживаемый формат файла: {path.name}")
     return {
@@ -180,10 +192,16 @@ def make_extract_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
 def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """Собрать ``detect_node``, замыкающий ``LLMProvider`` из ``deps``.
 
-    LLM нужен только `regex_llm_filter` executor'у (шаг 13 T1.13), поэтому
-    в ``rules_only`` пути и в детекции без пользовательских спеков он не
-    используется. Тем же приёмом, что и ``make_profile_node``, замыкание
-    держит зависимость вне ``State`` (только JSON) — раздел 6 плана T1.5.1.
+    ``deps.llm`` идёт в детекцию по двум независимым дорожкам: в
+    ``default_detectors`` — он нужен только `regex_llm_filter` executor'у
+    (шаг 13 T1.13) и без пользовательских спеков не используется, — и в
+    сам ``DetectAgent`` — это включает LLM-верификатор на recall (Р7,
+    TASKS.md, `masker.detect.verifier.verify_recall`). ``rules_only`` не
+    передаёт LLM ни туда, ни туда: «только правила» обязано означать «ни
+    одного сетевого вызова», а не «без пользовательских детекторов, но с
+    LLM-верификатором». Тем же приёмом, что и ``make_profile_node``,
+    замыкание держит зависимость вне ``State`` (только JSON) — раздел 6
+    плана T1.5.1.
     """
 
     def detect_node(state: State) -> dict[str, object]:
@@ -217,7 +235,8 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                 detectors.append(ConfigDetector(specs))
         else:
             detectors = default_detectors(specs, llm=deps.llm)
-        detector = DetectAgent(detectors, registry)
+        verifier_llm = None if rules_only else deps.llm
+        detector = DetectAgent(detectors, registry, llm=verifier_llm)
         raw_types = options.get("types")
         selected_types = resolve_requested_types(
             tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
@@ -471,8 +490,8 @@ def plan_node(state: State) -> dict[str, object]:
 
 
 def summary_node(state: State) -> dict[str, object]:
-    """Собрать карточку договора из entities + profiles — детерминированно, без LLM."""
-    from masker.summary import build_summary
+    """Собрать и экспортировать карточку через тот же план масок, что документ."""
+    from masker.summary import build_summary, export_summary
 
     entities = [entity_from_dict(item) for item in state.get("entities", [])]
     profiles = profiles_from_dicts(state.get("profiles", []))
@@ -481,8 +500,14 @@ def summary_node(state: State) -> dict[str, object]:
     # (AGENTS.md: «два прогона на одном файле дают побайтово одинаковый отчёт»).
     # Временная метка сборки хранится в артефактах файловой системы, не в отчёте.
     # Пустая строка (не None) → детерминированный вывод без datetime.now().
-    summary = build_summary(entities, profiles, llm_calls=llm_calls, generated_at="")
-    return {"contract_summary": summary.model_dump()}
+    summary = build_summary(
+        entities,
+        profiles,
+        llm_calls=llm_calls,
+        generated_at="",
+        document=_document(state),
+    )
+    return {"contract_summary": export_summary(summary, plan_from_dict(state.get("plan", {})))}
 
 
 #: Порядок ролей артефактов — фиксированный, не по обходу множества стилей
@@ -520,10 +545,13 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         # путей CLI, см. раздел 5 плана T1.10).
         masked_entities = [replacement.entity for replacement in plan.replacements]
         fmt = state.get("fmt", "docx")
-        suffix = ".pdf" if fmt == "pdf" else ".docx"
+        suffix = {"docx": ".docx", "pdf": ".pdf", "xlsx": ".xlsx"}.get(fmt)
+        if suffix is None:
+            raise ValueError(f"render_node: неподдерживаемый формат {fmt!r}")
         options = state.get("options", {})
         preview_enabled = bool(options.get("preview", True))
         styles = set(options.get("styles") or ())
+        highlight_background = options.get("highlight_background", DEFAULT_HIGHLIGHT_BACKGROUND)
 
         artifacts: list[dict[str, object]] = []
         # Спуски по лестнице отступления маркера (план T2.2.1, пачка 5,
@@ -539,6 +567,11 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     pdf_render_module.render_pdf_preview(
                         source, destination, document, masked_entities
                     )
+                elif fmt == "xlsx":
+                    # XLSX-preview пока не реализован. Нельзя молча копировать
+                    # источник: такой файл не подсвечен, но внешне выглядел бы
+                    # как preview. Редактирующие артефакты ниже строятся всегда.
+                    continue
                 else:
                     docx_preview_module.render_docx_preview(
                         source, destination, document, masked_entities
@@ -551,7 +584,12 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                 destination = artifact_dir / f"{role}{suffix}"
                 if fmt == "pdf":
                     outcome = pdf_render_module.render_pdf_redacted(
-                        source, destination, document, plan, style=style
+                        source,
+                        destination,
+                        document,
+                        plan,
+                        style=style,
+                        highlight_background=highlight_background,
                     )
                     groups_by_id = {group.id: group for group in plan.groups}
                     # Только реальные спуски по лестнице отступления (план
@@ -577,9 +615,18 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                         for item in outcome.markers
                         if item.fallback_reason
                     )
+                elif fmt == "xlsx":
+                    xlsx_redact_module.render_xlsx_redacted(
+                        source, destination, document, plan, style=style
+                    )
                 else:
                     docx_redact_module.render_docx_redacted(
-                        source, destination, document, plan, style=style
+                        source,
+                        destination,
+                        document,
+                        plan,
+                        style=style,
+                        highlight_background=highlight_background,
                     )
                 redacting = True
             artifacts.append(

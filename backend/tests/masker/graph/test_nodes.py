@@ -19,6 +19,7 @@ ROOT = next(
 )
 FIXTURE = ROOT / "fixtures" / "labeled" / "contract_02_hard.docx"
 PDF_FIXTURE = ROOT / "fixtures" / "labeled" / "contract_pdf_01.pdf"
+XLSX_FIXTURE = ROOT / "fixtures" / "labeled" / "order_01.xlsx"
 
 
 def _extracted_state(*, types: list[str] | None = None, rules_only: bool = True) -> State:
@@ -48,6 +49,20 @@ def test_extract_node_ingests_pdf_by_suffix(tmp_path: Path) -> None:
 
     assert state["fmt"] == "pdf"
     assert state["segments"]
+
+
+def test_extract_node_ingests_xlsx_by_suffix_and_reports_cell_coverage() -> None:
+    state: State = {
+        "path": str(XLSX_FIXTURE),
+        "options": {"rules_only": True, "types": None, "interactive": False},
+    }
+
+    state.update(nodes.extract_node(state))
+
+    assert state["fmt"] == "xlsx"
+    assert state["segments"]
+    assert state["coverage"]["cells"]["processed"] is True
+    assert state["coverage"]["cells"]["segment_count"] == len(state["segments"])
 
 
 def test_extract_node_rejects_unsupported_suffix(tmp_path: Path) -> None:

@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -20,27 +21,57 @@ from masker.detect.agent import DetectAgent
 from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.serde import plan_from_dict
-from masker.llm.fake import FakeProvider
+from masker.llm.base import Message
 from masker.model import EntityType
 
 ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
 )
 FIXTURE = ROOT / "fixtures" / "labeled" / "contract_01.docx"
+#: Только для теста конверта вопросов: в `contract_02_hard.docx` есть профиль
+#: без структурно подтверждённой роли, поэтому после И2-3 ProfileAgent
+#: действительно зовёт модель. Остальные тесты файла рассчитаны на
+#: `contract_01.docx` (там есть phone, на котором проверяется отказ от типа),
+#: поэтому общая фикстура остаётся прежней.
+OPEN_ROLE_FIXTURE = ROOT / "fixtures" / "labeled" / "contract_02_hard.docx"
 
-#: Ни одна сущность в contract_01.docx не набирает уверенность ниже порога
-#: судьи (все правила/NER дают >= 0.8) — вопрос "entity" естественным путём
-#: не возникает. Кандидат от LLM (Source.LLM, confidence <= 0.6) даёт его
-#: детерминированно, без сети — FakeProvider. Тип — "money": для него в
-#: проекте нет ни правила, ни NER (в отличие от "date" после T1.15), а
-#: сегмент 4 ("1. Реквизиты Поставщика") свободен от других сущностей,
-#: значит кандидат не столкнётся с уже принятой сущностью того же сегмента
-#: (`profile/candidates.py::build_candidates` отбрасывает такие пересечения).
+#: В contract_02_hard.docx есть профиль без структурно подтверждённой роли,
+#: поэтому после И2-3 ProfileAgent действительно вызывает LLM. Кандидат
+#: ``money`` в свободном заголовке даёт вопрос ``entity`` детерминированно.
 _CANDIDATE_RESPONSE = (
     '{"profiles": [], "candidates": ['
-    '{"segment_order": 4, "text": "Реквизиты", "type": "money", "confidence": 0.6}'
+    '{"segment_order": 0, "text": "АКТ", "type": "money", "confidence": 0.6}'
     "]}"
 )
+
+
+class _RoutingProvider:
+    """Отвечает по СОДЕРЖАНИЮ запроса, а не по порядку вызовов.
+
+    После Р7-1 в графе два независимых потребителя модели: верификатор
+    в ``detect_node`` и судья в ``profile_node``. ``FakeProvider`` со
+    списком ответов раздаёт их по очереди, поэтому единственный
+    заготовленный ответ забирал тот, кто позвал первым, — тест ловил не
+    свой дефект. Верификатор здесь не выключен: он получает пустой, но
+    валидный по контракту ответ, и вопрос "entity" по-прежнему рождается
+    из ответа судьи.
+    """
+
+    def __init__(self, decision: str) -> None:
+        self._decision = decision
+        self.calls = 0
+        self.verifier_calls = 0
+
+    def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        del schema
+        self.calls += 1
+        # Запрос верификатора — это payload вида {"windows": [...]},
+        # запрос судьи — {"profiles": [...], ...}. Разбирать промпт целиком
+        # не нужно: ключ верхнего уровня однозначен.
+        if any('"windows"' in message.content for message in messages):
+            self.verifier_calls += 1
+            return '{"windows": []}'
+        return self._decision
 
 
 def _options(*, interactive: bool, thread_id: str = "t1") -> dict[str, object]:
@@ -53,8 +84,10 @@ def _options(*, interactive: bool, thread_id: str = "t1") -> dict[str, object]:
     }
 
 
-def _initial_state(*, interactive: bool, thread_id: str = "t1") -> dict[str, object]:
-    return {"path": str(FIXTURE), "options": _options(interactive=interactive, thread_id=thread_id)}
+def _initial_state(
+    *, interactive: bool, thread_id: str = "t1", source: Path = FIXTURE
+) -> dict[str, object]:
+    return {"path": str(source), "options": _options(interactive=interactive, thread_id=thread_id)}
 
 
 def test_interactive_run_pauses_with_one_interrupt_before_finalize(tmp_path: Path) -> None:
@@ -75,14 +108,23 @@ def test_envelope_has_type_profile_and_entity_questions(tmp_path: Path) -> None:
     config = {"configurable": {"thread_id": "t1"}}
 
     with SqliteSaver.from_conn_string(str(db)) as saver:
-        graph = compile_graph(RunDeps(llm=FakeProvider([_CANDIDATE_RESPONSE])), saver)
-        first = graph.invoke(_initial_state(interactive=True), config)
+        provider = _RoutingProvider(_CANDIDATE_RESPONSE)
+        graph = compile_graph(RunDeps(llm=provider), saver)
+        # `contract_01` даёт окно верификатора, но роли в нём уже уверенно
+        # собраны структурно; отдельный запуск нужен именно после И2-3.
+        graph.invoke(
+            _initial_state(interactive=True, thread_id="verifier"),
+            {"configurable": {"thread_id": "verifier"}},
+        )
+        first = graph.invoke(_initial_state(interactive=True, source=OPEN_ROLE_FIXTURE), config)
 
     payload = first["__interrupt__"][0].value
     kinds = {question["kind"] for question in payload["questions"]}
     assert "type" in kinds
     assert "profile" in kinds
     assert "entity" in kinds
+    # Верификатор в графе жив (Р7-1) — тест обязан падать, если его отключат.
+    assert provider.verifier_calls > 0
 
 
 def test_durable_resume_survives_new_graph_and_saver_objects(tmp_path: Path) -> None:

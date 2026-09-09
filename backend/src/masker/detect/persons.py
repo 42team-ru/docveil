@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 
 from masker.detect.address import address_markers
+from masker.detect.morph import has_name_grammeme
 from masker.detect.normalize import normalize_value
 from masker.detect.orgforms import TRIM_CHARS, is_role_token, org_forms
 from masker.model import EntityType
@@ -82,7 +83,16 @@ def expand_person_left(text: str, start: int, end: int) -> tuple[int, int]:
 
     Кандидат принимается, только если начинается с заглавной кириллической
     буквы, не является ролевым словом/должностью, оргформой или уличным
-    маркером и отделён от спана ровно пробелом (план T2.2.1, шаг 6).
+    маркером, отделён от спана ровно пробелом (план T2.2.1, шаг 6) и —
+    план Р9-1 — несёт хотя бы один морфоразбор `Surn`/`Name`/`Patr`
+    (`has_name_grammeme`). Без последнего условия расширение приклеивает
+    соседнее слово из чужого спана: `Natasha` отдаёт верный
+    `PER(31,56)='Соловьёв Николай Петрович'` в тексте «...Российской
+    Федерации Соловьёв Николай Петрович...», а «Федерации» — заглавное
+    кириллическое слово, не ролевое/оргформа/улица — до этой правки
+    расширение съедало его как часть ФИО. Проверка идёт по ЛЮБОМУ разбору
+    (не по первому, как `morph._classify_word`) — «Мокиной»/«Зубрицкой»
+    первым разбором не `Surn`, и их расширение сломалось бы.
     """
     bounds = _left_neighbor_token(text, start)
     if bounds is None:
@@ -100,6 +110,7 @@ def expand_person_left(text: str, start: int, end: int) -> tuple[int, int]:
         is_role_token(core)
         or folded in _STREET_MARKERS
         or any(folded == form.casefold() for form in org_forms().forms)
+        or not has_name_grammeme(core)
     ):
         return start, end
     return token_start, end

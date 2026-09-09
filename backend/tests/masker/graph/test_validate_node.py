@@ -56,11 +56,19 @@ def test_validate_node_reports_leak_as_data_and_reaches_result(
         plan: object,
         *,
         style: str = "marker",
+        highlight_background: str | None = "#FFDE66",
     ) -> None:
         nonlocal calls
         calls += 1
         truncated = dataclasses.replace(plan, replacements=plan.replacements[:-1])  # type: ignore[arg-type]
-        original_redact(source, destination, document, truncated, style=style)  # type: ignore[arg-type]
+        original_redact(  # type: ignore[arg-type]
+            source,
+            destination,
+            document,
+            truncated,
+            style=style,
+            highlight_background=highlight_background,
+        )
 
     monkeypatch.setattr(docx_redact_module, "render_docx_redacted", broken_redact)
 

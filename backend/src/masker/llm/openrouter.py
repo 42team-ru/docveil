@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from masker.llm.base import LLMError, Message
 
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+#: Имя строгой JSON-схемы в запросе к OpenRouter (OpenAI-совместимый формат
+#: `response_format.json_schema.name`): API требует непустое имя, а не сам
+#: контракт `LLMProvider`, поэтому оно константа, а не параметр вызывающего.
+SCHEMA_NAME = "triema_masker_response"
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,17 +28,31 @@ class OpenRouterProvider:
     site_url: str = ""
     title: str = "triema-masker"
 
-    def complete(self, messages: list[Message]) -> str:
-        """Вернуть текст первого варианта chat completion."""
+    def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        """Вернуть текст первого варианта chat completion.
+
+        При переданной ``schema`` просит строгий структурированный вывод в
+        OpenAI-совместимом формате (`response_format.json_schema.strict`).
+        Часть моделей за OpenRouter этот режим не поддерживает — тогда
+        API отвечает HTTP-ошибкой, которую мы поднимаем как `LLMError` с
+        телом ответа, а не проглатываем и не возвращаем произвольный текст.
+        """
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [{"role": item.role, "content": item.content} for item in messages],
+        }
+        if schema is not None:
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": SCHEMA_NAME,
+                    "strict": True,
+                    "schema": schema,
+                },
+            }
         request = Request(
             OPENROUTER_CHAT_URL,
-            data=json.dumps(
-                {
-                    "model": self.model,
-                    "messages": [{"role": item.role, "content": item.content} for item in messages],
-                },
-                ensure_ascii=False,
-            ).encode("utf-8"),
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
             headers=self._headers(),
             method="POST",
         )

@@ -38,6 +38,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from gigachat import GigaChat
 from gigachat.exceptions import GigaChatException, ResponseError
@@ -66,12 +67,25 @@ class GigaChatProvider:
     verify_ssl_certs: bool = True
     _client: GigaChat | None = field(default=None, init=False, repr=False, compare=False)
 
-    def complete(self, messages: list[Message]) -> str:
-        """Вернуть текст первого варианта chat completion GigaChat."""
+    def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        """Вернуть текст первого варианта chat completion GigaChat.
+
+        При переданной ``schema`` просит GigaChat о строгом структурированном
+        выводе (`response_format.type=json_schema`, `strict: true`) — модель
+        или версия API, не поддерживающие этот режим, отвечают HTTP 422,
+        который `_describe_response_error` превращает в понятный `LLMError`,
+        а не тихо возвращает произвольный текст.
+        """
         client = self._get_client()
-        payload = {
+        payload: dict[str, Any] = {
             "messages": [{"role": item.role, "content": item.content} for item in messages],
         }
+        if schema is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "schema": schema,
+                "strict": True,
+            }
         try:
             completion = client.chat(payload)
         except ResponseError as error:

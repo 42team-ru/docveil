@@ -26,12 +26,24 @@ from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.questions import SCHEMA_VERSION as ANSWERS_SCHEMA_VERSION
 from masker.graph.state import State
+from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND, parse_highlight_background
 
 #: Поднимается руками при изменении состава ``State`` — защита от чтения
 #: устаревшего чекпойнта после правки кода (раздел 5 плана T1.5.1).
 RUN_SCHEMA_VERSION = 1
 
 CheckpointerFactory = Callable[[], AbstractContextManager[BaseCheckpointSaver[str]]]
+
+
+def styles_for_redact_option(style: str | None) -> tuple[str, ...]:
+    """Преобразовать значение CLI-стиля в набор рендеров графа."""
+    if style is None:
+        return ()
+    return {
+        "marker": ("marker",),
+        "blackbox": ("blackbox",),
+        "both": ("marker", "blackbox"),
+    }.get(style, ())
 
 
 class UnknownThreadError(Exception):
@@ -103,9 +115,18 @@ class RunOptions:
     styles: tuple[str, ...] = ()
     #: Рендерить ли ``preview.*``. Вне ``canonical()`` по той же причине.
     preview: bool = True
+    #: Фон читаемой маски: ``#RRGGBB`` либо ``None`` (явное ``none``).
+    #: В отличие от ``styles`` фон меняет сами артефакты и поэтому входит
+    #: в ``canonical()``/``thread_id``.
+    highlight_background: str | None = DEFAULT_HIGHLIGHT_BACKGROUND
     #: Скомпилированные JSON-спеки пользовательских типов. Объекты с
     #: ``re.Pattern`` в State не кладём: они не сериализуются чекпойнтером.
     custom_types: tuple[dict[str, Any], ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "highlight_background", parse_highlight_background(self.highlight_background)
+        )
 
     def canonical(self) -> dict[str, Any]:
         """JSON-каноничная форма опций, влияющих на ``thread_id``."""
@@ -122,6 +143,7 @@ class RunOptions:
             "profile": self.profile,
             "unmask_critical": self.unmask_critical,
             "llm_config_id": self.llm_config_id,
+            "highlight_background": self.highlight_background,
             "custom_types": custom_types,
         }
 

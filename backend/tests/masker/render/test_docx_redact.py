@@ -118,9 +118,37 @@ def test_marker_style_shading_applied(tmp_path: pathlib.Path) -> None:
                 if shd is None:
                     shd = run._r.find(f"{qn('w:rPr')}/{qn('w:shd')}")
                 assert shd is not None
-                assert shd.get(qn("w:fill")).upper() == "E8E8E8"
+                assert shd.get(qn("w:fill")).upper() == "FFDE66"
                 return
     pytest.fail("маркер [ИНН] не найден среди runs")
+
+
+def test_marker_style_accepts_custom_background_and_none(tmp_path: pathlib.Path) -> None:
+    src = _make_docx(tmp_path)
+    document = ingest_docx(src)
+    entity = _entity_for(document, _INN, EntityType.INN)
+
+    colored = tmp_path / "colored.docx"
+    render_docx_redacted(
+        src, colored, document, _plan(document, [entity]), highlight_background="#12ab34"
+    )
+    colored_doc = open_docx(str(colored))
+    colored_run = next(
+        run for paragraph in colored_doc.paragraphs for run in paragraph.runs if "[ИНН]" in run.text
+    )
+    colored_shading = colored_run._r.find(f"{qn('w:rPr')}/{qn('w:shd')}")
+    assert colored_shading is not None
+    assert colored_shading.get(qn("w:fill")) == "12AB34"
+
+    without_background = tmp_path / "without-background.docx"
+    render_docx_redacted(
+        src, without_background, document, _plan(document, [entity]), highlight_background=None
+    )
+    plain_doc = open_docx(str(without_background))
+    plain_run = next(
+        run for paragraph in plain_doc.paragraphs for run in paragraph.runs if "[ИНН]" in run.text
+    )
+    assert plain_run._r.find(f"{qn('w:rPr')}/{qn('w:shd')}") is None
 
 
 # ── маркер плана с ролью (T1.6) ────────────────────────────────────────────────

@@ -31,6 +31,7 @@ from pathlib import Path
 
 import pymupdf
 from docx import Document as open_docx
+from openpyxl import load_workbook
 
 from masker.ingest.pdf_ingest import PageChars, page_chars
 from masker.model import Certificate, CertificateCheck, Leak, MaskPlan
@@ -63,6 +64,23 @@ _DOCX_CORE_ATTRS: tuple[str, ...] = (
     "keywords",
     "comments",
 )
+# Синхронизирован с ``render/xlsx_redact.py``: это все изменяемые свойства,
+# которые тот обязан очищать перед сохранением книги.
+_XLSX_CORE_ATTRS: tuple[str, ...] = (
+    "creator",
+    "lastModifiedBy",
+    "title",
+    "subject",
+    "keywords",
+    "description",
+    "category",
+)
+# ``openpyxl`` записывает это техническое значение, даже если ``creator``
+# сброшен в ``None`` перед ``save()``. Это не метаданные исходного автора и
+# не может восстановить его личность; любое другое значение — провал очистки.
+_XLSX_SAFE_GENERATED_VALUES: dict[str, frozenset[str]] = {
+    "creator": frozenset({"openpyxl"}),
+}
 #: Допуск сравнения границы кванта с реальным символом страницы (план М3,
 #: пункт 3). Шире общего геометрического допуска рендера (``_GEOMETRY_EPS``,
 #: 0.01pt): здесь сравниваются два независимо посчитанных числа, а не одно и
@@ -118,6 +136,20 @@ def _metadata_findings_docx(path: Path) -> list[str]:
     ]
 
 
+def _metadata_findings_xlsx(path: Path) -> list[str]:
+    workbook = load_workbook(str(path), read_only=True)
+    try:
+        props = workbook.properties
+        return [
+            f"{path.name}: properties.{attr}={value!r}"
+            for attr in _XLSX_CORE_ATTRS
+            if (value := getattr(props, attr))
+            and value not in _XLSX_SAFE_GENERATED_VALUES.get(attr, frozenset())
+        ]
+    finally:
+        workbook.close()
+
+
 def _check_metadata_cleared(artifacts: Sequence[Path]) -> CertificateCheck:
     findings: list[str] = []
     for artifact in artifacts:
@@ -126,6 +158,8 @@ def _check_metadata_cleared(artifacts: Sequence[Path]) -> CertificateCheck:
             findings.extend(_metadata_findings_pdf(artifact))
         elif suffix == ".docx":
             findings.extend(_metadata_findings_docx(artifact))
+        elif suffix == ".xlsx":
+            findings.extend(_metadata_findings_xlsx(artifact))
         else:
             raise ValueError(
                 f"сертификат не умеет проверять метаданные формата {suffix!r}: {artifact}"
@@ -140,7 +174,7 @@ def _check_metadata_cleared(artifacts: Sequence[Path]) -> CertificateCheck:
         name="metadata_cleared",
         ok=True,
         detail=(
-            f"проверено {len(artifacts)} артефактов — /Info, XMP (PDF) и core-свойства (docx) пусты"
+            f"проверено {len(artifacts)} артефактов — /Info, XMP (PDF) и свойства DOCX/XLSX пусты"
         ),
     )
 

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from masker.llm.base import LLMError, LLMProvider, Message
+from masker.llm.cassette import CassetteProvider
 from masker.llm.config import LLMConfig, load_llm_config
 from masker.llm.fake import FakeProvider
 from masker.llm.gigachat import DEFAULT_SCOPE as GIGACHAT_DEFAULT_SCOPE
@@ -15,6 +17,7 @@ from masker.llm.trace import BatchTrace, CallTrace, ProfileOutcome, TracingProvi
 __all__ = [
     "BatchTrace",
     "CallTrace",
+    "CassetteProvider",
     "FakeProvider",
     "GigaChatProvider",
     "LLMConfig",
@@ -38,6 +41,8 @@ _DEFAULT_API_KEY_ENV_BY_PROVIDER: dict[str, str] = {
     "gigachat": "GIGACHAT_CREDENTIALS",
 }
 
+_DEFAULT_CASSETTE_DIRECTORY = Path(__file__).resolve().parents[3] / "fixtures" / "llm" / "roles"
+
 
 def get_provider(config: LLMConfig | None = None) -> LLMProvider:
     """Создать поставщик из конфигурации или переменных окружения."""
@@ -51,6 +56,9 @@ def get_provider(config: LLMConfig | None = None) -> LLMProvider:
     provider = config.provider
     if provider == "fake":
         return FakeProvider()
+    if provider == "cassette":
+        directory = Path(os.environ.get("MASKER_LLM_CASSETTE_DIR", _DEFAULT_CASSETTE_DIRECTORY))
+        return CassetteProvider(directory)
     if provider == "openrouter":
         api_key = os.environ.get(config.api_key_env, "")
         if not api_key:

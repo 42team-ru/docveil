@@ -175,6 +175,17 @@ def _limitations_pdf(coverage: dict[str, Any]) -> list[str]:
     ]
 
 
+def _limitations_xlsx(coverage: dict[str, Any]) -> list[str]:
+    return [
+        "Проверяются непустые ячейки всех листов XLSX.",
+        "Формулы читаются по кэшированному отображаемому значению; "
+        "зависимые от маски формулы заменяются заглушкой.",
+        "Книги со сводными таблицами отклоняются: их кэш пока нельзя безопасно очистить.",
+        "Метаданные до рендера не входят в детекцию; "
+        "в выходных вариантах очищаются свойства книги.",
+    ]
+
+
 #: Порядок «силы» уровня для группы (Р8): группа наследует самый уверенный
 #: уровень, встреченный хоть у одной её сущности — единственное вхождение,
 #: подтверждённое дважды или контрольной суммой, снимает подозрение со
@@ -349,13 +360,14 @@ def build_report_payload(
     # ``_limitations`` (докс-специфичные пункты) на нём упал бы KeyError;
     # PDF всегда идёт по ``_limitations_pdf`` (T1.10, шаг 9: единый путь
     # для обоих форматов).
-    limitations = (
-        _limitations_pdf(document_coverage)
-        if document.fmt == "pdf"
-        else _limitations(
+    if document.fmt == "pdf":
+        limitations = _limitations_pdf(document_coverage)
+    elif document.fmt == "xlsx":
+        limitations = _limitations_xlsx(document_coverage)
+    else:
+        limitations = _limitations(
             document_coverage, llm_trace=llm_trace, critical_unmasked=critical_unmasked
         )
-    )
     report: dict[str, Any] = {
         "report_version": REPORT_VERSION,
         "input": source.name,

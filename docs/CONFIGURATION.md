@@ -44,6 +44,22 @@ cp .env.example .env
 scope, температуру, путь к CA-файлу и явный флаг отключения TLS-проверки.
 `MASKER_LLM*` сохраняют обратную совместимость и перекрывают YAML.
 
+## Тарифы и расход LLM
+
+`llm.pricing` в `backend/masker.yaml` хранит цены `prompt_per_1k` и
+`completion_per_1k`, валюту и обязательную при заданных ценах дату
+`verified_at`. Это тарифы за 1 000 токенов. Их можно перекрыть переменными
+`MASKER_LLM_PRICING_PROMPT_PER_1K`,
+`MASKER_LLM_PRICING_COMPLETION_PER_1K`,
+`MASKER_LLM_PRICING_CURRENCY` и `MASKER_LLM_PRICING_VERIFIED_AT`.
+
+Если цены не заданы, отчёт показывает фактически возвращённые моделью токены
+и прямо говорит, что стоимость не рассчитана: значение не оценивается по
+символам и не подставляется из предположений. Длительности узлов и временная
+ось ленты записываются в `runtime-metrics.json` рядом с детерминированным
+`report.json`; сам `report.json` содержит безопасную ленту без исходных
+персональных данных.
+
 `masker.ocr.select_ocr()` читает `ocr.provider`; `MASKER_OCR` перекрывает
 его. `GlinerDetector` читает `models.gliner_path`; его перекрывает
 `MASKER_GLINER_PATH`.

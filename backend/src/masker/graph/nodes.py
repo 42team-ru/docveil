@@ -8,8 +8,9 @@ LLM в ``State`` не кладётся: узлы, которым он нужен
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from langgraph.types import interrupt
@@ -88,6 +89,7 @@ from masker.report.payload import (
     build_report_payload,
     marker_legend,
 )
+from masker.telemetry import RUNTIME_METRICS_NAME, LLMPricing, MeteringProvider, report_telemetry
 from masker.typeconfig import CustomTypeSpec, load_type_config
 from masker.validate import ValidateAgent
 
@@ -108,6 +110,27 @@ class RunDeps:
     tracer: TracingProvider | None = None
     artifact_dir: Path | None = None
     ocr: OCRProvider | None = None
+    pricing: LLMPricing | None = None
+    _meter: MeteringProvider | None = field(default=None, init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.llm is not None:
+            object.__setattr__(self, "_meter", MeteringProvider(self.llm, self.pricing))
+
+    @contextmanager
+    def llm_for_stage(self, stage: str) -> Iterator[LLMProvider | None]:
+        """Передать узлу провайдер с пометкой узла, не зная его реализации."""
+        if self._meter is None:
+            yield None
+            return
+        with self._meter.for_stage(stage):
+            yield self._meter
+
+    def metering_offset(self) -> int:
+        return self._meter.delta_since(0)[0] if self._meter is not None else 0
+
+    def metering_delta(self, offset: int) -> list[dict[str, object]]:
+        return self._meter.delta_since(offset)[1] if self._meter is not None else []
 
 
 def _document(state: State) -> Document:
@@ -232,29 +255,30 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         options = state.get("options", {})
         registry, specs = _registry_and_specs(state)
         rules_only = bool(options.get("rules_only", False))
-        if rules_only:
-            # DateDetector — тоже правило (regex + `datetime.date`-валидация),
-            # его место в rules-only, чтобы `date`/`birth_date` не оказывались
-            # в `requested_without_detector` только из-за --rules-only.
-            detectors: list[EntityDetector] = [
-                RuleDetector(),
-                AddressDetector(),
-                DateDetector(),
-                ContractAmountDetector(),
-                DeliveryPeriodDetector(),
-                PaymentTermsDetector(),
-            ]
-            if specs:
-                detectors.append(ConfigDetector(specs))
-        else:
-            detectors = default_detectors(specs, llm=deps.llm)
-        verifier_llm = None if rules_only else deps.llm
-        detector = DetectAgent(detectors, registry, llm=verifier_llm)
-        raw_types = options.get("types")
-        selected_types = resolve_requested_types(
-            tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
-        )
-        entities = detector.detect(document).entities
+        with deps.llm_for_stage("detect") as llm:
+            if rules_only:
+                # DateDetector — тоже правило (regex + `datetime.date`-валидация),
+                # его место в rules-only, чтобы `date`/`birth_date` не оказывались
+                # в `requested_without_detector` только из-за --rules-only.
+                detectors: list[EntityDetector] = [
+                    RuleDetector(),
+                    AddressDetector(),
+                    DateDetector(),
+                    ContractAmountDetector(),
+                    DeliveryPeriodDetector(),
+                    PaymentTermsDetector(),
+                ]
+                if specs:
+                    detectors.append(ConfigDetector(specs))
+            else:
+                detectors = default_detectors(specs, llm=llm)
+            verifier_llm = None if rules_only else llm
+            detector = DetectAgent(detectors, registry, llm=verifier_llm)
+            raw_types = options.get("types")
+            selected_types = resolve_requested_types(
+                tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
+            )
+            entities = detector.detect(document).entities
         return {
             "entities": [entity_to_dict(entity) for entity in entities],
             # Тот же ``detector``, которым только что детектировали — второй
@@ -283,9 +307,10 @@ def make_profile_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
             }
         document = _document(state)
         entities = [entity_from_dict(item) for item in state["entities"]]
-        result = ProfileAgent(deps.llm).profile(
-            document, DetectionResult(entities, build_pii_chunks(document.segments, entities))
-        )
+        with deps.llm_for_stage("profile") as llm:
+            result = ProfileAgent(llm).profile(
+                document, DetectionResult(entities, build_pii_chunks(document.segments, entities))
+            )
         return {
             "profiles": profiles_to_dicts(result.profiles),
             "unassigned": result.unassigned,
@@ -894,12 +919,31 @@ def make_report_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """
 
     def report_node(state: State) -> dict[str, object]:
-        return _build_report_dict(state, llm_trace=deps.tracer is not None)
+        result = _build_report_dict(
+            state,
+            llm_trace=deps.tracer is not None,
+            runtime_available=deps.artifact_dir is not None,
+        )
+        if deps.artifact_dir is None:
+            return result
+        artifacts = list(state.get("artifacts", []))
+        if not any(item.get("role") == "runtime_metrics" for item in artifacts):
+            artifacts.append(
+                {
+                    "role": "runtime_metrics",
+                    "name": RUNTIME_METRICS_NAME,
+                    "path": str(deps.artifact_dir / RUNTIME_METRICS_NAME),
+                    "redacting": False,
+                }
+            )
+        return {**result, "artifacts": artifacts}
 
     return report_node
 
 
-def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
+def _build_report_dict(
+    state: State, *, llm_trace: bool, runtime_available: bool = False
+) -> dict[str, object]:
     document = _document(state)
     entities = [entity_from_dict(item) for item in state.get("entities", [])]
     chunks = build_pii_chunks(document.segments, entities)
@@ -979,6 +1023,9 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
     # сертификат обезличивания читается одним взглядом, не через вложенный
     # validation.certificate (тот же приём, что и layout строкой выше).
     report["certificate"] = report["validation"].get("certificate")
+    report["telemetry"] = report_telemetry(
+        state.get("telemetry"), runtime_available=runtime_available
+    )
     contract_summary = state.get("contract_summary")
     if contract_summary:
         report["contract_summary"] = contract_summary

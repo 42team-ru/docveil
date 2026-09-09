@@ -40,6 +40,7 @@ class CallTrace:
     duration_ms: float
     request_chars: int
     response_chars: int
+    usage: LLMUsage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,13 +80,12 @@ class TracingProvider:
         self.calls: list[CallTrace] = []
         self.batches: list[BatchTrace] = []
 
-    @property
-    def last_usage(self) -> LLMUsage | None:
-        """Прозрачно отдать usage внутреннего поставщика обёртке учёта."""
-        value = getattr(self._inner, "last_usage", None)
-        return value if isinstance(value, LLMUsage) else None
-
     def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        return self.complete_with_usage(messages, schema=schema)[0]
+
+    def complete_with_usage(
+        self, messages: list[Message], *, schema: dict[str, Any] | None = None
+    ) -> tuple[str, LLMUsage | None]:
         """Выполнить вызов внутреннего поставщика и записать его дословно.
 
         ``schema`` пробрасывается во внутренний поставщик без изменений —
@@ -98,11 +98,7 @@ class TracingProvider:
         request_chars = sum(len(message.content) for message in messages)
         start = time.monotonic()
         try:
-            response = (
-                self._inner.complete(messages)
-                if schema is None
-                else self._inner.complete(messages, schema=schema)
-            )
+            response, usage = _complete_with_usage(self._inner, messages, schema=schema)
         except LLMError as error:
             duration_ms = (time.monotonic() - start) * 1000
             self.calls.append(
@@ -114,6 +110,7 @@ class TracingProvider:
                     duration_ms=duration_ms,
                     request_chars=request_chars,
                     response_chars=0,
+                    usage=None,
                 )
             )
             raise
@@ -127,9 +124,10 @@ class TracingProvider:
                 duration_ms=duration_ms,
                 request_chars=request_chars,
                 response_chars=len(response),
+                usage=usage,
             )
         )
-        return response
+        return response, usage
 
     def record_batch(
         self,
@@ -185,6 +183,14 @@ def _write_jsonl(path: Path, tracer: TracingProvider) -> None:
                     "duration_ms": call.duration_ms,
                     "request_chars": call.request_chars,
                     "response_chars": call.response_chars,
+                    "usage": (
+                        {
+                            "prompt_tokens": call.usage.prompt_tokens,
+                            "completion_tokens": call.usage.completion_tokens,
+                        }
+                        if call.usage is not None
+                        else None
+                    ),
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -228,9 +234,14 @@ def _write_markdown(path: Path, tracer: TracingProvider) -> None:
     for call in tracer.calls:
         parts.append(f"## Вызов {call.index}")
         parts.append("")
+        usage_text = (
+            f" Токены: вход {call.usage.prompt_tokens}, выход {call.usage.completion_tokens}."
+            if call.usage is not None
+            else ""
+        )
         parts.append(
             f"Длительность: {call.duration_ms:.1f} мс. "
-            f"Запрос: {call.request_chars} симв. Ответ: {call.response_chars} симв."
+            f"Запрос: {call.request_chars} симв. Ответ: {call.response_chars} симв.{usage_text}"
         )
         parts.append("")
         for message in call.messages:
@@ -281,3 +292,21 @@ def _write_markdown(path: Path, tracer: TracingProvider) -> None:
                     )
                 parts.append("")
     path.write_text("\n".join(parts) + "\n", encoding="utf-8")
+
+
+def _complete_with_usage(
+    provider: LLMProvider, messages: list[Message], *, schema: dict[str, Any] | None
+) -> tuple[str, LLMUsage | None]:
+    """Вызвать расширенный контракт, если конкретный провайдер его умеет."""
+    extended = getattr(provider, "complete_with_usage", None)
+    if callable(extended):
+        response, usage = (
+            extended(messages) if schema is None else extended(messages, schema=schema)
+        )
+        return response, usage if isinstance(usage, LLMUsage) else None
+    response = (
+        provider.complete(messages)
+        if schema is None
+        else provider.complete(messages, schema=schema)
+    )
+    return response, None

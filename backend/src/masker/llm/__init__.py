@@ -14,6 +14,7 @@ from masker.llm.fake import FakeProvider
 from masker.llm.gigachat import GigaChatProvider
 from masker.llm.openrouter import OpenRouterProvider
 from masker.llm.trace import BatchTrace, CallTrace, ProfileOutcome, TracingProvider, write_trace
+from masker.telemetry import LLMPricing, pricing_from_dict
 
 __all__ = [
     "BatchTrace",
@@ -31,6 +32,8 @@ __all__ = [
     "TracingProvider",
     "get_provider",
     "load_llm_config",
+    "resolve_cli_llm",
+    "resolve_llm_config",
     "write_trace",
 ]
 
@@ -59,9 +62,7 @@ def _read_number_env(env_var: str, default: float) -> float:
 
 def get_provider(config: LLMConfig | None = None) -> LLMProvider:
     """Создать LLM-поставщик (окружение → YAML → дефолт в коде)."""
-    if config is None:
-        config = llm_config_from_mapping(project_section("llm"))
-    config = _environment_overrides(config)
+    config = resolve_llm_config(config)
     provider = config.provider
     if provider == "fake":
         return FakeProvider()
@@ -104,6 +105,32 @@ def get_provider(config: LLMConfig | None = None) -> LLMProvider:
     raise LLMError(f"неизвестный поставщик LLM: {provider!r}")
 
 
+def resolve_cli_llm(
+    llm_config_path: Path | None, *, allow_remote_pii: bool
+) -> tuple[LLMProvider | None, LLMPricing | None]:
+    """Резолвнуть LLM и тариф из CLI-опций (это конфигурация, не разбор argv).
+
+    Без ``--llm-config`` берётся тариф дефолтной конфигурации без провайдера
+    (совместимость с прогоном без LLM). Ошибки конфигурации и отсутствие
+    ``--allow-remote-pii`` для удалённого провайдера уходят как ``LLMError``/
+    ``ValueError`` — вызывающий CLI сам решает, как превратить их в
+    ``parser.error``, чтобы поведение для пользователя не изменилось.
+    """
+    if llm_config_path is None:
+        return None, resolve_llm_config().pricing
+    config = resolve_llm_config(load_llm_config(llm_config_path))
+    if config.provider != "fake" and not allow_remote_pii:
+        raise LLMError("OpenRouter получит исходные PII и контекст; добавьте --allow-remote-pii")
+    return get_provider(config), config.pricing
+
+
+def resolve_llm_config(config: LLMConfig | None = None) -> LLMConfig:
+    """Вернуть итоговую LLM-конфигурацию (окружение → YAML → дефолт)."""
+    if config is None:
+        config = llm_config_from_mapping(project_section("llm"))
+    return _environment_overrides(config)
+
+
 def _environment_overrides(config: LLMConfig) -> LLMConfig:
     """Наложить совместимые с прежним развёртыванием переменные на YAML."""
     provider = _read_text_env("MASKER_LLM", config.provider).casefold()
@@ -137,6 +164,7 @@ def _environment_overrides(config: LLMConfig) -> LLMConfig:
             "MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY",
             config.gigachat_insecure_skip_tls_verify,
         ),
+        pricing=_pricing_environment_overrides(config.pricing),
     )
 
 
@@ -150,3 +178,20 @@ def _read_boolean_env(env_var: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().casefold() in ("1", "true", "yes")
+
+
+def _pricing_environment_overrides(pricing: LLMPricing | None) -> LLMPricing | None:
+    """Наложить переменные окружения на тариф из YAML как на прочие LLM-поля."""
+    values = pricing.as_dict() if pricing is not None else {}
+    names = {
+        "prompt_per_1k": "MASKER_LLM_PRICING_PROMPT_PER_1K",
+        "completion_per_1k": "MASKER_LLM_PRICING_COMPLETION_PER_1K",
+        "currency": "MASKER_LLM_PRICING_CURRENCY",
+        "verified_at": "MASKER_LLM_PRICING_VERIFIED_AT",
+    }
+    if not any(name in os.environ for name in names.values()):
+        return pricing
+    for key, env_var in names.items():
+        if env_var in os.environ:
+            values[key] = os.environ[env_var].strip()
+    return pricing_from_dict(values)

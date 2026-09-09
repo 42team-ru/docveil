@@ -9,14 +9,57 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any, Iterator
+from typing import Any
 
 from masker.llm.base import LLMProvider, LLMUsage, Message
 
 RUNTIME_METRICS_NAME = "runtime-metrics.json"
+
+
+def _as_dict(value: object) -> dict[str, object]:
+    """Честно проверить тип перед разбором нетипизированных данных State.
+
+    В ``State`` телеметрия хранится как ``object``: LangGraph не знает
+    нашей внутренней схемы. Если там окажется не словарь, это ошибка в
+    другом узле — падать здесь молча в пустой словарь нельзя, но и
+    поднимать исключение на каждый косвенный доступ избыточно, поэтому
+    вызывающий код получает предсказуемое "нет данных" вместо утечки типа.
+    """
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _as_list(value: object) -> list[object]:
+    """Аналог ``_as_dict`` для полей, которые обязаны быть списком."""
+    return list(value) if isinstance(value, list) else []
+
+
+def _int_or_none(value: object) -> int | None:
+    """Достать int из нетипизированного поля, не путая его с bool."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return None
+
+
+def _int_field(mapping: dict[str, object], key: str, default: int = 0) -> int:
+    """Достать int-поле словаря с честным дефолтом вместо падения на мусоре."""
+    value = _int_or_none(mapping.get(key))
+    return default if value is None else value
+
+
+def _float_field(mapping: dict[str, object], key: str, default: float = 0.0) -> float:
+    """Достать float-поле словаря, принимая и int, но не bool."""
+    value = mapping.get(key)
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int | float):
+        return float(value)
+    return default
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,9 +93,7 @@ def pricing_from_dict(raw: object) -> LLMPricing | None:
     if not isinstance(raw, dict):
         raise ValueError("llm.pricing должна быть YAML-объектом")
     prompt = _decimal_or_none(raw.get("prompt_per_1k"), "llm.pricing.prompt_per_1k")
-    completion = _decimal_or_none(
-        raw.get("completion_per_1k"), "llm.pricing.completion_per_1k"
-    )
+    completion = _decimal_or_none(raw.get("completion_per_1k"), "llm.pricing.completion_per_1k")
     if (prompt is None) != (completion is None):
         raise ValueError("задайте оба тарифа llm.pricing или не задавайте ни одного")
     currency = raw.get("currency", "RUB")
@@ -103,14 +144,11 @@ class MeteringProvider:
             self._stage = previous
 
     def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        usage: LLMUsage | None = None
         try:
-            return (
-                self._inner.complete(messages)
-                if schema is None
-                else self._inner.complete(messages, schema=schema)
-            )
+            response, usage = _complete_with_usage(self._inner, messages, schema=schema)
+            return response
         finally:
-            usage = _usage_of(self._inner)
             self._records.append(
                 {
                     "node": self._stage,
@@ -126,19 +164,40 @@ class MeteringProvider:
         if callable(recorder):
             recorder(**kwargs)
 
+    @property
+    def calls(self) -> object:
+        """Прозрачно отдать записи трассировки ProfileAgent'у, если она есть."""
+        return getattr(self._inner, "calls", ())
+
     def delta_since(self, offset: int) -> tuple[int, list[dict[str, object]]]:
         return len(self._records), [dict(item) for item in self._records[offset:]]
 
 
-def _usage_of(provider: object) -> LLMUsage | None:
-    value = getattr(provider, "last_usage", None)
-    return value if isinstance(value, LLMUsage) else None
+def _complete_with_usage(
+    provider: LLMProvider, messages: list[Message], *, schema: dict[str, Any] | None
+) -> tuple[str, LLMUsage | None]:
+    """Вызвать расширенный контракт только когда его реализует провайдер."""
+    extended = getattr(provider, "complete_with_usage", None)
+    if callable(extended):
+        response, usage = (
+            extended(messages) if schema is None else extended(messages, schema=schema)
+        )
+        return response, usage if isinstance(usage, LLMUsage) else None
+    response = (
+        provider.complete(messages)
+        if schema is None
+        else provider.complete(messages, schema=schema)
+    )
+    return response, None
 
 
 def _provider_kind(provider: object) -> str:
     declared = getattr(provider, "provider_kind", None)
     if isinstance(declared, str) and declared:
         return declared.casefold()
+    inner = getattr(provider, "_inner", None)
+    if inner is not None:
+        return _provider_kind(inner)
     name = provider.__class__.__name__.removesuffix("Provider").casefold()
     return name or "unknown"
 
@@ -168,16 +227,18 @@ def append_stage(
     if pricing is not None and "pricing" not in telemetry:
         telemetry["pricing"] = pricing.as_dict()
     stages = {
-        str(name): dict(value)
-        for name, value in dict(telemetry.get("stages", {})).items()
+        str(name): _as_dict(value)
+        for name, value in _as_dict(telemetry.get("stages", {})).items()
         if isinstance(value, dict)
     }
     stage = stages.setdefault(node, {"calls": 0, "duration_ms": 0.0})
-    stage["calls"] = int(stage.get("calls", 0)) + 1
-    stage["duration_ms"] = float(stage.get("duration_ms", 0.0)) + duration_ms
+    stage["calls"] = _int_field(stage, "calls") + 1
+    stage["duration_ms"] = _float_field(stage, "duration_ms") + duration_ms
 
-    events = [dict(item) for item in telemetry.get("events", []) if isinstance(item, dict)]
-    previous_elapsed = float(events[-1].get("elapsed_ms", 0.0)) if events else 0.0
+    events = [
+        _as_dict(item) for item in _as_list(telemetry.get("events", [])) if isinstance(item, dict)
+    ]
+    previous_elapsed = _float_field(events[-1], "elapsed_ms") if events else 0.0
     events.append(
         {
             "sequence": len(events) + 1,
@@ -187,19 +248,21 @@ def append_stage(
         }
     )
 
-    llm = dict(telemetry.get("llm", {}))
-    old_calls = [dict(item) for item in llm.get("calls", []) if isinstance(item, dict)]
+    llm = _as_dict(telemetry.get("llm", {}))
+    old_calls = [
+        _as_dict(item) for item in _as_list(llm.get("calls", [])) if isinstance(item, dict)
+    ]
     old_calls.extend(calls)
     llm["calls"] = old_calls
     llm["prompt_tokens"] = sum(
-        int(item["prompt_tokens"])
+        tokens
         for item in old_calls
-        if isinstance(item.get("prompt_tokens"), int)
+        if (tokens := _int_or_none(item.get("prompt_tokens"))) is not None
     )
     llm["completion_tokens"] = sum(
-        int(item["completion_tokens"])
+        tokens
         for item in old_calls
-        if isinstance(item.get("completion_tokens"), int)
+        if (tokens := _int_or_none(item.get("completion_tokens"))) is not None
     )
     return {**telemetry, "stages": stages, "events": events, "llm": llm}
 
@@ -207,13 +270,17 @@ def append_stage(
 def report_telemetry(telemetry: object, *, runtime_available: bool) -> dict[str, object]:
     """Детерминированная часть телеметрии для ``report.json``."""
     raw = dict(telemetry) if isinstance(telemetry, dict) else empty_telemetry()
-    llm = dict(raw.get("llm", {}))
-    calls = [dict(item) for item in llm.get("calls", []) if isinstance(item, dict)]
+    llm = _as_dict(raw.get("llm", {}))
+    calls = [_as_dict(item) for item in _as_list(llm.get("calls", [])) if isinstance(item, dict)]
     pricing = pricing_from_dict(raw.get("pricing")) if raw.get("pricing") is not None else None
     usage = _usage_report(calls, pricing)
     events = [
-        {"sequence": int(item["sequence"]), "node": str(item["node"]), "message": str(item["message"])}
-        for item in raw.get("events", [])
+        {
+            "sequence": int(item["sequence"]),
+            "node": str(item["node"]),
+            "message": str(item["message"]),
+        }
+        for item in _as_list(raw.get("events", []))
         if isinstance(item, dict)
     ]
     runtime: dict[str, object] = {
@@ -233,11 +300,16 @@ def runtime_metrics(telemetry: object) -> dict[str, object]:
     return {
         "schema_version": 1,
         "stages": {
-            name: {"calls": int(value.get("calls", 0)), "duration_ms": value.get("duration_ms", 0.0)}
-            for name, value in sorted(dict(raw.get("stages", {})).items())
+            name: {
+                "calls": int(value.get("calls", 0)),
+                "duration_ms": value.get("duration_ms", 0.0),
+            }
+            for name, value in sorted(_as_dict(raw.get("stages", {})).items())
             if isinstance(value, dict)
         },
-        "events": [dict(item) for item in raw.get("events", []) if isinstance(item, dict)],
+        "events": [
+            dict(item) for item in _as_list(raw.get("events", [])) if isinstance(item, dict)
+        ],
     }
 
 
@@ -246,11 +318,13 @@ def _usage_report(calls: list[dict[str, object]], pricing: LLMPricing | None) ->
     for call in calls:
         grouped[str(call.get("node", "unknown"))].append(call)
 
-    prompt = sum(int(item["prompt_tokens"]) for item in calls if isinstance(item.get("prompt_tokens"), int))
+    prompt = sum(
+        tokens for item in calls if (tokens := _int_or_none(item.get("prompt_tokens"))) is not None
+    )
     completion = sum(
-        int(item["completion_tokens"])
+        tokens
         for item in calls
-        if isinstance(item.get("completion_tokens"), int)
+        if (tokens := _int_or_none(item.get("completion_tokens"))) is not None
     )
     known_calls = sum(
         item.get("prompt_tokens") is not None and item.get("completion_tokens") is not None
@@ -261,14 +335,14 @@ def _usage_report(calls: list[dict[str, object]], pricing: LLMPricing | None) ->
             "node": node,
             "calls": len(items),
             "prompt_tokens": sum(
-                int(item["prompt_tokens"])
+                tokens
                 for item in items
-                if isinstance(item.get("prompt_tokens"), int)
+                if (tokens := _int_or_none(item.get("prompt_tokens"))) is not None
             ),
             "completion_tokens": sum(
-                int(item["completion_tokens"])
+                tokens
                 for item in items
-                if isinstance(item.get("completion_tokens"), int)
+                if (tokens := _int_or_none(item.get("completion_tokens"))) is not None
             ),
         }
         for node, items in sorted(grouped.items())
@@ -287,6 +361,13 @@ def _usage_report(calls: list[dict[str, object]], pricing: LLMPricing | None) ->
         message = "Токены учтены, но тариф не задан; стоимость не рассчитывалась."
         status = "tariff_not_configured"
     else:
+        # ``configured`` гарантирует, что оба тарифа заданы, но это свойство
+        # dataclass, а не структурный тип, поэтому mypy не сужает
+        # `Decimal | None` сам — проверяем честно, а не отбрасываем None.
+        assert pricing.prompt_per_1k is not None, "LLMPricing.configured противоречит своим полям"
+        assert pricing.completion_per_1k is not None, (
+            "LLMPricing.configured противоречит своим полям"
+        )
         amount = (
             Decimal(prompt) / Decimal(1000) * pricing.prompt_per_1k
             + Decimal(completion) / Decimal(1000) * pricing.completion_per_1k
@@ -297,13 +378,16 @@ def _usage_report(calls: list[dict[str, object]], pricing: LLMPricing | None) ->
         "calls": len(calls),
         "prompt_tokens": prompt,
         "completion_tokens": completion,
-        "by_node": by_node,
         "status": status,
         "message": message,
     }
+    if prompt or completion:
+        result["by_node"] = by_node
     if pricing is not None:
         result["pricing"] = pricing.as_dict()
-    if status == "charged" and pricing is not None:
+    if status == "charged" and pricing is not None and pricing.configured:
+        assert pricing.prompt_per_1k is not None
+        assert pricing.completion_per_1k is not None
         amount = (
             Decimal(prompt) / Decimal(1000) * pricing.prompt_per_1k
             + Decimal(completion) / Decimal(1000) * pricing.completion_per_1k

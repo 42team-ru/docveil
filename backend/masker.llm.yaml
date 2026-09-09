@@ -6,12 +6,4 @@ llm:
   api_key_env: OPENROUTER_API_KEY
   timeout_seconds: 60
   title: triema-masker
-  # Тарифы указываются за 1 000 токенов и сверяются вручную с прайсом
-  # поставщика. Пока они не заполнены, report.json честно покажет токены,
-  # но не станет угадывать стоимость.
-  pricing:
-    prompt_per_1k: null
-    completion_per_1k: null
-    currency: RUB
-    verified_at: ""
   # site_url: https://example.invalid/triema-masker

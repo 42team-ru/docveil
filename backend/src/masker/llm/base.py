@@ -18,8 +18,9 @@ class LLMUsage:
 
     ``complete()`` по-прежнему возвращает строку: менять этот контракт ради
     проводки счётчиков означало бы затронуть всех потребителей провайдера.
-    Провайдеры, чей API отдал ``usage``, сохраняют этот объект в
-    ``last_usage``; обёртка учёта забирает его сразу после вызова.
+    Провайдеры с фактическим usage могут дополнительно реализовать
+    ``LLMUsageProvider``; обёртка учёта забирает usage из результата одного
+    вызова, не записывая изменяемое состояние в экземпляр провайдера.
     """
 
     prompt_tokens: int
@@ -53,3 +54,11 @@ class LLMProvider(Protocol):
     """
 
     def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str: ...
+
+
+class LLMUsageProvider(Protocol):
+    """Необязательное расширение строкового контракта для обёрток учёта."""
+
+    def complete_with_usage(
+        self, messages: list[Message], *, schema: dict[str, Any] | None = None
+    ) -> tuple[str, LLMUsage | None]: ...

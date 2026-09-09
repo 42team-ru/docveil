@@ -92,12 +92,14 @@ class GigaChatProvider:
     verify_ssl_certs: bool = True
     ca_bundle_file: str | None = None
     _client: GigaChat | None = field(default=None, init=False, repr=False, compare=False)
-    #: Usage последнего успешного ответа. Его читает только обёртка учёта
-    #: сразу после ``complete()``, поэтому строковый контракт провайдера не
-    #: меняется.
-    last_usage: LLMUsage | None = field(default=None, init=False)
 
     def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        """Вернуть текст; usage доступен обёрткам через ``complete_with_usage``."""
+        return self.complete_with_usage(messages, schema=schema)[0]
+
+    def complete_with_usage(
+        self, messages: list[Message], *, schema: dict[str, Any] | None = None
+    ) -> tuple[str, LLMUsage | None]:
         """Вернуть текст первого варианта chat completion GigaChat.
 
         При переданной ``schema`` просит GigaChat о строгом структурированном
@@ -106,7 +108,6 @@ class GigaChatProvider:
         который `_describe_response_error` превращает в понятный `LLMError`,
         а не тихо возвращает произвольный текст.
         """
-        self.last_usage = None
         client = self._get_client()
         payload: dict[str, Any] = {
             "messages": [{"role": item.role, "content": item.content} for item in messages],
@@ -135,8 +136,7 @@ class GigaChatProvider:
         content = choice.message.content
         if not isinstance(content, str) or not content.strip():
             raise LLMError("GigaChat вернул пустой текст ответа")
-        self.last_usage = _usage_from_completion(completion)
-        return content
+        return content, _usage_from_completion(completion)
 
     def _get_client(self) -> GigaChat:
         if self._client is None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -38,9 +38,14 @@ class OpenRouterProvider:
     timeout_seconds: float = 60.0
     site_url: str = ""
     title: str = "triema-masker"
-    last_usage: LLMUsage | None = field(default=None, init=False, compare=False)
 
     def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        """Вернуть текст; usage доступен обёрткам через ``complete_with_usage``."""
+        return self.complete_with_usage(messages, schema=schema)[0]
+
+    def complete_with_usage(
+        self, messages: list[Message], *, schema: dict[str, Any] | None = None
+    ) -> tuple[str, LLMUsage | None]:
         """Вернуть текст первого варианта chat completion.
 
         При переданной ``schema`` просит строгий структурированный вывод в
@@ -49,7 +54,6 @@ class OpenRouterProvider:
         API отвечает HTTP-ошибкой, которую мы поднимаем как `LLMError` с
         телом ответа, а не проглатываем и не возвращаем произвольный текст.
         """
-        self.last_usage = None
         body: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": item.role, "content": item.content} for item in messages],
@@ -87,8 +91,7 @@ class OpenRouterProvider:
             raise LLMError("OpenRouter вернул ответ без choices[0].message.content") from error
         if not isinstance(content, str) or not content.strip():
             raise LLMError("OpenRouter вернул пустой текст ответа")
-        self.last_usage = _usage_from_payload(payload)
-        return content
+        return content, _usage_from_payload(payload)
 
     def _headers(self) -> dict[str, str]:
         headers = {

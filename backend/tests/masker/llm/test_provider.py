@@ -14,6 +14,7 @@ from masker.llm import (
     OpenRouterProvider,
     get_provider,
     load_llm_config,
+    resolve_llm_config,
 )
 
 
@@ -219,6 +220,32 @@ def test_openrouter_provider_forwards_custom_temperature(
     assert body["temperature"] == 0.7
 
 
+def test_openrouter_returns_usage_to_wrapper_without_mutating_frozen_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            del exc_type, exc, traceback
+
+        def read(self) -> bytes:
+            return (
+                b'{"choices":[{"message":{"content":"ok"}}],'
+                b'"usage":{"prompt_tokens":12,"completion_tokens":3}}'
+            )
+
+    monkeypatch.setattr("masker.llm.openrouter.urlopen", lambda *_args, **_kwargs: Response())
+    provider = OpenRouterProvider(api_key="secret", model="openrouter/auto")
+
+    response, usage = provider.complete_with_usage([Message("user", "test")])
+
+    assert response == "ok"
+    assert usage is not None
+    assert (usage.prompt_tokens, usage.completion_tokens) == (12, 3)
+
+
 def test_get_provider_builds_openrouter_with_default_temperature(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -315,6 +342,34 @@ def test_project_yaml_configures_llm_and_environment_overrides_it(
     assert provider.model == "provider/from-environment"
     assert provider.timeout_seconds == 12.0
     assert provider.temperature == 0.5
+
+
+def test_project_yaml_pricing_and_environment_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "masker.yaml"
+    path.write_text(
+        """llm:
+  pricing:
+    prompt_per_1k: 2.5
+    completion_per_1k: 5
+    currency: rub
+    verified_at: "2026-09-10"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MASKER_CONFIG", str(path))
+    monkeypatch.setenv("MASKER_LLM_PRICING_PROMPT_PER_1K", "3")
+
+    pricing = resolve_llm_config().pricing
+
+    assert pricing is not None
+    assert pricing.as_dict() == {
+        "prompt_per_1k": "3",
+        "completion_per_1k": "5",
+        "currency": "RUB",
+        "verified_at": "2026-09-10",
+    }
 
 
 @pytest.mark.e2e

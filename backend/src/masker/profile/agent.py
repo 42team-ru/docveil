@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from masker.detect.result import DetectionResult
 from masker.llm import LLMError, LLMProvider
-from masker.llm.trace import ProfileOutcome, TracingProvider
+from masker.llm.trace import ProfileOutcome
 from masker.model import Anchor, Document, Entity, EntityType, Profile, Source
 from masker.profile.blocks import ContextBlock, build_context_blocks
 from masker.profile.candidates import build_candidates
@@ -176,9 +176,11 @@ class ProfileAgent:
                     new_confidence=proposed.confidence,
                 )
             )
-        if isinstance(self._llm, TracingProvider):
-            self._llm.record_batch(
-                call_index=self._llm.calls[-1].index,
+        recorder = getattr(self._llm, "record_batch", None)
+        calls = getattr(self._llm, "calls", ())
+        if callable(recorder) and isinstance(calls, list) and calls:
+            recorder(
+                call_index=calls[-1].index,
                 proposed_profiles=len(parsed.profiles),
                 valid_profiles=len(decision.profiles),
                 outcomes=outcomes,

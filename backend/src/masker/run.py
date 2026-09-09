@@ -30,6 +30,7 @@ from masker.graph.questions import SCHEMA_VERSION as ANSWERS_SCHEMA_VERSION
 from masker.graph.review import SCHEMA_VERSION as REVIEW_SCHEMA_VERSION
 from masker.graph.state import State
 from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND, parse_highlight_background
+from masker.telemetry import RUNTIME_METRICS_NAME, runtime_metrics
 
 #: Поднимается руками при изменении состава ``State`` — защита от чтения
 #: устаревшего чекпойнта после правки кода (раздел 5 плана T1.5.1).
@@ -297,6 +298,34 @@ def _outcome_from_invoke_result(thread_id: str, result: dict[str, Any]) -> RunOu
     return RunOutcome("done", thread_id, None, dict(result))
 
 
+def _write_runtime_metrics(outcome: RunOutcome, deps: RunDeps) -> RunOutcome:
+    """Записать недетерминированные замеры отдельным артефактом прогона."""
+    if deps.artifact_dir is None or "report" not in outcome.state:
+        return outcome
+    telemetry = outcome.state.get("telemetry")
+    if not isinstance(telemetry, dict):
+        return outcome
+    destination = deps.artifact_dir / RUNTIME_METRICS_NAME
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(runtime_metrics(telemetry), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    destination.chmod(0o600)
+    artifacts = list(outcome.state.get("artifacts", []))
+    if not any(item.get("role") == "runtime_metrics" for item in artifacts):
+        artifacts.append(
+            {
+                "role": "runtime_metrics",
+                "name": RUNTIME_METRICS_NAME,
+                "path": str(destination),
+                "redacting": False,
+            }
+        )
+        outcome.state["artifacts"] = artifacts
+    return outcome
+
+
 def start_run(
     path: str | Path,
     options: RunOptions,
@@ -353,7 +382,7 @@ def start_run(
             result = graph.invoke(_initial_state(path, options, tid, answers), config)
         except (OSError, ValueError) as error:
             raise RunFailedError(tid, _node_hint(error), error) from error
-        return _outcome_from_invoke_result(tid, result)
+        return _write_runtime_metrics(_outcome_from_invoke_result(tid, result), deps or RunDeps())
 
 
 def resume_run(
@@ -424,7 +453,9 @@ def _resume(
             result = graph.invoke(Command(resume=resume_value), config)
         except (OSError, ValueError) as error:
             raise RunFailedError(thread_id, _node_hint(error), error) from error
-        return _outcome_from_invoke_result(thread_id, result)
+        return _write_runtime_metrics(
+            _outcome_from_invoke_result(thread_id, result), deps or RunDeps()
+        )
 
 
 def read_questions(

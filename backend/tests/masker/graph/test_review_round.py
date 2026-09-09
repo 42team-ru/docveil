@@ -81,7 +81,7 @@ def test_review_round_pauses_with_report_in_payload(tmp_path: Path) -> None:
     assert outcome.payload is not None
     assert outcome.payload["schema_version"] == SCHEMA_VERSION
     assert outcome.payload["document"]["name"] == FIXTURE.name
-    assert outcome.payload["report"]["report_version"] == 3
+    assert outcome.payload["report"]["report_version"] == 4
 
 
 def test_operator_keep_removes_mask_for_non_critical_type(tmp_path: Path) -> None:
@@ -170,7 +170,7 @@ def test_review_round_runs_once_and_finishes(tmp_path: Path) -> None:
 
     assert done.status == "done"
     assert done.state["review_round"] == 1
-    assert done.state["report"]["report_version"] == 3
+    assert done.state["report"]["report_version"] == 4
     # Пересобранный документ проверен валидатором заново — утечек нет.
     assert done.state["leaked"] == []
 

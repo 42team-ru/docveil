@@ -1,6 +1,6 @@
 """Генератор синтетических скан-фикстур из существующих PDF.
 
-Каждая страница исходного PDF рендерится в PNG 300 dpi и укладывается обратно
+Каждая страница исходного PDF рендерится в PNG и укладывается обратно
 в новый PDF без текстового слоя — получается «скан». Параллельно сохраняется
 `.fake_ocr.json` с текстом каждой страницы, который используется `FakeOCR`
 при `MASKER_OCR=fake` для воспроизводимых CI-прогонов.
@@ -15,6 +15,9 @@
 
 Детерминизм: одни и те же входные файлы → побайтово одинаковые выходные
 (DPI, порядок страниц, сжатие — все фиксированы).
+
+DPI должен совпадать с `masker.ingest.scan_ingest._OCR_DPI`, иначе bbox-координаты
+в fake_ocr.json не совпадут с тем, что вычисляет ingest при конвертации px→pt.
 """
 
 from __future__ import annotations
@@ -46,7 +49,7 @@ def _page_text_lines(page: object) -> list[dict]:  # type: ignore[type-arg]
             if not text:
                 continue
             bbox_pts = line["bbox"]  # (x0, y0, x1, y1) in pt
-            # FakeOCR bbox — в пикселях при 300 dpi; pt_to_px = 300/72
+            # FakeOCR bbox — в пикселях при DPI (_OCR_DPI); pt_to_px = DPI/72
             scale = 300.0 / 72.0
             bbox_px = [coord * scale for coord in bbox_pts]
             lines.append(
@@ -79,7 +82,9 @@ def gen_scan_synth_01() -> None:
     out_labels = FIXTURES / "scan_synth_01.labels.json"
     out_ocr = FIXTURES / "scan_synth_01.fake_ocr.json"
 
-    DPI = 300
+    from masker.ingest.scan_ingest import _OCR_DPI
+
+    DPI = _OCR_DPI
     src_doc = pymupdf.open(str(src_pdf))
     new_doc = pymupdf.open()
     ocr_pages: list[list[dict]] = []

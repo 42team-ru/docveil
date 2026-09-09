@@ -838,7 +838,8 @@ def render_pdf_preview(
             seg = document.segments[entity.segment_order]
             seg_rect = pymupdf.Rect(sx0, sy0, sx1, sy1)
             rect = _entity_rect_ocr(seg_rect, len(seg.text), entity.start, entity.end)
-            annot = doc[page_num].add_highlight_annot(rect)
+            ocr_page = doc[page_num]
+            annot = ocr_page.add_highlight_annot(rect)
             annot.update()
             continue
         page_num, seg_start, _seg_end = _parse_locator(locator)

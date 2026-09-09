@@ -57,24 +57,50 @@ class PaddleOCRProvider:
         return _parse_results(raw)
 
 
+def _detect_engine() -> str | None:
+    """Вернуть имя доступного inference-движка или None (Paddle по умолчанию).
+
+    Порядок: onnxruntime → None (paddle_static). Paddle-статик требует
+    установленного ``paddlepaddle``; onnxruntime — только ``onnxruntime``.
+    Если оба отсутствуют, создание модели упадёт с понятным RuntimeError
+    от paddlex о недостающей зависимости.
+    """
+    try:
+        import onnxruntime as _  # noqa: F401
+
+        return "onnxruntime"
+    except ImportError:
+        pass
+    return None
+
+
 def _load_paddle_model() -> Any:
     from paddleocr import PaddleOCR
 
-    # Пробуем язык "ru" (модели PP-OCR v5/v6 поддерживают кириллицу);
-    # если модель с таким именем не найдена — фолбэк на "cyrillic".
-    for lang in ("ru", "cyrillic"):
-        try:
-            return PaddleOCR(
-                lang=lang,
-                use_doc_orientation_classify=True,
-                use_textline_orientation=True,
-                use_doc_unwarping=False,
-            )
-        except Exception:
-            if lang == "cyrillic":
-                raise
-    # unreachable, но нужно для mypy
-    raise OCRError("не удалось инициализировать PaddleOCR ни с ru, ни с cyrillic")
+    engine = _detect_engine()
+    # use_doc_orientation_classify добавляет ~1 с на страницу и иногда мешает
+    # на прямых сканах, перекрывая text-det. Можно отключить через
+    # PADDLE_NO_ORI_CLASSIFY=1 для диагностики.
+    import os
+
+    ori_classify = os.environ.get("PADDLE_NO_ORI_CLASSIFY", "").strip() not in ("1", "true", "yes")
+    kwargs: dict[str, Any] = dict(
+        lang="ru",
+        use_doc_orientation_classify=ori_classify,
+        use_textline_orientation=True,
+        use_doc_unwarping=False,
+    )
+    if engine is not None:
+        kwargs["engine"] = engine
+    try:
+        return PaddleOCR(**kwargs)
+    except Exception as exc:
+        raise OCRError(
+            f"не удалось инициализировать PaddleOCR (engine={engine!r}, lang='ru'): {exc}\n"
+            "Установите один из бэкендов:\n"
+            "  uv pip install --python .venv/bin/python onnxruntime\n"
+            "  uv pip install --python .venv/bin/python paddlepaddle"
+        ) from exc
 
 
 def _parse_results(raw: list[Any]) -> tuple[OCRLine, ...]:

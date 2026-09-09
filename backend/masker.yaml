@@ -1,0 +1,83 @@
+# Главный конфиг triema-masker.
+#
+# Приоритет источников: переменная окружения → этот файл → значение по
+# умолчанию в коде. Поэтому в контейнере ничего править не нужно: всё
+# переопределяется окружением, а этот файл остаётся читаемой картиной
+# настроек проекта.
+#
+# Секретов здесь нет и не будет. Поля с суффиксом `_env` хранят ИМЯ
+# переменной окружения, в которой лежит секрет, а не сам секрет.
+
+application:
+  port: 8000
+
+# Слой обращения к модели. Провайдер выбирается одним полем, заменить
+# GigaChat на локальную модель можно не трогая логику узлов графа.
+#
+#   fake      — детерминированные заглушки, работает без сети (дефолт)
+#   cassette  — записанные ответы живой модели, для воспроизводимых ворот
+#   gigachat  — GigaChat (Сбер)
+#   openrouter — OpenRouter
+#
+# model нужна только для gigachat и openrouter.
+# cassette_directory используется только при provider: cassette.
+llm:
+  provider: fake
+  model: ""
+  api_key_env: OPENROUTER_API_KEY
+  timeout_seconds: 60
+  site_url: ""
+  title: triema-masker
+  cassette_directory: fixtures/llm/roles
+
+  # temperature ниже 0.001 включает у GigaChat режим строгого контроля:
+  # одинаковый запрос даёт одинаковый ответ. Обе задачи, где здесь нужна
+  # модель, — извлечение фактов, а не сочинение текста, и отчёт обязан быть
+  # побайтово воспроизводимым.
+  #
+  # GigaChat ходит через сертификаты Минцифры. Если их нет в системном
+  # хранилище, укажите путь в ca_bundle_file. Флаг insecure_skip_tls_verify
+  # отключает проверку подлинности сервера целиком — крайняя мера.
+  gigachat:
+    scope: GIGACHAT_API_PERS
+    temperature: 0.0001
+    ca_bundle_file: ""
+    insecure_skip_tls_verify: false
+
+  openrouter:
+    temperature: 0.0
+
+# Распознавание сканов. fake не ходит в сеть и не тянет веса — этого
+# достаточно для тестов и ворот.
+ocr:
+  provider: fake
+
+# Локальные веса моделей.
+models:
+  gliner_path: models/gliner
+
+# Веб-слой: нужен только API. Движок masker работает без базы и хранилища,
+# из голой консоли, поэтому отсутствие этой секции ему не мешает.
+web:
+  database:
+    host: localhost
+    port: 5432
+    name: masker
+    user: masker
+    password_env: POSTGRES_PASSWORD
+
+  minio:
+    endpoint: localhost:9000
+    access_key_env: MINIO_ACCESS_KEY
+    secret_key_env: MINIO_SECRET_KEY
+    secure: false
+    bucket: documents
+
+  # cookie_secure требует HTTPS для refresh-токена: выключать только для
+  # локальной разработки.
+  jwt:
+    secret_env: JWT_SECRET
+    algorithm: HS256
+    access_token_expire_minutes: 15
+    refresh_token_expire_days: 30
+    cookie_secure: true

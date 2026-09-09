@@ -12,6 +12,19 @@
 своей реакции: одни ретраятся, другие — нет) и `finish_reason=blacklist`
 как отдельный исход, который нельзя путать с пустым ответом.
 
+GigaChat работает через сертификаты Минцифры России, которых обычно нет в
+стандартном системном хранилище доверенных корневых сертификатов. Без них
+любой запрос падает на этапе TLS-рукопожатия:
+`httpx.ConnectError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify
+failed: self-signed certificate in certificate chain`. Правильное решение —
+указать доверенный корневой сертификат явно через `ca_bundle_file`
+(параметр `GigaChat.__init__`, путь к уже имеющемуся у пользователя
+`.pem`/`.cer`-файлу; переменная окружения `MASKER_LLM_GIGACHAT_CA_BUNDLE`,
+см. `.env.example`), а не отключать проверку TLS целиком. Отключение
+(`verify_ssl_certs=False`) недоступно как удобный путь по умолчанию — см.
+ниже, почему проект вообще не берёт этот пример из документации Сбера;
+включить его можно только явно через одноимённый параметр конструктора.
+
 Пакет `gigachat` уже реализует всё перечисленное и проверен библиотекой
 кода Сбера: кэширование и автообновление access-токена
 (`GigaChatSyncClient._is_token_usable` / `_update_token`), генерацию `RqUID`
@@ -47,6 +60,17 @@ from masker.llm.base import LLMError, Message
 
 DEFAULT_SCOPE = "GIGACHAT_API_PERS"
 
+# Документация Сбера про параметр `temperature`: "Когда температура меньше
+# 0.001, включается режим строгого контроля, дающий одинаковые ответы."
+# Обе роли, где используется GigaChat в проекте (ProfileAgent — определение
+# роли стороны договора, верификатор Р7 — поиск пропущенных персональных
+# данных), извлекают факты, а не сочиняют текст: разнообразие ответов только
+# вредит и ломает инвариант побайтовой воспроизводимости отчёта (кассеты
+# записывают ответ модели как истину). Поэтому по умолчанию берём значение
+# ниже порога строгого контроля, а не дефолт самой модели, рассчитанный на
+# «сбалансированные, слегка творческие ответы».
+DEFAULT_TEMPERATURE = 0.0001
+
 
 @dataclass(slots=True)
 class GigaChatProvider:
@@ -61,10 +85,12 @@ class GigaChatProvider:
     credentials: str
     model: str
     scope: str = DEFAULT_SCOPE
+    temperature: float = DEFAULT_TEMPERATURE
     timeout_seconds: float = 60.0
     max_retries: int = 3
     retry_backoff_factor: float = 0.5
     verify_ssl_certs: bool = True
+    ca_bundle_file: str | None = None
     _client: GigaChat | None = field(default=None, init=False, repr=False, compare=False)
 
     def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
@@ -79,6 +105,7 @@ class GigaChatProvider:
         client = self._get_client()
         payload: dict[str, Any] = {
             "messages": [{"role": item.role, "content": item.content} for item in messages],
+            "temperature": self.temperature,
         }
         if schema is not None:
             payload["response_format"] = {
@@ -113,6 +140,7 @@ class GigaChatProvider:
                 model=self.model,
                 timeout=self.timeout_seconds,
                 verify_ssl_certs=self.verify_ssl_certs,
+                ca_bundle_file=self.ca_bundle_file,
                 max_retries=self.max_retries,
                 retry_backoff_factor=self.retry_backoff_factor,
             )

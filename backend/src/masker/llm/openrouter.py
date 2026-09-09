@@ -17,6 +17,16 @@ OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 #: контракт `LLMProvider`, поэтому оно константа, а не параметр вызывающего.
 SCHEMA_NAME = "triema_masker_response"
 
+# OpenAI-совместимый параметр `temperature` (диапазон 0..2, 0 — минимум
+# шкалы, максимально предсказуемый вывод). В отличие от GigaChat, где
+# документация Сбера называет отдельный порог строгого контроля (< 0.001),
+# у OpenAI-совместимого API нижняя граница диапазона сама по себе и есть
+# «детерминированный» режим, поэтому берём именно 0, а не значение чуть
+# выше нуля. Используется для тех же ролей, что и GigaChat (роль стороны
+# договора, верификатор Р7) — это извлечение фактов, где нужна
+# повторяемость, а не разнообразие.
+DEFAULT_TEMPERATURE = 0.0
+
 
 @dataclass(frozen=True, slots=True)
 class OpenRouterProvider:
@@ -24,6 +34,7 @@ class OpenRouterProvider:
 
     api_key: str
     model: str
+    temperature: float = DEFAULT_TEMPERATURE
     timeout_seconds: float = 60.0
     site_url: str = ""
     title: str = "triema-masker"
@@ -40,6 +51,7 @@ class OpenRouterProvider:
         body: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": item.role, "content": item.content} for item in messages],
+            "temperature": self.temperature,
         }
         if schema is not None:
             body["response_format"] = {

@@ -55,8 +55,9 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-masker123}
       MINIO_SECURE: "false"
       MINIO_BUCKET: ${MINIO_BUCKET:-documents}
+      APP_PORT: ${APP_PORT:-8000}
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-8000}:${APP_PORT:-8000}"
 
 volumes:
   pgdata:

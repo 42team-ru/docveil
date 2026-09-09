@@ -69,8 +69,9 @@ cd backend
 .venv/bin/masker contract.docx --out out/check --types all --redact-style both
 ```
 
-Что доустановить (tesseract, uv), какие переменные окружения есть и что
-делать при сбое установки — [`docs/SETUP.md`](docs/SETUP.md). Полный разбор
+Что доустановить (tesseract, uv) и что делать при сбое установки —
+[`docs/SETUP.md`](docs/SETUP.md). Карта всех настроек, YAML-профиля LLM и
+секретов — [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md). Полный разбор
 флагов CLI и формата отчёта — [`docs/CLI.md`](docs/CLI.md).
 
 ## Пример: что происходит с текстом
@@ -198,6 +199,7 @@ cd backend
 | `docker-compose.yml` | postgres + minio + backend, для веб-слоя |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | пайплайн, контракты, почему детекция трёхслойная |
 | [`docs/SETUP.md`](docs/SETUP.md) | как поставить и запустить, переменные окружения, что делать при сбоях |
+| [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | единая карта env, YAML LLM, docker-compose и секретов |
 | [`docs/CLI.md`](docs/CLI.md) | флаги CLI и формат отчёта на конкретных примерах |
 | [`TASKS.md`](TASKS.md) | задачи с критериями приёмки, статусы |
 | [`docs/BRIEF.md`](docs/BRIEF.md) | постановка заказчика и её отображение в проверки |

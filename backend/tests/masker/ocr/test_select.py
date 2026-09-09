@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from masker.ocr import OCRError, OCRProvider, select_ocr
@@ -21,6 +23,20 @@ def test_env_var_read(monkeypatch: pytest.MonkeyPatch) -> None:
     """``MASKER_OCR=fake`` явно даёт fake; регистр и пробелы нормализуются."""
     monkeypatch.setenv("MASKER_OCR", "  FAKE  ")
     assert isinstance(select_ocr(), FakeOCR)
+
+
+def test_yaml_provider_is_used_and_environment_has_priority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "masker.yaml"
+    path.write_text("ocr:\n  provider: fake\n", encoding="utf-8")
+    monkeypatch.setenv("MASKER_CONFIG", str(path))
+    monkeypatch.delenv("MASKER_OCR", raising=False)
+    assert isinstance(select_ocr(), FakeOCR)
+
+    monkeypatch.setenv("MASKER_OCR", "not-a-real-engine")
+    with pytest.raises(OCRError, match="not-a-real-engine"):
+        select_ocr()
 
 
 def test_explicit_name_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:

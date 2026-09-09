@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 
+from masker.config import project_section
 from masker.ocr.fake import FakeOCR
 from masker.ocr.provider import OCRError, OCRProvider
 
@@ -28,13 +29,19 @@ _DEFAULT: str = "fake"
 
 
 def select_ocr(name: str | None = None) -> OCRProvider:
-    """Вернуть провайдер OCR по имени (``name``) или ``MASKER_OCR`` или дефолту ``fake``.
+    """Вернуть OCR по имени, окружению, YAML или дефолту ``fake``.
 
     Имена нормализуются к нижнему регистру; неизвестное имя — ``OCRError``
     со списком доступных имён, а не молчаливый фолбэк на ``fake`` (иначе
     опечатка в переменной окружения тихо отключит настоящий OCR).
     """
-    key = (name if name is not None else os.environ.get(ENV_VAR, _DEFAULT)).strip().casefold()
+    configured_name = project_section("ocr").get("provider", _DEFAULT)
+    if not isinstance(configured_name, str):
+        raise ValueError("ocr.provider в YAML-конфиге должен быть строкой")
+    selected_name = name
+    if selected_name is None:
+        selected_name = os.environ.get(ENV_VAR, configured_name)
+    key = selected_name.strip().casefold()
     factory = _REGISTRY.get(key)
     if factory is None:
         available = ", ".join(sorted(_REGISTRY))

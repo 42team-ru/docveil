@@ -23,6 +23,7 @@ from api.core.db import get_db
 from api.core.deps import get_current_user
 from api.models.run import RunORM
 from api.models.user import UserORM
+from api.schemas.report import AskEnvelopeOut, ReportOut, ReviewEnvelopeOut
 from api.schemas.run import (
     AnswersRequest,
     ArtifactOut,
@@ -130,7 +131,7 @@ async def get_run(
     return _run_response(await _require_run(session, user, run_id))
 
 
-@router.get("/{run_id}/questions")
+@router.get("/{run_id}/questions", response_model=AskEnvelopeOut)
 async def get_questions(
     run_id: uuid.UUID,
     user: UserORM = Depends(get_current_user),
@@ -212,7 +213,7 @@ async def post_review(
     return _run_response(run)
 
 
-@router.get("/{run_id}/review")
+@router.get("/{run_id}/review", response_model=ReviewEnvelopeOut)
 async def get_review_payload(
     run_id: uuid.UUID,
     user: UserORM = Depends(get_current_user),
@@ -228,7 +229,7 @@ async def get_review_payload(
     return dict(payload)
 
 
-@router.get("/{run_id}/report")
+@router.get("/{run_id}/report", response_model=ReportOut)
 async def get_report(
     run_id: uuid.UUID,
     user: UserORM = Depends(get_current_user),

@@ -39,14 +39,26 @@ export type PiiType =
 /**
  * Слой детекции, выдавший сущность (`Source` в `model.py`).
  *
- * `llm` — арбитр, `user` — пользовательский детектор из custom types. Схлопывать
- * их в `rule` нельзя: оператор перестаёт отличать правило с контрольной суммой
- * от решения модели.
+ * `llm` — арбитр, `user` — пользовательский детектор из custom types, `block` —
+ * структурный признак (блок реквизитов или подписной, план Р6). Схлопывать их в
+ * `rule` нельзя: оператор перестаёт отличать правило с контрольной суммой от
+ * решения модели.
  */
-export type PiiSource = "rule" | "ner" | "llm" | "user";
+export type PiiSource = "rule" | "ner" | "llm" | "user" | "block";
 
 /** Решение движка по сущности (`Action` в `model.py`). */
 export type EntityAction = "mask" | "keep" | "ask";
+
+/**
+ * Уровень уверенности детекции (`ConfidenceLevel` в `model.py`, план Р8).
+ *
+ * `confirmed` — контрольная сумма реквизита либо ≥2 независимых сигналов;
+ * `probable` — один сигнал (морфология, структура, локальная NER);
+ * `possible` — заглавное имя собственное вне белого списка, без
+ * подтверждения — именно эти группы попадают в `report.review_possible`,
+ * чтобы оператор мог снять с них маску одним кликом.
+ */
+export type ConfidenceLevel = "confirmed" | "probable" | "possible";
 
 /**
  * Кто принял решение (`DecisionSource` в `model.py`), от самого частного к
@@ -91,6 +103,8 @@ export type PiiOccurrence = {
   text: string;
   normalized: string;
   confidence: number;
+  /** Категориальный уровень уверенности — см. `ConfidenceLevel`. */
+  level: ConfidenceLevel;
   source: PiiSource;
   segmentOrder: number;
   /** Смещения в пределах chunk.text — только для отчётности, не для поиска в DOM. */
@@ -149,6 +163,8 @@ export type ReportSummary = {
   byType: Record<string, number>;
   /** Сколько найдено каждым слоем детекции; ключ — `PiiSource`. */
   bySource: Record<string, number>;
+  /** Сколько сущностей на каждом уровне уверенности; ключ — `ConfidenceLevel`. */
+  byLevel: Record<string, number>;
   /** Самая низкая уверенность по документу; `null`, когда сущностей нет. */
   minimumConfidence: number | null;
 };
@@ -169,6 +185,11 @@ export type MaskGroupRecord = {
   refCount: number;
   /** Одно значение из группы, чтобы показать оператору, о чём речь. */
   sample: string;
+  /**
+   * Р8 — лучший (самый уверенный) уровень среди ссылок группы; пустая
+   * строка — ни для одной ссылки уровень не известен report'у.
+   */
+  level: ConfidenceLevel | "";
 };
 
 /** Пропущенные ссылки — `report.plan.skipped`. */
@@ -236,6 +257,7 @@ export type ContractSummary = {
   deliveryPeriods: string[];
   paymentTerms: string | null;
   contractNumber: string | null;
+  generatedAt: string;
   llmCalls: number;
 };
 
@@ -269,6 +291,22 @@ export type ReportDecisions = {
   diagnostics: string[];
 };
 
+/** Один пункт сертификата обезличивания — `certificate.checks[]` (план М3). */
+export type CertificateCheck = {
+  name: string;
+  ok: boolean;
+  detail: string;
+};
+
+/**
+ * Сертификат обезличивания — `report.certificate` / `report.validation.certificate`
+ * (тот же объект продублирован на верхнем уровне report.json, план М3).
+ */
+export type Certificate = {
+  ok: boolean;
+  checks: CertificateCheck[];
+};
+
 /** Итог проверки на утечки — `report.validation`. */
 export type ValidationSummary = {
   status: string;
@@ -276,6 +314,14 @@ export type ValidationSummary = {
   leakedCount: number;
   residualCount: number;
   checkedArtifacts: string[];
+  certificate: Certificate | null;
+};
+
+/** Строка легенды сокращений маркера — `report.marker_legend[]` (план М1, правило 6). */
+export type MarkerLegendItem = {
+  shownLabel: string;
+  canonicalLabel: string;
+  pages: number[];
 };
 
 /** Какие запрошенные типы движок искать не умеет — `report.detection_coverage`. */
@@ -297,10 +343,15 @@ export type MaskingReport = {
   extraction: PiiExtraction;
   summary: ReportSummary;
   plan: MaskPlanRecord | null;
+  /** Р8, «снять одним кликом» — группы уровня `possible`; пусто без плана. */
+  reviewPossible: MaskGroupRecord[];
   profiles: PartyProfile[];
   contractSummary: ContractSummary | null;
   decisions: ReportDecisions | null;
   validation: ValidationSummary | null;
+  /** Дубль `validation.certificate` на верхнем уровне report.json (план М3). */
+  certificate: Certificate | null;
+  markerLegend: MarkerLegendItem[];
   detectionCoverage: DetectionCoverage;
   /** Чего движок заведомо не покрывает — показывается оператору дословно. */
   limitations: string[];

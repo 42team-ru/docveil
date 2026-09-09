@@ -4,6 +4,27 @@
  * Triema Masker API
  * OpenAPI spec version: 0.1.0
  */
+/**
+ * Действие судьи над сущностью.
+ */
+export type Action = typeof Action[keyof typeof Action];
+
+
+export const Action = {
+  mask: 'mask',
+  ask: 'ask',
+  keep: 'keep',
+} as const;
+
+/**
+ * Адресация фрагмента в документ — `entities[]`/`chunks[]`.
+ */
+export interface AnchorOut {
+  format: string;
+  label: string;
+  locator: (string | number)[];
+}
+
 export type AnswerRequestAnswers = {[key: string]: string};
 
 /**
@@ -38,8 +59,135 @@ export interface ArtifactOut {
   url: string;
 }
 
+export interface AskDocumentOut {
+  name: string;
+  format: string;
+}
+
+export type QuestionOutKind = typeof QuestionOutKind[keyof typeof QuestionOutKind];
+
+
+export const QuestionOutKind = {
+  type: 'type',
+  profile: 'profile',
+  entity: 'entity',
+} as const;
+
+/**
+ * Один вопрос оператору — `questions.json`/`AskEnvelopeOut.questions[]`.
+ */
+export interface QuestionOut {
+  id: string;
+  kind: QuestionOutKind;
+  target: string;
+  title: string;
+  prompt: string;
+  options: string[];
+  default: string;
+  critical: boolean;
+  found: number;
+  samples: string[];
+  anchors: string[];
+}
+
+/**
+ * Конверт паузы `ask_human` — `GET /runs/{id}/questions`.
+ */
+export interface AskEnvelopeOut {
+  schema_version: number;
+  thread_id: string;
+  document: AskDocumentOut;
+  questions: QuestionOut[];
+}
+
 export interface BodyUploadApiFilesUploadPost {
   file: Blob;
+}
+
+/**
+ * Один пункт сертификата обезличивания — `certificate.checks[]`.
+ */
+export interface CertificateCheckOut {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+/**
+ * Сертификат обезличивания (план М3) — `report.certificate` и
+ * `report.validation.certificate` (тот же объект, продублирован для
+ * доступа одним взглядом, см. `graph/nodes.py::_build_report_dict`).
+ */
+export interface CertificateOut {
+  ok: boolean;
+  checks: CertificateCheckOut[];
+}
+
+/**
+ * Три уровня уверенности детекции (Р8, режим «мазать всё»).
+ *
+ * Асимметрия, ради которой уровни существуют: человек снимает лишнее
+ * одним кликом, а не дописывает пропущенное — найти забытый реквизит
+ * почти невозможно, поэтому детектор маскирует на всех трёх уровнях,
+ * разница только в том, как решение показано в отчёте.
+ *
+ * ``CONFIRMED`` — контрольная сумма реквизита либо ≥2 независимых
+ * детектора нашли пересекающиеся спаны: маскируется молча.
+ * ``PROBABLE`` — один сигнал (морфология, структура, локальная NER):
+ * маскируется, но помечается в отчёте.
+ * ``POSSIBLE`` — заглавное имя собственное вне белого списка, без
+ * формального подтверждения: маскируется и выносится в отчёте отдельной
+ * секцией «снять одним кликом» (``report["review_possible"]``).
+ *
+ * Критичные типы (``CRITICAL_TYPES``) всегда ``CONFIRMED`` независимо от
+ * того, как их нашли — см. ``masker.detect.confidence.classify_level``.
+ */
+export type ConfidenceLevel = typeof ConfidenceLevel[keyof typeof ConfidenceLevel];
+
+
+export const ConfidenceLevel = {
+  confirmed: 'confirmed',
+  probable: 'probable',
+  possible: 'possible',
+} as const;
+
+/**
+ * То же самое, но внутри `chunks[].pii[]` — со смещениями в тексте чанка.
+ */
+export interface PiiEntryOut {
+  type: string;
+  text: string;
+  normalized: string;
+  source: string;
+  confidence: number;
+  level: ConfidenceLevel;
+  segment_order: number;
+  start: number;
+  end: number;
+  anchor: AnchorOut;
+  ref: string;
+  marker: string;
+  group_id: string;
+  decision?: Action | null;
+  decided_by?: string | null;
+  reason?: string | null;
+  chunk_start: number;
+  chunk_end: number;
+}
+
+/**
+ * Абзац/сегмент документа — `report.chunks[]`.
+ */
+export interface ChunkOut {
+  id: string;
+  segment_order: number;
+  start: number;
+  end: number;
+  text: string;
+  annotated_text: string;
+  pii_count: number;
+  pii: PiiEntryOut[];
+  anchor: AnchorOut;
 }
 
 /**
@@ -245,6 +393,135 @@ export interface CompileResponse {
 }
 
 /**
+ * Сторона в карточке договора — `contract_summary.customer`/`.supplier`.
+ */
+export interface ContractPartyOut {
+  name: string | null;
+  role_title: string | null;
+  inn: string | null;
+  ogrn: string | null;
+}
+
+/**
+ * Карточка договора — `report.contract_summary`.
+ */
+export interface ContractSummaryOut {
+  customer: ContractPartyOut | null;
+  supplier: ContractPartyOut | null;
+  federal_law: string[];
+  contract_amount: string | null;
+  delivery_periods: string[];
+  payment_terms: string | null;
+  contract_number: string | null;
+  generated_at: string;
+  llm_calls: number;
+}
+
+/**
+ * Снятие маски с критичного типа/профиля — `decisions.critical_unmasked[]`.
+ */
+export interface CriticalUnmaskedOut {
+  question_id: string;
+  kind: string;
+  target: string;
+  count: number;
+}
+
+/**
+ * Проигравшее решение, перекрытое итоговым — `decisions.by_ref[].overridden[]`.
+ */
+export interface DecisionOverriddenOut {
+  action: Action;
+  decided_by: string;
+  question_id: string;
+  reason: string;
+}
+
+export type DecisionsOutMode = typeof DecisionsOutMode[keyof typeof DecisionsOutMode];
+
+
+export const DecisionsOutMode = {
+  interactive: 'interactive',
+  non_interactive: 'non_interactive',
+  unknown: 'unknown',
+} as const;
+
+/**
+ * Итоговое решение по одной ссылке — `report.decisions.by_ref[]`.
+ */
+export interface RefDecisionOut {
+  ref: string;
+  action: Action;
+  decided_by: string;
+  question_id: string;
+  reason: string;
+  overridden?: DecisionOverriddenOut[];
+}
+
+export type GroupAnswerOutSource = typeof GroupAnswerOutSource[keyof typeof GroupAnswerOutSource];
+
+
+export const GroupAnswerOutSource = {
+  human: 'human',
+  default: 'default',
+} as const;
+
+/**
+ * Итог группового вопроса (по типу/профилю) — `decisions.types[]`/`.profiles[]`.
+ */
+export interface GroupAnswerOut {
+  id: string;
+  kind: string;
+  target: string;
+  answer: string;
+  source: GroupAnswerOutSource;
+}
+
+export type EntityQuestionSummaryOutSource = typeof EntityQuestionSummaryOutSource[keyof typeof EntityQuestionSummaryOutSource];
+
+
+export const EntityQuestionSummaryOutSource = {
+  human: 'human',
+  default: 'default',
+} as const;
+
+/**
+ * Итог вопроса судьи — `decisions.entity_questions[]`.
+ */
+export interface EntityQuestionSummaryOut {
+  id: string;
+  prompt: string;
+  answer: string;
+  source: EntityQuestionSummaryOutSource;
+}
+
+/**
+ * Решения движка по документу — `report.decisions`.
+ */
+export interface DecisionsOut {
+  mode: DecisionsOutMode;
+  thread_id: string;
+  by_ref: RefDecisionOut[];
+  types?: GroupAnswerOut[];
+  profiles?: GroupAnswerOut[];
+  entity_questions?: EntityQuestionSummaryOut[];
+  critical_unmasked?: CriticalUnmaskedOut[];
+  unanswered_defaults?: string[];
+  ignored_answers?: string[];
+  invalid_answers?: string[];
+  diagnostics?: string[];
+}
+
+/**
+ * Какие запрошенные типы движок умеет искать — `report.detection_coverage`.
+ */
+export interface DetectionCoverageOut {
+  requested_types: string[];
+  active_detector_types: string[];
+  requested_without_detector: string[];
+}
+
+/**
  * Тип клиента, выполняющего вход.
  *
  * WEB получает refresh-токен только в httponly-cookie; остальные — в теле ответа,
@@ -258,6 +535,44 @@ export const DeviceType = {
   mobile: 'mobile',
   desktop: 'desktop',
 } as const;
+
+/**
+ * Сущность без адресации в план — `profile_judge.candidates[]`.
+ */
+export interface EntityBareOut {
+  type: string;
+  text: string;
+  normalized: string;
+  source: string;
+  confidence: number;
+  level: ConfidenceLevel;
+  segment_order: number;
+  start: number;
+  end: number;
+  anchor: AnchorOut;
+}
+
+/**
+ * Сущность, уже размеченная планом — `report.entities[]`.
+ */
+export interface EntityRecordOut {
+  type: string;
+  text: string;
+  normalized: string;
+  source: string;
+  confidence: number;
+  level: ConfidenceLevel;
+  segment_order: number;
+  start: number;
+  end: number;
+  anchor: AnchorOut;
+  ref: string;
+  marker: string;
+  group_id: string;
+  decision?: Action | null;
+  decided_by?: string | null;
+  reason?: string | null;
+}
 
 export interface FileUploadResponse {
   bucket: string;
@@ -280,6 +595,42 @@ export interface HTTPValidationError {
   detail?: ValidationError[];
 }
 
+/**
+ * Тот же якорь, но с именем поля `fmt` — так его кладёт `graph/serde.py`
+ * внутри `profile_judge` (историческое расхождение, не переименовывать
+ * без синхронной правки обеих сторон).
+ */
+export interface ProfileAnchorOut {
+  fmt: string;
+  label: string;
+  locator: (string | number)[];
+}
+
+/**
+ * Вопрос судьи о повторяющемся значении — `profile_judge.questions[]`.
+ */
+export interface JudgeQuestionOut {
+  id: string;
+  kind: string;
+  key: string;
+  prompt: string;
+  options: string[];
+  default: string;
+  refs: string[];
+  anchors: ProfileAnchorOut[];
+}
+
+/**
+ * Сохранность текстового слоя PDF вне замен — `validation.layout[]`.
+ */
+export interface LayoutOut {
+  artifact: string;
+  removed_chars: number;
+  inserted_chars: number;
+  pages: number[];
+  first_diff: string;
+}
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -295,10 +646,195 @@ export interface ManualEntityIn {
 }
 
 /**
+ * Строка легенды сокращений маркера — `report.marker_legend[]`.
+ */
+export interface MarkerLegendItemOut {
+  shown_label: string;
+  canonical_label: string;
+  pages: number[];
+}
+
+export type PlanGroupOutLevel = typeof PlanGroupOutLevel[keyof typeof PlanGroupOutLevel];
+
+
+export const PlanGroupOutLevel = {
+  '': '',
+  confirmed: 'confirmed',
+  probable: 'probable',
+  possible: 'possible',
+} as const;
+
+/**
+ * Группа замен — `report.plan.groups[]` и `report.review_possible[]`.
+ */
+export interface PlanGroupOut {
+  id: string;
+  marker: string;
+  type: string;
+  type_title: string;
+  profile_id: string;
+  ref_count: number;
+  sample: string;
+  level: PlanGroupOutLevel;
+}
+
+export type MaskPlanSkippedOutByReason = {[key: string]: number};
+
+export interface MaskPlanSkippedOut {
+  count: number;
+  by_reason: MaskPlanSkippedOutByReason;
+}
+
+/**
+ * План замен — `report.plan`.
+ */
+export interface MaskPlanOut {
+  requested_types: string[];
+  groups: PlanGroupOut[];
+  skipped: MaskPlanSkippedOut;
+}
+
+/**
+ * Сущность внутри `profile_judge.profiles[].members[].entity`.
+ */
+export interface ProfileMemberEntityOut {
+  type: string;
+  text: string;
+  normalized: string;
+  confidence: number;
+  source: string;
+  level: ConfidenceLevel;
+  segment_order: number;
+  start: number;
+  end: number;
+}
+
+export interface ProfileMemberOut {
+  ref: string;
+  anchor: ProfileAnchorOut;
+  entity: ProfileMemberEntityOut;
+}
+
+/**
+ * Профиль стороны — `report.profile_judge.profiles[]`.
+ */
+export interface ProfileOut {
+  id: string;
+  role_id: string;
+  role_title: string;
+  marker_label: string;
+  confidence: number;
+  role_confidence: number;
+  source: string;
+  evidence: string[];
+  members: ProfileMemberOut[];
+}
+
+/**
+ * Решение судьи по одной сущности — `profile_judge.verdicts[]`.
+ */
+export interface VerdictOut {
+  ref: string;
+  action: Action;
+  confidence: number;
+  reason: string;
+  profile_id: string;
+  question_id: string;
+}
+
+/**
+ * Профили сторон и вердикты судьи — `report.profile_judge`.
+ */
+export interface ProfileJudgeOut {
+  profiles: ProfileOut[];
+  unassigned: string[];
+  candidates: EntityBareOut[];
+  llm_calls: number;
+  diagnostics: string[];
+  verdicts: VerdictOut[];
+  questions: JudgeQuestionOut[];
+}
+
+/**
  * Для не-WEB клиентов: передают refresh-токен явно, а не через cookie.
  */
 export interface RefreshRequest {
   refresh_token?: string | null;
+}
+
+export type ReportOutDocumentCoverage = { [key: string]: unknown };
+
+export type ReportOutLeakedItem = { [key: string]: unknown };
+
+export type ReportOutRenderDegradationsItem = { [key: string]: unknown };
+
+export type SummaryOutByType = {[key: string]: number};
+
+export type SummaryOutBySource = {[key: string]: number};
+
+export type SummaryOutByLevel = {[key: string]: number};
+
+/**
+ * Сводка по документу — `report.summary`.
+ */
+export interface SummaryOut {
+  entities_total: number;
+  by_type: SummaryOutByType;
+  by_source: SummaryOutBySource;
+  by_level: SummaryOutByLevel;
+  minimum_confidence: number | null;
+}
+
+/**
+ * `validation`, когда проверять было нечего (`preview_only`).
+ */
+export interface ValidationSkippedOut {
+  status: 'skipped';
+  reason: string;
+}
+
+/**
+ * `validation` после прогона `ValidateAgent`.
+ */
+export interface ValidationCheckedOut {
+  status: 'checked';
+  ok: boolean;
+  checked_artifacts: string[];
+  checked_parts: string[];
+  leaked_count: number;
+  residual_count: number;
+  layout: LayoutOut[];
+  certificate: CertificateOut | null;
+}
+
+/**
+ * `report.json` целиком — то, что отдаёт узел `report` (`masker.graph.nodes`).
+ */
+export interface ReportOut {
+  report_version: number;
+  input: string;
+  format: string;
+  preview_only: boolean;
+  selected_types: string[];
+  entity_count: number;
+  chunk_count: number;
+  summary: SummaryOut;
+  detection_coverage: DetectionCoverageOut;
+  document_coverage: ReportOutDocumentCoverage;
+  entities: EntityRecordOut[];
+  chunks: ChunkOut[];
+  limitations: string[];
+  review_possible: PlanGroupOut[];
+  plan?: MaskPlanOut | null;
+  profile_judge?: ProfileJudgeOut | null;
+  contract_summary?: ContractSummaryOut | null;
+  decisions?: DecisionsOut | null;
+  validation: ValidationSkippedOut | ValidationCheckedOut;
+  leaked: ReportOutLeakedItem[];
+  render_degradations: ReportOutRenderDegradationsItem[];
+  marker_legend: MarkerLegendItemOut[];
+  layout: LayoutOut[];
+  certificate?: CertificateOut | null;
 }
 
 export type ReviewEditsDecisions = {[key: string]: 'mask' | 'keep'};
@@ -312,6 +848,16 @@ export interface ReviewEdits {
   decisions?: ReviewEditsDecisions;
   type_overrides?: ReviewEditsTypeOverrides;
   manual?: ManualEntityIn[];
+}
+
+/**
+ * Конверт паузы раунда правок — `GET /runs/{id}/review`.
+ */
+export interface ReviewEnvelopeOut {
+  schema_version: number;
+  thread_id: string;
+  document: AskDocumentOut;
+  report: ReportOut;
 }
 
 /**
@@ -474,10 +1020,4 @@ export const ListRunsApiRunsGetStatus = {
   failed: 'failed',
   leaked: 'leaked',
 } as const;
-
-export type GetQuestionsApiRunsRunIdQuestionsGet200 = { [key: string]: unknown };
-
-export type GetReviewPayloadApiRunsRunIdReviewGet200 = { [key: string]: unknown };
-
-export type GetReportApiRunsRunIdReportGet200 = { [key: string]: unknown };
 

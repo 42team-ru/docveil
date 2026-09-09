@@ -4,27 +4,32 @@ import type { AxiosRequestConfig, AxiosResponse, Method, ResponseType } from "ax
 import { clearAccessToken, getAccessToken, setAccessToken } from "../auth-token";
 
 // Порт бэкенда — 8000 везде: `make api`, Dockerfile и docker-compose.
-const LOCAL_BACKEND_FALLBACK = "http://localhost:8000";
-const REMOTE_BACKEND_FALLBACK = "https://42team.ru/api";
+const LOCAL_BACKEND_ORIGIN = "http://localhost:8000";
+const REMOTE_BACKEND_ORIGIN = "https://42team.ru";
+// `/api` — единственное место, где префикс приклеивается к хосту. Схема,
+// которую отдаёт `custom_openapi` (`api/main.py`), путей с `/api` не содержит
+// — значит, и сгенерированный Orval-клиент их не содержит; без этого
+// префикс задваивался бы или терялся в зависимости от того, где его забыли.
+const API_PATH = "/api";
 const GENERATED_BACKEND_PREFIXES = [
-  LOCAL_BACKEND_FALLBACK,
-  REMOTE_BACKEND_FALLBACK,
+  `${LOCAL_BACKEND_ORIGIN}${API_PATH}`,
+  `${REMOTE_BACKEND_ORIGIN}${API_PATH}`,
 ] as const;
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
-const getBaseUrl = () => {
+const getBackendOrigin = () => {
   const mode = import.meta.env.MODE;
 
   if (mode === "production" || mode === "remote") {
-    return import.meta.env.VITE_BACKEND_PROD_URL || REMOTE_BACKEND_FALLBACK;
+    return import.meta.env.VITE_BACKEND_PROD_URL || REMOTE_BACKEND_ORIGIN;
   }
 
-  return import.meta.env.VITE_BACKEND_DEV_URL || LOCAL_BACKEND_FALLBACK;
+  return import.meta.env.VITE_BACKEND_DEV_URL || LOCAL_BACKEND_ORIGIN;
 };
 
-export const baseURL = getBaseUrl();
-const REFRESH_ENDPOINT = "/auth/refresh";
+export const baseURL = `${trimTrailingSlash(getBackendOrigin())}${API_PATH}`;
+export const REFRESH_ENDPOINT = "/auth/refresh";
 const MAX_REFRESH_RETRIES = 1;
 
 type ExtendedAxiosRequestConfig = AxiosRequestConfig & {

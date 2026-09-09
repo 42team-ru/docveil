@@ -60,133 +60,6 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   return result;
 };
 
-export type listRunsApiRunsGetResponse200 = {
-  data: RunListResponse
-  status: 200
-}
-
-export type listRunsApiRunsGetResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type listRunsApiRunsGetResponseSuccess = (listRunsApiRunsGetResponse200) & {
-  headers: Headers;
-};
-export type listRunsApiRunsGetResponseError = (listRunsApiRunsGetResponse422) & {
-  headers: Headers;
-};
-
-export type listRunsApiRunsGetResponse = (listRunsApiRunsGetResponseSuccess | listRunsApiRunsGetResponseError)
-
-export const getListRunsApiRunsGetUrl = (params?: ListRunsApiRunsGetParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/runs?${stringifiedParams}` : `/api/runs`
-}
-
-/**
- * Журнал обработок текущего пользователя.
- * @summary List Runs
- */
-export const listRunsApiRunsGet = async (params?: ListRunsApiRunsGetParams, options?: Parameters<typeof authMutator>[1]): Promise<listRunsApiRunsGetResponse> => {
-
-  return authMutator<listRunsApiRunsGetResponse>(getListRunsApiRunsGetUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getListRunsApiRunsGetQueryKey = (params?: ListRunsApiRunsGetParams,) => {
-    return [
-    `/api/runs`, ...(params ? [params] : [])
-    ] as const;
-    }
-
-
-export const getListRunsApiRunsGetQueryOptions = <TData = Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError = ErrorType<HTTPValidationError>>(params?: ListRunsApiRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getListRunsApiRunsGetQueryKey(params);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRunsApiRunsGet>>> = ({ signal }) => listRunsApiRunsGet(params, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type ListRunsApiRunsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listRunsApiRunsGet>>>
-export type ListRunsApiRunsGetQueryError = ErrorType<HTTPValidationError>
-
-
-export function useListRunsApiRunsGet<TData = Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError = ErrorType<HTTPValidationError>>(
- params: undefined |  ListRunsApiRunsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listRunsApiRunsGet>>,
-          TError,
-          Awaited<ReturnType<typeof listRunsApiRunsGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListRunsApiRunsGet<TData = Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError = ErrorType<HTTPValidationError>>(
- params?: ListRunsApiRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listRunsApiRunsGet>>,
-          TError,
-          Awaited<ReturnType<typeof listRunsApiRunsGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListRunsApiRunsGet<TData = Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError = ErrorType<HTTPValidationError>>(
- params?: ListRunsApiRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary List Runs
- */
-
-export function useListRunsApiRunsGet<TData = Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError = ErrorType<HTTPValidationError>>(
- params?: ListRunsApiRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getListRunsApiRunsGetQueryOptions(params,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
 export type createRunApiRunsPostResponse202 = {
   data: RunResponse
   status: 202
@@ -211,7 +84,7 @@ export const getCreateRunApiRunsPostUrl = () => {
 
 
 
-  return `/api/runs`
+  return `/runs`
 }
 
 /**
@@ -286,7 +159,134 @@ export const useCreateRunApiRunsPost = <TError = ErrorType<HTTPValidationError>,
       > => {
       return useMutation(getCreateRunApiRunsPostMutationOptions(options), queryClient);
     }
-    export type getRunApiRunsRunIdGetResponse200 = {
+    export type listRunsApiRunsGetResponse200 = {
+  data: RunListResponse
+  status: 200
+}
+
+export type listRunsApiRunsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listRunsApiRunsGetResponseSuccess = (listRunsApiRunsGetResponse200) & {
+  headers: Headers;
+};
+export type listRunsApiRunsGetResponseError = (listRunsApiRunsGetResponse422) & {
+  headers: Headers;
+};
+
+export type listRunsApiRunsGetResponse = (listRunsApiRunsGetResponseSuccess | listRunsApiRunsGetResponseError)
+
+export const getListRunsApiRunsGetUrl = (params?: ListRunsApiRunsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/runs?${stringifiedParams}` : `/runs`
+}
+
+/**
+ * Журнал обработок текущего пользователя.
+ * @summary List Runs
+ */
+export const listRunsApiRunsGet = async (params?: ListRunsApiRunsGetParams, options?: Parameters<typeof authMutator>[1]): Promise<listRunsApiRunsGetResponse> => {
+
+  return authMutator<listRunsApiRunsGetResponse>(getListRunsApiRunsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListRunsApiRunsGetQueryKey = (params?: ListRunsApiRunsGetParams,) => {
+    return [
+    `/runs`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListRunsApiRunsGetQueryOptions = <TData = Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError = ErrorType<HTTPValidationError>>(params?: ListRunsApiRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListRunsApiRunsGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRunsApiRunsGet>>> = ({ signal }) => listRunsApiRunsGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListRunsApiRunsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listRunsApiRunsGet>>>
+export type ListRunsApiRunsGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useListRunsApiRunsGet<TData = Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: undefined |  ListRunsApiRunsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listRunsApiRunsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listRunsApiRunsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListRunsApiRunsGet<TData = Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: ListRunsApiRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listRunsApiRunsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listRunsApiRunsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListRunsApiRunsGet<TData = Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: ListRunsApiRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Runs
+ */
+
+export function useListRunsApiRunsGet<TData = Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: ListRunsApiRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRunsApiRunsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListRunsApiRunsGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type getRunApiRunsRunIdGetResponse200 = {
   data: RunResponse
   status: 200
 }
@@ -310,7 +310,7 @@ export const getGetRunApiRunsRunIdGetUrl = (runId: string,) => {
 
 
 
-  return `/api/runs/${runId}`
+  return `/runs/${runId}`
 }
 
 /**
@@ -334,7 +334,7 @@ export const getRunApiRunsRunIdGet = async (runId: string, options?: Parameters<
 
 export const getGetRunApiRunsRunIdGetQueryKey = (runId: string,) => {
     return [
-    `/api/runs/${runId}`
+    `/runs/${runId}`
     ] as const;
     }
 
@@ -406,6 +406,129 @@ export function useGetRunApiRunsRunIdGet<TData = Awaited<ReturnType<typeof getRu
 
 
 
+export type getQuestionsApiRunsRunIdQuestionsGetResponse200 = {
+  data: GetQuestionsApiRunsRunIdQuestionsGet200
+  status: 200
+}
+
+export type getQuestionsApiRunsRunIdQuestionsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getQuestionsApiRunsRunIdQuestionsGetResponseSuccess = (getQuestionsApiRunsRunIdQuestionsGetResponse200) & {
+  headers: Headers;
+};
+export type getQuestionsApiRunsRunIdQuestionsGetResponseError = (getQuestionsApiRunsRunIdQuestionsGetResponse422) & {
+  headers: Headers;
+};
+
+export type getQuestionsApiRunsRunIdQuestionsGetResponse = (getQuestionsApiRunsRunIdQuestionsGetResponseSuccess | getQuestionsApiRunsRunIdQuestionsGetResponseError)
+
+export const getGetQuestionsApiRunsRunIdQuestionsGetUrl = (runId: string,) => {
+
+
+
+
+  return `/runs/${runId}/questions`
+}
+
+/**
+ * Конверт вопросов приостановленного прогона (`ask_human`).
+ *
+ * 404 — прогон ещё не дошёл до паузы или уже завершён: вопросов нет, и
+ * выдумывать пустой конверт вместо честного «нечего спрашивать» нельзя.
+ * @summary Get Questions
+ */
+export const getQuestionsApiRunsRunIdQuestionsGet = async (runId: string, options?: Parameters<typeof authMutator>[1]): Promise<getQuestionsApiRunsRunIdQuestionsGetResponse> => {
+
+  return authMutator<getQuestionsApiRunsRunIdQuestionsGetResponse>(getGetQuestionsApiRunsRunIdQuestionsGetUrl(runId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetQuestionsApiRunsRunIdQuestionsGetQueryKey = (runId: string,) => {
+    return [
+    `/runs/${runId}/questions`
+    ] as const;
+    }
+
+
+export const getGetQuestionsApiRunsRunIdQuestionsGetQueryOptions = <TData = Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError = ErrorType<HTTPValidationError>>(runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetQuestionsApiRunsRunIdQuestionsGetQueryKey(runId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>> = ({ signal }) => getQuestionsApiRunsRunIdQuestionsGet(runId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: runId !== null && runId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetQuestionsApiRunsRunIdQuestionsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>>
+export type GetQuestionsApiRunsRunIdQuestionsGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useGetQuestionsApiRunsRunIdQuestionsGet<TData = Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetQuestionsApiRunsRunIdQuestionsGet<TData = Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetQuestionsApiRunsRunIdQuestionsGet<TData = Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Questions
+ */
+
+export function useGetQuestionsApiRunsRunIdQuestionsGet<TData = Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetQuestionsApiRunsRunIdQuestionsGetQueryOptions(runId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 export type postAnswersApiRunsRunIdAnswersPostResponse202 = {
   data: RunResponse
   status: 202
@@ -430,7 +553,7 @@ export const getPostAnswersApiRunsRunIdAnswersPostUrl = (runId: string,) => {
 
 
 
-  return `/api/runs/${runId}/answers`
+  return `/runs/${runId}/answers`
 }
 
 /**
@@ -506,7 +629,352 @@ export const usePostAnswersApiRunsRunIdAnswersPost = <TError = ErrorType<HTTPVal
       > => {
       return useMutation(getPostAnswersApiRunsRunIdAnswersPostMutationOptions(options), queryClient);
     }
-    export type getArtifactsApiRunsRunIdArtifactsGetResponse200 = {
+    export type postReviewApiRunsRunIdReviewPostResponse202 = {
+  data: RunResponse
+  status: 202
+}
+
+export type postReviewApiRunsRunIdReviewPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type postReviewApiRunsRunIdReviewPostResponseSuccess = (postReviewApiRunsRunIdReviewPostResponse202) & {
+  headers: Headers;
+};
+export type postReviewApiRunsRunIdReviewPostResponseError = (postReviewApiRunsRunIdReviewPostResponse422) & {
+  headers: Headers;
+};
+
+export type postReviewApiRunsRunIdReviewPostResponse = (postReviewApiRunsRunIdReviewPostResponseSuccess | postReviewApiRunsRunIdReviewPostResponseError)
+
+export const getPostReviewApiRunsRunIdReviewPostUrl = (runId: string,) => {
+
+
+
+
+  return `/runs/${runId}/review`
+}
+
+/**
+ * Утвердить документ с правками оператора.
+ *
+ * Правки не применяются здесь: они уходят вторым прерыванием в граф, и
+ * документ пересобирается штатным путём `plan → … → report`. Поэтому маркеры
+ * остаются согласованными, критичные типы — под защитой, а результат заново
+ * проверяется на утечки.
+ * @summary Post Review
+ */
+export const postReviewApiRunsRunIdReviewPost = async (runId: string,
+    reviewRequest: ReviewRequest, options?: Parameters<typeof authMutator>[1]): Promise<postReviewApiRunsRunIdReviewPostResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return authMutator<postReviewApiRunsRunIdReviewPostResponse>(getPostReviewApiRunsRunIdReviewPostUrl(runId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(reviewRequest)
+  }
+);}
+
+
+
+
+
+export const getPostReviewApiRunsRunIdReviewPostMutationKey = () => ['postReviewApiRunsRunIdReviewPost'] as const;
+
+export const getPostReviewApiRunsRunIdReviewPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>, TError,PostReviewApiRunsRunIdReviewPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>, TError,PostReviewApiRunsRunIdReviewPostMutationVariables, TContext> => {
+
+const mutationKey = getPostReviewApiRunsRunIdReviewPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>, PostReviewApiRunsRunIdReviewPostMutationVariables> = (props) => {
+          const {runId,data} = props ?? {};
+
+          return  postReviewApiRunsRunIdReviewPost(runId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostReviewApiRunsRunIdReviewPostMutationResult = NonNullable<Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>>
+    export type PostReviewApiRunsRunIdReviewPostMutationBody = ReviewRequest
+    export type PostReviewApiRunsRunIdReviewPostMutationError = ErrorType<HTTPValidationError>
+    export type PostReviewApiRunsRunIdReviewPostMutationVariables = {runId: string;data: ReviewRequest}
+
+    /**
+ * @summary Post Review
+ */
+export const usePostReviewApiRunsRunIdReviewPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>, TError,PostReviewApiRunsRunIdReviewPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>,
+        TError,
+        PostReviewApiRunsRunIdReviewPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPostReviewApiRunsRunIdReviewPostMutationOptions(options), queryClient);
+    }
+    export type getReviewPayloadApiRunsRunIdReviewGetResponse200 = {
+  data: GetReviewPayloadApiRunsRunIdReviewGet200
+  status: 200
+}
+
+export type getReviewPayloadApiRunsRunIdReviewGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getReviewPayloadApiRunsRunIdReviewGetResponseSuccess = (getReviewPayloadApiRunsRunIdReviewGetResponse200) & {
+  headers: Headers;
+};
+export type getReviewPayloadApiRunsRunIdReviewGetResponseError = (getReviewPayloadApiRunsRunIdReviewGetResponse422) & {
+  headers: Headers;
+};
+
+export type getReviewPayloadApiRunsRunIdReviewGetResponse = (getReviewPayloadApiRunsRunIdReviewGetResponseSuccess | getReviewPayloadApiRunsRunIdReviewGetResponseError)
+
+export const getGetReviewPayloadApiRunsRunIdReviewGetUrl = (runId: string,) => {
+
+
+
+
+  return `/runs/${runId}/review`
+}
+
+/**
+ * Конверт паузы раунда правок: отчёт, который правит оператор.
+ * @summary Get Review Payload
+ */
+export const getReviewPayloadApiRunsRunIdReviewGet = async (runId: string, options?: Parameters<typeof authMutator>[1]): Promise<getReviewPayloadApiRunsRunIdReviewGetResponse> => {
+
+  return authMutator<getReviewPayloadApiRunsRunIdReviewGetResponse>(getGetReviewPayloadApiRunsRunIdReviewGetUrl(runId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReviewPayloadApiRunsRunIdReviewGetQueryKey = (runId: string,) => {
+    return [
+    `/runs/${runId}/review`
+    ] as const;
+    }
+
+
+export const getGetReviewPayloadApiRunsRunIdReviewGetQueryOptions = <TData = Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError = ErrorType<HTTPValidationError>>(runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReviewPayloadApiRunsRunIdReviewGetQueryKey(runId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>> = ({ signal }) => getReviewPayloadApiRunsRunIdReviewGet(runId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: runId !== null && runId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetReviewPayloadApiRunsRunIdReviewGetQueryResult = NonNullable<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>>
+export type GetReviewPayloadApiRunsRunIdReviewGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useGetReviewPayloadApiRunsRunIdReviewGet<TData = Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>,
+          TError,
+          Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetReviewPayloadApiRunsRunIdReviewGet<TData = Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>,
+          TError,
+          Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetReviewPayloadApiRunsRunIdReviewGet<TData = Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Review Payload
+ */
+
+export function useGetReviewPayloadApiRunsRunIdReviewGet<TData = Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetReviewPayloadApiRunsRunIdReviewGetQueryOptions(runId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type getReportApiRunsRunIdReportGetResponse200 = {
+  data: GetReportApiRunsRunIdReportGet200
+  status: 200
+}
+
+export type getReportApiRunsRunIdReportGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getReportApiRunsRunIdReportGetResponseSuccess = (getReportApiRunsRunIdReportGetResponse200) & {
+  headers: Headers;
+};
+export type getReportApiRunsRunIdReportGetResponseError = (getReportApiRunsRunIdReportGetResponse422) & {
+  headers: Headers;
+};
+
+export type getReportApiRunsRunIdReportGetResponse = (getReportApiRunsRunIdReportGetResponseSuccess | getReportApiRunsRunIdReportGetResponseError)
+
+export const getGetReportApiRunsRunIdReportGetUrl = (runId: string,) => {
+
+
+
+
+  return `/runs/${runId}/report`
+}
+
+/**
+ * `report.json` прогона — ровно то, что собрал узел `report`.
+ * @summary Get Report
+ */
+export const getReportApiRunsRunIdReportGet = async (runId: string, options?: Parameters<typeof authMutator>[1]): Promise<getReportApiRunsRunIdReportGetResponse> => {
+
+  return authMutator<getReportApiRunsRunIdReportGetResponse>(getGetReportApiRunsRunIdReportGetUrl(runId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReportApiRunsRunIdReportGetQueryKey = (runId: string,) => {
+    return [
+    `/runs/${runId}/report`
+    ] as const;
+    }
+
+
+export const getGetReportApiRunsRunIdReportGetQueryOptions = <TData = Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError = ErrorType<HTTPValidationError>>(runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReportApiRunsRunIdReportGetQueryKey(runId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>> = ({ signal }) => getReportApiRunsRunIdReportGet(runId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: runId !== null && runId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetReportApiRunsRunIdReportGetQueryResult = NonNullable<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>>
+export type GetReportApiRunsRunIdReportGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useGetReportApiRunsRunIdReportGet<TData = Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>,
+          TError,
+          Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetReportApiRunsRunIdReportGet<TData = Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>,
+          TError,
+          Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetReportApiRunsRunIdReportGet<TData = Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Report
+ */
+
+export function useGetReportApiRunsRunIdReportGet<TData = Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetReportApiRunsRunIdReportGetQueryOptions(runId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type getArtifactsApiRunsRunIdArtifactsGetResponse200 = {
   data: ArtifactOut[]
   status: 200
 }
@@ -530,7 +998,7 @@ export const getGetArtifactsApiRunsRunIdArtifactsGetUrl = (runId: string,) => {
 
 
 
-  return `/api/runs/${runId}/artifacts`
+  return `/runs/${runId}/artifacts`
 }
 
 /**
@@ -554,7 +1022,7 @@ export const getArtifactsApiRunsRunIdArtifactsGet = async (runId: string, option
 
 export const getGetArtifactsApiRunsRunIdArtifactsGetQueryKey = (runId: string,) => {
     return [
-    `/api/runs/${runId}/artifacts`
+    `/runs/${runId}/artifacts`
     ] as const;
     }
 
@@ -651,7 +1119,7 @@ export const getDownloadArtifactApiRunsRunIdArtifactsRoleGetUrl = (runId: string
 
 
 
-  return `/api/runs/${runId}/artifacts/${role}`
+  return `/runs/${runId}/artifacts/${role}`
 }
 
 /**
@@ -677,7 +1145,7 @@ export const downloadArtifactApiRunsRunIdArtifactsRoleGet = async (runId: string
 export const getDownloadArtifactApiRunsRunIdArtifactsRoleGetQueryKey = (runId: string,
     role: string,) => {
     return [
-    `/api/runs/${runId}/artifacts/${role}`
+    `/runs/${runId}/artifacts/${role}`
     ] as const;
     }
 
@@ -754,471 +1222,3 @@ export function useDownloadArtifactApiRunsRunIdArtifactsRoleGet<TData = Awaited<
 
 
 
-export type getQuestionsApiRunsRunIdQuestionsGetResponse200 = {
-  data: GetQuestionsApiRunsRunIdQuestionsGet200
-  status: 200
-}
-
-export type getQuestionsApiRunsRunIdQuestionsGetResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type getQuestionsApiRunsRunIdQuestionsGetResponseSuccess = (getQuestionsApiRunsRunIdQuestionsGetResponse200) & {
-  headers: Headers;
-};
-export type getQuestionsApiRunsRunIdQuestionsGetResponseError = (getQuestionsApiRunsRunIdQuestionsGetResponse422) & {
-  headers: Headers;
-};
-
-export type getQuestionsApiRunsRunIdQuestionsGetResponse = (getQuestionsApiRunsRunIdQuestionsGetResponseSuccess | getQuestionsApiRunsRunIdQuestionsGetResponseError)
-
-export const getGetQuestionsApiRunsRunIdQuestionsGetUrl = (runId: string,) => {
-
-
-
-
-  return `/api/runs/${runId}/questions`
-}
-
-/**
- * Конверт вопросов приостановленного прогона (`ask_human`).
- *
- * 404 — прогон ещё не дошёл до паузы или уже завершён: вопросов нет, и
- * выдумывать пустой конверт вместо честного «нечего спрашивать» нельзя.
- * @summary Get Questions
- */
-export const getQuestionsApiRunsRunIdQuestionsGet = async (runId: string, options?: Parameters<typeof authMutator>[1]): Promise<getQuestionsApiRunsRunIdQuestionsGetResponse> => {
-
-  return authMutator<getQuestionsApiRunsRunIdQuestionsGetResponse>(getGetQuestionsApiRunsRunIdQuestionsGetUrl(runId),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetQuestionsApiRunsRunIdQuestionsGetQueryKey = (runId: string,) => {
-    return [
-    `/api/runs/${runId}/questions`
-    ] as const;
-    }
-
-
-export const getGetQuestionsApiRunsRunIdQuestionsGetQueryOptions = <TData = Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError = ErrorType<HTTPValidationError>>(runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetQuestionsApiRunsRunIdQuestionsGetQueryKey(runId);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>> = ({ signal }) => getQuestionsApiRunsRunIdQuestionsGet(runId, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: runId !== null && runId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type GetQuestionsApiRunsRunIdQuestionsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>>
-export type GetQuestionsApiRunsRunIdQuestionsGetQueryError = ErrorType<HTTPValidationError>
-
-
-export function useGetQuestionsApiRunsRunIdQuestionsGet<TData = Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>,
-          TError,
-          Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetQuestionsApiRunsRunIdQuestionsGet<TData = Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>,
-          TError,
-          Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetQuestionsApiRunsRunIdQuestionsGet<TData = Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Get Questions
- */
-
-export function useGetQuestionsApiRunsRunIdQuestionsGet<TData = Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getQuestionsApiRunsRunIdQuestionsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getGetQuestionsApiRunsRunIdQuestionsGetQueryOptions(runId,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
-export type getReportApiRunsRunIdReportGetResponse200 = {
-  data: GetReportApiRunsRunIdReportGet200
-  status: 200
-}
-
-export type getReportApiRunsRunIdReportGetResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type getReportApiRunsRunIdReportGetResponseSuccess = (getReportApiRunsRunIdReportGetResponse200) & {
-  headers: Headers;
-};
-export type getReportApiRunsRunIdReportGetResponseError = (getReportApiRunsRunIdReportGetResponse422) & {
-  headers: Headers;
-};
-
-export type getReportApiRunsRunIdReportGetResponse = (getReportApiRunsRunIdReportGetResponseSuccess | getReportApiRunsRunIdReportGetResponseError)
-
-export const getGetReportApiRunsRunIdReportGetUrl = (runId: string,) => {
-
-
-
-
-  return `/api/runs/${runId}/report`
-}
-
-/**
- * `report.json` прогона — ровно то, что собрал узел `report`.
- * @summary Get Report
- */
-export const getReportApiRunsRunIdReportGet = async (runId: string, options?: Parameters<typeof authMutator>[1]): Promise<getReportApiRunsRunIdReportGetResponse> => {
-
-  return authMutator<getReportApiRunsRunIdReportGetResponse>(getGetReportApiRunsRunIdReportGetUrl(runId),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetReportApiRunsRunIdReportGetQueryKey = (runId: string,) => {
-    return [
-    `/api/runs/${runId}/report`
-    ] as const;
-    }
-
-
-export const getGetReportApiRunsRunIdReportGetQueryOptions = <TData = Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError = ErrorType<HTTPValidationError>>(runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetReportApiRunsRunIdReportGetQueryKey(runId);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>> = ({ signal }) => getReportApiRunsRunIdReportGet(runId, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: runId !== null && runId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type GetReportApiRunsRunIdReportGetQueryResult = NonNullable<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>>
-export type GetReportApiRunsRunIdReportGetQueryError = ErrorType<HTTPValidationError>
-
-
-export function useGetReportApiRunsRunIdReportGet<TData = Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>,
-          TError,
-          Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetReportApiRunsRunIdReportGet<TData = Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>,
-          TError,
-          Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetReportApiRunsRunIdReportGet<TData = Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Get Report
- */
-
-export function useGetReportApiRunsRunIdReportGet<TData = Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReportApiRunsRunIdReportGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getGetReportApiRunsRunIdReportGetQueryOptions(runId,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
-export type getReviewPayloadApiRunsRunIdReviewGetResponse200 = {
-  data: GetReviewPayloadApiRunsRunIdReviewGet200
-  status: 200
-}
-
-export type getReviewPayloadApiRunsRunIdReviewGetResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type getReviewPayloadApiRunsRunIdReviewGetResponseSuccess = (getReviewPayloadApiRunsRunIdReviewGetResponse200) & {
-  headers: Headers;
-};
-export type getReviewPayloadApiRunsRunIdReviewGetResponseError = (getReviewPayloadApiRunsRunIdReviewGetResponse422) & {
-  headers: Headers;
-};
-
-export type getReviewPayloadApiRunsRunIdReviewGetResponse = (getReviewPayloadApiRunsRunIdReviewGetResponseSuccess | getReviewPayloadApiRunsRunIdReviewGetResponseError)
-
-export const getGetReviewPayloadApiRunsRunIdReviewGetUrl = (runId: string,) => {
-
-
-
-
-  return `/api/runs/${runId}/review`
-}
-
-/**
- * Конверт паузы раунда правок: отчёт, который правит оператор.
- * @summary Get Review Payload
- */
-export const getReviewPayloadApiRunsRunIdReviewGet = async (runId: string, options?: Parameters<typeof authMutator>[1]): Promise<getReviewPayloadApiRunsRunIdReviewGetResponse> => {
-
-  return authMutator<getReviewPayloadApiRunsRunIdReviewGetResponse>(getGetReviewPayloadApiRunsRunIdReviewGetUrl(runId),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetReviewPayloadApiRunsRunIdReviewGetQueryKey = (runId: string,) => {
-    return [
-    `/api/runs/${runId}/review`
-    ] as const;
-    }
-
-
-export const getGetReviewPayloadApiRunsRunIdReviewGetQueryOptions = <TData = Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError = ErrorType<HTTPValidationError>>(runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetReviewPayloadApiRunsRunIdReviewGetQueryKey(runId);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>> = ({ signal }) => getReviewPayloadApiRunsRunIdReviewGet(runId, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: runId !== null && runId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type GetReviewPayloadApiRunsRunIdReviewGetQueryResult = NonNullable<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>>
-export type GetReviewPayloadApiRunsRunIdReviewGetQueryError = ErrorType<HTTPValidationError>
-
-
-export function useGetReviewPayloadApiRunsRunIdReviewGet<TData = Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>,
-          TError,
-          Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetReviewPayloadApiRunsRunIdReviewGet<TData = Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>,
-          TError,
-          Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetReviewPayloadApiRunsRunIdReviewGet<TData = Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Get Review Payload
- */
-
-export function useGetReviewPayloadApiRunsRunIdReviewGet<TData = Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError = ErrorType<HTTPValidationError>>(
- runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReviewPayloadApiRunsRunIdReviewGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getGetReviewPayloadApiRunsRunIdReviewGetQueryOptions(runId,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
-export type postReviewApiRunsRunIdReviewPostResponse202 = {
-  data: RunResponse
-  status: 202
-}
-
-export type postReviewApiRunsRunIdReviewPostResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type postReviewApiRunsRunIdReviewPostResponseSuccess = (postReviewApiRunsRunIdReviewPostResponse202) & {
-  headers: Headers;
-};
-export type postReviewApiRunsRunIdReviewPostResponseError = (postReviewApiRunsRunIdReviewPostResponse422) & {
-  headers: Headers;
-};
-
-export type postReviewApiRunsRunIdReviewPostResponse = (postReviewApiRunsRunIdReviewPostResponseSuccess | postReviewApiRunsRunIdReviewPostResponseError)
-
-export const getPostReviewApiRunsRunIdReviewPostUrl = (runId: string,) => {
-
-
-
-
-  return `/api/runs/${runId}/review`
-}
-
-/**
- * Утвердить документ с правками оператора.
- *
- * Правки не применяются здесь: они уходят вторым прерыванием в граф, и
- * документ пересобирается штатным путём `plan → … → report`. Поэтому маркеры
- * остаются согласованными, критичные типы — под защитой, а результат заново
- * проверяется на утечки.
- * @summary Post Review
- */
-export const postReviewApiRunsRunIdReviewPost = async (runId: string,
-    reviewRequest: ReviewRequest, options?: Parameters<typeof authMutator>[1]): Promise<postReviewApiRunsRunIdReviewPostResponse> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return authMutator<postReviewApiRunsRunIdReviewPostResponse>(getPostReviewApiRunsRunIdReviewPostUrl(runId),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(reviewRequest)
-  }
-);}
-
-
-
-
-
-export const getPostReviewApiRunsRunIdReviewPostMutationKey = () => ['postReviewApiRunsRunIdReviewPost'] as const;
-
-export const getPostReviewApiRunsRunIdReviewPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>, TError,PostReviewApiRunsRunIdReviewPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
-): UseMutationOptions<Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>, TError,PostReviewApiRunsRunIdReviewPostMutationVariables, TContext> => {
-
-const mutationKey = getPostReviewApiRunsRunIdReviewPostMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>, PostReviewApiRunsRunIdReviewPostMutationVariables> = (props) => {
-          const {runId,data} = props ?? {};
-
-          return  postReviewApiRunsRunIdReviewPost(runId,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type PostReviewApiRunsRunIdReviewPostMutationResult = NonNullable<Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>>
-    export type PostReviewApiRunsRunIdReviewPostMutationBody = ReviewRequest
-    export type PostReviewApiRunsRunIdReviewPostMutationError = ErrorType<HTTPValidationError>
-    export type PostReviewApiRunsRunIdReviewPostMutationVariables = {runId: string;data: ReviewRequest}
-
-    /**
- * @summary Post Review
- */
-export const usePostReviewApiRunsRunIdReviewPost = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>, TError,PostReviewApiRunsRunIdReviewPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof postReviewApiRunsRunIdReviewPost>>,
-        TError,
-        PostReviewApiRunsRunIdReviewPostMutationVariables,
-        TContext
-      > => {
-      return useMutation(getPostReviewApiRunsRunIdReviewPostMutationOptions(options), queryClient);
-    }

@@ -69,7 +69,7 @@ export const getListUsersEndpointApiUsersGetUrl = () => {
 
 
 
-  return `/api/users`
+  return `/users`
 }
 
 /**
@@ -92,7 +92,7 @@ export const listUsersEndpointApiUsersGet = async ( options?: Parameters<typeof 
 
 export const getListUsersEndpointApiUsersGetQueryKey = () => {
     return [
-    `/api/users`
+    `/users`
     ] as const;
     }
 
@@ -188,7 +188,7 @@ export const getCreateUserEndpointApiUsersPostUrl = () => {
 
 
 
-  return `/api/users`
+  return `/users`
 }
 
 /**

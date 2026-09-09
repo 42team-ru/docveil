@@ -52,7 +52,7 @@ export const getUploadApiFilesUploadPostUrl = () => {
 
 
 
-  return `/api/files/upload`
+  return `/files/upload`
 }
 
 /**

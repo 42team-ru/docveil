@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from starlette.concurrency import run_in_threadpool
 
 from api.core.config import settings
@@ -43,3 +44,26 @@ api_router.include_router(files.router)
 api_router.include_router(custom_types.router)
 api_router.include_router(runs.router)
 app.include_router(api_router)
+
+
+def custom_openapi() -> dict:
+    """Схема отдаёт пути без `/api` — Orval строит из них клиент, а базовый URL
+    (с `/api`) уже добавляет фронтовый `authMutator`. Реальные маршруты
+    (`api_router`, выше) от этого не меняются — `servers` ниже возвращает
+    `/api` обратно для Swagger UI («Try it out» бьёт по настоящим путям).
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+    schema["paths"] = {
+        path.removeprefix("/api") or "/": path_item
+        for path, path_item in schema["paths"].items()
+    }
+    schema["servers"] = [{"url": "/api"}]
+
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi

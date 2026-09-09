@@ -18,6 +18,7 @@ import { useRuleProfileStore } from "../../entity/rule-profile/model/rule-profil
 import { useUploadQueueStore } from "../../features/document-upload/model/upload-queue-store";
 import { useStartRun } from "../../features/masking-run/api/masking-run";
 import { DataTypePicker } from "../../features/document-upload/ui/data-type-picker";
+import { MaskStylePicker } from "../../features/document-upload/ui/mask-style-picker";
 import { UploadDropzone } from "../../features/document-upload/ui/upload-dropzone";
 import { UploadQueue } from "../../features/document-upload/ui/upload-queue";
 import { ScreenLayout } from "../../shared/ui/screen-layout/screen-layout";
@@ -60,12 +61,18 @@ export function UploadPage() {
         markStarted(item.id, run.id);
         firstRunId ??= run.id;
       } catch (error) {
-        markFailed(item.id, error instanceof Error ? error.message : "не удалось запустить");
+        markFailed(
+          item.id,
+          error instanceof Error ? error.message : "не удалось запустить",
+        );
       }
     }
 
     if (firstRunId === null) {
-      showToast({ body: "Ни один файл не удалось отправить на обезличивание", type: "error" });
+      showToast({
+        body: "Ни один файл не удалось отправить на обезличивание",
+        type: "error",
+      });
       return;
     }
     navigate(`/review?run=${firstRunId}`);
@@ -73,19 +80,6 @@ export function UploadPage() {
 
   return (
     <ScreenLayout
-      title="Новая задача"
-      startContent={
-        <HStack gap={1.5} vAlign="center">
-          <StatusDot variant="neutral" label="Подготовка задачи" />
-        </HStack>
-      }
-      meta={
-        <HStack gap={2} vAlign="center">
-          <Text type="supporting" hasTabularNumbers>шаг 1 из 3</Text>
-          <Text type="supporting" color="secondary">·</Text>
-          <Text type="supporting" color="secondary">вход и правила маскирования</Text>
-        </HStack>
-      }
       contentPadding={0}
       isContentScrollable={false}
       panel={
@@ -99,9 +93,14 @@ export function UploadPage() {
           <Layout
             height="fill"
             header={
-              <LayoutHeader hasDivider>
-                <HStack gap={2} vAlign="center" padding={3}>
-                  <Text type="label" weight="medium">
+              <LayoutHeader hasDivider padding={0}>
+                <HStack
+                  gap={2}
+                  vAlign="center"
+                  paddingInline={3}
+                  paddingBlock={3}
+                >
+                  <Text type="label" weight="semibold">
                     Очередь файлов
                   </Text>
                   <StackItem size="fill" />
@@ -114,8 +113,9 @@ export function UploadPage() {
             content={
               <LayoutContent padding={4} isScrollable label="Очередь">
                 <VStack gap={4} height="100%">
-                  <UploadQueue />
-                  <StackItem size="fill" />
+                  <StackItem size="fill">
+                    <UploadQueue />
+                  </StackItem>
                   <VStack gap={3}>
                     <Button
                       variant="primary"
@@ -131,11 +131,6 @@ export function UploadPage() {
                       isLoading={startRun.isPending}
                       onClick={() => void handleStart()}
                     />
-                    <Text type="supporting" color="secondary" justify="center">
-                      {enabledTypes.length === 0
-                        ? "выбраны все типы данных"
-                        : `типов данных: ${enabledTypes.length}`}
-                    </Text>
                   </VStack>
                 </VStack>
               </LayoutContent>
@@ -147,10 +142,17 @@ export function UploadPage() {
       <Layout
         height="fill"
         content={
-          <LayoutContent isScrollable label="Настройки маскирования" padding={6}>
+          <LayoutContent
+            isScrollable
+            label="Настройки маскирования"
+            padding={6}
+          >
             <VStack gap={5}>
               <Card padding={0}>
                 <UploadDropzone />
+              </Card>
+              <Card padding={0}>
+                <MaskStylePicker />
               </Card>
               <Card padding={0}>
                 <DataTypePicker />

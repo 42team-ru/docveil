@@ -16,11 +16,6 @@ export function HistoryPage() {
   return (
     <ScreenLayout
       title="История файлов"
-      meta={
-        <Text type="supporting" color="secondary">
-          прогоны этого пользователя, свежие сверху
-        </Text>
-      }
       actions={
         <HStack gap={2}>
           <Button

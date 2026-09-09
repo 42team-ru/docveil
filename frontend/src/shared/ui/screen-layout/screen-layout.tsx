@@ -11,8 +11,11 @@ import { Toolbar } from "@astryxdesign/core/Toolbar";
 type SpacingStep = 0 | 0.5 | 1 | 1.5 | 2 | 3 | 4 | 5 | 6 | 8 | 10;
 
 type ScreenLayoutProps = {
-  /** Заголовок экрана. Рендерится как h4 с aria-level=1 — это h1 страницы. */
-  title: string;
+  /**
+   * Заголовок экрана. Рендерится как h4 с aria-level=1 — это h1 страницы.
+   * Без заголовка Heading не рендерится вовсе — экран остаётся без h1.
+   */
+  title?: string;
   /** Короткий контекст справа от заголовка: счётчики, шаг, имя файла. */
   meta?: ReactNode;
   /** Содержимое перед заголовком: чип формата, иконка. */
@@ -40,27 +43,35 @@ export function ScreenLayout({
   isContentScrollable = true,
   children,
 }: ScreenLayoutProps) {
+  const hasHeader =
+    title !== undefined ||
+    meta !== undefined ||
+    startContent !== undefined ||
+    actions !== undefined;
+
   return (
     <Layout
       height="fill"
-      header={
+      header={hasHeader ? (
         <LayoutHeader hasDivider>
           <Toolbar
-            label={title}
+            label={title ?? "Экран"}
             size="sm"
             startContent={
               <HStack gap={2} vAlign="center">
                 {startContent}
-                <Heading level={4} accessibilityLevel={1}>
-                  {title}
-                </Heading>
+                {title !== undefined && (
+                  <Heading level={4} accessibilityLevel={1}>
+                    {title}
+                  </Heading>
+                )}
                 {meta}
               </HStack>
             }
             endContent={actions}
           />
         </LayoutHeader>
-      }
+      ) : undefined}
       content={
         <LayoutContent
           padding={contentPadding}

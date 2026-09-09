@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileBarChart2, Download, CheckCircle2 } from "lucide-react";
-import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Badge } from "@astryxdesign/core/Badge";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { HStack } from "@astryxdesign/core/Stack";
 import {
   Layout,
   LayoutContent,
@@ -48,7 +47,6 @@ export function ReviewPage() {
 
   const [notFoundIds, setNotFoundIds] = useState<Set<string>>(new Set());
   const [pendingSelection, setPendingSelection] = useState<SelectionCapture | null>(null);
-  const [isPreviewNoticeVisible, setIsPreviewNoticeVisible] = useState(true);
   const showToast = useToast();
 
   const viewMode = useReviewStore((state) => state.viewMode);
@@ -206,33 +204,25 @@ export function ReviewPage() {
         height="fill"
         header={
           <LayoutHeader hasDivider>
-            <VStack gap={0} width="100%">
-              {isPreviewNoticeVisible ? (
-                <Banner
-                  status="warning"
-                  container="section"
-                  title="Предпросмотр документа"
-                  description="Вёрстка, шрифты и разбиение на страницы — приближение к оригиналу. Итоговый файл для скачивания собирается отдельно и может отличаться от этого отображения."
-                  isDismissable
-                  onDismiss={() => setIsPreviewNoticeVisible(false)}
-                />
-              ) : null}
-              <DocumentToolbar
-                documentName={reviewedDocument.name}
-                viewMode={viewMode}
-                onViewModeChange={setViewMode}
-                pendingSelection={pendingSelection}
-                onAddManual={handleAddManual}
-                onDismissSelection={() => setPendingSelection(null)}
-              />
-            </VStack>
+            <DocumentToolbar
+              documentName={reviewedDocument.name}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              pendingSelection={pendingSelection}
+              onAddManual={handleAddManual}
+              onDismissSelection={() => setPendingSelection(null)}
+            />
           </LayoutHeader>
         }
         content={
           <LayoutContent padding={0} label="Лист документа">
             <DocumentViewer
               format={reviewedDocument.format}
-              fileUrl={reviewedDocument.fileUrl}
+              fileUrl={
+                viewMode === "original"
+                  ? reviewedDocument.originalFileUrl || reviewedDocument.fileUrl
+                  : reviewedDocument.fileUrl
+              }
               extraction={extraction}
               onNotFoundChange={setNotFoundIds}
               onSelectionCapture={setPendingSelection}

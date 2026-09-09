@@ -127,7 +127,14 @@ function ProfilePopover({ user }: { user: PanelUser }) {
         </VStack>
       }
     >
-      <Avatar name={user.name} size="md" tooltip={false} />
+      <Avatar
+        name={user.name}
+        size="md"
+        tooltip={false}
+        // Popover присоединяет обработчик к кнопке; Avatar становится кнопкой,
+        // когда получает onClick.
+        onClick={() => undefined}
+      />
     </Popover>
   );
 }
@@ -156,6 +163,7 @@ export function PanelShell({
           label="Основная навигация"
           heading={
             <TopNavHeading
+              className="font-brand"
               heading={heading}
               subheading={subheading}
               logo={headingIcon ? <NavIcon icon={headingIcon} /> : undefined}

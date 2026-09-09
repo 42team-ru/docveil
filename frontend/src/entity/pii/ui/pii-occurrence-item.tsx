@@ -1,4 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import { Item } from "@astryxdesign/core/Item";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
@@ -10,6 +11,14 @@ import { piiTypeLabel } from "../model/pii-type-dict";
 /** Порог уверенности, ниже которого метка подсвечивается отдельно — как в
  * прежней метке уверенности. */
 const LOW_CONFIDENCE = 0.6;
+
+const styles = stylex.create({
+  dropdownItem: {
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--color-on-dark)",
+  },
+});
 
 function ConfidenceMark({ value }: { value: number }) {
   const formatted = value.toFixed(2);
@@ -64,6 +73,7 @@ export function PiiOccurrenceItem({
   return (
     <VStack gap={0} as="li" ref={rowRef} style={rowStyle}>
       <Item
+        xstyle={styles.dropdownItem}
         density="compact"
         align="start"
         isSelected={false}

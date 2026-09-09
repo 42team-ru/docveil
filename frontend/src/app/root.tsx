@@ -37,7 +37,14 @@ export const links: Route.LinksFunction = () => [
     // падает на системный шрифт.
     href: "https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&display=swap",
   },
+  {
+    rel: "stylesheet",
+    href: "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&display=swap",
+  },
+  { rel: "icon", type: "image/png", href: "/logo.png" },
 ];
+
+export const meta: Route.MetaFunction = () => [{ title: "DocVeil" }];
 
 import { useThemeStore } from "../shared/model/theme-store";
 

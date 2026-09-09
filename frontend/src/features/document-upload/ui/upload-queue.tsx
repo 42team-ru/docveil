@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Files, X } from "lucide-react";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
@@ -32,11 +32,14 @@ export function UploadQueue() {
 
   if (items.length === 0) {
     return (
-      <EmptyState
-        isCompact
-        title="Очередь пуста"
-        description="Перетащите документы слева — они появятся здесь."
-      />
+      <VStack height="100%" hAlign="center" vAlign="center">
+        <EmptyState
+          isCompact
+          icon={<Icon icon={Files} size="lg" />}
+          title="Очередь пуста"
+          description="Перетащите документы слева — они появятся здесь."
+        />
+      </VStack>
     );
   }
 

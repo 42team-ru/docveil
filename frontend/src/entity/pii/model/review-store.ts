@@ -8,8 +8,8 @@ import type {
   PiiType,
 } from "./types";
 
-/** Режим показа замен в документе — «Все / Только замены / Оригинал» тулбара. */
-export type DocumentViewMode = "all" | "pending" | "original";
+/** Режим показа документа — «Все / Оригинал» тулбара. */
+export type DocumentViewMode = "all" | "original";
 
 /** Группа открытого документа в том виде, в каком её считают счётчики. */
 export type ReviewGroup = {

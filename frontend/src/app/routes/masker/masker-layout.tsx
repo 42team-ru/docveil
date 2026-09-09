@@ -1,12 +1,5 @@
-import {
-  FileCheck2,
-  FilePlus2,
-  History,
-  ListChecks,
-  ShieldCheck,
-} from "lucide-react";
+import { FileCheck2, FilePlus2, History, ListChecks } from "lucide-react";
 import { Outlet, useLocation } from "react-router";
-import { Icon } from "@astryxdesign/core/Icon";
 
 import { usePendingGroupCount } from "../../../entity/pii/model/selectors";
 import { useAuthSession } from "../../../shared/model/use-auth-session";
@@ -51,8 +44,14 @@ export default function MaskerLayout() {
 
   return (
     <PanelShell
-      heading="TriemaMasker"
-      headingIcon={<Icon icon={ShieldCheck} />}
+      heading="DocVeil"
+      headingIcon={
+        <img
+          src="/logo.png"
+          alt="DocVeil"
+          className="size-full object-contain"
+        />
+      }
       groups={groups}
       currentPath={pathname}
       navEndContent={<ProcessMonitor />}

@@ -26,6 +26,8 @@ export type ReviewedDocument = {
    * это состояние, а не грузить несуществующий адрес.
    */
   fileUrl: string;
+  /** Ссылка на `preview` с исходным текстом для режима «Оригинал». */
+  originalFileUrl: string;
 };
 
 export type ReviewData = {
@@ -76,6 +78,7 @@ export function useReviewData(): ReviewData {
   const questions = useRunQuestions(runId, status === "awaiting_answers");
   const report = useRunReport(runId, hasResult);
   const fileUrl = useArtifactObjectUrl(runId, "masked_highlight", hasResult);
+  const originalFileUrl = useArtifactObjectUrl(runId, "preview", hasResult);
 
   const parsedReport = useMemo(
     () => (report.data === undefined ? null : parseMaskingReport(report.data)),
@@ -92,6 +95,7 @@ export function useReviewData(): ReviewData {
       runState.data?.document.format ??
       "docx") as PiiDocFormat,
     fileUrl: fileUrl ?? "",
+    originalFileUrl: originalFileUrl ?? "",
   };
 
   return {

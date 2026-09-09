@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import argparse
 import re
+from typing import Any
 
 DEFAULT_HIGHLIGHT_BACKGROUND = "#FFDE66"
 """Нынешний янтарный фон PDF в привычной для пользователя hex-записи."""
@@ -33,6 +35,27 @@ def parse_highlight_background(value: str | None) -> str | None:
             f"некорректный фон подсветки {value!r}: ожидается #RRGGBB, RRGGBB или none"
         )
     return f"#{match.group(1).upper()}"
+
+
+def highlight_background_argument() -> tuple[tuple[str, str], dict[str, Any]]:
+    """Аргумент CLI фона с преобразованием ошибки в диагностику argparse."""
+
+    def parse_argument(value: str) -> str | None:
+        try:
+            return parse_highlight_background(value)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(str(error)) from error
+
+    return (
+        ("--highlight-background", "--highlight-color"),
+        {
+            "dest": "highlight_background",
+            "type": parse_argument,
+            "default": DEFAULT_HIGHLIGHT_BACKGROUND,
+            "metavar": "COLOR",
+            "help": "фон marker: #RRGGBB, RRGGBB или none (по умолчанию янтарный)",
+        },
+    )
 
 
 def pdf_fill_color(background: str | None) -> tuple[float, float, float] | None:

@@ -182,8 +182,8 @@ def test_validate_step_can_fail(monkeypatch, tmp_path) -> None:  # type: ignore[
 
     original = docx_redact._redact_paragraph
 
-    def skip_one(paragraph, replacements, style):  # type: ignore[no-untyped-def]
-        original(paragraph, replacements[:-1], style)
+    def skip_one(paragraph, replacements, style, highlight_background):  # type: ignore[no-untyped-def]
+        original(paragraph, replacements[:-1], style, highlight_background)
 
     monkeypatch.setattr(docx_redact, "_redact_paragraph", skip_one)
 

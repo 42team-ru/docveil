@@ -102,8 +102,15 @@ def test_broken_render_is_caught(tmp_path: pathlib.Path, monkeypatch: pytest.Mon
 
     original_redact_paragraph = docx_redact_module._redact_paragraph
 
-    def broken(paragraph: object, replacements: list[object], style: str) -> None:
-        original_redact_paragraph(paragraph, replacements[:-1], style)  # type: ignore[arg-type]
+    def broken(
+        paragraph: object,
+        replacements: list[object],
+        style: str,
+        highlight_background: str | None,
+    ) -> None:
+        original_redact_paragraph(  # type: ignore[arg-type]
+            paragraph, replacements[:-1], style, highlight_background
+        )
 
     monkeypatch.setattr(docx_redact_module, "_redact_paragraph", broken)
 
@@ -338,8 +345,13 @@ def test_leaked_order_is_stable(tmp_path: pathlib.Path, monkeypatch: pytest.Monk
 
     original_redact_paragraph = docx_redact_module._redact_paragraph
 
-    def broken(paragraph: object, replacements: list[object], style: str) -> None:
-        original_redact_paragraph(paragraph, [], style)  # type: ignore[arg-type]
+    def broken(
+        paragraph: object,
+        replacements: list[object],
+        style: str,
+        highlight_background: str | None,
+    ) -> None:
+        original_redact_paragraph(paragraph, [], style, highlight_background)  # type: ignore[arg-type]
 
     monkeypatch.setattr(docx_redact_module, "_redact_paragraph", broken)
 

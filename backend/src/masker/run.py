@@ -35,6 +35,17 @@ RUN_SCHEMA_VERSION = 1
 CheckpointerFactory = Callable[[], AbstractContextManager[BaseCheckpointSaver[str]]]
 
 
+def styles_for_redact_option(style: str | None) -> tuple[str, ...]:
+    """Преобразовать значение CLI-стиля в набор рендеров графа."""
+    if style is None:
+        return ()
+    return {
+        "marker": ("marker",),
+        "blackbox": ("blackbox",),
+        "both": ("marker", "blackbox"),
+    }.get(style, ())
+
+
 class UnknownThreadError(Exception):
     """Тред с таким ``thread_id`` не существует в чекпойнтере."""
 

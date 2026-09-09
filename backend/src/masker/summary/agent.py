@@ -199,8 +199,7 @@ def _money_fact(
     if not candidates:
         return MoneyFact(status="not_found")
     rated = [
-        (entity, *_amount_purpose(entity, _source_quote(entity, segments)))
-        for entity in candidates
+        (entity, *_amount_purpose(entity, _source_quote(entity, segments))) for entity in candidates
     ]
     rated.sort(key=lambda item: (-item[2], item[0].segment_order, item[0].start))
     selected, purpose, score = rated[0]

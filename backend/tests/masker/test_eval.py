@@ -380,7 +380,7 @@ def test_role_accuracy_excludes_profile_without_documented_role(
     monkeypatch.setattr(
         eval_module,
         "ProfileAgent",
-        lambda: SimpleNamespace(
+        lambda _provider: SimpleNamespace(
             profile=lambda document, _detection: profiles_by_path[Path(document.path).name]
         ),
     )

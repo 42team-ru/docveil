@@ -149,7 +149,10 @@ def test_render_node_surfaces_pdf_marker_degradations(
     from masker.render import pdf_render as pdf_render_module
     from masker.render.pdf_render import RenderOutcome
 
-    def patched_render(_source, _destination, _document, plan, *, style):  # type: ignore[no-untyped-def]
+    def patched_render(  # type: ignore[no-untyped-def]
+        _source, _destination, _document, plan, *, style, highlight_background
+    ):
+        del highlight_background
         if style != "marker":
             return RenderOutcome(replacements=plan.replacements, markers=(), collisions=())
         replacement = plan.replacements[0]
@@ -193,7 +196,10 @@ def test_render_node_blackbox_never_surfaces_degradations(
     from masker.render import pdf_render as pdf_render_module
     from masker.render.pdf_render import RenderOutcome
 
-    def patched_render(_source, _destination, _document, plan, *, style):  # type: ignore[no-untyped-def]
+    def patched_render(  # type: ignore[no-untyped-def]
+        _source, _destination, _document, plan, *, style, highlight_background
+    ):
+        del highlight_background
         if style != "marker":
             return RenderOutcome(replacements=plan.replacements, markers=(), collisions=())
         replacement = plan.replacements[0]

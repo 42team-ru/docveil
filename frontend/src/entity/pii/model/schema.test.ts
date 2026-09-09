@@ -91,6 +91,39 @@ describe("parseMaskingReport", () => {
     expect(maskingReportFixture.validation?.ok).toBe(true);
     expect(maskingReportFixture.validation?.leakedCount).toBe(0);
   });
+
+  it("сертификат обезличивания приходит и на верхнем уровне, и внутри validation", () => {
+    expect(maskingReportFixture.certificate?.ok).toBe(true);
+    expect(maskingReportFixture.certificate?.checks.map((c) => c.name)).toEqual([
+      "leak_scan",
+      "metadata_cleared",
+      "width_quantization",
+    ]);
+    expect(maskingReportFixture.validation?.certificate).toEqual(
+      maskingReportFixture.certificate,
+    );
+  });
+
+  it("уровень уверенности (Р8) размечен по сущностям и по группам плана", () => {
+    const phone = maskingReportFixture.extraction.chunks
+      .flatMap((chunk) => chunk.pii)
+      .find((pii) => pii.type === "phone");
+    // Единственный сигнал без контрольной суммы — "probable", не "confirmed".
+    expect(phone?.level).toBe("probable");
+
+    expect(maskingReportFixture.summary.byLevel).toEqual({
+      confirmed: 7,
+      probable: 1,
+    });
+
+    const phoneGroup = maskingReportFixture.plan?.groups.find(
+      (group) => group.type === "phone",
+    );
+    expect(phoneGroup?.level).toBe("probable");
+
+    // Ни одной группы уровня "possible" в этом документе нет.
+    expect(maskingReportFixture.reviewPossible).toEqual([]);
+  });
 });
 
 describe("parseAskEnvelope", () => {

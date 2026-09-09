@@ -17,8 +17,10 @@ import {
 import type {
   AnswersRequest,
   ArtifactOut,
+  AskEnvelopeOut,
   ReviewEdits,
   ListRunsApiRunsGetParams,
+  ReportOut,
   RunListResponse,
   RunResponse,
 } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
@@ -137,7 +139,7 @@ export function useRunQuestions(runId: string | null, enabled: boolean) {
   return useQuery({
     queryKey: runKeys.questions(runId ?? ""),
     enabled: runId !== null && enabled,
-    queryFn: async (): Promise<unknown> => {
+    queryFn: async (): Promise<AskEnvelopeOut> => {
       const response = await getQuestionsApiRunsRunIdQuestionsGet(runId as string);
       if (response.status !== 200) {
         throw new Error("Вопросы недоступны");
@@ -152,7 +154,7 @@ export function useRunReport(runId: string | null, enabled: boolean) {
   return useQuery({
     queryKey: runKeys.report(runId ?? ""),
     enabled: runId !== null && enabled,
-    queryFn: async (): Promise<unknown> => {
+    queryFn: async (): Promise<ReportOut> => {
       const response = await getReportApiRunsRunIdReportGet(runId as string);
       if (response.status !== 200) {
         throw new Error("Отчёт недоступен");

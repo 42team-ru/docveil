@@ -26,11 +26,11 @@ import type {
 import type {
   AnswersRequest,
   ArtifactOut,
-  GetQuestionsApiRunsRunIdQuestionsGet200,
-  GetReportApiRunsRunIdReportGet200,
-  GetReviewPayloadApiRunsRunIdReviewGet200,
+  AskEnvelopeOut,
   HTTPValidationError,
   ListRunsApiRunsGetParams,
+  ReportOut,
+  ReviewEnvelopeOut,
   ReviewRequest,
   RunCreateRequest,
   RunListResponse,
@@ -407,7 +407,7 @@ export function useGetRunApiRunsRunIdGet<TData = Awaited<ReturnType<typeof getRu
 
 
 export type getQuestionsApiRunsRunIdQuestionsGetResponse200 = {
-  data: GetQuestionsApiRunsRunIdQuestionsGet200
+  data: AskEnvelopeOut
   status: 200
 }
 
@@ -735,7 +735,7 @@ export const usePostReviewApiRunsRunIdReviewPost = <TError = ErrorType<HTTPValid
       return useMutation(getPostReviewApiRunsRunIdReviewPostMutationOptions(options), queryClient);
     }
     export type getReviewPayloadApiRunsRunIdReviewGetResponse200 = {
-  data: GetReviewPayloadApiRunsRunIdReviewGet200
+  data: ReviewEnvelopeOut
   status: 200
 }
 
@@ -855,7 +855,7 @@ export function useGetReviewPayloadApiRunsRunIdReviewGet<TData = Awaited<ReturnT
 
 
 export type getReportApiRunsRunIdReportGetResponse200 = {
-  data: GetReportApiRunsRunIdReportGet200
+  data: ReportOut
   status: 200
 }
 

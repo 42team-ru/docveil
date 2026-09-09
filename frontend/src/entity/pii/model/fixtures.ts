@@ -1,3 +1,7 @@
+import type {
+  AskEnvelopeOut,
+  ReportOut,
+} from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
 import questionsPayload from "./questions.fixture.json";
 import reportPayload from "./report.fixture.json";
 import { parseAskEnvelope, parseMaskingReport } from "./schema";
@@ -28,8 +32,16 @@ import { parseAskEnvelope, parseMaskingReport } from "./schema";
  *
  * Документ рядом — `public/contract-roles.docx`, это `masked_highlight.docx`
  * того же прогона: маркеры уже вписаны в файл, исходных ПДн в нём нет.
+ *
+ * Приведение типа ниже — только для TypeScript: JSON-импорт теряет
+ * литеральные типы (`level` читается как `string`, а не `ConfidenceLevel`),
+ * хотя сами данные — настоящий ответ `GET /runs/{id}/report`, уже проверенный
+ * `ReportOut` на бэкенде (`api/schemas/report.py`) в момент, когда файл был
+ * снят прогоном.
  */
-export const maskingReportFixture = parseMaskingReport(reportPayload);
+export const maskingReportFixture = parseMaskingReport(
+  reportPayload as unknown as ReportOut,
+);
 
 /** Чанки того же отчёта — то, с чем работают вьюер и панель проверки. */
 export const piiExtractionFixture = maskingReportFixture.extraction;
@@ -43,7 +55,9 @@ export const piiExtractionFixture = maskingReportFixture.extraction;
  * вариант ответа — «маскировать». Так выглядит двойное подтверждение со
  * стороны движка, когда прогон запущен без `--unmask-critical`.
  */
-export const askEnvelopeFixture = parseAskEnvelope(questionsPayload);
+export const askEnvelopeFixture = parseAskEnvelope(
+  questionsPayload as unknown as AskEnvelopeOut,
+);
 
 /** Файл, открытый на проверку — путь в /public для fetch на клиенте. */
 export const reviewedDocumentFixture = {

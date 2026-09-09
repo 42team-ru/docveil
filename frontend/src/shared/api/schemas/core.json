@@ -650,9 +650,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Questions Api Runs  Run Id  Questions Get"
+                  "$ref": "#/components/schemas/AskEnvelopeOut"
                 }
               }
             }
@@ -817,9 +815,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Review Payload Api Runs  Run Id  Review Get"
+                  "$ref": "#/components/schemas/ReviewEnvelopeOut"
                 }
               }
             }
@@ -868,9 +864,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Report Api Runs  Run Id  Report Get"
+                  "$ref": "#/components/schemas/ReportOut"
                 }
               }
             }
@@ -1000,6 +994,50 @@
   },
   "components": {
     "schemas": {
+      "Action": {
+        "type": "string",
+        "enum": [
+          "mask",
+          "ask",
+          "keep"
+        ],
+        "title": "Action",
+        "description": "Действие судьи над сущностью."
+      },
+      "AnchorOut": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "title": "Format"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "locator": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Locator"
+          }
+        },
+        "type": "object",
+        "required": [
+          "format",
+          "label",
+          "locator"
+        ],
+        "title": "AnchorOut",
+        "description": "Адресация фрагмента в документ — `entities[]`/`chunks[]`."
+      },
       "AnswerRequest": {
         "properties": {
           "schema_version": {
@@ -1072,6 +1110,55 @@
         "title": "ArtifactOut",
         "description": "Артефакт рендера: `preview`, `masked_highlight`, `masked_black`."
       },
+      "AskDocumentOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "format"
+        ],
+        "title": "AskDocumentOut"
+      },
+      "AskEnvelopeOut": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "document": {
+            "$ref": "#/components/schemas/AskDocumentOut"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionOut"
+            },
+            "type": "array",
+            "title": "Questions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "thread_id",
+          "document",
+          "questions"
+        ],
+        "title": "AskEnvelopeOut",
+        "description": "Конверт паузы `ask_human` — `GET /runs/{id}/questions`."
+      },
       "Body_upload_api_files_upload_post": {
         "properties": {
           "file": {
@@ -1085,6 +1172,108 @@
           "file"
         ],
         "title": "Body_upload_api_files_upload_post"
+      },
+      "CertificateCheckOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "ok",
+          "detail"
+        ],
+        "title": "CertificateCheckOut",
+        "description": "Один пункт сертификата обезличивания — `certificate.checks[]`."
+      },
+      "CertificateOut": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CertificateCheckOut"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "checks"
+        ],
+        "title": "CertificateOut",
+        "description": "Сертификат обезличивания (план М3) — `report.certificate` и\n`report.validation.certificate` (тот же объект, продублирован для\nдоступа одним взглядом, см. `graph/nodes.py::_build_report_dict`)."
+      },
+      "ChunkOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "annotated_text": {
+            "type": "string",
+            "title": "Annotated Text"
+          },
+          "pii_count": {
+            "type": "integer",
+            "title": "Pii Count"
+          },
+          "pii": {
+            "items": {
+              "$ref": "#/components/schemas/PiiEntryOut"
+            },
+            "type": "array",
+            "title": "Pii"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "segment_order",
+          "start",
+          "end",
+          "text",
+          "annotated_text",
+          "pii_count",
+          "pii",
+          "anchor"
+        ],
+        "title": "ChunkOut",
+        "description": "Абзац/сегмент документа — `report.chunks[]`."
       },
       "CompileQuestionOut": {
         "properties": {
@@ -1252,6 +1441,195 @@
         "title": "CompiledTypeOut",
         "description": "Один успешно обработанный элемент `CompileRequest.descriptions`.\n\n``outcome == \"compile\"``: заполнен ``spec`` — готовая спека. ``outcome\n== \"use_builtin\"``: спеки нет (тип уже покрыт встроенным детектором,\nкомпилировать нечего) — заполнены ``type_id`` и, если пользователь\nпопросил другую метку маркера, ``marker_override`` (design notes T1.13,\nраздел 2.6). Ровно один из ``spec``/``type_id`` осмыслен для данного\n``outcome`` — второй остаётся ``None``."
       },
+      "ConfidenceLevel": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "probable",
+          "possible"
+        ],
+        "title": "ConfidenceLevel",
+        "description": "Три уровня уверенности детекции (Р8, режим «мазать всё»).\n\nАсимметрия, ради которой уровни существуют: человек снимает лишнее\nодним кликом, а не дописывает пропущенное — найти забытый реквизит\nпочти невозможно, поэтому детектор маскирует на всех трёх уровнях,\nразница только в том, как решение показано в отчёте.\n\n``CONFIRMED`` — контрольная сумма реквизита либо ≥2 независимых\nдетектора нашли пересекающиеся спаны: маскируется молча.\n``PROBABLE`` — один сигнал (морфология, структура, локальная NER):\nмаскируется, но помечается в отчёте.\n``POSSIBLE`` — заглавное имя собственное вне белого списка, без\nформального подтверждения: маскируется и выносится в отчёте отдельной\nсекцией «снять одним кликом» (``report[\"review_possible\"]``).\n\nКритичные типы (``CRITICAL_TYPES``) всегда ``CONFIRMED`` независимо от\nтого, как их нашли — см. ``masker.detect.confidence.classify_level``."
+      },
+      "ContractPartyOut": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Title"
+          },
+          "inn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inn"
+          },
+          "ogrn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ogrn"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "role_title",
+          "inn",
+          "ogrn"
+        ],
+        "title": "ContractPartyOut",
+        "description": "Сторона в карточке договора — `contract_summary.customer`/`.supplier`."
+      },
+      "ContractSummaryOut": {
+        "properties": {
+          "customer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContractPartyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supplier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContractPartyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "federal_law": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Federal Law"
+          },
+          "contract_amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Amount"
+          },
+          "delivery_periods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Delivery Periods"
+          },
+          "payment_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Terms"
+          },
+          "contract_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Number"
+          },
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "llm_calls": {
+            "type": "integer",
+            "title": "Llm Calls"
+          }
+        },
+        "type": "object",
+        "required": [
+          "customer",
+          "supplier",
+          "federal_law",
+          "contract_amount",
+          "delivery_periods",
+          "payment_terms",
+          "contract_number",
+          "generated_at",
+          "llm_calls"
+        ],
+        "title": "ContractSummaryOut",
+        "description": "Карточка договора — `report.contract_summary`."
+      },
+      "CriticalUnmaskedOut": {
+        "properties": {
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question_id",
+          "kind",
+          "target",
+          "count"
+        ],
+        "title": "CriticalUnmaskedOut",
+        "description": "Снятие маски с критичного типа/профиля — `decisions.critical_unmasked[]`."
+      },
       "CustomTypeSpecIn": {
         "properties": {
           "schema_version": {
@@ -1317,6 +1695,155 @@
         "title": "CustomTypeSpecIn",
         "description": "Пользовательский тип из тела REST-запроса — вход `load_type_config`.\n\nПолей меньше, чем проверяет `load_type_config` (например, формат\n`id` и плейсхолдер в `marker` здесь не проверяются намеренно —\n«тонкий фронт», раздел докстринга модуля)."
       },
+      "DecisionOverriddenOut": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/Action"
+          },
+          "decided_by": {
+            "type": "string",
+            "title": "Decided By"
+          },
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "decided_by",
+          "question_id",
+          "reason"
+        ],
+        "title": "DecisionOverriddenOut",
+        "description": "Проигравшее решение, перекрытое итоговым — `decisions.by_ref[].overridden[]`."
+      },
+      "DecisionsOut": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "interactive",
+              "non_interactive",
+              "unknown"
+            ],
+            "title": "Mode"
+          },
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "by_ref": {
+            "items": {
+              "$ref": "#/components/schemas/RefDecisionOut"
+            },
+            "type": "array",
+            "title": "By Ref"
+          },
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/GroupAnswerOut"
+            },
+            "type": "array",
+            "title": "Types"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/GroupAnswerOut"
+            },
+            "type": "array",
+            "title": "Profiles"
+          },
+          "entity_questions": {
+            "items": {
+              "$ref": "#/components/schemas/EntityQuestionSummaryOut"
+            },
+            "type": "array",
+            "title": "Entity Questions"
+          },
+          "critical_unmasked": {
+            "items": {
+              "$ref": "#/components/schemas/CriticalUnmaskedOut"
+            },
+            "type": "array",
+            "title": "Critical Unmasked"
+          },
+          "unanswered_defaults": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unanswered Defaults"
+          },
+          "ignored_answers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ignored Answers"
+          },
+          "invalid_answers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Invalid Answers"
+          },
+          "diagnostics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "thread_id",
+          "by_ref"
+        ],
+        "title": "DecisionsOut",
+        "description": "Решения движка по документу — `report.decisions`."
+      },
+      "DetectionCoverageOut": {
+        "properties": {
+          "requested_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requested Types"
+          },
+          "active_detector_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Active Detector Types"
+          },
+          "requested_without_detector": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requested Without Detector"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requested_types",
+          "active_detector_types",
+          "requested_without_detector"
+        ],
+        "title": "DetectionCoverageOut",
+        "description": "Какие запрошенные типы движок умеет искать — `report.detection_coverage`."
+      },
       "DeviceType": {
         "type": "string",
         "enum": [
@@ -1326,6 +1853,200 @@
         ],
         "title": "DeviceType",
         "description": "Тип клиента, выполняющего вход.\n\nWEB получает refresh-токен только в httponly-cookie; остальные — в теле ответа,\nчтобы сами отвечали за его хранение (secure storage на мобильном/десктопе)."
+      },
+      "EntityBareOut": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "normalized": {
+            "type": "string",
+            "title": "Normalized"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "level": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text",
+          "normalized",
+          "source",
+          "confidence",
+          "level",
+          "segment_order",
+          "start",
+          "end",
+          "anchor"
+        ],
+        "title": "EntityBareOut",
+        "description": "Сущность без адресации в план — `profile_judge.candidates[]`."
+      },
+      "EntityQuestionSummaryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "human",
+              "default"
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "prompt",
+          "answer",
+          "source"
+        ],
+        "title": "EntityQuestionSummaryOut",
+        "description": "Итог вопроса судьи — `decisions.entity_questions[]`."
+      },
+      "EntityRecordOut": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "normalized": {
+            "type": "string",
+            "title": "Normalized"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "level": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorOut"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "marker": {
+            "type": "string",
+            "title": "Marker"
+          },
+          "group_id": {
+            "type": "string",
+            "title": "Group Id"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Action"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text",
+          "normalized",
+          "source",
+          "confidence",
+          "level",
+          "segment_order",
+          "start",
+          "end",
+          "anchor",
+          "ref",
+          "marker",
+          "group_id"
+        ],
+        "title": "EntityRecordOut",
+        "description": "Сущность, уже размеченная планом — `report.entities[]`."
       },
       "FailedTypeOut": {
         "properties": {
@@ -1465,6 +2186,44 @@
         "title": "GlinerStructureDetectIn",
         "description": "Роль поверх структуры документа (executor ``gliner_structure``, T1.13.1)."
       },
+      "GroupAnswerOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "human",
+              "default"
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "target",
+          "answer",
+          "source"
+        ],
+        "title": "GroupAnswerOut",
+        "description": "Итог группового вопроса (по типу/профилю) — `decisions.types[]`/`.profiles[]`."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1477,6 +2236,101 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "JudgeQuestionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "default": {
+            "type": "string",
+            "title": "Default"
+          },
+          "refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Refs"
+          },
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileAnchorOut"
+            },
+            "type": "array",
+            "title": "Anchors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "key",
+          "prompt",
+          "options",
+          "default",
+          "refs",
+          "anchors"
+        ],
+        "title": "JudgeQuestionOut",
+        "description": "Вопрос судьи о повторяющемся значении — `profile_judge.questions[]`."
+      },
+      "LayoutOut": {
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "title": "Artifact"
+          },
+          "removed_chars": {
+            "type": "integer",
+            "title": "Removed Chars"
+          },
+          "inserted_chars": {
+            "type": "integer",
+            "title": "Inserted Chars"
+          },
+          "pages": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Pages"
+          },
+          "first_diff": {
+            "type": "string",
+            "title": "First Diff"
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact",
+          "removed_chars",
+          "inserted_chars",
+          "pages",
+          "first_diff"
+        ],
+        "title": "LayoutOut",
+        "description": "Сохранность текстового слоя PDF вне замен — `validation.layout[]`."
       },
       "LiteralsDetectIn": {
         "properties": {
@@ -1557,6 +2411,252 @@
         "title": "ManualEntityIn",
         "description": "Значение, которое движок пропустил, а оператор нашёл глазами."
       },
+      "MarkerLegendItemOut": {
+        "properties": {
+          "shown_label": {
+            "type": "string",
+            "title": "Shown Label"
+          },
+          "canonical_label": {
+            "type": "string",
+            "title": "Canonical Label"
+          },
+          "pages": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shown_label",
+          "canonical_label",
+          "pages"
+        ],
+        "title": "MarkerLegendItemOut",
+        "description": "Строка легенды сокращений маркера — `report.marker_legend[]`."
+      },
+      "MaskPlanOut": {
+        "properties": {
+          "requested_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requested Types"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/PlanGroupOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "skipped": {
+            "$ref": "#/components/schemas/MaskPlanSkippedOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requested_types",
+          "groups",
+          "skipped"
+        ],
+        "title": "MaskPlanOut",
+        "description": "План замен — `report.plan`."
+      },
+      "MaskPlanSkippedOut": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "by_reason": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count",
+          "by_reason"
+        ],
+        "title": "MaskPlanSkippedOut"
+      },
+      "PiiEntryOut": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "normalized": {
+            "type": "string",
+            "title": "Normalized"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "level": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorOut"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "marker": {
+            "type": "string",
+            "title": "Marker"
+          },
+          "group_id": {
+            "type": "string",
+            "title": "Group Id"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Action"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "chunk_start": {
+            "type": "integer",
+            "title": "Chunk Start"
+          },
+          "chunk_end": {
+            "type": "integer",
+            "title": "Chunk End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text",
+          "normalized",
+          "source",
+          "confidence",
+          "level",
+          "segment_order",
+          "start",
+          "end",
+          "anchor",
+          "ref",
+          "marker",
+          "group_id",
+          "chunk_start",
+          "chunk_end"
+        ],
+        "title": "PiiEntryOut",
+        "description": "То же самое, но внутри `chunks[].pii[]` — со смещениями в тексте чанка."
+      },
+      "PlanGroupOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "marker": {
+            "type": "string",
+            "title": "Marker"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "type_title": {
+            "type": "string",
+            "title": "Type Title"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "ref_count": {
+            "type": "integer",
+            "title": "Ref Count"
+          },
+          "sample": {
+            "type": "string",
+            "title": "Sample"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "",
+              "confirmed",
+              "probable",
+              "possible"
+            ],
+            "title": "Level"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "marker",
+          "type",
+          "type_title",
+          "profile_id",
+          "ref_count",
+          "sample",
+          "level"
+        ],
+        "title": "PlanGroupOut",
+        "description": "Группа замен — `report.plan.groups[]` и `report.review_possible[]`."
+      },
       "PreviewMatchOut": {
         "properties": {
           "start": {
@@ -1631,6 +2731,354 @@
         "title": "PreviewSegmentOut",
         "description": "Сегмент документа с окном ±120 символов вокруг совпадения (план, шаг 7).\n\nСмещения ``matches`` локальны в этом ``text``, а не в документе целиком\n— фронту не нужно пересчитывать координаты (design notes, вопрос 2)."
       },
+      "ProfileAnchorOut": {
+        "properties": {
+          "fmt": {
+            "type": "string",
+            "title": "Fmt"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "locator": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Locator"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fmt",
+          "label",
+          "locator"
+        ],
+        "title": "ProfileAnchorOut",
+        "description": "Тот же якорь, но с именем поля `fmt` — так его кладёт `graph/serde.py`\nвнутри `profile_judge` (историческое расхождение, не переименовывать\nбез синхронной правки обеих сторон)."
+      },
+      "ProfileJudgeOut": {
+        "properties": {
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileOut"
+            },
+            "type": "array",
+            "title": "Profiles"
+          },
+          "unassigned": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unassigned"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/EntityBareOut"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "llm_calls": {
+            "type": "integer",
+            "title": "Llm Calls"
+          },
+          "diagnostics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          },
+          "verdicts": {
+            "items": {
+              "$ref": "#/components/schemas/VerdictOut"
+            },
+            "type": "array",
+            "title": "Verdicts"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/JudgeQuestionOut"
+            },
+            "type": "array",
+            "title": "Questions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profiles",
+          "unassigned",
+          "candidates",
+          "llm_calls",
+          "diagnostics",
+          "verdicts",
+          "questions"
+        ],
+        "title": "ProfileJudgeOut",
+        "description": "Профили сторон и вердикты судьи — `report.profile_judge`."
+      },
+      "ProfileMemberEntityOut": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "normalized": {
+            "type": "string",
+            "title": "Normalized"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "level": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text",
+          "normalized",
+          "confidence",
+          "source",
+          "level",
+          "segment_order",
+          "start",
+          "end"
+        ],
+        "title": "ProfileMemberEntityOut",
+        "description": "Сущность внутри `profile_judge.profiles[].members[].entity`."
+      },
+      "ProfileMemberOut": {
+        "properties": {
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/ProfileAnchorOut"
+          },
+          "entity": {
+            "$ref": "#/components/schemas/ProfileMemberEntityOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ref",
+          "anchor",
+          "entity"
+        ],
+        "title": "ProfileMemberOut"
+      },
+      "ProfileOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "role_title": {
+            "type": "string",
+            "title": "Role Title"
+          },
+          "marker_label": {
+            "type": "string",
+            "title": "Marker Label"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "role_confidence": {
+            "type": "number",
+            "title": "Role Confidence"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileMemberOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "role_id",
+          "role_title",
+          "marker_label",
+          "confidence",
+          "role_confidence",
+          "source",
+          "evidence",
+          "members"
+        ],
+        "title": "ProfileOut",
+        "description": "Профиль стороны — `report.profile_judge.profiles[]`."
+      },
+      "QuestionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "type",
+              "profile",
+              "entity"
+            ],
+            "title": "Kind"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "default": {
+            "type": "string",
+            "title": "Default"
+          },
+          "critical": {
+            "type": "boolean",
+            "title": "Critical"
+          },
+          "found": {
+            "type": "integer",
+            "title": "Found"
+          },
+          "samples": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Samples"
+          },
+          "anchors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Anchors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "target",
+          "title",
+          "prompt",
+          "options",
+          "default",
+          "critical",
+          "found",
+          "samples",
+          "anchors"
+        ],
+        "title": "QuestionOut",
+        "description": "Один вопрос оператору — `questions.json`/`AskEnvelopeOut.questions[]`."
+      },
+      "RefDecisionOut": {
+        "properties": {
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "action": {
+            "$ref": "#/components/schemas/Action"
+          },
+          "decided_by": {
+            "type": "string",
+            "title": "Decided By"
+          },
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "overridden": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionOverriddenOut"
+            },
+            "type": "array",
+            "title": "Overridden"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ref",
+          "action",
+          "decided_by",
+          "question_id",
+          "reason"
+        ],
+        "title": "RefDecisionOut",
+        "description": "Итоговое решение по одной ссылке — `report.decisions.by_ref[]`."
+      },
       "RefreshRequest": {
         "properties": {
           "refresh_token": {
@@ -1682,6 +3130,202 @@
         "title": "RegexDetectIn",
         "description": "Регулярка, опционально с якорными словами контекста (``regex``/``regex_context``).\n\nИмя ``regex_context`` — только для промпта LLM-компилятора (план,\nраздел «Отвергнутые альтернативы»): на схеме это тот же ``kind=\"regex\"``\nс непустым ``context``."
       },
+      "ReportOut": {
+        "properties": {
+          "report_version": {
+            "type": "integer",
+            "title": "Report Version"
+          },
+          "input": {
+            "type": "string",
+            "title": "Input"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format"
+          },
+          "preview_only": {
+            "type": "boolean",
+            "title": "Preview Only"
+          },
+          "selected_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Types"
+          },
+          "entity_count": {
+            "type": "integer",
+            "title": "Entity Count"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/SummaryOut"
+          },
+          "detection_coverage": {
+            "$ref": "#/components/schemas/DetectionCoverageOut"
+          },
+          "document_coverage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Document Coverage"
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/EntityRecordOut"
+            },
+            "type": "array",
+            "title": "Entities"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkOut"
+            },
+            "type": "array",
+            "title": "Chunks"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          },
+          "review_possible": {
+            "items": {
+              "$ref": "#/components/schemas/PlanGroupOut"
+            },
+            "type": "array",
+            "title": "Review Possible"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaskPlanOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile_judge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProfileJudgeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contract_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContractSummaryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decisions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "validation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ValidationSkippedOut"
+              },
+              {
+                "$ref": "#/components/schemas/ValidationCheckedOut"
+              }
+            ],
+            "title": "Validation",
+            "discriminator": {
+              "propertyName": "status",
+              "mapping": {
+                "checked": "#/components/schemas/ValidationCheckedOut",
+                "skipped": "#/components/schemas/ValidationSkippedOut"
+              }
+            }
+          },
+          "leaked": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Leaked"
+          },
+          "render_degradations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Render Degradations"
+          },
+          "marker_legend": {
+            "items": {
+              "$ref": "#/components/schemas/MarkerLegendItemOut"
+            },
+            "type": "array",
+            "title": "Marker Legend"
+          },
+          "layout": {
+            "items": {
+              "$ref": "#/components/schemas/LayoutOut"
+            },
+            "type": "array",
+            "title": "Layout"
+          },
+          "certificate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_version",
+          "input",
+          "format",
+          "preview_only",
+          "selected_types",
+          "entity_count",
+          "chunk_count",
+          "summary",
+          "detection_coverage",
+          "document_coverage",
+          "entities",
+          "chunks",
+          "limitations",
+          "review_possible",
+          "validation",
+          "leaked",
+          "render_degradations",
+          "marker_legend",
+          "layout"
+        ],
+        "title": "ReportOut",
+        "description": "`report.json` целиком — то, что отдаёт узел `report` (`masker.graph.nodes`)."
+      },
       "ReviewEdits": {
         "properties": {
           "decisions": {
@@ -1713,6 +3357,33 @@
         "type": "object",
         "title": "ReviewEdits",
         "description": "Правки оператора: решения по ссылкам, смена типа, добавленные значения."
+      },
+      "ReviewEnvelopeOut": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "document": {
+            "$ref": "#/components/schemas/AskDocumentOut"
+          },
+          "report": {
+            "$ref": "#/components/schemas/ReportOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "thread_id",
+          "document",
+          "report"
+        ],
+        "title": "ReviewEnvelopeOut",
+        "description": "Конверт паузы раунда правок — `GET /runs/{id}/review`."
       },
       "ReviewRequest": {
         "properties": {
@@ -1973,6 +3644,56 @@
         "title": "RunResponse",
         "description": "Состояние одного прогона."
       },
+      "SummaryOut": {
+        "properties": {
+          "entities_total": {
+            "type": "integer",
+            "title": "Entities Total"
+          },
+          "by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Type"
+          },
+          "by_source": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Source"
+          },
+          "by_level": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Level"
+          },
+          "minimum_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entities_total",
+          "by_type",
+          "by_source",
+          "by_level",
+          "minimum_confidence"
+        ],
+        "title": "SummaryOut",
+        "description": "Сводка по документу — `report.summary`."
+      },
       "TokenResponse": {
         "properties": {
           "access_token": {
@@ -2092,6 +3813,71 @@
         "title": "UserPublic",
         "description": "Публичное представление пользователя — без password_hash."
       },
+      "ValidationCheckedOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "checked",
+            "title": "Status"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "checked_artifacts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Checked Artifacts"
+          },
+          "checked_parts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Checked Parts"
+          },
+          "leaked_count": {
+            "type": "integer",
+            "title": "Leaked Count"
+          },
+          "residual_count": {
+            "type": "integer",
+            "title": "Residual Count"
+          },
+          "layout": {
+            "items": {
+              "$ref": "#/components/schemas/LayoutOut"
+            },
+            "type": "array",
+            "title": "Layout"
+          },
+          "certificate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "ok",
+          "checked_artifacts",
+          "checked_parts",
+          "leaked_count",
+          "residual_count",
+          "layout",
+          "certificate"
+        ],
+        "title": "ValidationCheckedOut",
+        "description": "`validation` после прогона `ValidateAgent`."
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -2131,6 +3917,64 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "ValidationSkippedOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "skipped",
+            "title": "Status"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "reason"
+        ],
+        "title": "ValidationSkippedOut",
+        "description": "`validation`, когда проверять было нечего (`preview_only`)."
+      },
+      "VerdictOut": {
+        "properties": {
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "action": {
+            "$ref": "#/components/schemas/Action"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ref",
+          "action",
+          "confidence",
+          "reason",
+          "profile_id",
+          "question_id"
+        ],
+        "title": "VerdictOut",
+        "description": "Решение судьи по одной сущности — `profile_judge.verdicts[]`."
       }
     },
     "securitySchemes": {

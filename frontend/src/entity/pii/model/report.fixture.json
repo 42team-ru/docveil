@@ -1,4 +1,24 @@
 {
+  "certificate": {
+    "checks": [
+      {
+        "detail": "побайтовый и текстовый поиск по 17 частям контейнера (текст, XML, /Info, XMP) — утечек не найдено",
+        "name": "leak_scan",
+        "ok": true
+      },
+      {
+        "detail": "проверено 1 артефактов — /Info, XMP (PDF) и свойства DOCX/XLSX пусты",
+        "name": "metadata_cleared",
+        "ok": true
+      },
+      {
+        "detail": "не применимо: источник не PDF",
+        "name": "width_quantization",
+        "ok": true
+      }
+    ],
+    "ok": true
+  },
   "chunk_count": 6,
   "chunks": [
     {
@@ -28,6 +48,7 @@
           "confidence": 0.95,
           "end": 19,
           "group_id": "G1",
+          "level": "confirmed",
           "marker": "[ЗАКАЗЧИК-ОРГАНИЗАЦИЯ]",
           "normalized": "северный свет",
           "ref": "E1",
@@ -51,6 +72,7 @@
           "confidence": 1.0,
           "end": 35,
           "group_id": "G2",
+          "level": "confirmed",
           "marker": "[ЗАКАЗЧИК-ИНН]",
           "normalized": "3662103003",
           "ref": "E2",
@@ -93,6 +115,7 @@
           "confidence": 0.95,
           "end": 19,
           "group_id": "G3",
+          "level": "confirmed",
           "marker": "[ИСПОЛНИТЕЛЬ-ОРГАНИЗАЦИЯ]",
           "normalized": "точный расчет",
           "ref": "E3",
@@ -116,6 +139,7 @@
           "confidence": 1.0,
           "end": 35,
           "group_id": "G4",
+          "level": "confirmed",
           "marker": "[ИСПОЛНИТЕЛЬ-ИНН]",
           "normalized": "7707083893",
           "ref": "E4",
@@ -158,6 +182,7 @@
           "confidence": 0.75,
           "end": 36,
           "group_id": "G5",
+          "level": "confirmed",
           "marker": "[ЗАКАЗЧИК-СЧЁТ]",
           "normalized": "40702810100000000002",
           "ref": "E5",
@@ -206,6 +231,7 @@
           "confidence": 0.9,
           "end": 24,
           "group_id": "G6",
+          "level": "probable",
           "marker": "[ИСПОЛНИТЕЛЬ-ТЕЛЕФОН]",
           "normalized": "89103475107",
           "ref": "E6",
@@ -230,7 +256,7 @@
           7
         ]
       },
-      "annotated_text": "Заказчик: ______________ ⟦PERSON:Иванов И.И⟧.",
+      "annotated_text": "Заказчик: ______________ ⟦PERSON:Иванов И.И.⟧",
       "end": 36,
       "id": "chunk-005",
       "pii": [
@@ -243,18 +269,19 @@
               7
             ]
           },
-          "chunk_end": 35,
+          "chunk_end": 36,
           "chunk_start": 25,
           "confidence": 0.85,
-          "end": 35,
+          "end": 36,
           "group_id": "G7",
+          "level": "confirmed",
           "marker": "[ЗАКАЗЧИК-ФИО]",
           "normalized": "иванов и.и.",
           "ref": "E7",
           "segment_order": 8,
           "source": "ner",
           "start": 25,
-          "text": "Иванов И.И",
+          "text": "Иванов И.И.",
           "type": "person"
         }
       ],
@@ -272,7 +299,7 @@
           8
         ]
       },
-      "annotated_text": "Исполнитель: ______________ ⟦PERSON:Сидоров А.П⟧.",
+      "annotated_text": "Исполнитель: ______________ ⟦PERSON:Сидоров А.П.⟧",
       "end": 40,
       "id": "chunk-006",
       "pii": [
@@ -285,18 +312,19 @@
               8
             ]
           },
-          "chunk_end": 39,
+          "chunk_end": 40,
           "chunk_start": 28,
           "confidence": 0.85,
-          "end": 39,
+          "end": 40,
           "group_id": "G8",
+          "level": "confirmed",
           "marker": "[ИСПОЛНИТЕЛЬ-ФИО]",
           "normalized": "сидоров а.п.",
           "ref": "E8",
           "segment_order": 9,
           "source": "ner",
           "start": 28,
-          "text": "Сидоров А.П",
+          "text": "Сидоров А.П.",
           "type": "person"
         }
       ],
@@ -586,6 +614,7 @@
       "decision": "mask",
       "end": 19,
       "group_id": "G1",
+      "level": "confirmed",
       "marker": "[ЗАКАЗЧИК-ОРГАНИЗАЦИЯ]",
       "normalized": "северный свет",
       "reason": "уверенность достаточна",
@@ -610,6 +639,7 @@
       "decision": "mask",
       "end": 35,
       "group_id": "G2",
+      "level": "confirmed",
       "marker": "[ЗАКАЗЧИК-ИНН]",
       "normalized": "3662103003",
       "reason": "критичный тип: снятие требует явного подтверждения",
@@ -634,6 +664,7 @@
       "decision": "mask",
       "end": 19,
       "group_id": "G3",
+      "level": "confirmed",
       "marker": "[ИСПОЛНИТЕЛЬ-ОРГАНИЗАЦИЯ]",
       "normalized": "точный расчет",
       "reason": "уверенность достаточна",
@@ -658,6 +689,7 @@
       "decision": "mask",
       "end": 35,
       "group_id": "G4",
+      "level": "confirmed",
       "marker": "[ИСПОЛНИТЕЛЬ-ИНН]",
       "normalized": "7707083893",
       "reason": "критичный тип: снятие требует явного подтверждения",
@@ -682,6 +714,7 @@
       "decision": "mask",
       "end": 36,
       "group_id": "G5",
+      "level": "confirmed",
       "marker": "[ЗАКАЗЧИК-СЧЁТ]",
       "normalized": "40702810100000000002",
       "reason": "критичный тип: снятие требует явного подтверждения",
@@ -709,6 +742,7 @@
       "decision": "mask",
       "end": 24,
       "group_id": "G6",
+      "level": "probable",
       "marker": "[ИСПОЛНИТЕЛЬ-ТЕЛЕФОН]",
       "normalized": "89103475107",
       "reason": "уверенность достаточна",
@@ -731,8 +765,9 @@
       "confidence": 0.85,
       "decided_by": "judge",
       "decision": "mask",
-      "end": 35,
+      "end": 36,
       "group_id": "G7",
+      "level": "confirmed",
       "marker": "[ЗАКАЗЧИК-ФИО]",
       "normalized": "иванов и.и.",
       "reason": "уверенность достаточна",
@@ -740,7 +775,7 @@
       "segment_order": 8,
       "source": "ner",
       "start": 25,
-      "text": "Иванов И.И",
+      "text": "Иванов И.И.",
       "type": "person"
     },
     {
@@ -755,8 +790,9 @@
       "confidence": 0.85,
       "decided_by": "judge",
       "decision": "mask",
-      "end": 39,
+      "end": 40,
       "group_id": "G8",
+      "level": "confirmed",
       "marker": "[ИСПОЛНИТЕЛЬ-ФИО]",
       "normalized": "сидоров а.п.",
       "reason": "уверенность достаточна",
@@ -764,7 +800,7 @@
       "segment_order": 9,
       "source": "ner",
       "start": 28,
-      "text": "Сидоров А.П",
+      "text": "Сидоров А.П.",
       "type": "person"
     }
   ],
@@ -782,10 +818,12 @@
     "Двузначный год (12.02.25) и периоды (в марте 2025) не распознаются как даты.",
     "Preview содержит исходный текст и не предназначен для передачи наружу."
   ],
+  "marker_legend": [],
   "plan": {
     "groups": [
       {
         "id": "G1",
+        "level": "confirmed",
         "marker": "[ЗАКАЗЧИК-ОРГАНИЗАЦИЯ]",
         "profile_id": "P1",
         "ref_count": 1,
@@ -795,6 +833,7 @@
       },
       {
         "id": "G2",
+        "level": "confirmed",
         "marker": "[ЗАКАЗЧИК-ИНН]",
         "profile_id": "P1",
         "ref_count": 1,
@@ -804,6 +843,7 @@
       },
       {
         "id": "G3",
+        "level": "confirmed",
         "marker": "[ИСПОЛНИТЕЛЬ-ОРГАНИЗАЦИЯ]",
         "profile_id": "P2",
         "ref_count": 1,
@@ -813,6 +853,7 @@
       },
       {
         "id": "G4",
+        "level": "confirmed",
         "marker": "[ИСПОЛНИТЕЛЬ-ИНН]",
         "profile_id": "P2",
         "ref_count": 1,
@@ -822,6 +863,7 @@
       },
       {
         "id": "G5",
+        "level": "confirmed",
         "marker": "[ЗАКАЗЧИК-СЧЁТ]",
         "profile_id": "P1",
         "ref_count": 1,
@@ -831,6 +873,7 @@
       },
       {
         "id": "G6",
+        "level": "probable",
         "marker": "[ИСПОЛНИТЕЛЬ-ТЕЛЕФОН]",
         "profile_id": "P2",
         "ref_count": 1,
@@ -840,19 +883,21 @@
       },
       {
         "id": "G7",
+        "level": "confirmed",
         "marker": "[ЗАКАЗЧИК-ФИО]",
         "profile_id": "P1",
         "ref_count": 1,
-        "sample": "Иванов И.И",
+        "sample": "Иванов И.И.",
         "type": "person",
         "type_title": "ФИО"
       },
       {
         "id": "G8",
+        "level": "confirmed",
         "marker": "[ИСПОЛНИТЕЛЬ-ФИО]",
         "profile_id": "P2",
         "ref_count": 1,
-        "sample": "Сидоров А.П",
+        "sample": "Сидоров А.П.",
         "type": "person",
         "type_title": "ФИО"
       }
@@ -912,6 +957,7 @@
             "entity": {
               "confidence": 0.95,
               "end": 19,
+              "level": "confirmed",
               "normalized": "северный свет",
               "segment_order": 1,
               "source": "rule",
@@ -933,6 +979,7 @@
             "entity": {
               "confidence": 1.0,
               "end": 35,
+              "level": "confirmed",
               "normalized": "3662103003",
               "segment_order": 1,
               "source": "rule",
@@ -954,6 +1001,7 @@
             "entity": {
               "confidence": 0.75,
               "end": 36,
+              "level": "confirmed",
               "normalized": "40702810100000000002",
               "segment_order": 4,
               "source": "rule",
@@ -974,12 +1022,13 @@
             },
             "entity": {
               "confidence": 0.85,
-              "end": 35,
+              "end": 36,
+              "level": "confirmed",
               "normalized": "иванов и.и.",
               "segment_order": 8,
               "source": "ner",
               "start": 25,
-              "text": "Иванов И.И",
+              "text": "Иванов И.И.",
               "type": "person"
             },
             "ref": "E7"
@@ -1010,6 +1059,7 @@
             "entity": {
               "confidence": 0.95,
               "end": 19,
+              "level": "confirmed",
               "normalized": "точный расчет",
               "segment_order": 2,
               "source": "rule",
@@ -1031,6 +1081,7 @@
             "entity": {
               "confidence": 1.0,
               "end": 35,
+              "level": "confirmed",
               "normalized": "7707083893",
               "segment_order": 2,
               "source": "rule",
@@ -1055,6 +1106,7 @@
             "entity": {
               "confidence": 0.9,
               "end": 24,
+              "level": "probable",
               "normalized": "89103475107",
               "segment_order": 6,
               "source": "rule",
@@ -1075,12 +1127,13 @@
             },
             "entity": {
               "confidence": 0.85,
-              "end": 39,
+              "end": 40,
+              "level": "confirmed",
               "normalized": "сидоров а.п.",
               "segment_order": 9,
               "source": "ner",
               "start": 28,
-              "text": "Сидоров А.П",
+              "text": "Сидоров А.П.",
               "type": "person"
             },
             "ref": "E8"
@@ -1163,6 +1216,7 @@
   },
   "render_degradations": [],
   "report_version": 3,
+  "review_possible": [],
   "selected_types": [
     "address",
     "bank_account",
@@ -1188,6 +1242,10 @@
     "snils"
   ],
   "summary": {
+    "by_level": {
+      "confirmed": 7,
+      "probable": 1
+    },
     "by_source": {
       "ner": 2,
       "rule": 6
@@ -1203,6 +1261,26 @@
     "minimum_confidence": 0.75
   },
   "validation": {
+    "certificate": {
+      "checks": [
+        {
+          "detail": "побайтовый и текстовый поиск по 17 частям контейнера (текст, XML, /Info, XMP) — утечек не найдено",
+          "name": "leak_scan",
+          "ok": true
+        },
+        {
+          "detail": "проверено 1 артефактов — /Info, XMP (PDF) и свойства DOCX/XLSX пусты",
+          "name": "metadata_cleared",
+          "ok": true
+        },
+        {
+          "detail": "не применимо: источник не PDF",
+          "name": "width_quantization",
+          "ok": true
+        }
+      ],
+      "ok": true
+    },
     "checked_artifacts": [
       "masked_highlight.docx"
     ],

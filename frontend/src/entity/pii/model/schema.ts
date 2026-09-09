@@ -1,11 +1,18 @@
 import { z } from "zod";
 
 import type {
+  AskEnvelopeOut,
+  ReportOut,
+} from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
+import type {
   AnswerOption,
   AskEnvelope,
+  Certificate,
+  ConfidenceLevel,
   ContractParty,
   DecisionSource,
   EntityAction,
+  MaskGroupRecord,
   MaskingReport,
   PiiChunk,
   PiiDocFormat,
@@ -38,6 +45,7 @@ const rawPiiSchema = z.object({
   text: z.string(),
   normalized: z.string(),
   confidence: z.number(),
+  level: z.string(),
   source: z.string(),
   segment_order: z.number(),
   chunk_start: z.number(),
@@ -59,7 +67,8 @@ const rawExtractionSchema = z.object({
 });
 
 const KNOWN_FORMATS: PiiDocFormat[] = ["docx", "pdf", "xlsx"];
-const KNOWN_SOURCES: PiiSource[] = ["rule", "ner", "llm", "user"];
+const KNOWN_SOURCES: PiiSource[] = ["rule", "ner", "llm", "user", "block"];
+const KNOWN_LEVELS: ConfidenceLevel[] = ["confirmed", "probable", "possible"];
 
 function toDocFormat(value: string): PiiDocFormat {
   return (KNOWN_FORMATS as string[]).includes(value)
@@ -71,6 +80,24 @@ function toSource(value: string): PiiSource {
   return (KNOWN_SOURCES as string[]).includes(value)
     ? (value as PiiSource)
     : "rule";
+}
+
+/**
+ * Уровень неизвестен молча по умолчанию `probable` — тот же выбор, что и у
+ * бэкенда для чекпойнтов до Р8 (`graph/serde.py::entity_from_dict`): самый
+ * строгий вариант из «не подтверждено», не тихое `confirmed`.
+ */
+function toLevel(value: string): ConfidenceLevel {
+  return (KNOWN_LEVELS as string[]).includes(value)
+    ? (value as ConfidenceLevel)
+    : "probable";
+}
+
+/** То же самое, но для `plan.groups[].level`, где пустая строка — законное значение. */
+function toGroupLevel(value: string): ConfidenceLevel | "" {
+  return value === "" || (KNOWN_LEVELS as string[]).includes(value)
+    ? (value as ConfidenceLevel | "")
+    : "";
 }
 
 /** Тип неизвестный бэкенду проходит как есть — UI решит, как его подписать. */
@@ -104,6 +131,7 @@ export function parsePiiExtraction(payload: unknown): PiiExtraction {
         text: pii.text,
         normalized: pii.normalized,
         confidence: pii.confidence,
+        level: toLevel(pii.level),
         source: toSource(pii.source),
         segmentOrder: pii.segment_order,
         chunkStart: pii.chunk_start,
@@ -147,6 +175,7 @@ const rawSummarySchema = z.object({
   entities_total: z.number(),
   by_type: z.record(z.string(), z.number()),
   by_source: z.record(z.string(), z.number()),
+  by_level: z.record(z.string(), z.number()),
   minimum_confidence: z.number().nullable(),
 });
 
@@ -158,6 +187,7 @@ const rawPlanGroupSchema = z.object({
   profile_id: z.string(),
   ref_count: z.number(),
   sample: z.string(),
+  level: z.string(),
 });
 
 const rawPlanSchema = z.object({
@@ -208,6 +238,7 @@ const rawContractSummarySchema = z.object({
   delivery_periods: z.array(z.string()),
   payment_terms: z.string().nullable(),
   contract_number: z.string().nullable(),
+  generated_at: z.string(),
   llm_calls: z.number(),
 });
 
@@ -234,12 +265,30 @@ const rawDecisionsSchema = z.object({
   diagnostics: z.array(z.string()),
 });
 
+const rawCertificateCheckSchema = z.object({
+  name: z.string(),
+  ok: z.boolean(),
+  detail: z.string(),
+});
+
+const rawCertificateSchema = z.object({
+  ok: z.boolean(),
+  checks: z.array(rawCertificateCheckSchema),
+});
+
 const rawValidationSchema = z.object({
   status: z.string(),
   ok: z.boolean().optional(),
   leaked_count: z.number().optional(),
   residual_count: z.number().optional(),
   checked_artifacts: z.array(z.string()).optional(),
+  certificate: rawCertificateSchema.nullable().optional(),
+});
+
+const rawMarkerLegendItemSchema = z.object({
+  shown_label: z.string(),
+  canonical_label: z.string(),
+  pages: z.array(z.number()),
 });
 
 const rawDetectionCoverageSchema = z.object({
@@ -271,6 +320,12 @@ const rawReportSchema = z.object({
   contract_summary: rawContractSummarySchema.optional(),
   decisions: rawDecisionsSchema.optional(),
   validation: rawValidationSchema.optional(),
+  //: Р8, «снять одним кликом» — группы уровня `possible`; движок кладёт
+  //: пустой массив, даже когда плана нет вовсе.
+  review_possible: z.array(rawPlanGroupSchema).optional(),
+  marker_legend: z.array(rawMarkerLegendItemSchema).optional(),
+  //: Дубль `validation.certificate` на верхнем уровне report.json (план М3).
+  certificate: rawCertificateSchema.nullable().optional(),
 });
 
 function toMode(value: string): ReportDecisions["mode"] {
@@ -279,15 +334,49 @@ function toMode(value: string): ReportDecisions["mode"] {
     : "unknown";
 }
 
+function toPlanGroup(
+  group: z.infer<typeof rawPlanGroupSchema>,
+): MaskGroupRecord {
+  return {
+    id: group.id,
+    marker: group.marker,
+    type: toType(group.type),
+    typeTitle: group.type_title,
+    profileId: group.profile_id,
+    refCount: group.ref_count,
+    sample: group.sample,
+    level: toGroupLevel(group.level),
+  };
+}
+
+function toCertificate(
+  certificate: z.infer<typeof rawCertificateSchema> | null | undefined,
+): Certificate | null {
+  return certificate
+    ? {
+        ok: certificate.ok,
+        checks: certificate.checks.map((check) => ({
+          name: check.name,
+          ok: check.ok,
+          detail: check.detail,
+        })),
+      }
+    : null;
+}
+
 /**
- * Разбирает `report.json` целиком.
+ * Разбирает `report.json` целиком. Тип входа — `ReportOut`, сгенерированный
+ * Orval'ом из ответа `GET /runs/{id}/report` (`response_model=ReportOut`
+ * на бэкенде, `api/schemas/report.py`): форма проверена сервером ещё до
+ * этой функции, `zod` здесь — второй, а не единственный рубеж, и вдобавок
+ * терпимее к неизвестным значениям (см. `toType`).
  *
  * Решения движка берутся из `decisions.by_ref`, а не из `chunks[].pii[]`:
  * в чанках их нет вовсе (проверено на настоящей выдаче — `decision` движок
  * кладёт только в плоский `entities[]`), а `by_ref` вдобавок несёт и то,
  * какое решение чем было перекрыто.
  */
-export function parseMaskingReport(payload: unknown): MaskingReport {
+export function parseMaskingReport(payload: ReportOut): MaskingReport {
   const raw = rawReportSchema.parse(payload);
   const profileJudge = raw.profile_judge as
     | { profiles: z.infer<typeof rawProfileSchema>[] }
@@ -307,26 +396,20 @@ export function parseMaskingReport(payload: unknown): MaskingReport {
       entitiesTotal: raw.summary.entities_total,
       byType: raw.summary.by_type,
       bySource: raw.summary.by_source,
+      byLevel: raw.summary.by_level,
       minimumConfidence: raw.summary.minimum_confidence,
     },
     plan: raw.plan
       ? {
           requestedTypes: raw.plan.requested_types.map(toType),
-          groups: raw.plan.groups.map((group) => ({
-            id: group.id,
-            marker: group.marker,
-            type: toType(group.type),
-            typeTitle: group.type_title,
-            profileId: group.profile_id,
-            refCount: group.ref_count,
-            sample: group.sample,
-          })),
+          groups: raw.plan.groups.map(toPlanGroup),
           skipped: {
             count: raw.plan.skipped.count,
             byReason: raw.plan.skipped.by_reason,
           },
         }
       : null,
+    reviewPossible: (raw.review_possible ?? []).map(toPlanGroup),
     profiles: (profileJudge?.profiles ?? []).map((profile) => ({
       id: profile.id,
       roleId: profile.role_id,
@@ -355,6 +438,7 @@ export function parseMaskingReport(payload: unknown): MaskingReport {
           deliveryPeriods: raw.contract_summary.delivery_periods,
           paymentTerms: raw.contract_summary.payment_terms,
           contractNumber: raw.contract_summary.contract_number,
+          generatedAt: raw.contract_summary.generated_at,
           llmCalls: raw.contract_summary.llm_calls,
         }
       : null,
@@ -385,8 +469,15 @@ export function parseMaskingReport(payload: unknown): MaskingReport {
           leakedCount: raw.validation.leaked_count ?? 0,
           residualCount: raw.validation.residual_count ?? 0,
           checkedArtifacts: raw.validation.checked_artifacts ?? [],
+          certificate: toCertificate(raw.validation.certificate),
         }
       : null,
+    certificate: toCertificate(raw.certificate),
+    markerLegend: (raw.marker_legend ?? []).map((item) => ({
+      shownLabel: item.shown_label,
+      canonicalLabel: item.canonical_label,
+      pages: item.pages,
+    })),
     detectionCoverage: {
       requestedTypes: raw.detection_coverage.requested_types.map(toType),
       activeDetectorTypes:
@@ -467,8 +558,12 @@ function toAnswerOption(value: string): AnswerOption {
   return MASK_OPTION;
 }
 
-/** Разбирает конверт паузы графа — то, что движок пишет в `questions.json`. */
-export function parseAskEnvelope(payload: unknown): AskEnvelope {
+/**
+ * Разбирает конверт паузы графа — то, что движок пишет в `questions.json`.
+ * Тип входа — `AskEnvelopeOut`, сгенерированный Orval'ом из ответа
+ * `GET /runs/{id}/questions` (`response_model=AskEnvelopeOut`).
+ */
+export function parseAskEnvelope(payload: AskEnvelopeOut): AskEnvelope {
   const raw = rawAskEnvelopeSchema.parse(payload);
 
   return {

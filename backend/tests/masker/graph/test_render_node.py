@@ -21,12 +21,15 @@ FIXTURE = ROOT / "fixtures" / "labeled" / "contract_01.docx"
 #: реально доносит деградацию до отчёта, а не только внутренняя функция
 #: `pdf_render.py` её вычисляет.
 PDF_FIXTURE = ROOT / "fixtures" / "labeled" / "contract_pdf_02_school.pdf"
+XLSX_FIXTURE = ROOT / "fixtures" / "labeled" / "order_01.xlsx"
 
 
-def _planned_state(*, styles: tuple[str, ...] = (), preview: bool = True) -> State:
+def _planned_state(
+    *, source: Path = FIXTURE, styles: tuple[str, ...] = (), preview: bool = True
+) -> State:
     """Состояние сразу после ``plan``: без профиля/политики — маскируется всё найденное."""
     state: State = {
-        "path": str(FIXTURE),
+        "path": str(source),
         "options": {
             "rules_only": True,
             "types": None,
@@ -80,6 +83,24 @@ def test_render_node_redacted_files_do_not_contain_source_inn(tmp_path: Path) ->
             xml = archive.read("word/document.xml").decode("utf-8")
         for value in source_inns:
             assert value not in xml, f"{name}: исходный ИНН {value!r} утёк в word/document.xml"
+
+
+def test_render_node_runs_xlsx_through_both_redacting_roles(tmp_path: Path) -> None:
+    """XLSX не обходит LangGraph: из узла выходят оба варианта рендера.
+
+    Preview намеренно отсутствует: отдельный XLSX-preview пока не умеет
+    подсвечивать ячейки, а копия источника не может честно называться preview.
+    """
+    state = _planned_state(source=XLSX_FIXTURE, styles=("marker", "blackbox"))
+
+    result = nodes.make_render_node(nodes.RunDeps(artifact_dir=tmp_path))(state)
+
+    assert [item["role"] for item in result["artifacts"]] == [
+        "masked_highlight",
+        "masked_black",
+    ]
+    assert (tmp_path / "masked_highlight.xlsx").is_file()
+    assert (tmp_path / "masked_black.xlsx").is_file()
 
 
 def test_render_node_requires_artifact_dir() -> None:

@@ -109,6 +109,26 @@ def run_corpus(
         for p in corpus.iterdir()
         if p.suffix.casefold() in {".pdf", ".docx", ".xlsx"} and not p.name.startswith(".")
     )
+    # GLiNER включается не флагом, а наличием пользовательских типов вида
+    # `gliner_*` в разметке (`detect/__init__.py:52`). Если их нет, слой
+    # физически совпадает с `ner`, и молчать об этом нельзя: человек решит,
+    # что сравнил две конфигурации, а сравнил одну с ней же.
+    if layer == "gliner":
+        gliner_types = sum(
+            1
+            for document in corpus.iterdir()
+            if document.suffix.casefold() in {".pdf", ".docx", ".xlsx"}
+            for spec in _custom_types_for(document)
+            if str((spec.get("detect") or {}).get("kind", "")).startswith("gliner")
+        )
+        if not gliner_types:
+            print(
+                "ВНИМАНИЕ: в разметке корпуса нет пользовательских типов gliner_*,\n"
+                "поэтому слой gliner здесь тождествен ner — GLiNER не будет вызван\n"
+                "ни разу. Чтобы его проверить, нужен корпус с типами gliner_* в\n"
+                "custom_types (пример: fixtures/gliner/).\n"
+            )
+
     critical = {c.value for c in CRITICAL_TYPES}
     per_document: list[dict[str, Any]] = []
     started_all = time.perf_counter()

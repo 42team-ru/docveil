@@ -187,6 +187,7 @@ def _start(
     factory = sqlite_checkpointer_factory(_state_db_path(args))
     options = _run_options_from_args(args, selected_types, source=source, interactive=interactive)
     presenter = CliPresenter(quiet=args.quiet, verbose=args.verbose)
+    presenter.greet()
 
     tracer: TracingProvider | None = None
     run_llm = llm

@@ -33,17 +33,21 @@ def parse_types(value: str) -> frozenset[EntityType]:
         raise ValueError(f"неизвестный тип {error.args[0]!r}; допустимы: all, {allowed}") from error
 
 
+#: Имя команды в справке и примерах — то, что человек реально набирает.
+PRODUCT_COMMAND = "docveil"
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Создать справку, разделённую по обычному сценарию, LLM и продолжению."""
     parser = FriendlyParser(
-        prog="masker",
+        prog=PRODUCT_COMMAND,
         description="Обезличить PII в DOCX/PDF через графовый конвейер.",
         epilog=(
             "Примеры:\n"
-            "  masker договор.docx --redact-style both\n"
-            "  masker scan.pdf --rules-only --out out/scan\n"
-            "  masker договор.docx --dry-run --types inn,passport\n"
-            "  masker --resume THREAD_ID --answers answers.json --out out/inspect"
+            f"  {PRODUCT_COMMAND} договор.docx --redact-style both\n"
+            f"  {PRODUCT_COMMAND} scan.pdf --rules-only --out out/scan\n"
+            f"  {PRODUCT_COMMAND} договор.docx --dry-run --types inn,passport\n"
+            f"  {PRODUCT_COMMAND} --resume THREAD_ID --answers answers.json --out out/inspect"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

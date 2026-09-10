@@ -24,6 +24,8 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
+from masker.branding import banner
+
 _STAGES: tuple[tuple[str, str], ...] = (
     ("extract", "Извлечение текста"),
     ("detect", "Поиск данных"),
@@ -51,6 +53,21 @@ class CliPresenter:
         self._console = Console()
         self._progress: Progress | None = None
         self._task_id: TaskID | None = None
+        self._greeted = False
+
+    def greet(self) -> None:
+        """Показать логотип — один раз за прогон и только в живом терминале.
+
+        В пайп и в CI заставка не идёт: там вывод читают машины и grep, а
+        тринадцать строк рисунка в начале лога только мешают.
+        """
+        if self._greeted or not self._interactive:
+            return
+        self._greeted = True
+        # `print`, а не `console.print`: в баннере уже готовые ANSI-цвета,
+        # разметка Rich их бы переэкранировала.
+        print(banner(), flush=True)
+        print(flush=True)
 
     def begin(self, source: Path) -> None:
         """Начать отображение одного запуска файла."""

@@ -15,7 +15,7 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Text } from "@astryxdesign/core/Text";
 
 import { useRuleProfileStore } from "../../entity/rule-profile/model/rule-profile-store";
-import { useUploadQueueStore } from "../../features/document-upload/model/upload-queue-store";
+import { useUploadQueueStore } from "../../entity/document/model/upload-queue-store";
 import { useStartRun } from "../../features/masking-run/api/masking-run";
 import { DataTypePicker } from "../../features/document-upload/ui/data-type-picker";
 import { MaskStylePicker } from "../../features/document-upload/ui/mask-style-picker";
@@ -54,7 +54,7 @@ export function UploadPage() {
       markStarting(item.id);
       try {
         const run = await startRun.mutateAsync({
-          file: item.file,
+          source: item.source,
           types: enabledTypes,
           maskStyle,
         });
@@ -75,7 +75,7 @@ export function UploadPage() {
       });
       return;
     }
-    navigate(`/review?run=${firstRunId}`);
+    navigate(`/documents/${firstRunId}`);
   }
 
   return (

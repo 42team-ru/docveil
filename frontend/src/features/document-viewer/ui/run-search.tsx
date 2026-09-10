@@ -61,7 +61,7 @@ export function RunSearch() {
                 item={item}
                 isLast={index === visibleItems.length - 1}
                 onSelect={() =>
-                  navigate(`/review?run=${encodeURIComponent(item.id)}`)
+                  navigate(`/documents/${encodeURIComponent(item.id)}`)
                 }
               />
             ))}

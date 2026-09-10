@@ -6,7 +6,7 @@ import { toReviewableRunSearchItems } from "./run-search";
 const run = (id: string, status: RunListItem["status"]): RunListItem => ({
   id,
   status,
-  document: { name: `${id}.docx`, format: "docx" },
+  document: { name: `${id}.docx`, format: "docx", object_name: `documents/${id}.docx` },
   created_at: "2026-09-10T09:00:00Z",
 });
 

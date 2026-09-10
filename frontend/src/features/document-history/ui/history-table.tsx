@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Section } from "@astryxdesign/core/Section";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { VStack } from "@astryxdesign/core/Stack";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Table, pixel, proportional } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 
@@ -12,7 +13,9 @@ import { FormatToken } from "../../../entity/document/ui/format-token";
 import { RunStatusToken } from "../../../entity/document/ui/run-status-token";
 import { useRunList } from "../../masking-run/api/masking-run";
 import type { RunListItem } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
+import { formatMoment } from "../../../shared/lib/format-moment";
 import { useHistoryFilterStore } from "../model/history-filter-store";
+import { RunDetailsDialog } from "./run-details-dialog";
 
 /**
  * `Table` требует от строки индексной сигнатуры, а сгенерированный из
@@ -24,32 +27,31 @@ type RunRow = RunListItem & Record<string, unknown>;
 /** Строка журнала как её видит `Table`; полей не добавляет, только сигнатуру. */
 const asRows = (items: RunListItem[]): RunRow[] => items as RunRow[];
 
-/** Момент времени в журнале: короткая локальная дата, без выдуманных «2 часа назад». */
-function formatMoment(value: string | null | undefined): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 /** Журнал прогонов текущего пользователя. */
 export function HistoryTable() {
   const navigate = useNavigate();
   const query = useHistoryFilterStore((state) => state.query);
   const status = useHistoryFilterStore((state) => state.status);
+  const [detailsRunId, setDetailsRunId] = useState<string | null>(null);
 
   const runs = useRunList({
     query: query || undefined,
     status: status === "all" ? undefined : status,
   });
 
+  const detailsDialog = (
+    <RunDetailsDialog
+      runId={detailsRunId}
+      onClose={() => setDetailsRunId(null)}
+      onOpenReview={(runId) => navigate(`/documents/${runId}`)}
+    />
+  );
+
   if (runs.isLoading) {
     return (
       <Section padding={4}>
         <Skeleton height={240} width="100%" />
+        {detailsDialog}
       </Section>
     );
   }
@@ -61,6 +63,7 @@ export function HistoryTable() {
           title="Журнал недоступен"
           description="Не удалось получить список прогонов. Проверьте, что сервер обезличивания запущен."
         />
+        {detailsDialog}
       </Section>
     );
   }
@@ -74,6 +77,7 @@ export function HistoryTable() {
           title="Ничего не найдено"
           description="Ни один прогон не подходит под выбранные фильтры."
         />
+        {detailsDialog}
       </Section>
     );
   }
@@ -133,20 +137,29 @@ export function HistoryTable() {
             {
               key: "actions",
               header: "",
-              width: pixel(110),
+              width: pixel(200),
               align: "end",
               renderCell: (run) => (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  label="Открыть"
-                  onClick={() => navigate(`/review?run=${run.id}`)}
-                />
+                <HStack gap={1.5} hAlign="end">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    label="Открыть"
+                    onClick={() => navigate(`/documents/${run.id}`)}
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    label="Детали"
+                    onClick={() => setDetailsRunId(run.id)}
+                  />
+                </HStack>
               ),
             },
           ]}
         />
       </VStack>
+      {detailsDialog}
     </Section>
   );
 }

@@ -38,6 +38,9 @@ class RunDocument(BaseModel):
 
     name: str
     format: str
+    #: Ключ в MinIO исходного файла — позволяет завести повторный прогон
+    #: (`UploadPage` → «Повторить прогон») без повторной загрузки байтов.
+    object_name: str
 
 
 class RunCreateRequest(BaseModel):

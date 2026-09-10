@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { useSearchParams } from "react-router";
 
 import { parseAskEnvelope, parseMaskingReport } from "../../../entity/pii/model/schema";
 import type {
@@ -31,7 +30,7 @@ export type ReviewedDocument = {
 };
 
 export type ReviewData = {
-  /** Прогон, открытый на проверку (`/review?run=…`); `null` — не выбран. */
+  /** Прогон, открытый на рабочем столе документа (`/documents/:runId`); `null` — не выбран. */
   runId: string | null;
   status: RunStatus | null;
   extraction: PiiExtraction;
@@ -54,21 +53,22 @@ export type ReviewData = {
 const EMPTY_EXTRACTION: PiiExtraction = { chunkCount: 0, chunks: [] };
 
 /**
- * Единственная точка входа за данными экранов `/review` и `/report`.
+ * Единственная точка входа за данными рабочего стола документа
+ * (`/documents/:runId`) — общая для вкладок «Проверка» и «Отчёт».
  *
- * Читает прогон по `?run=<id>`: состояние опрашивается, пока граф крутится,
- * вопросы забираются на паузе `ask_human`, отчёт и документ — когда прогон
- * дошёл до конца. Разбирают ответы те же `parseMaskingReport`/
- * `parseAskEnvelope`, что раньше разбирали фикстуры: форма контракта одна и
- * та же, менялся только источник.
+ * Вызывается один раз в `DocumentPage`, а не в каждой вкладке: так `blob:`-
+ * ссылка на документ (`useArtifactObjectUrl`) живёт всё время, что открыт
+ * рабочий стол, и переключение таба не перекачивает файл заново.
+ *
+ * Состояние прогона опрашивается, пока граф крутится, вопросы забираются на
+ * паузе `ask_human`, отчёт и документ — когда прогон дошёл до конца.
+ * Разбирают ответы те же `parseMaskingReport`/`parseAskEnvelope`, что раньше
+ * разбирали фикстуры: форма контракта одна и та же, менялся только источник.
  *
  * Документ для вьюера — `masked_highlight` этого же прогона; исходных ПДн в
  * нём нет, поэтому оператор смотрит именно обезличенный файл, а не оригинал.
  */
-export function useReviewData(): ReviewData {
-  const [searchParams] = useSearchParams();
-  const runId = searchParams.get("run");
-
+export function useReviewData(runId: string | null): ReviewData {
   const runState = useRunState(runId);
   const status = runState.data?.status ?? null;
   // Отчёт и файл рендера существуют и на паузе правок оператора, не только

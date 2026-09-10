@@ -1,9 +1,11 @@
 import { Divider } from "@astryxdesign/core/Divider";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { Icon } from "@astryxdesign/core/Icon";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
+import { FileText } from "lucide-react";
 
 import type {
   ContractParty,
@@ -73,11 +75,14 @@ function PartyBlock({
 export function ContractSummaryTab({ summary }: ContractSummaryTabProps) {
   if (!summary) {
     return (
-      <EmptyState
-        isCompact
-        title="Карточки договора нет"
-        description="Движок не вернул краткое содержание для этого документа."
-      />
+      <VStack height="100%" hAlign="center" vAlign="center">
+        <EmptyState
+          isCompact
+          icon={<Icon icon={FileText} size="lg" />}
+          title="Карточки договора нет"
+          description="Движок не вернул краткое содержание для этого документа."
+        />
+      </VStack>
     );
   }
 

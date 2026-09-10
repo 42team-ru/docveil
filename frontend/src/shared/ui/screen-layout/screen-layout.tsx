@@ -20,10 +20,21 @@ type ScreenLayoutProps = {
   meta?: ReactNode;
   /** Содержимое перед заголовком: чип формата, иконка. */
   startContent?: ReactNode;
-  /** Кнопки в правой части шапки. */
+  /**
+   * Переключатель вкладок экрана (`TabList`) — с большим отступом от действий,
+   * в самом правом углу шапки. Так проверка и отчёт документа делят одну
+   * шапку и переключаются без смены страницы, а таб не путается с кнопками.
+   */
+  tabs?: ReactNode;
+  /** Кнопки в правой части шапки, левее вкладок. */
   actions?: ReactNode;
   /** Правая панель экрана (`LayoutPanel`). */
   panel?: ReactNode;
+  /**
+   * `id` тела экрана — цель `aria-controls` у `tabs`, когда `TabList` там
+   * работает в паттерне `role="tablist"`, а не как навигация.
+   */
+  contentId?: string;
   contentPadding?: SpacingStep;
   isContentScrollable?: boolean;
   children: ReactNode;
@@ -37,8 +48,10 @@ export function ScreenLayout({
   title,
   meta,
   startContent,
+  tabs,
   actions,
   panel,
+  contentId,
   contentPadding = 6,
   isContentScrollable = true,
   children,
@@ -47,6 +60,7 @@ export function ScreenLayout({
     title !== undefined ||
     meta !== undefined ||
     startContent !== undefined ||
+    tabs !== undefined ||
     actions !== undefined;
 
   return (
@@ -68,12 +82,22 @@ export function ScreenLayout({
                 {meta}
               </HStack>
             }
-            endContent={actions}
+            endContent={
+              tabs !== undefined ? (
+                <HStack gap={8} vAlign="center">
+                  {actions}
+                  {tabs}
+                </HStack>
+              ) : (
+                actions
+              )
+            }
           />
         </LayoutHeader>
       ) : undefined}
       content={
         <LayoutContent
+          id={contentId}
           padding={contentPadding}
           isScrollable={isContentScrollable}
         >

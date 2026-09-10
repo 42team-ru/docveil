@@ -104,6 +104,10 @@ export interface BodyUploadApiFilesUploadPost {
   file: Blob;
 }
 
+export interface BodyUploadMyAvatarApiAuthMeAvatarPost {
+  file: Blob;
+}
+
 /**
  * Один пункт сертификата обезличивания — `certificate.checks[]`.
  */
@@ -695,6 +699,14 @@ export interface MaskPlanOut {
 }
 
 /**
+ * Тело запроса `POST /auth/me/password`.
+ */
+export interface PasswordChangeRequest {
+  current_password: string;
+  new_password: string;
+}
+
+/**
  * Сущность внутри `profile_judge.profiles[].members[].entity`.
  */
 export interface ProfileMemberEntityOut {
@@ -907,6 +919,7 @@ export interface RunCreateRequest {
 export interface RunDocument {
   name: string;
   format: string;
+  object_name: string;
 }
 
 export type RunListItemStatus = typeof RunListItemStatus[keyof typeof RunListItemStatus];
@@ -992,6 +1005,20 @@ export interface UserPublic {
   is_active: boolean;
   created_at: string;
   last_login_at?: string | null;
+  timezone?: string | null;
+  has_avatar?: boolean;
+}
+
+/**
+ * Тело запроса `PATCH /auth/me` — правка своих же данных.
+ *
+ * Оба поля необязательны и применяются независимо: форма профиля шлёт
+ * только то, что изменилось (имя — по кнопке «Сохранить», пояс — сразу по
+ * выбору в списке), а не всегда пару целиком.
+ */
+export interface UserSelfUpdate {
+  full_name?: string | null;
+  timezone?: string | null;
 }
 
 export type ListRunsApiRunsGetParams = {

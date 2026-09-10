@@ -1,20 +1,11 @@
 import { type ReactNode } from "react";
 import { AppShell } from "@astryxdesign/core/AppShell";
-import { Avatar } from "@astryxdesign/core/Avatar";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Button } from "@astryxdesign/core/Button";
-import { Divider } from "@astryxdesign/core/Divider";
 import { Icon, type IconType } from "@astryxdesign/core/Icon";
 import { NavIcon } from "@astryxdesign/core/NavIcon";
-import { Popover } from "@astryxdesign/core/Popover";
-import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from "@astryxdesign/core/SegmentedControl";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TopNav, TopNavHeading, TopNavItem } from "@astryxdesign/core/TopNav";
-import { LogOut, Moon, Sun } from "lucide-react";
 
 import { RouterLink } from "../router-link/router-link";
 
@@ -38,109 +29,19 @@ type PanelShellProps = {
   groups: PanelNavGroup[];
   /** Текущий путь — по нему подсвечивается активный пункт. */
   currentPath: string;
-  /** Доп. содержимое в правой части шапки — перед меню профиля. */
+  /** Доп. содержимое в левой части шапки, перед основной навигацией. */
+  navStartContent?: ReactNode;
+  /** Доп. содержимое в правой части шапки — перед меню аккаунта. */
   navEndContent?: ReactNode;
-  /** Пользователь сессии; без него меню профиля показывает заглушку. */
-  user?: PanelUser;
+  /** Аватар/меню аккаунта — `<AccountTrigger />` из `features/account`.
+   * Пробрасывается пропом, а не импортируется здесь напрямую: `shared` не
+   * должен зависеть от `features` (направление импортов FSD). */
+  accountTrigger: ReactNode;
   children: ReactNode;
 };
 
-import { useThemeStore } from "../../model/theme-store";
-
-type Theme = "light" | "dark";
-
 /**
- * Пользователь сессии. Значения по умолчанию — заглушка на время, пока нет
- * `GET /api/auth/me`: подстановка настоящего пользователя должна свестись к
- * передаче пропа, а не к правке разметки.
- */
-export type PanelUser = {
-  name: string;
-  email: string;
-};
-
-const UNKNOWN_USER: PanelUser = {
-  name: "Пользователь",
-  email: "вход не выполнен",
-};
-
-/** Всплывающее меню пользователя: смена темы и выход. */
-function ProfilePopover({ user }: { user: PanelUser }) {
-  const mode = useThemeStore((state) => state.mode);
-  const setMode = useThemeStore((state) => state.setMode);
-
-  return (
-    <Popover
-      placement="below"
-      alignment="end"
-      width={220}
-      label="Меню пользователя"
-      content={
-        <VStack gap={3} padding={3}>
-          {/* Пользователь */}
-          <VStack gap={0}>
-            <Text type="label" weight="medium">
-              {user.name}
-            </Text>
-            <Text type="supporting" color="secondary">
-              {user.email}
-            </Text>
-          </VStack>
-
-          <Divider />
-
-          {/* Тема */}
-          <VStack gap={1.5}>
-            <Text type="supporting" color="secondary">
-              Тема интерфейса
-            </Text>
-            <SegmentedControl
-              label="Тема"
-              value={mode === "system" ? "light" : mode}
-              onChange={(v) => setMode(v as Theme)}
-              size="sm"
-              layout="fill"
-            >
-              <SegmentedControlItem
-                value="light"
-                label="Светлая"
-                icon={<Icon icon={Sun} size="xsm" />}
-              />
-              <SegmentedControlItem
-                value="dark"
-                label="Тёмная"
-                icon={<Icon icon={Moon} size="xsm" />}
-              />
-            </SegmentedControl>
-          </VStack>
-
-          <Divider />
-
-          {/* Выход */}
-          <Button
-            label="Выйти"
-            variant="ghost"
-            size="sm"
-            icon={<Icon icon={LogOut} size="sm" />}
-            href="/login"
-          />
-        </VStack>
-      }
-    >
-      <Avatar
-        name={user.name}
-        size="md"
-        tooltip={false}
-        // Popover присоединяет обработчик к кнопке; Avatar становится кнопкой,
-        // когда получает onClick.
-        onClick={() => undefined}
-      />
-    </Popover>
-  );
-}
-
-/**
- * Оболочка приложения: горизontальное меню сверху + область контента.
+ * Оболочка приложения: горизонтальное меню сверху + область контента.
  */
 export function PanelShell({
   heading,
@@ -148,8 +49,9 @@ export function PanelShell({
   headingIcon,
   groups,
   currentPath,
+  navStartContent,
   navEndContent,
-  user,
+  accountTrigger,
   children,
 }: PanelShellProps) {
   const items = groups.flatMap((group) => group.items);
@@ -167,11 +69,12 @@ export function PanelShell({
               heading={heading}
               subheading={subheading}
               logo={headingIcon ? <NavIcon icon={headingIcon} /> : undefined}
-              headingHref="/"
+              headingHref="/documents"
             />
           }
           startContent={
             <>
+              {navStartContent}
               {items.map((item) => (
                 <TopNavItem
                   key={item.to}
@@ -179,7 +82,10 @@ export function PanelShell({
                   href={item.to}
                   label={item.label}
                   icon={<Icon icon={item.icon} size="sm" />}
-                  isSelected={currentPath === item.to}
+                  isSelected={
+                    currentPath === item.to ||
+                    currentPath.startsWith(`${item.to}/`)
+                  }
                 >
                   {item.badge ? (
                     <HStack gap={1.5} vAlign="center">
@@ -196,7 +102,7 @@ export function PanelShell({
           endContent={
             <HStack gap={2} vAlign="center">
               {navEndContent}
-              <ProfilePopover user={user ?? UNKNOWN_USER} />
+              {accountTrigger}
             </HStack>
           }
         />

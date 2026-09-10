@@ -49,12 +49,20 @@ _MEDIA_TYPES = {
 }
 
 
+def _run_document(run: RunORM) -> RunDocument:
+    return RunDocument(
+        name=run.document_name,
+        format=run.document_format,
+        object_name=run.object_name,
+    )
+
+
 def _run_response(run: RunORM) -> RunResponse:
     return RunResponse(
         id=run.id,
         thread_id=run.thread_id,
         status=run.status,  # type: ignore[arg-type]
-        document=RunDocument(name=run.document_name, format=run.document_format),
+        document=_run_document(run),
         node_hint=run.node_hint,
         error=run.error,
         created_at=run.created_at,
@@ -111,7 +119,7 @@ async def list_runs(
             RunListItem(
                 id=run.id,
                 status=run.status,  # type: ignore[arg-type]
-                document=RunDocument(name=run.document_name, format=run.document_format),
+                document=_run_document(run),
                 created_at=run.created_at,
                 finished_at=run.finished_at,
             )

@@ -1,9 +1,10 @@
+import type { ReactNode } from "react";
 import { Search } from "lucide-react";
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@astryxdesign/core/SegmentedControl";
-import { HStack, StackItem } from "@astryxdesign/core/Stack";
+import { HStack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Toolbar } from "@astryxdesign/core/Toolbar";
 
@@ -13,10 +14,15 @@ import {
 } from "../model/history-filter-store";
 
 /** Ширина поля поиска — структурный размер контрола. */
-const SEARCH_WIDTH = 300;
+const SEARCH_WIDTH = 420;
+
+type HistoryFiltersProps = {
+  /** Действия справа от фильтров — например, кнопка «Новая задача». */
+  actions?: ReactNode;
+};
 
 /** Фильтры журнала: поиск по имени документа и состояние прогона. */
-export function HistoryFilters() {
+export function HistoryFilters({ actions }: HistoryFiltersProps) {
   const query = useHistoryFilterStore((state) => state.query);
   const setQuery = useHistoryFilterStore((state) => state.setQuery);
   const status = useHistoryFilterStore((state) => state.status);
@@ -24,13 +30,14 @@ export function HistoryFilters() {
 
   return (
     <Toolbar
+      className="mt-2"
       label="Фильтры журнала"
-      size="sm"
+      size="lg"
       gap={3}
       startContent={
         <HStack gap={3} vAlign="center" wrap="wrap">
           <TextInput
-            size="sm"
+            size="lg"
             label="Поиск по журналу"
             isLabelHidden
             placeholder="Поиск по имени документа…"
@@ -41,7 +48,7 @@ export function HistoryFilters() {
             onChange={setQuery}
           />
           <SegmentedControl
-            size="sm"
+            size="lg"
             label="Состояние прогона"
             value={status}
             onChange={(value) => setStatus(value as HistoryStatusFilter)}
@@ -52,9 +59,9 @@ export function HistoryFilters() {
             <SegmentedControlItem value="done" label="Готовы" />
             <SegmentedControlItem value="failed" label="Ошибки" />
           </SegmentedControl>
-          <StackItem size="fill" />
         </HStack>
       }
+      endContent={actions}
     />
   );
 }

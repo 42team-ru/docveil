@@ -15,7 +15,17 @@ from __future__ import annotations
 import os
 import sys
 
-__all__ = ["PRODUCT", "TAGLINE", "banner", "logo_lines", "wordmark_lines"]
+from rich.style import Style
+from rich.text import Text
+
+__all__ = [
+    "PRODUCT",
+    "TAGLINE",
+    "banner",
+    "logo_lines",
+    "logo_text",
+    "wordmark_text",
+]
 
 #: Имя продукта. Внутреннее имя пакета (`masker`) намеренно не трогаем:
 #: переименование пакета задевает каждый импорт в проекте и ничего не даёт
@@ -291,6 +301,46 @@ def _terminal_width(default: int = 80) -> int:
         return os.get_terminal_size().columns
     except OSError:
         return default
+
+
+def _hex(rgb: tuple[int, int, int]) -> str:
+    return "#{:02X}{:02X}{:02X}".format(*rgb)
+
+
+def logo_text() -> Text:
+    """Логотип как ``rich.text.Text`` — для Textual и всего на Rich.
+
+    Сырые ANSI-коды внутрь виджета Textual класть нельзя: он их экранирует,
+    и вместо цветного щита получается монохромный. Стили нужно отдавать
+    объектом, тогда цвет доезжает до экрана.
+    """
+    text = Text()
+    for row in range(0, _H, 2):
+        for x in range(_W):
+            top = _colour(x, row)
+            bottom = _colour(x, row + 1) if row + 1 < _H else None
+            if top is None and bottom is None:
+                text.append(" ")
+            elif top is None:
+                text.append("▄", style=Style(color=_hex(bottom)))  # type: ignore[arg-type]
+            elif bottom is None:
+                text.append("▀", style=Style(color=_hex(top)))
+            else:
+                text.append("▀", style=Style(color=_hex(top), bgcolor=_hex(bottom)))
+        if row + 2 < _H:
+            text.append("\n")
+    return text
+
+
+def wordmark_text() -> Text:
+    """Имя продукта крупными буквами как ``rich.text.Text``."""
+    style = Style(color=_hex(STEEL), bold=True)
+    text = Text()
+    for index, line in enumerate(wordmark_lines(colour=False)):
+        if index:
+            text.append("\n")
+        text.append(line, style=style)
+    return text
 
 
 if __name__ == "__main__":  # pragma: no cover — ручной просмотр логотипа

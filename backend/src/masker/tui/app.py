@@ -26,7 +26,7 @@ from textual.widgets import (
     Static,
 )
 
-from masker.branding import PRODUCT, TAGLINE, logo_lines
+from masker.branding import PRODUCT, TAGLINE, logo_text, wordmark_text
 from masker.cli_ui import _STAGES
 from masker.entity_types import EntityTypeRegistry, builtin_specs
 from masker.tui.service import (
@@ -61,8 +61,8 @@ class WelcomeScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         with Center(), Container(id="welcome-card"):
-            yield Static("\n".join(logo_lines(colour=False)), id="logo")
-            yield Label(PRODUCT, id="product-name")
+            yield Static(logo_text(), id="logo")
+            yield Static(wordmark_text(), id="product-name")
             yield Label(TAGLINE, id="tagline")
             yield Button("Начать обезличивание", id="start", variant="primary")
             yield Label("Файлы не покидают ваш компьютер", id="local-note")
@@ -326,7 +326,7 @@ class DocVeilApp(App[None]):
         background: #F0F2F6; border: tall #8090B0;
     }
     #welcome-card > * { width: 1fr; content-align: center middle; }
-    #logo { color: #203060; height: 16; }
+    #logo { height: 16; }
     #product-name { color: #203060; text-style: bold; }
     #tagline { color: #5070A0; margin-bottom: 1; }
     #files, SelectionList, RichLog, DataTable {

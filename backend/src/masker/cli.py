@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from masker.cli_args import build_parser, parse_types
-from masker.cli_ui import CliPresenter
+from masker.cli_ui import CliPresenter, ensure_utf8_output
 from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.questions import parse_answers
@@ -305,6 +305,9 @@ def _resume(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # До любого разбора аргументов: `--help` печатается внутри argparse и на
+    # однобайтовой консоли Windows падает раньше, чем мы что-либо покажем.
+    ensure_utf8_output()
     command_args = sys.argv[1:] if argv is None else argv
     if command_args and command_args[0] == "tui":
         # Textual и весь интерфейс намеренно остаются вне CLI: этот модуль

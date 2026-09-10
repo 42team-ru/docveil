@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,7 +14,7 @@ from docx.oxml.ns import qn
 
 import masker.render.docx_redact as docx_redact_module
 from masker.cli import EXIT_LEAK, main
-from masker.cli_ui import CliPresenter
+from masker.cli_ui import CliPresenter, ensure_utf8_output
 from masker.ingest.docx_ingest import iter_runs
 from masker.model import CRITICAL_TYPES
 
@@ -921,3 +923,25 @@ def test_cli_still_rejects_txt(tmp_path: Path) -> None:
     source.write_text("test", encoding="utf-8")
     with pytest.raises(SystemExit, match="2"):
         main([str(source), "--out", str(tmp_path)])
+
+
+def test_help_survives_single_byte_console(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--help` не падает там, где консоль не знает кириллицы.
+
+    Замерено в GitHub Actions (`Tests` #85, windows-latest): собранный
+    бинарник падал на первой же команде с
+    `UnicodeEncodeError: 'charmap' codec can't encode characters`, потому
+    что консоль Windows по умолчанию в cp1252/cp866, а весь интерфейс
+    DocVeil на русском. Здесь та же ситуация воспроизводится подменой
+    кодировки потока.
+    """
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict")
+
+    monkeypatch.setattr(sys, "stdout", stream)
+    ensure_utf8_output()
+    stream.write("Обезличить PII в DOCX/PDF\n")
+    stream.flush()
+
+    assert stream.encoding.lower() in {"utf-8", "utf8"}

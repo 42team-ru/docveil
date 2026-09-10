@@ -6,6 +6,7 @@ TTY получает краткий Rich-индикатор, перенапра�
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import time
 from collections.abc import Mapping
@@ -39,6 +40,44 @@ _STAGES: tuple[tuple[str, str], ...] = (
     ("report", "Сборка отчёта"),
 )
 _STAGE_LABELS = dict(_STAGES)
+
+
+def ensure_utf8_output() -> None:
+    """Заставить stdout/stderr говорить в UTF-8 до первой печати.
+
+    Консоль Windows по умолчанию живёт в однобайтовой кодировке (cp1252 в
+    англоязычной системе, cp866 в русской), а весь интерфейс DocVeil на
+    русском. Без этой правки первая же строка помощи роняет процесс:
+
+        UnicodeEncodeError: 'charmap' codec can't encode characters
+
+    Замерено на сборке бинарника в GitHub Actions (`Tests` #85,
+    windows-latest): падал `docveil --help`, то есть любой пользователь
+    Windows получил бы это на первой команде.
+
+    Правится в приложении, а не переменной `PYTHONUTF8` в CI: переменная
+    чинит сборку и оставляет дефект людям.
+
+    Кодовая страница консоли меняется отдельно от кодировки потоков: без
+    неё Python отдаёт корректный UTF-8, но консоль рисует его как «Ð Ð°».
+    """
+    if sys.platform == "win32":  # pragma: no cover — путь только для Windows
+        # Консоли может не быть вовсе (запуск из планировщика, пайп) — это
+        # не повод падать: ниже потоки всё равно станут UTF-8.
+        with contextlib.suppress(AttributeError, OSError):
+            import ctypes
+
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)  # type: ignore[attr-defined]
+            ctypes.windll.kernel32.SetConsoleCP(65001)  # type: ignore[attr-defined]
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        # `replace`, а не отказ: испорченный символ в выводе — мелочь,
+        # упавший прогон обезличивания — нет.
+        with contextlib.suppress(OSError, ValueError):
+            reconfigure(encoding="utf-8", errors="replace")
 
 
 class CliPresenter:

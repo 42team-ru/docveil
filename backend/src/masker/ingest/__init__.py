@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 #: Расширения (в нижнем регистре, с точкой), которые умеет разобрать движок.
-SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf", ".xlsx"})
+SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf", ".xlsx", ".jpg", ".jpeg", ".png", ".tif", ".tiff"})
 
 #: Человеческое перечисление для сообщений об ошибке: «DOCX, PDF или XLSX».
 SUPPORTED_TITLES = ", ".join(sorted(suffix.lstrip(".").upper() for suffix in SUPPORTED_SUFFIXES))

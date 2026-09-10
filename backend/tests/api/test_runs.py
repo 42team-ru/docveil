@@ -272,6 +272,18 @@ def test_answers_with_wrong_schema_version_are_422(client: TestClient, storage: 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+def test_image_output_format_default_is_accepted(client: TestClient, storage: Path) -> None:
+    """image_output_format=«original» (дефолт) принимается без ошибок."""
+    response = client.post("/api/runs", json={**_BODY, "image_output_format": "original"})
+    assert response.status_code == status.HTTP_202_ACCEPTED
+
+
+def test_image_output_format_pdf_is_accepted(client: TestClient, storage: Path) -> None:
+    """image_output_format=«pdf» также принимается (конвертация картинки)."""
+    response = client.post("/api/runs", json={**_BODY, "image_output_format": "pdf"})
+    assert response.status_code == status.HTTP_202_ACCEPTED
+
+
 def test_unknown_run_id_is_404(client: TestClient) -> None:
     assert client.get(f"/api/runs/{uuid.uuid4()}").status_code == status.HTTP_404_NOT_FOUND
 

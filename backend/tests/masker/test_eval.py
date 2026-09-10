@@ -105,6 +105,11 @@ def _patch_corpora(
         return list(main)
 
     monkeypatch.setattr(eval_module, "load_corpus", fake)
+    # feat-image-ingest, шаг И5: `run()` также зовёт `load_image_corpus`
+    # для картиночного корпуса. Тесты, не проверяющие этот блок, обязаны
+    # его тоже подменить — иначе реальный `fixtures/labeled/image_*.jpg`
+    # попадёт в ворота и сорвёт сценарий.
+    monkeypatch.setattr(eval_module, "load_image_corpus", list)
     monkeypatch.setattr(
         eval_module, "_profile_judge_metrics", lambda _corpus: dict(_NEUTRAL_PROFILE_JUDGE_METRICS)
     )
@@ -132,7 +137,9 @@ def _patch_mask_and_validate(
     """Подменить `masker.pipeline.mask_and_validate` на заранее заготовленные результаты."""
 
     @contextmanager
-    def fake(path: Path, *, types: Any, custom_types: Any = ()) -> Iterator[MaskResult]:
+    def fake(
+        path: Path, *, types: Any, custom_types: Any = (), ocr: Any = None
+    ) -> Iterator[MaskResult]:
         yield by_path[str(path)]
 
     monkeypatch.setattr("masker.pipeline.mask_and_validate", fake)

@@ -61,6 +61,8 @@ class RunCreateRequest(BaseModel):
     #: Скомпилированные спеки пользовательских типов
     #: (`/api/custom_types/compile` → `RunOptions.custom_types`).
     custom_types: list[dict[str, Any]] = Field(default_factory=list)
+    #: Формат выходного файла при ingest картинки (JPEG/PNG/TIFF).
+    image_output_format: Literal["original", "pdf"] = "original"
 
 
 class RunResponse(BaseModel):

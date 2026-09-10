@@ -43,6 +43,31 @@ class ProfileAnchorOut(BaseModel):
     locator: list[str | int]
 
 
+class BboxRegionOut(BaseModel):
+    """Одна прямоугольная область сущности на странице PDF-артефакта.
+
+    Координаты нормализованы 0..1 по размерам страницы готового
+    ``masked_highlight.pdf`` (не исходного документа) — фронт умножит на
+    физический размер canvas в любом zoom без пересчёта. Одна сущность на
+    одной странице — один регион; сущность, попавшая на две страницы
+    (перенос), даёт две записи с разными ``page``.
+    """
+
+    page: int  # 0-based
+    x0: float  # 0..1
+    y0: float
+    x1: float
+    y1: float
+
+
+class PageInfoOut(BaseModel):
+    """Размеры одной страницы готового PDF-артефакта в pt — ``report.pages[]``."""
+
+    page: int  # 0-based
+    width_pt: float
+    height_pt: float
+
+
 class EntityBareOut(BaseModel):
     """Сущность без адресации в план — `profile_judge.candidates[]`."""
 
@@ -67,6 +92,8 @@ class EntityRecordOut(EntityBareOut):
     decision: Action | None = None
     decided_by: str | None = None
     reason: str | None = None
+    #: Координаты сущности на страницах PDF-артефакта, 0..1 по размерам страницы.
+    regions: list[BboxRegionOut] = Field(default_factory=list)
 
 
 class PiiEntryOut(EntityRecordOut):
@@ -389,6 +416,8 @@ class ReportOut(BaseModel):
     layout: list[LayoutOut]
     #: Дубль `validation.certificate` на верхнем уровне (план М3).
     certificate: CertificateOut | None = None
+    #: Размеры страниц готового PDF-артефакта.
+    pages: list[PageInfoOut] = Field(default_factory=list)
 
 
 class AskDocumentOut(BaseModel):

@@ -119,4 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="разрешить снятие маски с критичных типов/профилей (первое из двух подтверждений)",
     )
+    flow_group.add_argument(
+        "--output-format",
+        choices=["original", "pdf"],
+        default="original",
+        dest="output_format",
+        help="формат вывода для картинок: original — исходный формат, pdf — одностраничный PDF",
+    )
     return parser

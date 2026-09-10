@@ -8,10 +8,12 @@ LLM в ``State`` не кладётся: узлы, которым он нужен
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from langgraph.types import interrupt
 
@@ -55,7 +57,10 @@ from masker.graph.serde import (
 )
 from masker.graph.state import State
 from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND
+from masker.highlights import build_regions_by_ref, page_infos_for_report
 from masker.ingest.docx_ingest import ingest_docx
+from masker.ingest.image_ingest import ingest_image
+from masker.ingest.image_meta import SUPPORTED_SUFFIXES as _IMAGE_SUFFIXES
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.judge import JudgeAgent
@@ -81,7 +86,13 @@ from masker.render import docx_preview as docx_preview_module
 from masker.render import docx_redact as docx_redact_module
 from masker.render import pdf_render as pdf_render_module
 from masker.render import xlsx_redact as xlsx_redact_module
-from masker.report.coverage import detection_coverage, docx_coverage, pdf_coverage, xlsx_coverage
+from masker.report.coverage import (
+    detection_coverage,
+    docx_coverage,
+    image_coverage,
+    pdf_coverage,
+    xlsx_coverage,
+)
 from masker.report.payload import (
     _leak_record,
     _validation_record,
@@ -93,6 +104,9 @@ from masker.report.payload import (
 from masker.telemetry import RUNTIME_METRICS_NAME, LLMPricing, MeteringProvider, report_telemetry
 from masker.typeconfig import CustomTypeSpec, load_type_config
 from masker.validate import ValidateAgent
+
+if TYPE_CHECKING:
+    from masker.ingest.image_meta import ImageMetadata
 
 StageObserver = Callable[[str, str, str], None]
 
@@ -188,6 +202,13 @@ def _extract(state: State, ocr: OCRProvider | None) -> dict[str, object]:
     elif suffix == ".xlsx":
         document = ingest_xlsx(path)
         coverage = xlsx_coverage(path, document)
+    elif suffix in _IMAGE_SUFFIXES:
+        # Одностраничная картинка → одностраничный PDF под капотом (см.
+        # `ingest_image`); гейт документа поднимает `NotADocumentError`
+        # (подкласс `ValueError`), LangGraph заворачивает её в
+        # `RunFailedError` на уровне сервиса прогона.
+        document = ingest_image(path, ocr=ocr)
+        coverage = image_coverage(path, document)
     else:
         raise ValueError(f"неподдерживаемый формат файла: {path.name}")
     return {
@@ -813,7 +834,14 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         artifact_dir = deps.artifact_dir
         artifact_dir.mkdir(parents=True, exist_ok=True)
 
-        source = Path(state["path"])
+        # Прогон, начавшийся с картинки, идёт через промежуточный PDF (см.
+        # `ingest_image` → `meta["image_intermediate_pdf"]`); рендер PDF
+        # не умеет открывать .jpg/.png, поэтому source подменяем на PDF.
+        state_meta = state.get("meta", {})
+        intermediate_pdf = (
+            state_meta.get("image_intermediate_pdf") if isinstance(state_meta, dict) else None
+        )
+        source = Path(str(intermediate_pdf)) if intermediate_pdf else Path(state["path"])
         document = _document(state)
         plan = plan_from_dict(state.get("plan", {}))
         # Preview подсвечивает то же, что попало бы в маску — сущности из
@@ -834,6 +862,13 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         # решение заказчика) — не падение, факт для отчёта человеку: где
         # узкое поле не вместило полный маркер и чем реально закрыт текст.
         render_degradations: list[dict[str, object]] = []
+        # План feat/highlight-coords-edits: план, обогащённый геометрией
+        # ``paint_regions`` после PDF-рендера. Нужен ``_build_report_dict``
+        # для секции ``entities[].regions``. Обновляем от первого
+        # PDF-рендера (``masked_highlight`` идёт раньше ``masked_black`` в
+        # ``_ARTIFACT_ROLE_ORDER``); повторное затирание другой ролью
+        # запрещено — геометрия обеих одинакова.
+        plan_with_geometry = plan
         for role in _ARTIFACT_ROLE_ORDER:
             if role == "preview":
                 if not preview_enabled:
@@ -867,6 +902,10 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                         style=style,
                         highlight_background=highlight_background,
                     )
+                    if plan_with_geometry is plan:
+                        plan_with_geometry = dataclasses.replace(
+                            plan, replacements=outcome.replacements
+                        )
                     groups_by_id = {group.id: group for group in plan.groups}
                     # Только реальные спуски по лестнице отступления (план
                     # М1) — пустой ``fallback_reason`` означает «показан
@@ -913,9 +952,106 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     "redacting": redacting,
                 }
             )
-        return {"artifacts": artifacts, "render_degradations": render_degradations}
+        result: dict[str, object] = {
+            "artifacts": artifacts,
+            "render_degradations": render_degradations,
+        }
+        # Обновлённый план в state — только если рендер PDF действительно
+        # шёл (иначе ``plan_with_geometry is plan``, обновлять нечего).
+        if plan_with_geometry is not plan:
+            result["plan"] = plan_to_dict(plan_with_geometry)
+        return result
 
     return render_node
+
+
+def _image_meta_from_state(state: State) -> ImageMetadata | None:
+    """Восстановить `ImageMetadata` из `state["meta"]`, если исходник — картинка.
+
+    Возвращает `None`, если ключа `image_source` нет (исходник — не картинка,
+    ветка конвертации выключена). Не поднимает исключений при частично
+    отсутствующих полях: если картинку прогоняли не через ingest_image
+    (руками собранное state), возвращаем None и молча пропускаем экспорт.
+    """
+    meta = state.get("meta", {})
+    if not isinstance(meta, dict) or "image_source" not in meta:
+        return None
+    from masker.ingest.image_meta import DEFAULT_DPI, ImageMetadata
+
+    try:
+        return ImageMetadata(
+            name=str(meta["image_source"]),
+            suffix=str(meta.get("image_suffix", "")),
+            width=int(meta.get("image_width", 0)),
+            height=int(meta.get("image_height", 0)),
+            format=str(meta.get("image_format", "")),
+            mode=str(meta.get("image_mode", "RGB")),
+            channels=3,
+            bit_depth=24,
+            dpi_x=int(meta.get("image_dpi_x", DEFAULT_DPI)),
+            dpi_y=int(meta.get("image_dpi_y", DEFAULT_DPI)),
+            orientation=int(meta.get("image_orientation", 1)),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def image_export_node(state: State) -> dict[str, object]:
+    """Экспорт PDF-артефактов обратно в исходный формат картинки.
+
+    Идёт после `validate_node`: валидация побайтового отсутствия исходной
+    строки уже прошла на PDF-артефактах (инвариант 2 плана). Если исходник
+    не картинка либо `options.image_output_format == "pdf"` — узел ничего
+    не делает и не меняет `artifacts`. Иначе для каждого артефакта
+    `.pdf` строится картинка тем же расширением, что у исходника, PDF
+    удаляется, путь и имя в `state["artifacts"]` обновляются.
+    """
+    meta_image = _image_meta_from_state(state)
+    if meta_image is None:
+        return {}
+    options = state.get("options", {})
+    output_format = str(options.get("image_output_format", "original"))
+    state_meta = state.get("meta", {})
+    intermediate_pdf = (
+        state_meta.get("image_intermediate_pdf") if isinstance(state_meta, dict) else None
+    )
+    if output_format != "original":
+        # Пользователь попросил PDF — артефакты уже PDF, ничего не делаем;
+        # промежуточный (входной) PDF тоже удаляем: он больше не нужен, и
+        # оставлять его в системном tmp плодит мусор между прогонами.
+        if intermediate_pdf:
+            Path(str(intermediate_pdf)).unlink(missing_ok=True)
+        return {}
+
+    from masker.render.image_export import pdf_to_image
+
+    artifacts = list(state.get("artifacts", []))
+    updated: list[dict[str, object]] = []
+    for item in artifacts:
+        pdf_path = Path(str(item["path"]))
+        if pdf_path.suffix.lower() != ".pdf":
+            updated.append(dict(item))
+            continue
+        target = pdf_path.with_suffix(meta_image.suffix)
+        pdf_to_image(pdf_path, meta_image, target)
+        # PDF-артефакт не удаляем: `pipeline.mask_and_validate` вызывает
+        # ValidateAgent повторно вне графа, а `ValidateAgent` не умеет
+        # открывать .jpg/.png. Оставляем PDF рядом, чтобы сторонний
+        # потребитель мог перепроверить прогон на «настоящем» артефакте.
+        # Итоговый пользователь видит картинку по обновлённому `path`.
+        updated.append(
+            {
+                **item,
+                "name": target.name,
+                "path": str(target),
+            }
+        )
+    # Промежуточный PDF (из ingest'а) не удаляем: `mask_and_validate`
+    # вызывает `ValidateAgent().validate(..., source=path)` вне графа, и
+    # если source-путь — .jpg, `ValidateAgent` не умеет его открыть. Держим
+    # промежуточный PDF живым до конца прогона; его удалит вызывающий,
+    # когда закончит с MaskResult (см. `pipeline.mask_and_validate`).
+    return {"artifacts": updated}
 
 
 def validate_node(state: State) -> dict[str, object]:
@@ -934,11 +1070,41 @@ def validate_node(state: State) -> dict[str, object]:
             "leaked": [],
         }
     plan = plan_from_dict(state.get("plan", {}))
-    validation_report = ValidateAgent().validate(plan, redacting_paths, source=Path(state["path"]))
+    # source для layout-проверки — тот же PDF, что видел рендер: у картинки
+    # `state["path"]` это .jpg/.png, а `meta["image_intermediate_pdf"]` — PDF.
+    state_meta = state.get("meta", {})
+    intermediate_pdf = (
+        state_meta.get("image_intermediate_pdf") if isinstance(state_meta, dict) else None
+    )
+    source_path = Path(str(intermediate_pdf)) if intermediate_pdf else Path(state["path"])
+    validation_report = ValidateAgent().validate(plan, redacting_paths, source=source_path)
     return {
         "validation": _validation_record(validation_report),
         "leaked": [_leak_record(leak) for leak in validation_report.leaked],
     }
+
+
+def _pick_pdf_artifact(artifacts: list[dict[str, object]]) -> Path | None:
+    """Первый попавшийся редактирующий PDF-артефакт для нормализации bbox.
+
+    План feat/highlight-coords-edits: координаты в отчёте и координаты
+    правок оператора нормализуются к размерам страниц одного и того же
+    файла. Порядок ролей фиксирован (``_ARTIFACT_ROLE_ORDER``), поэтому
+    ``masked_highlight.pdf`` встречается раньше ``masked_black.pdf`` — при
+    любом стиле рендера победит именно тот файл, что уходит фронту.
+    ``None`` — валидный ответ, если PDF-артефактов нет вовсе (docx/xlsx).
+    """
+    for item in artifacts:
+        if not item.get("redacting"):
+            continue
+        raw_path = item.get("path")
+        if not isinstance(raw_path, str):
+            continue
+        path = Path(raw_path)
+        if path.suffix.lower() != ".pdf":
+            continue
+        return path
+    return None
 
 
 def _entity_questions_summary(
@@ -1071,6 +1237,44 @@ def _build_report_dict(
     if verifier:
         report["verifier"] = verifier
     report["preview_only"] = preview_only
+    # План feat/highlight-coords-edits (К1): координаты сущностей и размеры
+    # страниц PDF-артефакта для отрисовки на канвасе фронта. Артефакт —
+    # первый попавшийся PDF из ``state["artifacts"]`` с ``redacting=True``
+    # (обычно ``masked_highlight.pdf``, а если стиль ``blackbox`` — то
+    # ``masked_black.pdf``). Для docx/xlsx PDF-артефакта нет и оба поля
+    # пусты; ``pages: []`` и ``regions: []`` — валидный ответ, не выдумываем
+    # геометрию, которой не существует.
+    artifact_pdf_path = _pick_pdf_artifact(artifacts)
+    regions_by_ref = build_regions_by_ref(plan, artifact_pdf_path) if plan else {}
+    if regions_by_ref:
+        for entity_record in report.get("entities", []):
+            ref = entity_record.get("ref")
+            if isinstance(ref, str) and ref in regions_by_ref:
+                entity_record["regions"] = [
+                    {
+                        "page": bbox.page,
+                        "x0": bbox.x0,
+                        "y0": bbox.y0,
+                        "x1": bbox.x1,
+                        "y1": bbox.y1,
+                    }
+                    for bbox in regions_by_ref[ref]
+                ]
+        for chunk_record in report.get("chunks", []):
+            for pii_record in chunk_record.get("pii", []):
+                ref = pii_record.get("ref")
+                if isinstance(ref, str) and ref in regions_by_ref:
+                    pii_record["regions"] = [
+                        {
+                            "page": bbox.page,
+                            "x0": bbox.x0,
+                            "y0": bbox.y0,
+                            "x1": bbox.x1,
+                            "y1": bbox.y1,
+                        }
+                        for bbox in regions_by_ref[ref]
+                    ]
+    report["pages"] = page_infos_for_report(artifact_pdf_path)
     report["validation"] = state.get(
         "validation", _validation_skipped("preview_only: --redact-style не задан")
     )

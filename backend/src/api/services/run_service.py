@@ -71,9 +71,7 @@ _STYLES_BY_MASK_STYLE: dict[str, tuple[str, ...]] = {
     "both": ("marker", "blackbox"),
 }
 
-#: Единственный источник — слой разбора движка (`masker.ingest`). Свой
-#: список здесь однажды уже разошёлся с движком: XLSX работал в воротах и
-#: отдавал 422 через API.
+#: Единственный источник — слой разбора движка (`masker.ingest`).
 SUPPORTED_SUFFIXES = ENGINE_SUFFIXES
 
 
@@ -130,6 +128,7 @@ def _run_options(request: RunCreateRequest, document_format: str) -> RunOptions:
         preview=True,
         review=request.review,
         custom_types=tuple(request.custom_types),
+        image_output_format=request.image_output_format,
     )
 
 

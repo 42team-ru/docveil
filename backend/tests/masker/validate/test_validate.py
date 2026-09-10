@@ -444,6 +444,7 @@ def test_validate_attaches_certificate_for_pdf_with_source(tmp_path: pathlib.Pat
         "leak_scan",
         "metadata_cleared",
         "width_quantization",
+        "image_metadata_stripped",
     }
 
 

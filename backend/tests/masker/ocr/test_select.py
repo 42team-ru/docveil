@@ -1,4 +1,4 @@
-"""Селектор ``masker.ocr.select_ocr``: дефолт, unknown, ленивая инициализация."""
+"""Селектор ``masker.ocr.select_ocr``: дефолт, YAML, env, ленивая инициализация."""
 
 from __future__ import annotations
 

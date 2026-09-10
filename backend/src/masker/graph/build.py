@@ -24,6 +24,7 @@ from masker.graph.nodes import (
     ask_human_node,
     ask_review_node,
     finalize_node,
+    image_export_node,
     make_detect_node,
     make_extract_node,
     make_judge_node,
@@ -133,6 +134,7 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     graph.add_node("summary", _instrument("summary", make_summary_node(deps), deps))  # type: ignore[call-overload]
     graph.add_node("render", _instrument("render", make_render_node(deps), deps))  # type: ignore[call-overload]
     graph.add_node("validate", _instrument("validate", validate_node, deps))  # type: ignore[call-overload]
+    graph.add_node("image_export", _instrument("image_export", image_export_node, deps))  # type: ignore[call-overload]
     graph.add_node("report", _instrument("report", make_report_node(deps), deps))  # type: ignore[call-overload]
     graph.add_node("ask_review", _instrument("ask_review", ask_review_node, deps))  # type: ignore[call-overload]
     graph.add_node(  # type: ignore[call-overload]
@@ -156,7 +158,10 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     graph.add_edge("plan", "summary")
     graph.add_edge("summary", "render")
     graph.add_edge("render", "validate")
-    graph.add_edge("validate", "report")
+    # `image_export` идёт после валидации: проверка PDF-артефакта «нет
+    # исходной строки» выполняется до подмены на JPEG/PNG/TIFF.
+    graph.add_edge("validate", "image_export")
+    graph.add_edge("image_export", "report")
     # Второй круг: оператор видит отчёт и правит результат, после чего
     # документ пересобирается тем же путём plan → … → report. Ровно один
     # раунд — иначе прогон не заканчивается никогда (``needs_review``).

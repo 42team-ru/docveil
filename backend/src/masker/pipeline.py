@@ -151,11 +151,37 @@ def mask_and_validate(
             for item in outcome.state.get("artifacts", [])
             if item.get("redacting")
         )
-        validation = ValidateAgent().validate(plan, artifacts, source=Path(path))
-        render_degradations = tuple(outcome.state.get("render_degradations", []))
-        yield MaskResult(
-            plan=plan,
-            validation=validation,
-            artifacts=artifacts,
-            render_degradations=render_degradations,
+        # Для прогонов, начавшихся с картинки, `ValidateAgent` не умеет
+        # читать .jpg/.png; повторная валидация делается на PDF-артефактах
+        # (лежат рядом с картинкой с тем же basename) и на промежуточном
+        # PDF-источнике из ingest'а — план feat-image-ingest, инвариант 2.
+        state_meta = outcome.state.get("meta", {}) or {}
+        intermediate_pdf = (
+            state_meta.get("image_intermediate_pdf") if isinstance(state_meta, dict) else None
         )
+        image_suffixes = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+        if intermediate_pdf and any(a.suffix.lower() in image_suffixes for a in artifacts):
+            validate_artifacts = tuple(
+                (a.with_suffix(".pdf") if a.suffix.lower() in image_suffixes else a)
+                for a in artifacts
+            )
+            validate_source = Path(str(intermediate_pdf))
+        else:
+            validate_artifacts = artifacts
+            validate_source = Path(path)
+        validation = ValidateAgent().validate(plan, validate_artifacts, source=validate_source)
+        render_degradations = tuple(outcome.state.get("render_degradations", []))
+        try:
+            yield MaskResult(
+                plan=plan,
+                validation=validation,
+                artifacts=artifacts,
+                render_degradations=render_degradations,
+            )
+        finally:
+            # Промежуточный PDF-исходник картинки (`ingest_image`
+            # держит его до конца прогона) — удаляем: temp-каталог
+            # `scratch` вычищается сам, а intermediate_pdf лежит в
+            # системном tmp и утечёт между запусками.
+            if intermediate_pdf:
+                Path(str(intermediate_pdf)).unlink(missing_ok=True)

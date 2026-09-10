@@ -61,14 +61,7 @@ def _run_options_from_args(
     source: Path,
     interactive: bool,
 ) -> RunOptions:
-    """Опции графа из CLI.
-
-    ``styles``/``preview`` вне ``thread_id`` (T1.10, раздел 4), но фон
-    читаемой маски в нём: разные цвета должны вести к разным артефактам.
-
-    PDF всегда ``profile=False`` (риск R5): человек в цикле и профили для
-    PDF не реализованы (T2.2 покрывает только детекцию).
-    """
+    """Опции графа из CLI. PDF принудительно ``profile=False`` (риск R5, T2.2)."""
     types_tuple = (
         None
         if selected_types == frozenset(EntityType)
@@ -85,6 +78,7 @@ def _run_options_from_args(
         styles=styles_for_redact_option(args.redact_style),
         preview=True,
         highlight_background=args.highlight_background,
+        image_output_format=args.output_format,
     )
 
 
@@ -174,13 +168,7 @@ def _start(
     *,
     interactive: bool,
 ) -> int:
-    """Начать прогон файла через граф.
-
-    ``interactive`` — только при ``--ask``/``--answers``: вправе
-    приостановиться на ``ask_human``, ``--fresh`` берётся с CLI как есть.
-    Пакетный прогон нескольких файлов — всегда ``fresh=True`` (T1.10, шаг
-    9), иначе второй прогон того же файла упрётся в ``AlreadyFinishedError``.
-    """
+    """Начать прогон файла. Пакет файлов всегда ``fresh=True`` — иначе AlreadyFinishedError."""
     artifact_dir = args.out / source.stem
     factory = sqlite_checkpointer_factory(_state_db_path(args))
     options = _run_options_from_args(args, selected_types, source=source, interactive=interactive)
@@ -235,25 +223,24 @@ def _start(
         return 10
 
     trace_paths = write_trace(artifact_dir, tracer) if tracer is not None else None
-    return _finish(
-        source,
-        outcome,
-        artifact_dir,
-        args,
-        trace_paths=trace_paths,
-        presenter=presenter,
-        elapsed_seconds=elapsed_seconds,
-    )
+    try:
+        return _finish(
+            source,
+            outcome,
+            artifact_dir,
+            args,
+            trace_paths=trace_paths,
+            presenter=presenter,
+            elapsed_seconds=elapsed_seconds,
+        )
+    finally:
+        meta = outcome.state.get("meta")
+        if isinstance(meta, dict) and (p := meta.get("image_intermediate_pdf")):
+            Path(str(p)).unlink(missing_ok=True)
 
 
 def _resume(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    """Вторая фаза: прислать ответы на приостановленный прогон.
-
-    Каталог артефактов зависит от имени файла первой фазы (``meta.name``),
-    уже лежащего в чекпойнте на паузе ``ask_human``: читается через
-    ``get_state`` без выполнения узлов, чтобы ``render_node`` внутри
-    ``resume_run`` сразу писал в правильный каталог (T1.10, шаг 9).
-    """
+    """Вторая фаза: ответы. ``meta.name`` читается через ``get_state``, без запуска узлов."""
     if args.answers is None:
         parser.error("--resume требует --answers")
     answers = _load_answers(args.answers, parser)

@@ -185,6 +185,9 @@ def _isolate_from_rest_of_the_gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
             [(docx_path, labels)] if fixtures == eval_module.FIXTURES else []
         ),
     )
+    # feat-image-ingest: `run()` также зовёт `load_image_corpus`; тесту
+    # robust_recall картиночный корпус не нужен — подменяем пустым.
+    monkeypatch.setattr(eval_module, "load_image_corpus", list)
     monkeypatch.setattr(
         eval_module, "_profile_judge_metrics", lambda _corpus: dict(_NEUTRAL_PROFILE_JUDGE_METRICS)
     )

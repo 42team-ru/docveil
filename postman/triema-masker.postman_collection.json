@@ -741,7 +741,9 @@
             "pm.test('status is 200', () => pm.response.to.have.status(200));",
             "const body = pm.response.json();",
             "pm.test('report contains contract summary, certificate and validation', () => { pm.expect(body).to.have.property('contract_summary'); pm.expect(body.certificate).to.be.an('object'); pm.expect(body.certificate.ok).to.equal(true); pm.expect(body.validation).to.be.an('object'); });",
-            "pm.test('finished document has no leaked source values', () => pm.expect(body.leaked).to.be.an('array').that.is.empty);"
+            "pm.test('finished document has no leaked source values', () => pm.expect(body.leaked).to.be.an('array').that.is.empty);",
+            "pm.test('report includes page dimensions list (empty for docx, non-empty for pdf)', () => pm.expect(body.pages).to.be.an('array'));",
+            "pm.test('every entity exposes normalized bbox regions array', () => { pm.expect(body.entities).to.be.an('array'); body.entities.forEach(e => { pm.expect(e.regions).to.be.an('array'); e.regions.forEach(r => { pm.expect(r.page).to.be.a('number'); pm.expect(r.x0).to.be.within(0, 1); pm.expect(r.y0).to.be.within(0, 1); pm.expect(r.x1).to.be.within(0, 1); pm.expect(r.y1).to.be.within(0, 1); }); }); });"
           ] } }]
         },
         {
@@ -851,6 +853,152 @@
           "name": "Submit review edits",
           "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"schema_version\": 1,\n  \"edits\": {\n    \"decisions\": { \"{{review_entity_ref}}\": \"keep\" },\n    \"type_overrides\": {},\n    \"manual\": []\n  }\n}" }, "url": { "raw": "{{base_url}}/runs/{{review_run_id}}/review", "host": ["{{base_url}}"], "path": ["runs", "{{review_run_id}}", "review"] } },
           "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 202', () => pm.response.to.have.status(202));", "const body = pm.response.json();", "pm.test('review resumption addresses the selected run', () => { pm.expect(body.id).to.equal(pm.environment.get('review_run_id')); pm.expect(body.status).to.equal('awaiting_review'); pm.expect(body.document).to.have.property('name'); });"] } }]
+        }
+      ]
+    },
+    {
+      "name": "OCR extract",
+      "description": "POST /api/ocr/extract — голое OCR без маскировки. Нужен uploaded_object_name PDF-файла (загрузить через Files > Upload File). DOCX/XLSX → 422.",
+      "item": [
+        {
+          "name": "OCR extract - PDF",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\"\n}" },
+            "url": { "raw": "{{base_url}}/ocr/extract", "host": ["{{base_url}}"], "path": ["ocr", "extract"] },
+            "description": "Распознать текст в PDF через серверный OCR-провайдер. Возвращает строки с bbox и уверенностью на каждую страницу."
+          },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('response has provider string and pages array', () => { pm.expect(body.provider).to.be.a('string').and.not.empty; pm.expect(body.pages).to.be.an('array'); });",
+            "pm.test('each page has geometry and lines array', () => { body.pages.forEach(p => { pm.expect(p.page).to.be.a('number'); pm.expect(p.width_pt).to.be.a('number').and.above(0); pm.expect(p.height_pt).to.be.a('number').and.above(0); pm.expect(p.dpi).to.be.a('number').and.above(0); pm.expect(p.lines).to.be.an('array'); }); });",
+            "pm.test('each line has text, bbox[4], polygon and confidence', () => { body.pages.forEach(p => p.lines.forEach(l => { pm.expect(l.text).to.be.a('string'); pm.expect(l.bbox).to.be.an('array').with.lengthOf(4); pm.expect(l.polygon).to.be.an('array'); pm.expect(l.confidence).to.be.a('number').and.within(0, 1); })); });"
+          ] } }]
+        },
+        {
+          "name": "OCR extract - unknown object (404)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"does-not-exist/ghost.pdf\"\n}" },
+            "url": { "raw": "{{base_url}}/ocr/extract", "host": ["{{base_url}}"], "path": ["ocr", "extract"] }
+          },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 404 for missing object', () => pm.response.to.have.status(404));"
+          ] } }]
+        },
+        {
+          "name": "OCR extract - DOCX unsupported (422)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"{{uploaded_docx_object_name}}\"\n}" },
+            "url": { "raw": "{{base_url}}/ocr/extract", "host": ["{{base_url}}"], "path": ["ocr", "extract"] },
+            "description": "Для DOCX OCR недоступен — нет визуального слоя. Нужен uploaded_docx_object_name загруженного .docx файла."
+          },
+          "response": [],
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+            "const name = pm.environment.get('uploaded_docx_object_name');",
+            "if (!name || /^<[^>]+>$/.test((name||'').trim())) { pm.execution.skipRequest(); pm.test('uploaded_docx_object_name prerequisite', () => pm.expect.fail('Загрузите DOCX через Files > Upload File и сохраните object_name в переменную uploaded_docx_object_name.')); }"
+          ] } }, { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 422 for DOCX format', () => pm.response.to.have.status(422));"
+          ] } }]
+        },
+        {
+          "name": "OCR extract - no token (401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"any/file.pdf\"\n}" },
+            "url": { "raw": "{{base_url}}/ocr/extract", "host": ["{{base_url}}"], "path": ["ocr", "extract"] }
+          },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 401 without token', () => pm.response.to.have.status(401));"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "E2E - Mask image",
+      "description": "Полный цикл для JPEG/PNG/TIFF входного файла. В окружении нужны user_email, user_password и абсолютный путь image_input_file (JPEG или PNG). image_output_format=original вернёт артефакт в том же формате; image_output_format=pdf — одностраничный PDF.",
+      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+        "const inputFile = pm.environment.get('image_input_file');",
+        "if (!inputFile || /^<[^>]+>$/.test((inputFile||'').trim())) { pm.execution.setNextRequest(null); pm.execution.skipRequest(); pm.test('image_input_file prerequisite', () => pm.expect.fail('Заполните image_input_file абсолютным путём к JPEG или PNG на машине, где запущен Postman.')); }"
+      ] } }],
+      "item": [
+        {
+          "name": "E2E Image - Upload",
+          "request": { "method": "POST", "header": [], "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "{{image_input_file}}" }] }, "url": { "raw": "{{base_url}}/files/upload", "host": ["{{base_url}}"], "path": ["files", "upload"] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('upload returns object_name', () => { pm.expect(body.object_name).to.be.a('string').and.not.empty; pm.expect(body.size).to.be.above(0); });",
+            "pm.environment.set('image_uploaded_object_name', body.object_name);"
+          ] } }]
+        },
+        {
+          "name": "E2E Image - Start run (original format)",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"{{image_uploaded_object_name}}\",\n  \"mask_style\": \"both\",\n  \"profile\": false,\n  \"review\": false,\n  \"image_output_format\": \"original\"\n}" }, "url": { "raw": "{{base_url}}/runs", "host": ["{{base_url}}"], "path": ["runs"] }, "description": "image_output_format=original: артефакт вернётся в том же формате, что входной файл." },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 202', () => pm.response.to.have.status(202));",
+            "const body = pm.response.json();",
+            "pm.test('queued run identifies the image document', () => { pm.expect(body.id).to.be.a('string').and.not.empty; pm.expect(body.status).to.equal('queued'); pm.expect(body.document).to.have.property('name'); });",
+            "pm.environment.set('image_run_id', body.id);",
+            "pm.environment.set('image_poll_attempt', '0');"
+          ] } }]
+        },
+        {
+          "name": "E2E Image - Poll run status",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{image_run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{image_run_id}}"] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.environment.set('image_run_status', body.status);",
+            "if (['queued', 'running'].includes(body.status)) {",
+            "  const attempt = Number(pm.environment.get('image_poll_attempt') || 0) + 1;",
+            "  const maximum = Number(pm.environment.get('poll_max_attempts') || 60);",
+            "  pm.environment.set('image_poll_attempt', String(attempt));",
+            "  pm.test('polling limit not exceeded', () => pm.expect(attempt).to.be.at.most(maximum));",
+            "  if (attempt < maximum) pm.execution.setNextRequest('E2E Image - Poll run status'); else pm.execution.setNextRequest(null);",
+            "} else if (body.status === 'done') {",
+            "  pm.test('image run completed', () => pm.expect(body.finished_at).to.not.equal(null));",
+            "  pm.execution.setNextRequest('E2E Image - Get report');",
+            "} else {",
+            "  pm.test('image run did not fail', () => pm.expect.fail(`unexpected status: ${body.status}; ${body.error || ''}`));",
+            "  pm.execution.setNextRequest(null);",
+            "}"
+          ] } }]
+        },
+        {
+          "name": "E2E Image - Get report",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{image_run_id}}/report", "host": ["{{base_url}}"], "path": ["runs", "{{image_run_id}}", "report"] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('image report has page dimensions', () => { pm.expect(body.pages).to.be.an('array').and.not.empty; body.pages.forEach(p => { pm.expect(p.page).to.be.a('number'); pm.expect(p.width_pt).to.be.a('number').and.above(0); pm.expect(p.height_pt).to.be.a('number').and.above(0); }); });",
+            "pm.test('image entities have non-empty regions', () => { pm.expect(body.entities).to.be.an('array'); body.entities.forEach(e => pm.expect(e.regions).to.be.an('array')); });",
+            "pm.test('no leaked source values', () => pm.expect(body.leaked).to.be.an('array').that.is.empty);"
+          ] } }]
+        },
+        {
+          "name": "E2E Image - Download artifact (original format)",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{image_run_id}}/artifacts/masked_highlight", "host": ["{{base_url}}"], "path": ["runs", "{{image_run_id}}", "artifacts", "masked_highlight"] }, "description": "Артефакт должен прийти в формате исходной картинки (image/jpeg или image/png), а не как PDF." },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "pm.test('artifact is an image, not a pdf', () => { const ct = pm.response.headers.get('Content-Type') || ''; pm.expect(ct).to.match(/^image\\//); pm.expect(ct).to.not.include('pdf'); });",
+            "pm.test('artifact has a filename disposition', () => pm.expect(pm.response.headers.get('Content-Disposition')).to.contain('filename='));"
+          ] } }]
         }
       ]
     },

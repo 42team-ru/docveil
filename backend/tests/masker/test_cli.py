@@ -925,6 +925,90 @@ def test_cli_still_rejects_txt(tmp_path: Path) -> None:
         main([str(source), "--out", str(tmp_path)])
 
 
+def _install_fake_ocr_for_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Подменить `select_ocr` на FakeOCR с распознанным содержательным текстом."""
+    from masker.ocr.fake import FakeOCR
+    from masker.ocr.provider import OCRLine
+
+    def _line(text: str, y: int) -> OCRLine:
+        return OCRLine(
+            text=text,
+            bbox=(50.0, float(y), 50.0 + 10.0 * len(text), float(y + 20)),
+            polygon=(
+                (50.0, float(y)),
+                (50.0 + 10.0 * len(text), float(y)),
+                (50.0 + 10.0 * len(text), float(y + 20)),
+                (50.0, float(y + 20)),
+            ),
+            confidence=1.0,
+        )
+
+    fake = FakeOCR(
+        lines=(
+            _line("Договор поставки товара №42", 80),
+            _line("ИНН 7707083893 КПП 770701001", 180),
+            _line("Стороны: ООО Ромашка и ИП Иванов И И", 280),
+        )
+    )
+    monkeypatch.setattr("masker.cli.select_ocr", lambda: fake)
+
+
+def _write_test_image(path: Path) -> None:
+    from PIL import Image
+
+    Image.new("RGB", (900, 1200), (255, 255, 255)).save(str(path), format="JPEG", dpi=(300, 300))
+
+
+def test_cli_processes_image_and_returns_original_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`python -m masker file.jpg` → артефакт `masked_highlight.jpg`."""
+    src = tmp_path / "contract.jpg"
+    _write_test_image(src)
+    _install_fake_ocr_for_image(monkeypatch)
+
+    code = main(
+        [
+            str(src),
+            "--out",
+            str(tmp_path / "out"),
+            "--rules-only",
+            "--redact-style",
+            "marker",
+        ]
+    )
+    assert code in (0, EXIT_LEAK)
+    artifact_dir = tmp_path / "out" / src.stem
+    highlight = artifact_dir / "masked_highlight.jpg"
+    assert highlight.is_file()
+
+
+def test_cli_pdf_output_format_leaves_pdf(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--output-format=pdf` → артефакт `masked_highlight.pdf`, не картинка."""
+    src = tmp_path / "contract.png"
+    from PIL import Image
+
+    Image.new("RGB", (900, 1200), (255, 255, 255)).save(str(src), format="PNG", dpi=(300, 300))
+    _install_fake_ocr_for_image(monkeypatch)
+
+    code = main(
+        [
+            str(src),
+            "--out",
+            str(tmp_path / "out"),
+            "--rules-only",
+            "--redact-style",
+            "marker",
+            "--output-format",
+            "pdf",
+        ]
+    )
+    assert code in (0, EXIT_LEAK)
+    artifact_dir = tmp_path / "out" / src.stem
+    assert (artifact_dir / "masked_highlight.pdf").is_file()
+    assert not (artifact_dir / "masked_highlight.png").exists()
+
+
 def test_help_survives_single_byte_console(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

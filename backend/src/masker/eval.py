@@ -376,6 +376,9 @@ MAX_NEGATIVE_FALSE_POSITIVES = 2
 #: находиться через FakeOCR так же, как в текстовых документах: если OCR
 #: возвращает строку с ИНН, пайплайн обязан его замаскировать.
 MIN_SCAN_CRITICAL_RECALL = 1.0
+#: Картиночный корпус (image_* в fixtures/labeled) — прогон одностраничных
+#: JPEG/PNG через тот же путь, что и скан-PDF (feat-image-ingest, шаг И5).
+MIN_IMAGE_CRITICAL_RECALL = 1.0
 
 
 def _make_fake_ocr_from_sidecar(pdf_path: pathlib.Path) -> Any:
@@ -416,6 +419,99 @@ def _make_fake_ocr_from_sidecar(pdf_path: pathlib.Path) -> Any:
         lines = tuple(_to_line(raw) for raw in page["lines"])
         by_size[key] = lines
     return FakeOCR(by_size=by_size)
+
+
+def load_image_corpus() -> list[tuple[pathlib.Path, dict[str, Any]]]:
+    """Найти `image_*.labels.json` в `fixtures/labeled` и вернуть пары.
+
+    Отдельная загрузка, потому что `load_corpus` фильтрует по
+    `_INGEST_BY_SUFFIX`, куда картиночные расширения регистрировать
+    нельзя: `_ingest` вызывается в `_profile_judge_metrics`, а у
+    картинки нет текстового слоя без OCR.
+    """
+    corpus: list[tuple[pathlib.Path, dict[str, Any]]] = []
+    for labels in sorted(FIXTURES.glob("image_*.labels.json")):
+        stem = labels.name.replace(".labels.json", "")
+        image = next(
+            (
+                p
+                for p in FIXTURES.glob(f"{stem}.*")
+                if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+            ),
+            None,
+        )
+        if image is not None:
+            corpus.append((image, json.loads(labels.read_text(encoding="utf-8"))))
+    return corpus
+
+
+def _mask_image_corpus(
+    corpus: list[tuple[pathlib.Path, dict[str, Any]]],
+) -> MaskingMetrics:
+    """Прогнать `mask_and_validate` с FakeOCR по картиночному корпусу."""
+    from masker.pipeline import mask_and_validate
+
+    metrics = MaskingMetrics()
+    for path, labels in corpus:
+        fmt = path.suffix.casefold().lstrip(".")
+        ocr = _make_fake_ocr_from_sidecar(path)
+        custom_types = labels.get("custom_types", [])
+        try:
+            with mask_and_validate(
+                path,
+                types=list(EntityType),
+                custom_types=custom_types,
+                ocr=ocr,
+            ) as result:
+                for item in labels["entities"]:
+                    key = (path.name, item["type"], _collapse(item["text"]))
+                    metrics.by_type[item["type"]]["expected"].add(key)
+                    metrics.by_format[fmt]["expected"].add(key)
+                for repl in result.plan.replacements:
+                    key = (path.name, repl.entity.type, _collapse(repl.entity.text))
+                    metrics.by_type[repl.entity.type]["found"].add(key)
+                    metrics.by_format[fmt]["found"].add(key)
+                metrics.leaked_total += len(result.validation.leaked)
+        except Exception as error:
+            metrics.render_failures.append(f"{path.name}: {error}")
+    return metrics
+
+
+def _print_image_corpus(metrics: MaskingMetrics, registry: EntityTypeRegistry) -> list[str]:
+    print("\nIMAGE-КОРПУС (image_* с FakeOCR)")
+    print(f"{'тип':<18}{'P':>7}{'R':>7}{'F1':>7}{'FN':>5}{'FP':>5}")
+    failures: list[str] = []
+    for name in sorted(metrics.by_type):
+        m = score(metrics.by_type[name]["expected"], metrics.by_type[name]["found"])
+        print(
+            f"{name:<18}{m['precision']:>7.3f}{m['recall']:>7.3f}"
+            f"{m['f1']:>7.3f}{m['fn']:>5}{m['fp']:>5}"
+        )
+        for missing in sorted(metrics.by_type[name]["expected"] - metrics.by_type[name]["found"]):
+            print(f"    НЕ НАЙДЕНО: {missing[0]}: {missing[2]!r}")
+    critical, _ = _aggregate(metrics.by_type, registry)
+    critical_recall = (
+        critical["tp"] / (critical["tp"] + critical["fn"])
+        if critical["tp"] + critical["fn"]
+        else 1.0
+    )
+    print(
+        f"image_critical_recall{critical_recall:>12.3f}"
+        f"  ({critical['tp']}/{critical['tp'] + critical['fn']})"
+    )
+    print(f"image_leaked_total{metrics.leaked_total:>15}")
+    for failure in metrics.render_failures:
+        print(f"  РЕНДЕР: {failure}")
+    if critical_recall < MIN_IMAGE_CRITICAL_RECALL:
+        failures.append(
+            f"image_critical_recall {critical_recall:.3f} < {MIN_IMAGE_CRITICAL_RECALL} — "
+            "критичный тип не найден в OCR-сегменте картинки"
+        )
+    if metrics.leaked_total > MAX_LEAKED_TOTAL:
+        failures.append(f"image leaked_total {metrics.leaked_total} > {MAX_LEAKED_TOTAL}")
+    if metrics.render_failures:
+        failures.append(f"image render_failures: {'; '.join(metrics.render_failures)}")
+    return failures
 
 
 def _mask_scan_corpus(
@@ -1062,6 +1158,16 @@ def run(
         failures.extend(_print_scan_corpus(_mask_scan_corpus(scan_corpus), scan_registry))
     else:
         print("\nСКАН ПРОПУЩЕН: в fixtures/labeled нет scan_synth_* файлов.")
+
+    # Картиночный корпус: image_* — одностраничные JPEG/PNG с FakeOCR
+    # (feat-image-ingest, шаг И5). Отдельный загрузчик, потому что
+    # картиночные расширения не зарегистрированы в `_INGEST_BY_SUFFIX`.
+    image_corpus = load_image_corpus()
+    if image_corpus:
+        image_registry = corpus_registry(image_corpus)
+        failures.extend(_print_image_corpus(_mask_image_corpus(image_corpus), image_registry))
+    else:
+        print("\nIMAGE ПРОПУЩЕН: в fixtures/labeled нет image_* файлов.")
 
     if failures and gate:
         print("\nПОРОГИ НЕ ВЗЯТЫ:")

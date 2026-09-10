@@ -71,7 +71,14 @@ def test_engine_parses_every_declared_format() -> None:
     """Объявленный формат обязан иметь разбор в графе, а не только в списке."""
     from masker.graph import nodes
     from masker.ingest import SUPPORTED_SUFFIXES
+    from masker.ingest.image_meta import SUPPORTED_SUFFIXES as _IMAGE_SUFFIXES
 
     source = Path(nodes.__file__).read_text(encoding="utf-8")
     for suffix in SUPPORTED_SUFFIXES:
-        assert f'== "{suffix}"' in source, f"граф не разбирает объявленный формат {suffix}"
+        # Формат считается разобранным, если граф либо сравнивает суффикс явно
+        # (`== ".pdf"`), либо проверяет членство в множестве образов
+        # (`suffix in _IMAGE_SUFFIXES`) — второй паттерн покрывает все картинки.
+        handled = f'== "{suffix}"' in source or (
+            suffix in _IMAGE_SUFFIXES and "in _IMAGE_SUFFIXES" in source
+        )
+        assert handled, f"граф не разбирает объявленный формат {suffix}"

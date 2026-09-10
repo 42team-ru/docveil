@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
+import type { UploadSource } from "../../../entity/document/model/types";
 import type { MaskStyle } from "../../../entity/rule-profile/model/types";
 import { clientApiWithAuth } from "../../../shared/api/mutators/authMutator";
 import { uploadApiFilesUploadPost } from "../../../shared/api/generated/core/files/files";
@@ -75,32 +76,35 @@ export const runKeys = {
 };
 
 export type StartRunInput = {
-  file: File;
-  /** Типы ПДн из `EntityType` бэкенда; пустой список — все известные типы. */
-  types: string[];
+  source: UploadSource;
   maskStyle: MaskStyle;
 };
 
 /**
- * Запуск прогона: загрузка файла в MinIO, затем `POST /api/runs`.
- *
- * Два запроса, а не один: хранилище файлов и движок — разные подсистемы, и
- * загруженный объект переживает прогон (по нему можно завести второй прогон
- * с другими типами, не заливая файл заново).
+ * Запуск прогона. Для нового файла — сперва загрузка в MinIO, затем
+ * `POST /api/runs`; для уже загруженного объекта («Повторить прогон» в
+ * `run-details-dialog.tsx`) — сразу `POST /api/runs` по его `object_name`,
+ * без повторной загрузки байтов: объект переживает прогон именно для этого.
  */
 export function useStartRun() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ file, types, maskStyle }: StartRunInput): Promise<RunResponse> => {
-      const uploaded = await uploadApiFilesUploadPost({ file });
-      if (uploaded.status !== 200) {
-        throw new Error("Не удалось загрузить файл");
-      }
+    mutationFn: async ({ source, maskStyle }: StartRunInput): Promise<RunResponse> => {
+      const objectName =
+        source.kind === "existing"
+          ? source.objectName
+          : await (async () => {
+              const uploaded = await uploadApiFilesUploadPost({ file: source.file });
+              if (uploaded.status !== 200) {
+                throw new Error("Не удалось загрузить файл");
+              }
+              return uploaded.data.object_name;
+            })();
 
       const created = await createRunApiRunsPost({
-        object_name: uploaded.data.object_name,
-        types: types.length > 0 ? types : null,
+        object_name: objectName,
+        types: [],
         mask_style: maskStyle,
       });
       if (created.status !== 202) {

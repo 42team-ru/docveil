@@ -27,6 +27,7 @@ from api.core.storage import minio_client
 from api.models.run import RunORM
 from api.schemas.run import RunCreateRequest
 from masker.graph.nodes import RunDeps
+from masker.ingest import SUPPORTED_SUFFIXES as ENGINE_SUFFIXES
 from masker.llm import LLMProvider, get_provider, resolve_llm_config
 from masker.run import (
     AlreadyFinishedError,
@@ -70,8 +71,8 @@ _STYLES_BY_MASK_STYLE: dict[str, tuple[str, ...]] = {
     "both": ("marker", "blackbox"),
 }
 
-#: Форматы, которые умеет ingest движка (`masker.cli._SUPPORTED_SUFFIXES`).
-SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff"})
+#: Единственный источник — слой разбора движка (`masker.ingest`).
+SUPPORTED_SUFFIXES = ENGINE_SUFFIXES
 
 
 class UnsupportedFormatError(Exception):

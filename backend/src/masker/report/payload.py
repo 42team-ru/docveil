@@ -15,7 +15,7 @@ from __future__ import annotations
 import dataclasses
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from masker.detect.result import PiiChunk
 from masker.entity_types import EntityTypeRegistry
@@ -23,6 +23,9 @@ from masker.graph.serde import judge_to_dicts, profiles_to_dicts
 from masker.judge.agent import JudgeResult
 from masker.model import ConfidenceLevel, Document, Entity, Leak, MaskPlan, ValidationReport
 from masker.profile.agent import ProfileResult
+
+if TYPE_CHECKING:
+    from masker.detect.verifier import VerifierReport
 
 REPORT_VERSION = 4
 
@@ -311,6 +314,37 @@ def marker_legend(render_degradations: list[dict[str, Any]]) -> list[dict[str, A
     ]
 
 
+def verifier_record(verifier: VerifierReport, r_filter: float | None = None) -> dict[str, Any]:
+    """Сериализовать сводку LLM-верификатора на recall (Р7) — `report["verifier"]`.
+
+    Вызывающий (``build_report_payload`` в прямом пути, ``detect_node`` в
+    графе) вообще не добавляет ключ ``"verifier"``, если верификатор не
+    запускался (``verifier is None``, то есть ``DetectAgent`` собран без
+    ``llm=``) — пустая секция с нулями
+    имитировала бы «проверено, ничего нет», а слой попросту не работал.
+
+    ``r_filter`` — независимая величина (`masker.detect.verifier.
+    measure_filter_coverage`): требует размеченного корпуса, которого у
+    обычного production-документа нет, поэтому по умолчанию `None`
+    («не измерен», а не 0 — 0 означало бы «измерен и равен нулю»).
+    ``input_share`` — доля объёма документа, реально ушедшая в модель
+    (тот же смысл, что порог 5% в приёмке Р7, но посчитанный на
+    конкретном прогоне, а не на фикстуре).
+    """
+    return {
+        "windows": verifier.windows,
+        "verified": verifier.verified,
+        "unverified": verifier.unverified,
+        "unverified_by_reason": dict(sorted(verifier.unverified_by_reason.items())),
+        "input_chars": verifier.input_chars,
+        "document_chars": verifier.document_chars,
+        "input_share": (
+            verifier.input_chars / verifier.document_chars if verifier.document_chars else None
+        ),
+        "r_filter": r_filter,
+    }
+
+
 def build_report_payload(
     source: Path,
     document: Document,
@@ -326,12 +360,19 @@ def build_report_payload(
     ref_by_entity_id: dict[int, str] | None = None,
     plan: MaskPlan | None = None,
     registry: EntityTypeRegistry | None = None,
+    verifier: VerifierReport | None = None,
+    r_filter: float | None = None,
 ) -> dict[str, Any]:
     """Собрать структуру ``report.json`` из результатов агентов.
 
     ``document_coverage``/``detection_coverage`` — уже посчитанные словари
     (``masker.report.coverage``): эта функция файлов не открывает и
     детекторов не строит.
+
+    ``verifier``/``r_filter`` — Р7-2 (TASKS.md): сводка LLM-верификатора на
+    recall и (если вызывающий её измерил по разметке) доля пропущенных
+    baseline сущностей, попавших в окна. ``report["verifier"]`` появляется,
+    только когда ``verifier is not None`` — см. ``verifier_record``.
     """
     decision_by_ref = (
         {item["ref"]: item for item in decisions["by_ref"]} if decisions is not None else None
@@ -426,4 +467,6 @@ def build_report_payload(
         }
     if decisions is not None:
         report["decisions"] = decisions
+    if verifier is not None:
+        report["verifier"] = verifier_record(verifier, r_filter)
     return report

@@ -232,6 +232,49 @@ def _review_possible(report: dict[str, Any]) -> str:
     )
 
 
+def _verifier_section(report: dict[str, Any]) -> str:
+    """Блок LLM-верификатора на recall (Р7-2): вердикты и `r_filter`.
+
+    ``report.get("verifier")`` отсутствует и в старом ``report.json``, и
+    когда верификатор в этом прогоне не запускался (``DetectAgent`` собран
+    без ``llm=``) — тогда блок явно сообщает «не запускался», а не
+    выдумывает нулевую статистику (тот же приём, что и в
+    ``_review_possible``).
+    """
+    verifier = report.get("verifier")
+    if not verifier:
+        return '<p class="empty">Верификатор не запускался.</p>'
+    reasons = verifier.get("unverified_by_reason") or {}
+    reason_rows = "".join(
+        f"<tr><td>{escape(str(reason))}</td><td>{int(count)}</td></tr>"
+        for reason, count in sorted(reasons.items())
+    )
+    r_filter = verifier.get("r_filter")
+    r_filter_text = f"{float(r_filter):.3f}" if isinstance(r_filter, int | float) else "не измерен"
+    input_share = verifier.get("input_share")
+    input_share_text = (
+        f"{float(input_share):.1%}" if isinstance(input_share, int | float) else "н/д"
+    )
+    summary_table = (
+        "<table><tbody>"
+        f"<tr><td>Окон</td><td>{int(verifier['windows'])}</td></tr>"
+        f"<tr><td>Подтверждено</td><td>{int(verifier['verified'])}</td></tr>"
+        f"<tr><td>Не подтверждено</td><td>{int(verifier['unverified'])}</td></tr>"
+        "<tr><td>Объём входа</td>"
+        f"<td>{int(verifier['input_chars'])} из {int(verifier['document_chars'])} "
+        f"символов ({input_share_text})</td></tr>"
+        f"<tr><td>r_filter</td><td>{escape(r_filter_text)}</td></tr>"
+        "</tbody></table>"
+    )
+    if not reason_rows:
+        return summary_table
+    reasons_table = (
+        "<table><thead><tr><th>Причина unverified</th><th>Штук</th></tr></thead>"
+        f"<tbody>{reason_rows}</tbody></table>"
+    )
+    return summary_table + reasons_table
+
+
 def _chunks(report: dict[str, Any]) -> str:
     chunks = report["chunks"]
     if not chunks:
@@ -565,6 +608,7 @@ def render_html_report(report: dict[str, Any], source: Path, destination: Path) 
 <h2>Группы согласованности</h2>{_groups(report)}
 <h2>Легенда сокращений маркера</h2>{_marker_legend(report)}
 <h2>Снять одним кликом (уровень possible)</h2>{_review_possible(report)}
+<h2>Верификатор на recall</h2>{_verifier_section(report)}
 <h2 id="full-document">Полный документ</h2>
 <div class="legend"><span class="legend-item"><span class="legend-swatch"></span>
 Контекст chunk</span>

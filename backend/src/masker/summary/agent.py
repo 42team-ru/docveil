@@ -49,6 +49,13 @@ _VAT_MARKERS = ("ндс", "налог на добавленную стоимос
 _ADVANCE_MARKERS = ("аванс", "авансов", "предоплат")
 _PENALTY_MARKERS = ("штраф", "пен", "неустойк")
 _SECURITY_MARKERS = ("обеспечен", "гарантийн")
+_FEDERAL_LAW_REFERENCE_RE = re.compile(
+    r"\bфедеральн(?:ый|ого|ому|ым|ом|ыми|ые|ых)\s+закон(?:ами|ов|ом|а|у|е|ы)?"
+    r"(?:\s+от\s+(?:\d{1,2}\.\d{1,2}\.\d{2,4}|\d{1,2}\s+[а-яё]+\s+\d{2,4})"
+    r"(?:\s*(?:г(?:ода)?\.?)?)?(?:\s*(?:№|n)\s*\d{1,4}(?:[- ]?фз)?)?)?"
+    r"(?:\s+о\s+закупках)?",
+    re.IGNORECASE,
+)
 
 
 def _anchor(entity: Entity, anchors: dict[int, Anchor]) -> FactAnchor:
@@ -79,15 +86,71 @@ def _fact(entity: Entity, anchors: dict[int, Anchor], segments: dict[int, str]) 
     )
 
 
+#: Реквизиты, привязывающие человека к конкретному лицу. Профиль с одним лишь
+#: именем и без единого такого реквизита стороной не считается — см.
+#: ``_party_is_established``.
+_PERSON_IDENTIFIERS: frozenset[EntityType] = frozenset(
+    {
+        EntityType.INN,
+        EntityType.OGRN,
+        EntityType.SNILS,
+        EntityType.PASSPORT,
+        EntityType.BIRTH_DATE,
+        EntityType.ADDRESS,
+        EntityType.BANK_ACCOUNT,
+    }
+)
+
+
+def _party_name_entity(profile: Profile) -> Entity | None:
+    """Название стороны: организация приоритетнее человека.
+
+    Раньше брался первый попавшийся ``ORG_NAME`` или ``PERSON`` в порядке
+    участников — и на `contract_04_bankruptcy.docx` стороной становился
+    человек, хотя организация в том же профиле есть, просто идёт следом.
+    Сторона договора — это организация, если она в профиле есть; человек
+    остаётся стороной только там, где организации нет вовсе (физлицо, ИП).
+    """
+    members = [
+        member.entity
+        for member in profile.members
+        if member.entity.type in {EntityType.ORG_NAME, EntityType.PERSON}
+    ]
+    organisation = next((entity for entity in members if entity.type == EntityType.ORG_NAME), None)
+    return organisation or (members[0] if members else None)
+
+
+def _party_is_established(profile: Profile) -> bool:
+    """Достаточно ли доказательств, чтобы назвать этот профиль стороной.
+
+    Организация — да. Человек — только если рядом есть хоть один реквизит,
+    привязывающий его к лицу (ИНН, ОГРН, СНИЛС, паспорт, дата рождения,
+    адрес, счёт).
+
+    Замерено 10.09.2026 на `contract_pdf_02_school.pdf`: единственный профиль
+    с ролью «Исполнитель» состоит из одного человека без единого реквизита —
+    это директор из оборота «уполномоченным представителем … является …»,
+    то есть ПОДПИСАНТ, а не сторона. Карточка называла исполнителем
+    физлицо. Для сравнения, законные физлица-стороны выглядят иначе:
+    `contract_06_address.docx` — человек плюс ИНН и адрес,
+    `contract_07_dates.docx` — люди с датами рождения.
+
+    Голое имя без реквизитов — упоминание, а не сторона.
+    """
+    types = {member.entity.type for member in profile.members}
+    if EntityType.ORG_NAME in types:
+        return True
+    return bool(types & _PERSON_IDENTIFIERS)
+
+
 def _party_from_profile(profile: Profile) -> ContractParty:
-    name: str | None = None
+    name_entity = _party_name_entity(profile)
+    name: str | None = name_entity.text if name_entity is not None else None
     inn: str | None = None
     ogrn: str | None = None
     for member in profile.members:
         entity = member.entity
-        if entity.type in {EntityType.ORG_NAME, EntityType.PERSON} and name is None:
-            name = entity.text
-        elif entity.type == EntityType.INN:
+        if entity.type == EntityType.INN:
             inn = entity.text
         elif entity.type == EntityType.OGRN:
             ogrn = entity.text
@@ -95,12 +158,9 @@ def _party_from_profile(profile: Profile) -> ContractParty:
 
 
 def _party_fact(profile: Profile) -> ContractFact:
+    name_entity = _party_name_entity(profile)
     member = next(
-        (
-            member
-            for member in profile.members
-            if member.entity.type in {EntityType.ORG_NAME, EntityType.PERSON}
-        ),
+        (member for member in profile.members if member.entity is name_entity),
         None,
     )
     if member is None:
@@ -126,9 +186,25 @@ def _party_fact(profile: Profile) -> ContractFact:
 def _select_party(
     profiles: list[Profile], roles: frozenset[str]
 ) -> tuple[ContractParty | None, ContractFact]:
-    candidates = [profile for profile in profiles if profile.role_title.casefold() in roles]
+    labelled = [profile for profile in profiles if profile.role_title.casefold() in roles]
+    candidates = [profile for profile in labelled if _party_is_established(profile)]
     if not candidates:
-        return None, ContractFact(status="not_found")
+        # Роль в документе названа, но доказательств стороны нет: сохраняем
+        # найденное в alternatives, а не выдаём подписанта за сторону.
+        # `not_found` здесь означает «сторона не установлена», ровно как
+        # требует Д1 — «не обнаружено», а не доказанное отсутствие.
+        weak = [fact for fact in (_party_fact(profile) for profile in labelled) if fact.value]
+        return None, ContractFact(
+            status="not_found",
+            alternatives=[
+                FactAlternative(
+                    value=fact.value or "",
+                    source=fact.source or Source.RULE.value,
+                    anchors=fact.anchors,
+                )
+                for fact in weak
+            ],
+        )
     if len(candidates) == 1:
         return _party_from_profile(candidates[0]), _party_fact(candidates[0])
     alternatives = []
@@ -145,6 +221,28 @@ def _select_party(
     return None, ContractFact(status="ambiguous", alternatives=alternatives)
 
 
+def _profiles_for_summary(
+    profiles: list[Profile], entities: list[Entity], document: Document | None
+) -> list[Profile]:
+    """Вернуть профили для карточки, не включая профильный LLM-проход для PDF.
+
+    Граф отключает профильный узел на PDF, поэтому в ``summary_node`` приходит
+    пустой список даже при явных «Заказчик»/«Исполнитель» в документе. Для
+    карточки достаточно уже найденных сущностей и структурных меток: это
+    локальный детерминированный проход, не меняющий ``State`` и план масок.
+    """
+    if profiles or document is None:
+        return profiles
+    from masker.detect.result import DetectionResult, build_pii_chunks
+    from masker.profile import ProfileAgent
+
+    return (
+        ProfileAgent(None)
+        .profile(document, DetectionResult(entities, build_pii_chunks(document.segments, entities)))
+        .profiles
+    )
+
+
 def _unique_entities(entities: list[Entity]) -> list[Entity]:
     seen: set[tuple[int, int, int, str]] = set()
     result: list[Entity] = []
@@ -154,6 +252,38 @@ def _unique_entities(entities: list[Entity]) -> list[Entity]:
             seen.add(key)
             result.append(entity)
     return result
+
+
+def _federal_law_candidates(entities: list[Entity], document: Document | None) -> list[Entity]:
+    """Вернуть ссылки на ФЗ, включая полные словесные ссылки без номера ``44-ФЗ``.
+
+    Базовые правила уже извлекают короткие номера закупочных законов. Если
+    они ничего не нашли, карточка дополнительно распознаёт прямую ссылку
+    «Федеральным законом от …» / «Федеральный закон о закупках». Это факт о
+    договоре, а не PII, поэтому кандидат нужен карточке и не меняет набор
+    сущностей для маскирования.
+    """
+    detected = [entity for entity in entities if entity.type == EntityType.FEDERAL_LAW]
+    if detected or document is None:
+        return _unique_entities(detected)
+    candidates: list[Entity] = []
+    for segment in sorted(document.segments, key=lambda item: item.order):
+        for match in _FEDERAL_LAW_REFERENCE_RE.finditer(segment.text):
+            end = match.end()
+            while end > match.start() and segment.text[end - 1] in ".,;:":
+                end -= 1
+            candidates.append(
+                Entity(
+                    type=EntityType.FEDERAL_LAW,
+                    text=segment.text[match.start() : end],
+                    segment_order=segment.order,
+                    start=match.start(),
+                    end=end,
+                    source=Source.RULE,
+                    confidence=0.9,
+                )
+            )
+    return _unique_entities(candidates)
 
 
 def _amount_purpose(entity: Entity, quote: str) -> tuple[str, int]:
@@ -313,11 +443,10 @@ def build_summary(
     """
     anchors = {segment.order: segment.anchor for segment in document.segments} if document else {}
     segments = {segment.order: segment.text for segment in document.segments} if document else {}
-    customer, customer_fact = _select_party(profiles, _CUSTOMER_ROLES)
-    supplier, supplier_fact = _select_party(profiles, _SUPPLIER_ROLES)
-    laws = _unique_entities(
-        [entity for entity in entities if entity.type == EntityType.FEDERAL_LAW]
-    )
+    summary_profiles = _profiles_for_summary(profiles, entities, document)
+    customer, customer_fact = _select_party(summary_profiles, _CUSTOMER_ROLES)
+    supplier, supplier_fact = _select_party(summary_profiles, _SUPPLIER_ROLES)
+    laws = _federal_law_candidates(entities, document)
     amounts = _unique_entities(
         [entity for entity in entities if entity.type == EntityType.CONTRACT_AMOUNT]
     )

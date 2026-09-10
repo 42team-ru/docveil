@@ -88,6 +88,25 @@ def test_label_reset_on_anchor_kind_change() -> None:
     assert label_block.label == ""
 
 
+def test_label_change_starts_a_new_block_without_rewriting_existing_entities() -> None:
+    """Поздняя метка не присваивается сущности из предыдущего сегмента."""
+    segments = [
+        _segment(0, "ООО «До метки»"),
+        _segment(1, "ООО «Заказчик», именуемое в дальнейшем «Заказчик»"),
+    ]
+    entities = [
+        Entity(EntityType.ORG_NAME, "ООО «До метки»", 0, 0, 15, Source.RULE, 0.9, "до метки"),
+        Entity(EntityType.ORG_NAME, "ООО «Заказчик»", 1, 0, 15, Source.RULE, 0.9, "заказчик"),
+    ]
+
+    blocks = build_context_blocks(segments, entities)
+
+    assert [(block.label, [entity.text for entity in block.entities]) for block in blocks] == [
+        ("", ["ООО «До метки»"]),
+        ("заказчик", ["ООО «Заказчик»"]),
+    ]
+
+
 def test_contract_01_blocks_keep_labels_on_own_heading() -> None:
     """Регресс: блоки с меткой на собственном открывающем сегменте не теряют её."""
     document = ingest_docx(FIXTURES / "contract_01.docx")

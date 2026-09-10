@@ -146,7 +146,11 @@ def test_run_pauses_on_questions_and_exposes_envelope(client: TestClient, storag
 
     state = client.get(f"/api/runs/{created['id']}").json()
     assert state["status"] == "awaiting_answers"
-    assert state["document"] == {"name": "contract_01.docx", "format": "docx"}
+    assert state["document"] == {
+        "name": "contract_01.docx",
+        "format": "docx",
+        "object_name": "documents/contract_01.docx",
+    }
 
     questions = client.get(f"/api/runs/{created['id']}/questions").json()
     assert questions["schema_version"] == 1

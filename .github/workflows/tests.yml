@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# Версию узнаёт отдельный job до матрицы; последовательность запусков master
+# нужна, чтобы следующий расчёт уже видел тег предыдущего выпуска.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   test:
     name: Python tests
@@ -16,7 +22,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
@@ -37,9 +43,9 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: yarn
@@ -55,3 +61,332 @@ jobs:
 
       - name: Run tests
         run: yarn test
+
+  release_plan:
+    name: Plan DocVeil release
+    # Расчёт версии вынесен отдельно: матрица должна назвать бинарник так же,
+    # как будущий тег, а workspace между jobs GitHub не разделяет.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+    permissions:
+      # Только чтение: job считает версию по истории и выкладывает заметки
+      # артефактом. Права на запись нужны публикации, а не расчёту.
+      contents: read
+    concurrency:
+      # Очередь исключает гонку двух merge: второй расчёт увидит тег первого выпуска.
+      group: docveil-release-master
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calculate version and release notes
+        id: plan
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+
+          def git(*args: str) -> str:
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+
+          tag_re = re.compile(r"^v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
+          header_re = re.compile(
+              r"^(?P<type>[a-z]+)(?:\([^)]*\))?(?P<breaking>!)?:\s+(?P<subject>.+)$"
+          )
+          breaking_re = re.compile(r"(?mi)^BREAKING[ -]CHANGE(?::|$)")
+          section_names = {
+              "feat": "Новые возможности",
+              "fix": "Исправления",
+              "perf": "Производительность",
+              "docs": "Документация",
+              "test": "Тесты",
+              "chore": "Технические изменения",
+              "tooling": "Инструменты разработки",
+              "wip": "Незавершённая работа",
+          }
+          release_types = {"feat": 2, "fix": 1, "perf": 1}
+
+          last_tag = None
+          for tag in git("tag", "--merged", "HEAD", "--sort=-version:refname").splitlines():
+              if tag_re.fullmatch(tag):
+                  last_tag = tag
+                  break
+
+          log_range = f"{last_tag}..HEAD" if last_tag else "HEAD"
+          raw = git("log", log_range, "--format=%H%x00%s%x00%b%x00")
+          fields = raw.split("\x00")
+          commits: list[tuple[str, str, str]] = []
+          for index in range(0, len(fields) - 1, 3):
+              commit, subject, body = fields[index : index + 3]
+              commit = commit.strip()
+              if commit:
+                  commits.append((commit, subject, body))
+
+          bump = 0
+          sections: dict[str, list[tuple[str, str]]] = {}
+          breaking_changes: list[tuple[str, str]] = []
+          for commit, subject, body in commits:
+              match = header_re.match(subject)
+              if not match:
+                  continue
+              change_type = match["type"]
+              description = match["subject"]
+              is_breaking = bool(match["breaking"]) or bool(breaking_re.search(body))
+              if is_breaking:
+                  bump = max(bump, 3)
+                  breaking_changes.append((commit, description))
+                  continue
+              bump = max(bump, release_types.get(change_type, 0))
+              if change_type in section_names:
+                  sections.setdefault(change_type, []).append((commit, description))
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          if bump == 0:
+              output.write_text("release=false\n", encoding="utf-8")
+              print("Релизных коммитов с предыдущего тега нет: выпуск не создаётся.")
+              raise SystemExit(0)
+
+          if last_tag:
+              last_match = tag_re.fullmatch(last_tag)
+              assert last_match is not None
+              major, minor, patch = (int(last_match[group]) for group in ("major", "minor", "patch"))
+          else:
+              major = minor = patch = 0
+
+          if bump == 3:
+              next_version = (major + 1, 0, 0)
+          elif bump == 2:
+              next_version = (major, minor + 1, 0)
+          else:
+              next_version = (major, minor, patch + 1)
+          version = ".".join(map(str, next_version))
+
+          lines = [f"# DocVeil {version}", ""]
+          if breaking_changes:
+              lines.extend(["## Критические изменения", ""])
+              lines.extend(f"- {text} ({sha[:7]})" for sha, text in breaking_changes)
+              lines.append("")
+          for change_type in ("feat", "fix", "perf", "docs", "test", "chore", "tooling", "wip"):
+              entries = sections.get(change_type, [])
+              if entries:
+                  lines.extend([f"## {section_names[change_type]}", ""])
+                  lines.extend(f"- {text} ({sha[:7]})" for sha, text in entries)
+                  lines.append("")
+          lines.extend(
+              [
+                  "## Исполняемые файлы CLI",
+                  "",
+                  "Скачайте один файл для своей платформы:",
+                  "",
+                  f"- Linux x86_64: `docveil-{version}-linux-x86_64`",
+                  f"- Windows x86_64: `docveil-{version}-windows-x86_64.exe`",
+                  f"- macOS Apple Silicon (ARM64): `docveil-{version}-macos-arm64`",
+                  "",
+                  "Python устанавливать не нужно. На Linux и macOS сделайте файл исполняемым "
+                  "(`chmod +x <файл>`) и запустите `./<файл> --help`; в PowerShell Windows — "
+                  "`.\\<файл>.exe --help`.",
+                  "",
+                  "### Важно: ограничения и предупреждения ОС",
+                  "",
+                  "В бинарниках нет OCR (`paddleocr`) и пользовательских типов через GLiNER "
+                  "(`torch`): обе зависимости весят гигабайты. Сканированные PDF обрабатываются "
+                  "без распознавания, а свои типы данных не находятся. Для полного набора "
+                  "используйте Docker-образ или установку из исходников.",
+                  "",
+                  "Бинарники не подписаны. macOS может показать предупреждение Gatekeeper: "
+                  "нажмите правой кнопкой по файлу и выберите «Открыть» либо выполните "
+                  "`xattr -d com.apple.quarantine <файл>`. Windows может показать SmartScreen: "
+                  "выберите «Подробнее» → «Выполнить в любом случае».",
+                  "",
+              ]
+          )
+          if last_tag:
+              lines.append(f"Полный список изменений: {last_tag}...v{version}")
+          else:
+              lines.append("Первый выпуск DocVeil.")
+
+          Path("release-notes.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          output.write_text(f"release=true\nversion={version}\ntag=v{version}\n", encoding="utf-8")
+          print(f"Подготовлен выпуск v{version} от {last_tag or 'начала истории'}.")
+          PY
+
+      - name: Upload release notes
+        if: steps.plan.outputs.release == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+          retention-days: 1
+
+  cli_binary:
+    name: Build DocVeil CLI (${{ matrix.platform }})
+    needs: [test, frontend, release_plan]
+    # Нет релизного conventional commit — нет и дорогой сборки трёх больших файлов.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.release_plan.outputs.release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            extension: ""
+            data_separator: ":"
+          - os: windows-latest
+            platform: windows-x86_64
+            extension: .exe
+            data_separator: ";"
+          - os: macos-latest
+            platform: macos-arm64
+            extension: ""
+            data_separator: ":"
+    defaults:
+      run:
+        working-directory: backend
+        shell: bash
+    permissions:
+      contents: read
+    env:
+      DOCVEIL_VERSION: ${{ needs.release_plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          working-directory: backend
+
+      - name: Install release build dependencies
+        run: uv sync --locked --extra build
+
+      - name: Build and smoke-test DocVeil CLI
+        env:
+          DOCVEIL_PLATFORM: ${{ matrix.platform }}
+          DOCVEIL_EXTENSION: ${{ matrix.extension }}
+          PYINSTALLER_DATA_SEPARATOR: ${{ matrix.data_separator }}
+        run: |
+          executable="dist/docveil-${DOCVEIL_VERSION}-${DOCVEIL_PLATFORM}${DOCVEIL_EXTENSION}"
+          add_data() {
+            printf '%s%s%s' "$1" "$PYINSTALLER_DATA_SEPARATOR" "$2"
+          }
+
+          # Наши YAML/CSV — не Python-модули, поэтому PyInstaller их сам не увидит.
+          # collect-all сохраняет метаданные и entry points словарей pymorphy2.
+          # GLiNER и OCR — намеренно опциональны: иначе CLI весит гигабайты.
+          uv run --locked --extra build pyinstaller --onefile --name "${executable#dist/}" --noconfirm \
+            --collect-all pymorphy2_dicts_ru --collect-all pymorphy2 \
+            --collect-data natasha --collect-data razdel --collect-data navec --collect-data slovnet \
+            --add-data "$(add_data src/masker/data masker/data)" \
+            --add-data "$(add_data src/masker/detect/data masker/detect/data)" \
+            --add-data "$(add_data src/masker/profile/data masker/profile/data)" \
+            --exclude-module torch --exclude-module transformers --exclude-module gliner2 \
+            --exclude-module paddleocr --exclude-module matplotlib --exclude-module tkinter \
+            -p src src/masker/cli.py
+
+          "${executable}" --help
+          "${executable}" fixtures/labeled/contract_01.docx --out smoke-out
+          test -f smoke-out/contract_01/report.json
+
+      - name: Upload checked CLI binary
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: docveil-${{ needs.release_plan.outputs.version }}-${{ matrix.platform }}
+          path: backend/dist/docveil-${{ needs.release_plan.outputs.version }}-${{ matrix.platform }}${{ matrix.extension }}
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Publish DocVeil release
+    needs: [test, frontend, release_plan, cli_binary]
+    # Публиковать может только уже проверенный merge в master, никогда PR или ветка.
+    # always() не даёт GitHub молча пропустить этот job из-за намеренно
+    # пропущенной сборки, когда conventional commit не требует релиза.
+    if: >-
+      always() && github.event_name == 'push' && github.ref == 'refs/heads/master' &&
+      needs.test.result == 'success' && needs.frontend.result == 'success' &&
+      needs.release_plan.result == 'success' && needs.cli_binary.result == 'success' &&
+      needs.release_plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      # Очередь исключает гонку двух merge: второй расчёт увидит тег первого выпуска.
+      group: docveil-release-master
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Download release notes
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-notes
+
+      - name: Download checked CLI binaries
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: docveil-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish backend image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: true
+          build-args: |
+            DOCVEIL_VERSION=${{ needs.release_plan.outputs.version }}
+          tags: |
+            ghcr.io/42team-ru/docveil-backend:${{ needs.release_plan.outputs.version }}
+            ghcr.io/42team-ru/docveil-backend:latest
+
+      - name: Build and publish frontend image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/42team-ru/docveil-frontend:${{ needs.release_plan.outputs.version }}
+            ghcr.io/42team-ru/docveil-frontend:latest
+
+      - name: Create GitHub release and tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ needs.release_plan.outputs.tag }}" \
+            --target "$GITHUB_SHA" \
+            --title "DocVeil ${{ needs.release_plan.outputs.version }}" \
+            --notes-file release-notes.md \
+            release-assets/*
+

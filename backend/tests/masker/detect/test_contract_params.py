@@ -108,6 +108,24 @@ def test_contract_amount_detected_across_segments() -> None:
     assert entities[0].type == EntityType.CONTRACT_AMOUNT
 
 
+def test_contract_amount_detected_with_spelled_out_amount_in_parentheses() -> None:
+    """Цена договора с суммой прописью в скобках между числом и «рублей».
+
+    Реальный случай на `contract_pdf_02_school.pdf` (Д1): «Цена договора
+    составляет 13 439 891 (Тринадцать миллионов ...) рубль 28 копеек» — без
+    поддержки скобок регулярка не находит цену вовсе, потому что скобки
+    разрывают число и единицу измерения.
+    """
+    text = (
+        "Цена договора составляет 13 439 891 (Тринадцать миллионов четыреста "
+        "тридцать девять тысяч восемьсот девяносто один) рубль 28 копеек, "
+        "согласно расчету."
+    )
+    result = _detect_amount(text)
+    assert result, "Должна быть найдена сумма договора со скобками"
+    assert any(v.startswith("13 439 891") for v in result)
+
+
 def test_contract_amount_source_and_confidence() -> None:
     text = "Стоимость договора — 100 000 рублей."
     entities = ContractAmountDetector().detect(_doc(text))
@@ -190,6 +208,22 @@ def test_delivery_period_no_duplicates_same_span() -> None:
 def test_payment_terms_detected_with_context(texts: tuple[str, ...]) -> None:
     result = _detect_payment(*texts)
     assert result, f"Условия оплаты не найдены в: {texts!r}"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        (
+            "Оплата производится Заказчиком за фактически оказанный объем услуг "
+            "с учетом цены договора."
+        ),
+        "Оплата производится Заказчиком по факту оказания услуг за каждые 10 дней.",
+        "Оплата производится по фактическому потреблению.",
+    ],
+)
+def test_payment_terms_detected_by_payment_method(text: str) -> None:
+    expected = text[:-1].removesuffix(" за каждые 10 дней")
+    assert _detect_payment(text) == [expected]
 
 
 def test_payment_terms_requires_payment_context() -> None:

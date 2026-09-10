@@ -92,9 +92,7 @@ class EntityRecordOut(EntityBareOut):
     decision: Action | None = None
     decided_by: str | None = None
     reason: str | None = None
-    #: План feat/highlight-coords-edits (К1): координаты сущности на страницах
-    #: PDF-артефакта, 0..1 по размерам страницы. Пусто для форматов, где
-    #: PDF-артефакта нет (docx/xlsx без preview) — валидный ответ.
+    #: Координаты сущности на страницах PDF-артефакта, 0..1 по размерам страницы.
     regions: list[BboxRegionOut] = Field(default_factory=list)
 
 
@@ -418,9 +416,7 @@ class ReportOut(BaseModel):
     layout: list[LayoutOut]
     #: Дубль `validation.certificate` на верхнем уровне (план М3).
     certificate: CertificateOut | None = None
-    #: План feat/highlight-coords-edits (К1): размеры страниц готового
-    #: PDF-артефакта — единственный маппинг, нужный фронту помимо самого
-    #: рендера PDF в canvas. Пусто для docx/xlsx без PDF-preview.
+    #: Размеры страниц готового PDF-артефакта.
     pages: list[PageInfoOut] = Field(default_factory=list)
 
 

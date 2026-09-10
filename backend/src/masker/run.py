@@ -253,8 +253,7 @@ class _PostgresCheckpointerContext(AbstractContextManager[BaseCheckpointSaver[st
             if self._conn_string not in _POSTGRES_SETUP_DONE:
                 saver.setup()
                 _POSTGRES_SETUP_DONE.add(self._conn_string)
-        return_saver: BaseCheckpointSaver[str] = saver
-        return return_saver
+        return saver
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         inner, self._inner = self._inner, None

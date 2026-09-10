@@ -23,7 +23,6 @@
 import { useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router";
 import {
-  ShieldCheck,
   Building2,
   LogIn,
   Network,
@@ -191,8 +190,14 @@ export default function LoginPage() {
             <VStack gap={10} width="100%" hAlign="stretch" style={{ maxWidth: 440 }}>
               <VStack gap={4}>
                 <HStack gap={3} vAlign="center">
-                  <Icon icon={ShieldCheck} size="lg" color="primary" />
-                  <Heading level={2}>TriemaMasker</Heading>
+                  <img
+                    src="/logo.png"
+                    alt="DocVeil"
+                    className="size-10 object-contain"
+                  />
+                  <Heading level={2} className="font-brand">
+                    DocVeil
+                  </Heading>
                 </HStack>
                 <Text type="body" color="secondary" size="lg">
                   Автоматическое обезличивание юридических документов в защищенном контуре.
@@ -228,8 +233,14 @@ export default function LoginPage() {
               {/* Header on mobile only, replacing the missing left panel context */}
               <div className="mobile-only-brand">
                 <VStack gap={2} hAlign="center" width="100%">
-                  <Icon icon={ShieldCheck} size="md" color="primary" />
-                  <Heading level={3}>TriemaMasker</Heading>
+                  <img
+                    src="/logo.png"
+                    alt="DocVeil"
+                    className="size-8 object-contain"
+                  />
+                  <Heading level={3} className="font-brand">
+                    DocVeil
+                  </Heading>
                 </VStack>
               </div>
 

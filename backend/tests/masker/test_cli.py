@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,7 @@ from docx.oxml.ns import qn
 
 import masker.render.docx_redact as docx_redact_module
 from masker.cli import EXIT_LEAK, main
+from masker.cli_ui import CliPresenter, ensure_utf8_output
 from masker.ingest.docx_ingest import iter_runs
 from masker.model import CRITICAL_TYPES
 
@@ -523,6 +526,77 @@ def test_cli_rejects_non_docx(tmp_path: Path) -> None:
         main([str(source), "--out", str(tmp_path)])
 
 
+def test_cli_dry_run_describes_operation_without_writing_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output = tmp_path / "output"
+
+    assert (
+        main(
+            [
+                str(FIXTURE),
+                "--out",
+                str(output),
+                "--types",
+                "inn,passport",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert "предпросмотр" in captured.out
+    assert "файлы не будут записаны" in captured.out
+    assert not output.exists()
+
+
+def test_cli_non_tty_progress_is_plain_text(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main([str(FIXTURE), "--out", str(tmp_path), "--rules-only"]) == 0
+
+    captured = capsys.readouterr()
+    assert "1/10: Извлечение текста" in captured.out
+    assert "10/10: Сборка отчёта" in captured.out
+    assert "\x1b" not in captured.out
+
+
+def test_cli_tty_progress_is_started_and_cleared(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("masker.cli_ui.sys.stdout.isatty", lambda: True)
+    presenter = CliPresenter(quiet=False, verbose=False)
+
+    presenter.begin(FIXTURE)
+    assert presenter._progress is not None
+    presenter.observe("extract", "started")
+    presenter.observe("extract", "completed", "разобран DOCX")
+    assert presenter.finish_progress() >= 0
+    assert presenter._progress is None
+    capsys.readouterr()
+
+
+def test_cli_quiet_suppresses_regular_dry_run_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main([str(FIXTURE), "--out", str(tmp_path), "--dry-run", "--quiet"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_cli_help_groups_options_and_examples(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit, match="0"):
+        main(["--help"])
+
+    captured = capsys.readouterr()
+    assert "Вход и результат" in captured.out
+    assert "Интерфейс" in captured.out
+    assert "Примеры:" in captured.out
+
+
 def test_report_exposes_processed_tables_and_unprocessed_metadata(tmp_path: Path) -> None:
     source_path = tmp_path / "table.docx"
     source = open_docx()
@@ -903,12 +977,10 @@ def test_cli_processes_image_and_returns_original_format(
             "marker",
         ]
     )
-    assert code in (0, EXIT_LEAK)  # утечка тут не ожидается, но пропустим на всякий
+    assert code in (0, EXIT_LEAK)
     artifact_dir = tmp_path / "out" / src.stem
     highlight = artifact_dir / "masked_highlight.jpg"
     assert highlight.is_file()
-    # Preview для картинки — тоже одностраничный PDF или подменённый экспорт;
-    # в текущей ветке рендер preview идёт по PDF-пути.
 
 
 def test_cli_pdf_output_format_leaves_pdf(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -935,3 +1007,25 @@ def test_cli_pdf_output_format_leaves_pdf(tmp_path: Path, monkeypatch: pytest.Mo
     artifact_dir = tmp_path / "out" / src.stem
     assert (artifact_dir / "masked_highlight.pdf").is_file()
     assert not (artifact_dir / "masked_highlight.png").exists()
+
+
+def test_help_survives_single_byte_console(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--help` не падает там, где консоль не знает кириллицы.
+
+    Замерено в GitHub Actions (`Tests` #85, windows-latest): собранный
+    бинарник падал на первой же команде с
+    `UnicodeEncodeError: 'charmap' codec can't encode characters`, потому
+    что консоль Windows по умолчанию в cp1252/cp866, а весь интерфейс
+    DocVeil на русском. Здесь та же ситуация воспроизводится подменой
+    кодировки потока.
+    """
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict")
+
+    monkeypatch.setattr(sys, "stdout", stream)
+    ensure_utf8_output()
+    stream.write("Обезличить PII в DOCX/PDF\n")
+    stream.flush()
+
+    assert stream.encoding.lower() in {"utf-8", "utf8"}

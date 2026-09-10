@@ -31,11 +31,11 @@ from masker.graph.nodes import (
     make_profile_node,
     make_render_node,
     make_report_node,
+    make_summary_node,
     needs_human,
     needs_review,
     plan_node,
     policy_node,
-    summary_node,
     validate_node,
 )
 from masker.graph.state import State
@@ -50,18 +50,21 @@ def _instrument(
     """Добавить к каждому узлу дешёвый замер и ленту без значений PII."""
 
     def wrapped(state: State) -> dict[str, object]:
+        deps.notify_stage(name, "started")
         offset = deps.metering_offset()
         started = time.perf_counter()
         result = node(state)
         duration_ms = (time.perf_counter() - started) * 1000
         combined = {**state, **result}
+        message = _event_message(name, combined)
+        deps.notify_stage(name, "completed", message)
         return {
             **result,
             "telemetry": append_stage(
                 state.get("telemetry"),
                 node=name,
                 duration_ms=duration_ms,
-                message=_event_message(name, combined),
+                message=message,
                 calls=deps.metering_delta(offset),
                 pricing=deps.pricing,
             ),
@@ -115,26 +118,26 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     → report → END``.
     """
     graph: StateGraph[State] = StateGraph(State)
-    graph.add_node("extract", _instrument("extract", make_extract_node(deps), deps))
-    graph.add_node("detect", _instrument("detect", make_detect_node(deps), deps))
+    graph.add_node("extract", _instrument("extract", make_extract_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("detect", _instrument("detect", make_detect_node(deps), deps))  # type: ignore[call-overload]
     # mypy не умеет вывести NodeInputT из значения типа Callable[[State], ...],
     # только из def-функции с конкретной сигнатурой (проверено минимальным
     # воспроизведением на langgraph 1.2.11): без игнора аргумент разрешается
     # в _Node[Never]. Реальная сигнатура узла типизирована в nodes.py.
-    graph.add_node("profile", _instrument("profile", make_profile_node(deps), deps))
-    graph.add_node("judge", _instrument("judge", make_judge_node(deps), deps))
-    graph.add_node("policy", _instrument("policy", policy_node, deps))
-    graph.add_node("ask_human", _instrument("ask_human", ask_human_node, deps))
-    graph.add_node("apply_answers", _instrument("apply_answers", apply_answers_node, deps))
-    graph.add_node("finalize", _instrument("finalize", finalize_node, deps))
-    graph.add_node("plan", _instrument("plan", plan_node, deps))
-    graph.add_node("summary", _instrument("summary", summary_node, deps))
-    graph.add_node("render", _instrument("render", make_render_node(deps), deps))
-    graph.add_node("validate", _instrument("validate", validate_node, deps))
-    graph.add_node("image_export", _instrument("image_export", image_export_node, deps))
-    graph.add_node("report", _instrument("report", make_report_node(deps), deps))
-    graph.add_node("ask_review", _instrument("ask_review", ask_review_node, deps))
-    graph.add_node(
+    graph.add_node("profile", _instrument("profile", make_profile_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("judge", _instrument("judge", make_judge_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("policy", _instrument("policy", policy_node, deps))  # type: ignore[call-overload]
+    graph.add_node("ask_human", _instrument("ask_human", ask_human_node, deps))  # type: ignore[call-overload]
+    graph.add_node("apply_answers", _instrument("apply_answers", apply_answers_node, deps))  # type: ignore[call-overload]
+    graph.add_node("finalize", _instrument("finalize", finalize_node, deps))  # type: ignore[call-overload]
+    graph.add_node("plan", _instrument("plan", plan_node, deps))  # type: ignore[call-overload]
+    graph.add_node("summary", _instrument("summary", make_summary_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("render", _instrument("render", make_render_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("validate", _instrument("validate", validate_node, deps))  # type: ignore[call-overload]
+    graph.add_node("image_export", _instrument("image_export", image_export_node, deps))  # type: ignore[call-overload]
+    graph.add_node("report", _instrument("report", make_report_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("ask_review", _instrument("ask_review", ask_review_node, deps))  # type: ignore[call-overload]
+    graph.add_node(  # type: ignore[call-overload]
         "apply_review_edits",
         _instrument("apply_review_edits", apply_review_edits_node, deps),
     )

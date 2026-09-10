@@ -225,3 +225,4 @@ make demo      # прогон на fixtures/labeled/*.docx, результат �
 из venv: `backend/.venv/bin/python`.
 
 </details>
+

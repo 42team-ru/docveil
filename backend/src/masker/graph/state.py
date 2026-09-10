@@ -37,6 +37,10 @@ class State(TypedDict, total=False):
     coverage: dict[str, Any]
     #: Покрытие запрошенных типов активными детекторами — раздел 4 плана T1.10.
     detection_coverage: dict[str, list[str]]
+    #: Сводка LLM-верификатора на recall (Р7), уже сериализованная в JSON
+    #: (`masker.report.payload.verifier_record`). Ключа нет вовсе, если
+    #: верификатор не запускался, — см. `detect_node`.
+    verifier: dict[str, Any]
     #: Сериализованный ``MaskPlan`` (``graph.serde.plan_to_dict``) — раздел 4 плана T1.10.
     plan: dict[str, Any]
     #: Артефакты рендера: ``{"role", "name", "path", "redacting"}`` в фиксированном
@@ -53,6 +57,8 @@ class State(TypedDict, total=False):
     render_degradations: list[dict[str, Any]]
     #: Карточка договора — сериализованный ``ContractSummary.model_dump()``.
     contract_summary: dict[str, Any]
+    #: Вызовы LLM, выполненные именно для жанра и краткого содержания.
+    summary_llm_calls: int
     #: Правки оператора с экрана проверки (``graph.review.parse_review_edits``):
     #: решения по ссылкам, смена типа, добавленные вручную значения.
     review_edits: dict[str, Any]

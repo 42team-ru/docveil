@@ -59,8 +59,12 @@ migrate:
 migration:
 	$(PY) -m alembic revision --autogenerate -m "$(m)"
 
+# Дефолт порта — на уровне make ($(if ...)), не шелла ($${VAR:-default}):
+# последнее раскрывает только POSIX sh, а на Windows без sh.exe на PATH make
+# рецепты гонит через cmd.exe, который такой синтаксис не понимает и передаёт
+# uvicorn буквальную строку «${APP_PORT:-8000}» как порт.
 api:
-	$(PY) -m uvicorn api.main:app --reload --app-dir src --host 0.0.0.0 --port $${APP_PORT:-8000}
+	$(PY) -m uvicorn api.main:app --reload --app-dir src --host 0.0.0.0 --port $(if $(APP_PORT),$(APP_PORT),8000)
 
 # make seed-admin email=admin@x.com password=secret full_name="Admin"
 # make seed-admin email=admin@x.com password=new-secret reset_password=1

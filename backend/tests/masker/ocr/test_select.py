@@ -12,15 +12,20 @@ from masker.ocr.fake import FakeOCR
 from masker.ocr.tesseract import TesseractOCRProvider
 
 
-def test_default_is_tesseract_when_env_and_yaml_not_set(
+def test_default_is_tesseract_when_nothing_is_configured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Без env и без YAML дефолт — ``TesseractOCRProvider``."""
+    """Когда провайдера не задал никто — дефолт ``TesseractOCRProvider``.
+
+    Конфиг проекта подменяется пустым: `masker.yaml` репозитория намеренно
+    держит `fake` ради воспроизводимых ворот, и без подмены тест проверял бы
+    его, а не дефолт кода. Дефолт важен там, где YAML нет вовсе, — у
+    пользователя и в собранном бинарнике.
+    """
+    empty = tmp_path / "masker.yaml"
+    empty.write_text("application:\n  port: 8000\n", encoding="utf-8")
+    monkeypatch.setenv("MASKER_CONFIG", str(empty))
     monkeypatch.delenv("MASKER_OCR", raising=False)
-    # изолируем от масковского masker.yaml, лежащего в дереве
-    path = tmp_path / "masker.yaml"
-    path.write_text("", encoding="utf-8")
-    monkeypatch.setenv("MASKER_CONFIG", str(path))
     provider = select_ocr()
     assert isinstance(provider, TesseractOCRProvider)
     # Runtime-check с Protocol — заодно проверяет, что интерфейс совместим.

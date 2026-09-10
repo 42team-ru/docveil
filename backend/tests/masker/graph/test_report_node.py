@@ -195,3 +195,77 @@ def test_report_node_marker_legend_aggregates_real_render_degradations(
         assert entry["shown_label"] in degraded_shown_labels
         assert entry["canonical_label"]
         assert entry["pages"] == sorted(set(entry["pages"]))
+
+
+# --- Р7-2: сводка верификатора доезжает до report.json ------------------------
+
+
+class _EmptyVerifierProvider:
+    """Провайдер, честно отвечающий «в этих окнах ничего нет».
+
+    Пустой ответ модели — не то же самое, что выключенный слой: слой
+    отработал, окна построил, вердикты вынес. Ровно этот случай и проверяют
+    тесты ниже — секция обязана появиться, а не исчезнуть за компанию с
+    находками.
+    """
+
+    def complete(self, messages: object, *, schema: object = None) -> str:
+        return '{"windows": []}'
+
+
+def test_detect_node_puts_verifier_summary_into_state(tmp_path: Path) -> None:
+    """Без этого граф выбрасывал ``DetectionResult.verifier``, и секция
+    ``verifier`` в реальном прогоне не появлялась никогда, хотя
+    ``build_report_payload`` умел её строить."""
+    state: State = {
+        "path": str(FIXTURE),
+        "options": {
+            "rules_only": False,
+            "types": None,
+            "interactive": False,
+            "profile": False,
+            "unmask_critical": False,
+            "thread_id": "t-verifier",
+            "styles": [],
+            "preview": True,
+        },
+    }
+    state.update(nodes.extract_node(state))
+
+    result = nodes.make_detect_node(nodes.RunDeps(llm=_EmptyVerifierProvider()))(state)  # type: ignore[arg-type]
+
+    summary = result["verifier"]
+    assert isinstance(summary, dict)
+    assert set(summary) == {
+        "windows",
+        "verified",
+        "unverified",
+        "unverified_by_reason",
+        "input_chars",
+        "document_chars",
+        "input_share",
+        "r_filter",
+    }
+    # `r_filter` требует размеченного корпуса, которого у обычного документа
+    # нет: `None` — «не измерен», а не «измерен и равен нулю».
+    assert summary["r_filter"] is None
+    assert json.dumps(summary)  # State уходит в чекпойнтер — обязан быть JSON
+
+
+def test_report_node_carries_verifier_section_from_state(tmp_path: Path) -> None:
+    state = _full_state(tmp_path)
+    state["verifier"] = {"windows": 3, "verified": 1, "r_filter": None}
+
+    result = nodes.make_report_node(nodes.RunDeps())(state)
+
+    assert result["report"]["verifier"] == {"windows": 3, "verified": 1, "r_filter": None}
+
+
+def test_report_node_has_no_verifier_section_when_layer_was_off(tmp_path: Path) -> None:
+    """``rules_only`` не запускает верификатор — пустой секции с нулями быть
+    не должно: она читалась бы как «проверено, ничего не найдено»."""
+    state = _full_state(tmp_path)
+
+    result = nodes.make_report_node(nodes.RunDeps())(state)
+
+    assert "verifier" not in result["report"]

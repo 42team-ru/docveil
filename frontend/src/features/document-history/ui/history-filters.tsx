@@ -1,22 +1,56 @@
+import type { ReactNode } from "react";
 import { Search } from "lucide-react";
-import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from "@astryxdesign/core/SegmentedControl";
-import { HStack, StackItem } from "@astryxdesign/core/Stack";
+import { Selector } from "@astryxdesign/core/Selector";
+import { HStack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Toolbar } from "@astryxdesign/core/Toolbar";
 
+import { STATUS_LABEL } from "../../../entity/document/ui/run-status-token";
+import type { RunStatus } from "../../masking-run/api/masking-run";
 import {
   useHistoryFilterStore,
   type HistoryStatusFilter,
 } from "../model/history-filter-store";
 
 /** Ширина поля поиска — структурный размер контрола. */
-const SEARCH_WIDTH = 300;
+const SEARCH_WIDTH = 420;
 
-/** Фильтры журнала: поиск по имени документа и состояние прогона. */
-export function HistoryFilters() {
+/**
+ * Порядок статусов в фильтре — от «в работе» к «завершено», как идёт прогон
+ * по графу. `leaked` обязан быть здесь наравне с `failed`: это не «ошибка
+ * сервера», а находка валидатора, и оператору нужно уметь отобрать именно её
+ * (см. `run-status-token.tsx`).
+ */
+const STATUS_ORDER: RunStatus[] = [
+  "queued",
+  "running",
+  "awaiting_answers",
+  "awaiting_review",
+  "done",
+  "leaked",
+  "failed",
+];
+
+const STATUS_OPTIONS = [
+  { value: "all", label: "Все статусы" },
+  ...STATUS_ORDER.map((status) => ({ value: status, label: STATUS_LABEL[status] })),
+];
+
+type HistoryFiltersProps = {
+  /** Действия справа от фильтров — например, кнопка «Новая задача». */
+  actions?: ReactNode;
+};
+
+/**
+ * Фильтры журнала: поиск по имени документа и состояние прогона.
+ *
+ * Статус — выпадающий список, а не `SegmentedControl`: семь состояний
+ * прогона плюс «Все» — восемь вариантов, больше, чем можно держать в
+ * рабочей памяти одним взглядом (working-memory rule, ≤4). Раньше контрол
+ * показывал только 4 из 7 — `queued`/`running`/`leaked` были недостижимы
+ * через фильтр вовсе.
+ */
+export function HistoryFilters({ actions }: HistoryFiltersProps) {
   const query = useHistoryFilterStore((state) => state.query);
   const setQuery = useHistoryFilterStore((state) => state.setQuery);
   const status = useHistoryFilterStore((state) => state.status);
@@ -24,13 +58,14 @@ export function HistoryFilters() {
 
   return (
     <Toolbar
+      className="mt-2"
       label="Фильтры журнала"
-      size="sm"
+      size="lg"
       gap={3}
       startContent={
         <HStack gap={3} vAlign="center" wrap="wrap">
           <TextInput
-            size="sm"
+            size="lg"
             label="Поиск по журналу"
             isLabelHidden
             placeholder="Поиск по имени документа…"
@@ -40,21 +75,18 @@ export function HistoryFilters() {
             value={query}
             onChange={setQuery}
           />
-          <SegmentedControl
-            size="sm"
+          <Selector
+            size="lg"
             label="Состояние прогона"
+            isLabelHidden
+            width={220}
+            options={STATUS_OPTIONS}
             value={status}
             onChange={(value) => setStatus(value as HistoryStatusFilter)}
-          >
-            <SegmentedControlItem value="all" label="Все" />
-            <SegmentedControlItem value="awaiting_answers" label="Ждут ответов" />
-            <SegmentedControlItem value="awaiting_review" label="На проверке" />
-            <SegmentedControlItem value="done" label="Готовы" />
-            <SegmentedControlItem value="failed" label="Ошибки" />
-          </SegmentedControl>
-          <StackItem size="fill" />
+          />
         </HStack>
       }
+      endContent={actions}
     />
   );
 }

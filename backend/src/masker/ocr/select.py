@@ -1,21 +1,26 @@
-"""Выбор поставщика OCR по имени/переменной окружения/YAML-конфигу.
+"""Выбор поставщика OCR: аргумент → окружение → YAML → дефолт.
 
-Приоритет источников: явный аргумент → ``MASKER_OCR`` → секция ``ocr`` в
-``masker.yaml`` → дефолт ``tesseract`` (быстрый, лучший CER/WER на нашем корпусе).
+По аналогии с ``masker.llm``. Порядок приоритетов, от сильного к слабому:
 
-Цепочка приоритетов при явно не заданном провайдере:
-  1. ``tesseract`` — дефолт (быстрый, лучший CER/WER на тестовом корпусе).
-  2. ``rapid`` — автоматический фоллбек, если системного tesseract нет.
+  1. явный аргумент ``select_ocr("tesseract")``;
+  2. переменная окружения ``MASKER_OCR``;
+  3. ``ocr.provider`` из YAML-конфига проекта;
+  4. дефолт ``tesseract`` — самый быстрый и с лучшим CER/WER на нашем корпусе.
 
-Фоллбек срабатывает **только** когда провайдер не задан ни аргументом, ни
-``MASKER_OCR``, ни YAML-конфигом. При любом явном выборе ошибка поднимается
-без фоллбека — иначе явный выбор будет тихо проигнорирован.
+Если провайдер не был задан ни одним из первых трёх способов и дефолтный
+движок недоступен (нет системного бинаря tesseract), автоматически
+пробуется ``rapid``. Фоллбек срабатывает **только** для неявного выбора:
+при явном ``MASKER_OCR=tesseract`` ошибка поднимается как есть, иначе
+явное указание человека было бы тихо проигнорировано.
 
-``fake`` — CI-провайдер без весов и сети; ставить ``MASKER_OCR=fake`` или
-``ocr.provider: fake`` в окружении ворот, если системного tesseract нет.
+``fake`` — CI-провайдер без весов и сети. В воротах он берётся из
+`masker.yaml` (`ocr.provider: fake`), а не из дефолта кода: `make gate`
+обязан работать одинаково на любой машине, независимо от того, установлен
+ли там системный tesseract.
 
 Отсутствие пакета движка поднимается как :class:`OCRError` на этапе
-создания провайдера, а не при первом ``recognize``.
+создания провайдера, а не при первом ``recognize``: вызов падает до
+открытия PDF, и сразу понятно, что чинить.
 """
 
 from __future__ import annotations
@@ -35,34 +40,36 @@ _FALLBACK: str = "rapid"
 
 
 def select_ocr(name: str | None = None) -> OCRProvider:
-    """Вернуть провайдер OCR по имени, ``MASKER_OCR``, YAML или дефолту ``tesseract``.
+    """Вернуть провайдер OCR по аргументу, ``MASKER_OCR``, YAML или дефолту.
 
     Имена нормализуются к нижнему регистру; неизвестное имя — ``OCRError``
-    со списком доступных имён.
-
-    Если имя не задано ни явно, ни через ``MASKER_OCR``, ни через YAML,
-    и дефолтный провайдер недоступен (нет системного бинаря) —
-    автоматически пробуется фоллбек ``rapid``.
+    со списком доступных, а не молчаливый откат на ``fake``: опечатка в
+    переменной окружения иначе тихо отключила бы настоящий OCR.
     """
     configured_name = project_section("ocr").get("provider", _DEFAULT)
     if not isinstance(configured_name, str):
         raise ValueError("ocr.provider в YAML-конфиге должен быть строкой")
-    use_fallback = name is None and ENV_VAR not in os.environ and configured_name == _DEFAULT
+
+    # Фоллбек уместен только тогда, когда провайдера не выбирал человек:
+    # ни аргументом, ни окружением, ни строкой в YAML. Иначе подмена
+    # выбранного движка на другой пройдёт незаметно.
+    explicit = name is not None or ENV_VAR in os.environ or configured_name != _DEFAULT
     selected_name = name
     if selected_name is None:
         selected_name = os.environ.get(ENV_VAR, configured_name)
     key = selected_name.strip().casefold()
+
     factory = _REGISTRY.get(key)
     if factory is None:
         available = ", ".join(sorted(_REGISTRY))
         raise OCRError(
             f"неизвестный OCR-провайдер {key!r}; доступные: {available}. "
-            f"Задать через {ENV_VAR}=<имя> или аргументом select_ocr(name=...)"
+            f"Задать через {ENV_VAR}=<имя>, ocr.provider в YAML или аргументом select_ocr(name=...)"
         )
     try:
         return factory()
     except OCRError:
-        if use_fallback and _FALLBACK and key != _FALLBACK:
+        if not explicit and _FALLBACK and key != _FALLBACK:
             fallback_factory = _REGISTRY.get(_FALLBACK)
             if fallback_factory is not None:
                 return fallback_factory()

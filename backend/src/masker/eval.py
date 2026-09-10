@@ -56,10 +56,22 @@ _INGEST_BY_SUFFIX: dict[str, Any] = {
 
 
 def _ingest(path: pathlib.Path) -> Document:
+    """Разобрать документ корпуса тем же ingest, что и в проде.
+
+    Для PDF со скан-сайдкаром (``<имя>.fake_ocr.json``) подставляет тот же
+    ``FakeOCR``, что использует ``_mask_scan_corpus`` — без этого скан-документ
+    даёт пустой ``Document`` (0 сегментов, 0 символов), и любой замер по нему
+    считает все его сущности «пропущенными», хотя они находятся с OCR.
+    """
     ingest = _INGEST_BY_SUFFIX.get(path.suffix.casefold())
     if ingest is None:
         raise ValueError(f"eval не умеет читать формат {path.suffix!r}: {path}")
-    doc: Document = ingest(path)
+    if path.suffix.casefold() == ".pdf":
+        ocr = _make_fake_ocr_from_sidecar(path)
+        if ocr is not None:
+            doc: Document = ingest_pdf(path, ocr=ocr)
+            return doc
+    doc = ingest(path)
     return doc
 
 

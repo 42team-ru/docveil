@@ -65,7 +65,7 @@ from masker.ingest.pdf_ingest import ingest_pdf
 from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.judge import JudgeAgent
 from masker.judge.agent import JudgeResult
-from masker.llm import LLMProvider, TracingProvider
+from masker.llm import FakeProvider, LLMProvider, TracingProvider
 from masker.mask import PlanAgent
 from masker.mask.select import resolve_requested_types
 from masker.model import (
@@ -99,6 +99,7 @@ from masker.report.payload import (
     _validation_skipped,
     build_report_payload,
     marker_legend,
+    verifier_record,
 )
 from masker.telemetry import RUNTIME_METRICS_NAME, LLMPricing, MeteringProvider, report_telemetry
 from masker.typeconfig import CustomTypeSpec, load_type_config
@@ -106,6 +107,8 @@ from masker.validate import ValidateAgent
 
 if TYPE_CHECKING:
     from masker.ingest.image_meta import ImageMetadata
+
+StageObserver = Callable[[str, str, str], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +128,7 @@ class RunDeps:
     artifact_dir: Path | None = None
     ocr: OCRProvider | None = None
     pricing: LLMPricing | None = None
+    stage_observer: StageObserver | None = field(default=None, compare=False, repr=False)
     _meter: MeteringProvider | None = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -145,6 +149,11 @@ class RunDeps:
 
     def metering_delta(self, offset: int) -> list[dict[str, object]]:
         return self._meter.delta_since(offset)[1] if self._meter is not None else []
+
+    def notify_stage(self, node: str, status: str, message: str = "") -> None:
+        """Передать вызывающему ход графа, не добавляя UI-данные в State."""
+        if self.stage_observer is not None:
+            self.stage_observer(node, status, message)
 
 
 def _document(state: State) -> Document:
@@ -299,13 +308,23 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
             selected_types = resolve_requested_types(
                 tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
             )
-            entities = detector.detect(document).entities
-        return {
+            detection = detector.detect(document)
+            entities = detection.entities
+        result: dict[str, object] = {
             "entities": [entity_to_dict(entity) for entity in entities],
             # Тот же ``detector``, которым только что детектировали — второй
             # DetectAgent() поднял бы Natasha ещё раз ради двух списков строк.
             "detection_coverage": detection_coverage(selected_types, detector),
         }
+        # Р7-2: сводка верификатора доезжает до `report.json`. В ``State``
+        # кладём уже сериализованную запись, а не ``VerifierReport``:
+        # состояние графа обязано быть JSON — оно уходит в чекпойнтер и
+        # переживает перезапуск процесса. ``r_filter`` здесь не считается:
+        # он требует размеченного корпуса, которого у обычного документа
+        # нет, и остаётся `None` — «не измерен», а не «измерен и равен нулю».
+        if detection.verifier is not None:
+            result["verifier"] = verifier_record(detection.verifier)
+        return result
 
     return detect_node
 
@@ -729,12 +748,34 @@ def plan_node(state: State) -> dict[str, object]:
 
 
 def summary_node(state: State) -> dict[str, object]:
-    """Собрать и экспортировать карточку через тот же план масок, что документ."""
-    from masker.summary import build_summary, export_summary
+    """Совместимый офлайн-узел: поля правил без вызова LLM."""
+    return _summary_node(state, llm=None)
+
+
+def make_summary_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
+    """Собрать summary-узел с LLM вне JSON-состояния LangGraph."""
+
+    if isinstance(deps.llm, FakeProvider):
+        # ``MASKER_LLM=fake`` — офлайн-ворота: нет ни придуманного жанра,
+        # ни синтетического пересказа, и ответ-заглушка не расходуется.
+        return summary_node
+
+    def _node(state: State) -> dict[str, object]:
+        with deps.llm_for_stage("summary") as llm:
+            return _summary_node(state, llm=llm)
+
+    return _node
+
+
+def _summary_node(state: State, llm: LLMProvider | None) -> dict[str, object]:
+    """Собрать части карточки и не дать полям договора попасть в не-договор."""
+    from masker.summary import ContractSummary, analyze_document, build_summary, export_summary
 
     entities = [entity_from_dict(item) for item in state.get("entities", [])]
     profiles = profiles_from_dicts(state.get("profiles", []))
     llm_calls = int(state.get("llm_calls", 0))
+    document = _document(state)
+    analysis = analyze_document(document, profiles, llm)
     # generated_at фиксируется пустой строкой: отчёт должен быть детерминированным
     # (AGENTS.md: «два прогона на одном файле дают побайтово одинаковый отчёт»).
     # Временная метка сборки хранится в артефактах файловой системы, не в отчёте.
@@ -742,11 +783,28 @@ def summary_node(state: State) -> dict[str, object]:
     summary = build_summary(
         entities,
         profiles,
-        llm_calls=llm_calls,
+        llm_calls=llm_calls + analysis.llm_calls,
         generated_at="",
-        document=_document(state),
+        document=document,
     )
-    return {"contract_summary": export_summary(summary, plan_from_dict(state.get("plan", {})))}
+    if analysis.kind.status == "non_contract":
+        # ``not_found`` не доказывает, что условие отсутствует. На документе
+        # другого жанра полей договора нет совсем, а не «ничего не найдено».
+        summary = ContractSummary(
+            brief_summary=analysis.brief_summary,
+            document_kind=analysis.kind,
+            generated_at="",
+            llm_calls=llm_calls + analysis.llm_calls,
+        )
+    else:
+        # Offline/fake-режим намеренно сохраняет поля правил: неизвестный
+        # жанр — техническая неопределённость, а не отрицание договора.
+        summary.brief_summary = analysis.brief_summary
+        summary.document_kind = analysis.kind
+    return {
+        "contract_summary": export_summary(summary, plan_from_dict(state.get("plan", {}))),
+        "summary_llm_calls": analysis.llm_calls,
+    }
 
 
 #: Порядок ролей артефактов — фиксированный, не по обходу множества стилей
@@ -1172,6 +1230,12 @@ def _build_report_dict(
         plan=plan,
         registry=registry,
     )
+    # Секция верификатора приезжает из ``detect_node`` тем же приёмом, что
+    # ``validation``/``leaked`` ниже: узел, который знает факт, кладёт его в
+    # состояние, а отчёт собирает готовое.
+    verifier = state.get("verifier")
+    if verifier:
+        report["verifier"] = verifier
     report["preview_only"] = preview_only
     # План feat/highlight-coords-edits (К1): координаты сущностей и размеры
     # страниц PDF-артефакта для отрисовки на канвасе фронта. Артефакт —

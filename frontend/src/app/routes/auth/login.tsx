@@ -250,7 +250,7 @@ export default function LoginPage() {
                   <VStack gap={1} hAlign="center">
                     <Heading level={1}>Вход в систему</Heading>
                     <Text type="body" color="secondary" size="sm">
-                      Используйте корпоративные учётные данные
+                      Войдите, чтобы начать с учебного договора без рабочих данных
                     </Text>
                   </VStack>
 
@@ -270,7 +270,7 @@ export default function LoginPage() {
                       </Text>
                       <Button
                         label="Войти через LDAP"
-                        variant="primary"
+                        variant="secondary"
                         size="lg"
                         icon={<Icon icon={LogIn} size="sm" />}
                         isLoading={isLoading}
@@ -285,7 +285,7 @@ export default function LoginPage() {
                   <VStack gap={2} hAlign="stretch">
                     <Button
                       label="Войти с логином и паролем"
-                      variant="secondary"
+                      variant="primary"
                       size="lg"
                       icon={<Icon icon={KeyRound} size="sm" />}
                       onClick={() => setStep("password")}

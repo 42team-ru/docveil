@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { CheckCircle2, Download, FileBarChart2, ListChecks, Sheet } from "lucide-react";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
@@ -23,10 +23,13 @@ import {
 import {
   downloadArtifact,
   hasRunResult,
+  isRunPending,
   useSubmitReview,
 } from "../../features/masking-run/api/masking-run";
 import { useReviewData } from "../../features/pii-review/api/use-review-data";
 import { ReviewPanel } from "../../features/pii-review/ui/review-panel";
+import { MaskingSetupDialog } from "../../features/pii-review/ui/masking-setup-dialog";
+import { UploadSelectionDialog } from "../../features/document-upload/ui/upload-selection-dialog";
 import { ScreenLayout } from "../../shared/ui/screen-layout/screen-layout";
 import { ReportView } from "./report-view";
 import { ReviewView } from "./review-view";
@@ -50,6 +53,9 @@ export function DocumentPage() {
   const { runId: routeRunId } = useParams<"runId">();
   const runId = routeRunId ?? null;
   const navigate = useNavigate();
+  const location = useLocation();
+  const uploadIds: string[] = location.state?.uploadIds ?? [];
+  const chooseUpload = location.state?.chooseUpload === true && uploadIds.length > 1;
   const showToast = useToast();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -61,7 +67,15 @@ export function DocumentPage() {
     document: reviewedDocument,
     report,
     ask,
+    isLoading,
+    error,
   } = useReviewData(runId);
+
+  const [selectedTypesRunId, setSelectedTypesRunId] = useState<string | null>(null);
+  useEffect(() => {
+    useReviewStore.setState({ questionAnswers: {} });
+  }, [runId]);
+  const isSelectingTypes = selectedTypesRunId !== runId && Boolean(ask?.questions.some((question) => question.kind === "type"));
 
   const [notFoundIds, setNotFoundIds] = useState<Set<string>>(new Set());
   const [isConfirmApproveOpen, setIsConfirmApproveOpen] = useState(false);
@@ -129,6 +143,7 @@ export function DocumentPage() {
     if (runId === null) return;
     try {
       await downloadArtifact(runId, "masked_highlight", reviewedDocument.name);
+      showToast({ body: "Обезличенный документ скачан", type: "info" });
     } catch {
       showToast({ body: "Не удалось скачать обезличенный документ", type: "error" });
     }
@@ -162,7 +177,7 @@ export function DocumentPage() {
         meta={
           tab === "review" ? (
             <Badge
-              variant={allConfirmed ? "success" : "neutral"}
+              variant={ready ? "success" : "neutral"}
               label={`${confirmedCount}/${totalCount} подтверждено`}
             />
           ) : report ? (
@@ -212,18 +227,20 @@ export function DocumentPage() {
         actions={
           tab === "review" ? (
             <HStack gap={2}>
+              {uploadIds.length > 1 ? <Button size="sm" variant="ghost" label="Выбрать файл"
+                onClick={() => void navigate(location.pathname, { replace: true, state: { uploadIds, chooseUpload: true } })} /> : null}
               <Button
                 size="sm"
-                variant="secondary"
-                label="Скачать"
+                variant={ready ? "primary" : "secondary"}
+                label="Скачать обезличенный документ"
                 icon={<Icon icon={Download} size="sm" />}
                 isDisabled={!ready}
                 onClick={() => void handleDownload()}
               />
               <Button
                 size="sm"
-                variant={allConfirmed ? "primary" : "secondary"}
-                label="Утвердить документ"
+                variant="secondary"
+                label="Подтвердить замены"
                 icon={<Icon icon={CheckCircle2} size="sm" />}
                 isDisabled={status !== "awaiting_review" || submitReview.isPending}
                 isLoading={submitReview.isPending}
@@ -270,6 +287,28 @@ export function DocumentPage() {
           <ReportView report={report} />
         )}
       </ScreenLayout>
+      <MaskingSetupDialog
+        key={runId}
+        runId={runId}
+        ask={ask}
+        isSelecting={!chooseUpload && isSelectingTypes}
+        isProcessing={!chooseUpload && (isRunPending(status) || isLoading)}
+        error={chooseUpload ? null : error}
+        onSelected={() => setSelectedTypesRunId(runId)}
+        onLeave={() => void navigate(uploadIds.length > 1 ? location.pathname : "/documents", {
+          replace: uploadIds.length > 1,
+          state: uploadIds.length > 1 ? { uploadIds, chooseUpload: true } : undefined,
+        })}
+      />
+      <UploadSelectionDialog
+        isOpen={chooseUpload}
+        uploadIds={uploadIds}
+        onSelect={(id) => void navigate(`/documents/${id}`, {
+          replace: true,
+          state: { uploadIds, chooseUpload: false },
+        })}
+        onLeave={() => void navigate("/")}
+      />
       <AlertDialog
         isOpen={isConfirmApproveOpen}
         onOpenChange={setIsConfirmApproveOpen}

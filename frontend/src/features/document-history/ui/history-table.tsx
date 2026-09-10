@@ -170,14 +170,18 @@ export function HistoryTable({
             {
               key: "actions",
               header: "",
-              width: pixel(200),
+              width: pixel(320),
               align: "end",
               renderCell: (run) => (
                 <HStack gap={1.5} hAlign="end">
                   <Button
                     size="sm"
                     variant="primary"
-                    label="Открыть"
+                    label={
+                      run.status === "awaiting_review" || run.status === "done"
+                        ? "Проверить результат"
+                        : "Открыть документ"
+                    }
                     onClick={() => navigate(`/documents/${run.id}`)}
                   />
                   <Button

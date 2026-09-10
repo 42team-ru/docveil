@@ -556,3 +556,24 @@ def test_gigachat_live_strict_schema_returns_schema_valid_json() -> None:
     )
     parsed = json.loads(response)
     jsonschema.validate(instance=parsed, schema=schema)
+
+
+def test_network_failure_arrives_as_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Обрыв связи и отвергнутый сертификат обязаны приходить как `LLMError`.
+
+    Транспорт клиента (`httpx`) библиотекой GigaChat не обёрнут, и сырая
+    `httpx.ConnectError` летела наружу мимо контракта `LLMProvider`.
+    Замерено 10.09.2026: она унесла весь матричный бенчмарк вместе с ещё
+    не начатыми клетками, хотя недоступна была одна.
+    """
+    import httpx
+
+    class _Failing:
+        def chat(self, _payload: object) -> None:
+            raise httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] self-signed certificate")
+
+    provider = _provider()
+    monkeypatch.setattr(type(provider), "_get_client", lambda _self: _Failing())
+
+    with pytest.raises(LLMError, match="недоступен по сети"):
+        provider.complete_with_usage([Message(role="user", content="привет")])

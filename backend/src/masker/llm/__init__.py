@@ -84,6 +84,7 @@ def get_provider(config: LLMConfig | None = None) -> LLMProvider:
             timeout_seconds=config.timeout_seconds,
             site_url=config.site_url,
             title=config.title,
+            provider_order=config.openrouter_provider_order,
         )
     if provider == "gigachat":
         credentials = os.environ.get(config.api_key_env, "")

@@ -38,6 +38,12 @@ class OpenRouterProvider:
     timeout_seconds: float = 60.0
     site_url: str = ""
     title: str = "triema-masker"
+    #: Кому из хостеров модели отдать запрос (`novita`, `deepseek`, …).
+    #: Пусто — маршрутизацию выбирает OpenRouter сам. Закреплять хостера
+    #: осмысленно ради воспроизводимости замера: у разных хостеров одной
+    #: модели разные задержка, пропускная способность и, что важнее для
+    #: наших строгих схем, разная доля ошибок структурированного ответа.
+    provider_order: tuple[str, ...] = ()
 
     def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
         """Вернуть текст; usage доступен обёрткам через ``complete_with_usage``."""
@@ -59,6 +65,13 @@ class OpenRouterProvider:
             "messages": [{"role": item.role, "content": item.content} for item in messages],
             "temperature": self.temperature,
         }
+        if self.provider_order:
+            # `allow_fallbacks: False` — иначе OpenRouter молча уйдёт к
+            # другому хостеру, и замер будет приписан не тому, кого мерили.
+            body["provider"] = {
+                "order": list(self.provider_order),
+                "allow_fallbacks": False,
+            }
         if schema is not None:
             body["response_format"] = {
                 "type": "json_schema",

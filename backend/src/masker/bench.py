@@ -50,6 +50,7 @@ from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.serde import plan_from_dict
 from masker.graph.state import State
+from masker.ingest import SUPPORTED_SUFFIXES
 from masker.run import RunOptions, RunOutcome, report_of, start_run, thread_id_for
 
 #: Маркер строки в stdout дочернего процесса — отделяет результат замера от
@@ -100,7 +101,7 @@ CARD_DOCS: tuple[Path, ...] = (
 #: к воротам» из того коммита больше не действует. Документы формата, который
 #: граф не умеет, не выдумываем гонять — честно исключаем и печатаем, что и
 #: почему пропущено.
-_GRAPH_SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf", ".xlsx"})
+_GRAPH_SUPPORTED_SUFFIXES = SUPPORTED_SUFFIXES
 
 #: Скан-документы OCR-корпуса (`scan_synth_*`) в замер не входят: у них нет
 #: текстового слоя, и без OCR-провайдера граф честно не находит в них ничего.

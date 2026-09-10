@@ -1,6 +1,6 @@
 [project]
 name = "triema-masker"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Локальный мультиагентный обезличиватель тендерных документов"
 requires-python = ">=3.13"
 dependencies = [
@@ -54,6 +54,11 @@ gliner = [
     "gliner2[local]>=1.3.2",
     "peft>=0.17",
     "torch>=2.8",
+    # Токенизатору mdeberta-v3 нужны protobuf и sentencepiece, но transformers
+    # объявляет их необязательными. Без них загрузка падает на ImportError уже
+    # внутри модели, и слой молча не возвращает ничего (см. Р10 в TASKS.md).
+    "protobuf>=5.0",
+    "sentencepiece>=0.2",
 ]
 ocr = [
     # PaddleOCR 3.x — актуальный API (PP-OCRv5/v6). Веса кэшируются в
@@ -74,14 +79,26 @@ docveil = "masker.cli:main"
 masker = "masker.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+tag-pattern = '^v(?P<version>\d+\.\d+\.\d+)$'
+# До первого релизного тега локальная установка остаётся устанавливаемой.
+# В CI релиза точную версию передаёт SETUPTOOLS_SCM_PRETEND_VERSION.
+fallback-version = "0.0.0"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/masker", "src/api"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+
+[tool.uv]
+# hatch-vcs читает и commit, и теги: без них uv может переиспользовать wheel
+# с версией предыдущей ревизии из CI-кеша.
+cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

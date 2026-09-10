@@ -19,6 +19,7 @@ from masker.cli_ui import CliPresenter
 from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.questions import parse_answers
+from masker.ingest import SUPPORTED_SUFFIXES, SUPPORTED_TITLES
 from masker.llm import LLMError, LLMProvider, TracingProvider, resolve_cli_llm, write_trace
 from masker.model import EntityType
 from masker.ocr.select import select_ocr
@@ -43,8 +44,6 @@ from masker.telemetry import LLMPricing
 #: 5 RunFailedError (узел уронил OSError/ValueError), 10 приостановлен.
 EXIT_LEAK = 4
 EXIT_RUN_FAILED = 5
-
-_SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf"})
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -341,11 +340,12 @@ def main(argv: list[str] | None = None) -> int:
     invalid = [
         path
         for path in args.files
-        if not path.is_file() or path.suffix.casefold() not in _SUPPORTED_SUFFIXES
+        if not path.is_file() or path.suffix.casefold() not in SUPPORTED_SUFFIXES
     ]
     if invalid:
         parser.error(
-            "ожидались существующие DOCX или PDF: " + ", ".join(str(path) for path in invalid)
+            f"ожидались существующие {SUPPORTED_TITLES}: "
+            + ", ".join(str(path) for path in invalid)
         )
 
     if args.llm_config is not None and not args.profile:

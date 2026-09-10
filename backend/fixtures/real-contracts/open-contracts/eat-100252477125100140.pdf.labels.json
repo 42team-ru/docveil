@@ -1,0 +1,136 @@
+{
+  "entities": [
+    {
+      "type": "inn",
+      "text": "6634006878"
+    },
+    {
+      "type": "inn",
+      "text": "6634003757"
+    },
+    {
+      "type": "kpp",
+      "text": "667601001"
+    },
+    {
+      "type": "kpp",
+      "text": "667601001"
+    },
+    {
+      "type": "bik",
+      "text": "015004950"
+    },
+    {
+      "type": "bik",
+      "text": "044525104"
+    },
+    {
+      "type": "bank_account",
+      "text": "40102810445370000043"
+    },
+    {
+      "type": "bank_account",
+      "text": "03211643000000015113"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810302500071634"
+    },
+    {
+      "type": "bank_account",
+      "text": "30101810745374525104"
+    },
+    {
+      "type": "email",
+      "text": "fku.ik-26@yandex.ru"
+    },
+    {
+      "type": "email",
+      "text": "ooodarseti@mail.ru"
+    },
+    {
+      "type": "phone",
+      "text": "+7(900)200-44-88"
+    },
+    {
+      "type": "phone",
+      "text": "89002004488"
+    },
+    {
+      "type": "date",
+      "text": "05.04.2013"
+    },
+    {
+      "type": "date",
+      "text": "23.12.2025"
+    },
+    {
+      "type": "date",
+      "text": "30.12.2025"
+    },
+    {
+      "type": "date",
+      "text": "22.23.11"
+    },
+    {
+      "type": "date",
+      "text": "22.23.11"
+    },
+    {
+      "type": "date",
+      "text": "32.91.19"
+    },
+    {
+      "type": "date",
+      "text": "20.52.10"
+    },
+    {
+      "type": "date",
+      "text": "20.30.22"
+    },
+    {
+      "type": "date",
+      "text": "18.12.2025"
+    },
+    {
+      "type": "date",
+      "text": "17.04.2025"
+    },
+    {
+      "type": "date",
+      "text": "17.07.2026"
+    },
+    {
+      "type": "money",
+      "text": "600 000 руб."
+    },
+    {
+      "type": "federal_law",
+      "text": "№44-ФЗ"
+    },
+    {
+      "type": "org_name",
+      "text": "ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ \"ДАР\""
+    },
+    {
+      "type": "org_name",
+      "text": "ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ \"ДАР\""
+    },
+    {
+      "type": "person",
+      "text": "Филимонов А.В."
+    },
+    {
+      "type": "bank_name",
+      "text": "Наименование банка: УФК по Новосибирской области"
+    },
+    {
+      "type": "bank_name",
+      "text": "Наименование банка: ООО ДАР"
+    },
+    {
+      "type": "delivery_period",
+      "text": "не позднее 5-ти рабочих дней"
+    }
+  ]
+}

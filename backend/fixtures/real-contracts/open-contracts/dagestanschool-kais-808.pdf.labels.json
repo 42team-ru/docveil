@@ -1,0 +1,14 @@
+{
+  "entities": [
+    {
+      "type": "date",
+      "text": "28.07.2023",
+      "party": "contractor"
+    },
+    {
+      "type": "date",
+      "text": "20.10.2024",
+      "party": "contractor"
+    }
+  ]
+}

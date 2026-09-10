@@ -1,0 +1,284 @@
+{
+  "entities": [
+    {
+      "type": "inn",
+      "text": "0274172001"
+    },
+    {
+      "type": "inn",
+      "text": "0274172001"
+    },
+    {
+      "type": "inn",
+      "text": "0274124752"
+    },
+    {
+      "type": "kpp",
+      "text": "027401001"
+    },
+    {
+      "type": "kpp",
+      "text": "027401001"
+    },
+    {
+      "type": "kpp",
+      "text": "027401001"
+    },
+    {
+      "type": "bik",
+      "text": "048073001"
+    },
+    {
+      "type": "bik",
+      "text": "048073001"
+    },
+    {
+      "type": "bik",
+      "text": "048073770"
+    },
+    {
+      "type": "bank_account",
+      "text": "40302810500004000034"
+    },
+    {
+      "type": "bank_account",
+      "text": "30101810600000000770"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810200820002006"
+    },
+    {
+      "type": "email",
+      "text": "sitdykov.r@bashkortostan.ru"
+    },
+    {
+      "type": "email",
+      "text": "chernobrovinaar@brsc.ru"
+    },
+    {
+      "type": "email",
+      "text": "it@bashkortostan.ru"
+    },
+    {
+      "type": "email",
+      "text": "sitdykov.r@bashkortostan.ru"
+    },
+    {
+      "type": "phone",
+      "text": "(347) 218-12-38"
+    },
+    {
+      "type": "phone",
+      "text": "(347) 276-91-23"
+    },
+    {
+      "type": "phone",
+      "text": "(347) 280-82-16"
+    },
+    {
+      "type": "date",
+      "text": "1 декабря 2015"
+    },
+    {
+      "type": "date",
+      "text": "5 апреля 2013"
+    },
+    {
+      "type": "date",
+      "text": "25 ноября 2016"
+    },
+    {
+      "type": "date",
+      "text": "25 декабря 2016"
+    },
+    {
+      "type": "date",
+      "text": "25 ноября 2013"
+    },
+    {
+      "type": "date",
+      "text": "31 декабря 2016"
+    },
+    {
+      "type": "date",
+      "text": "29 декабря 2012"
+    },
+    {
+      "type": "date",
+      "text": "27 июля 2006"
+    },
+    {
+      "type": "date",
+      "text": "27 июля 2006"
+    },
+    {
+      "type": "date",
+      "text": "27 июля 2010"
+    },
+    {
+      "type": "date",
+      "text": "8 июня 2011"
+    },
+    {
+      "type": "date",
+      "text": "8 сентября 2010"
+    },
+    {
+      "type": "date",
+      "text": "10 июля 2013"
+    },
+    {
+      "type": "date",
+      "text": "14 сентября 2012"
+    },
+    {
+      "type": "date",
+      "text": "25 октября 2014"
+    },
+    {
+      "type": "date",
+      "text": "14 февраля 2015"
+    },
+    {
+      "type": "date",
+      "text": "25 апреля 2011"
+    },
+    {
+      "type": "date",
+      "text": "17 декабря 2009"
+    },
+    {
+      "type": "date",
+      "text": "25 декабря 2013"
+    },
+    {
+      "type": "date",
+      "text": "08 июля 2015"
+    },
+    {
+      "type": "date",
+      "text": "27 июля 2006"
+    },
+    {
+      "type": "date",
+      "text": "27 июля 2006"
+    },
+    {
+      "type": "date",
+      "text": "18 февраля 2013"
+    },
+    {
+      "type": "date",
+      "text": "11 февраля 2013"
+    },
+    {
+      "type": "date",
+      "text": "10 июля 2014"
+    },
+    {
+      "type": "date",
+      "text": "10 июля 2013"
+    },
+    {
+      "type": "date",
+      "text": "28.12.2013"
+    },
+    {
+      "type": "date",
+      "text": "14.06.2013"
+    },
+    {
+      "type": "date",
+      "text": "1 января 2014"
+    },
+    {
+      "type": "date",
+      "text": "01.01.2014"
+    },
+    {
+      "type": "money",
+      "text": "2 432 170 (два миллиона четыреста тридцать две тысячи сто семьдесят) рублей 00 копеек"
+    },
+    {
+      "type": "money",
+      "text": "371 008 (триста семьдесят одна тысяча восемь) рублей 98 копеек"
+    },
+    {
+      "type": "money",
+      "text": "60 804 рублей 25 копеек"
+    },
+    {
+      "type": "money",
+      "text": "243 217 рублей 00 копеек"
+    },
+    {
+      "type": "money",
+      "text": "243 217 рублей 00 копеек"
+    },
+    {
+      "type": "federal_law",
+      "text": "№ 44-ФЗ"
+    },
+    {
+      "type": "federal_law",
+      "text": "№ 273-ФЗ"
+    },
+    {
+      "type": "federal_law",
+      "text": "№ 149-ФЗ"
+    },
+    {
+      "type": "federal_law",
+      "text": "№ 152-ФЗ"
+    },
+    {
+      "type": "federal_law",
+      "text": "№ 210-ФЗ"
+    },
+    {
+      "type": "federal_law",
+      "text": "№ 149-ФЗ"
+    },
+    {
+      "type": "federal_law",
+      "text": "№ 152-ФЗ"
+    },
+    {
+      "type": "federal_law",
+      "text": "Федеральным законом от 28.12.2013 № 443-ФЗ"
+    },
+    {
+      "type": "org_name",
+      "text": "Акционерное общество «Башкирский регистр социальных карт»"
+    },
+    {
+      "type": "org_name",
+      "text": "ПАО «Уралсиб»"
+    },
+    {
+      "type": "person",
+      "text": "Таипова Расула Рафанировича"
+    },
+    {
+      "type": "person",
+      "text": "Романова Олега Николаевича"
+    },
+    {
+      "type": "person",
+      "text": "Ситдыков Руслан Шамилевич"
+    },
+    {
+      "type": "person",
+      "text": "Чернобровина Альмира Равиловна"
+    },
+    {
+      "type": "delivery_period",
+      "text": "не позднее 10 (десяти) календарных дней"
+    },
+    {
+      "type": "contract_amount",
+      "text": "2 432 170 (два миллиона четыреста тридцать две тысячи сто семьдесят) рублей 00 копеек"
+    }
+  ]
+}

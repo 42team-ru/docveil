@@ -73,14 +73,13 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       tag: ${{ steps.plan.outputs.tag }}
     permissions:
+      # Только чтение: job считает версию по истории и выкладывает заметки
+      # артефактом. Права на запись нужны публикации, а не расчёту.
       contents: read
     concurrency:
       # Очередь исключает гонку двух merge: второй расчёт увидит тег первого выпуска.
       group: docveil-release-master
       cancel-in-progress: false
-    permissions:
-      contents: write
-      packages: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

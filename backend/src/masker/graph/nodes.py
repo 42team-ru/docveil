@@ -94,6 +94,8 @@ from masker.telemetry import RUNTIME_METRICS_NAME, LLMPricing, MeteringProvider,
 from masker.typeconfig import CustomTypeSpec, load_type_config
 from masker.validate import ValidateAgent
 
+StageObserver = Callable[[str, str, str], None]
+
 
 @dataclass(frozen=True, slots=True)
 class RunDeps:
@@ -112,6 +114,7 @@ class RunDeps:
     artifact_dir: Path | None = None
     ocr: OCRProvider | None = None
     pricing: LLMPricing | None = None
+    stage_observer: StageObserver | None = field(default=None, compare=False, repr=False)
     _meter: MeteringProvider | None = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -132,6 +135,11 @@ class RunDeps:
 
     def metering_delta(self, offset: int) -> list[dict[str, object]]:
         return self._meter.delta_since(offset)[1] if self._meter is not None else []
+
+    def notify_stage(self, node: str, status: str, message: str = "") -> None:
+        """Передать вызывающему ход графа, не добавляя UI-данные в State."""
+        if self.stage_observer is not None:
+            self.stage_observer(node, status, message)
 
 
 def _document(state: State) -> Document:

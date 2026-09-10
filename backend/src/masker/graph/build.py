@@ -49,18 +49,21 @@ def _instrument(
     """Добавить к каждому узлу дешёвый замер и ленту без значений PII."""
 
     def wrapped(state: State) -> dict[str, object]:
+        deps.notify_stage(name, "started")
         offset = deps.metering_offset()
         started = time.perf_counter()
         result = node(state)
         duration_ms = (time.perf_counter() - started) * 1000
         combined = {**state, **result}
+        message = _event_message(name, combined)
+        deps.notify_stage(name, "completed", message)
         return {
             **result,
             "telemetry": append_stage(
                 state.get("telemetry"),
                 node=name,
                 duration_ms=duration_ms,
-                message=_event_message(name, combined),
+                message=message,
                 calls=deps.metering_delta(offset),
                 pricing=deps.pricing,
             ),

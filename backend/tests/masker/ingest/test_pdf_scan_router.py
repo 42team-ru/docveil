@@ -129,8 +129,9 @@ def test_mixed_pdf_routes_per_page(tmp_path: pathlib.Path) -> None:
 
 def test_scan_segment_anchor_has_pt_coords(tmp_path: pathlib.Path) -> None:
     """Якорь OCR-сегмента содержит pt-координаты, а не пиксельные."""
+    from masker.ingest.scan_ingest import _OCR_DPI
+
     _make_scan_pdf(tmp_path / "scan.pdf")
-    # bbox в пикселях при 400 dpi (DPI поднят в fbde4d6); pt = px * 72/400
     ocr = FakeOCR(lines=(_fake_line("тест"),))
     doc = ingest_pdf(tmp_path / "scan.pdf", ocr=ocr)
     assert len(doc.segments) == 1
@@ -141,12 +142,13 @@ def test_scan_segment_anchor_has_pt_coords(tmp_path: pathlib.Path) -> None:
     # координаты целочисленные (умножены на 100 и округлены)
     x0, y0, x1, y1 = locator[3], locator[4], locator[5], locator[6]
     assert isinstance(x0, int) and isinstance(y0, int)
-    # pt_per_px = 72/400 = 0.18; bbox_px=(10,10,200,30) → pt=(1.8,1.8,36.0,5.4)
-    # ×100 → (180, 180, 3600, 540)
-    assert x0 == 180
-    assert y0 == 180
-    assert x1 == 3600
-    assert y1 == 540
+    # Ожидаемое считается от `_OCR_DPI`, а не зашито числом: dpi рендера уже
+    # менялся (300 → 400 ради мелких глифов), и тест с зашитыми 240/4800
+    # молча разошёлся с кодом. Проверяется сам пересчёт px → pt, а не
+    # конкретное разрешение.
+    pt_per_px = 72 / _OCR_DPI
+    expected = tuple(round(px * pt_per_px * 100) for px in _fake_line("тест").bbox)
+    assert (x0, y0, x1, y1) == expected
 
 
 def test_ocr_calls_counted(tmp_path: pathlib.Path) -> None:

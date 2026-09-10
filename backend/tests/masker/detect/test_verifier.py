@@ -14,9 +14,11 @@
 9. `MASKER_LLM=fake` не роняет пайплайн (ни `verify_recall`, ни `DetectAgent`).
 10. Бюджет окон и отказ модели дают `unverified`, а не падение прогона.
 11. `r_filter` считается верно и не делится на ноль, когда пропусков нет.
+12. Р7-1: вердикты верификатора выходят наружу через `DetectionResult.verifier`
+    и через реальную проводку `deps.llm` в `make_detect_node`.
 
 Имена в фикстурах взяты так, чтобы реально иметь хотя бы один морфологический
-разбор с граммемой `Surn`/`Name`/`Patr` (`masker.detect.verifier._any_name_grammeme`)
+разбор с граммемой `Surn`/`Name`/`Patr` (`masker.detect.morph.has_name_grammeme`)
 — «Персонова»/«Особая» словарь не распознаёт как имя/фамилию ни в одном
 разборе, поэтому для сигналов используются реальные словарные фамилии/имена/
 отчества («Смирнова», «Иванов», «Пётр»).
@@ -36,8 +38,10 @@ from masker.detect.verifier import (
     Window,
     build_windows,
     measure_filter_coverage,
+    summarize_verdicts,
     verify_recall,
 )
+from masker.graph import nodes
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.llm import FakeProvider, LLMError, Message, get_provider
 from masker.model import Anchor, Document, Entity, EntityType, Segment, Source
@@ -368,6 +372,107 @@ def test_detect_agent_without_llm_is_unaffected() -> None:
     assert [(e.type, e.text, e.start, e.end) for e in with_default] == [
         (e.type, e.text, e.start, e.end) for e in without_llm
     ]
+
+
+# --- 12: вердикты наружу (Р7-1) -------------------------------------------------
+
+
+def test_detect_agent_without_llm_has_no_verifier_report() -> None:
+    document = _document("Контактное лицо: Смирнова, распорядитель.")
+
+    result = DetectAgent().detect(document)
+
+    assert result.verifier is None
+
+
+def test_detect_agent_with_llm_reports_verdict_per_built_window() -> None:
+    """`DetectionResult.verifier` — не пустышка: вердикт на каждое окно,
+    включая `unverified` (`FakeProvider()` по умолчанию отвечает без ключа
+    "windows" — единственный исход здесь `malformed_json`)."""
+    text = "Директор ЗУБРИЦКАЯ подписала договор аренды помещения."
+    document = _document(text)
+    baseline = DetectAgent().detect(document).entities
+    assert baseline == []  # предпосылка: без верификатора спан не находится
+    windows = build_windows(document, baseline)
+    assert windows  # предпосылка: слабый сигнал есть и не покрыт baseline
+
+    result = DetectAgent(llm=FakeProvider()).detect(document)
+
+    assert result.verifier is not None
+    assert result.verifier.windows == len(windows)
+    assert len(result.verifier.verdicts) == result.verifier.windows
+    assert result.verifier.verified + result.verifier.unverified == result.verifier.windows
+    assert result.verifier.unverified_by_reason == {"malformed_json": result.verifier.windows}
+
+
+def test_summarize_verdicts_counts_input_chars_from_dispatched_windows_only() -> None:
+    """`input_chars` — объём УНИКАЛЬНОГО текста, реально ушедшего в модель:
+    окно, срезанное бюджетом (`budget_exceeded`), в модель не уходило и не
+    должно раздувать эту цифру."""
+    texts = [f"Контактное лицо {i}: Смирнова{i}, распорядитель." for i in range(3)]
+    document = _document(*texts)
+    windows = build_windows(document, [])
+    assert len(windows) == 3
+
+    provider = _ScriptedProvider([_windows_response([{"id": windows[0].id, "entities": []}])])
+    result = verify_recall(document, [], provider, max_windows=1, batch_size=1)
+
+    report = summarize_verdicts(document, result)
+
+    assert report.windows == 3
+    assert report.verified == 1
+    assert report.unverified_by_reason == {"budget_exceeded": 2}
+    assert report.input_chars == len(windows[0].text)
+    assert report.document_chars == sum(len(text) for text in texts)
+
+
+def test_make_detect_node_wires_llm_into_verifier() -> None:
+    """Приёмка Р7-1, п.3: без ``llm=deps.llm`` в ``DetectAgent`` слой
+    верификатора в графе мёртв при любом ``MASKER_LLM`` — провайдер ни разу
+    не вызывается. Тест обязан упасть при откате проводки в
+    ``make_detect_node``."""
+    text = "Директор ЗУБРИЦКАЯ подписала договор аренды помещения."
+    state: dict[str, object] = {
+        "path": "test.docx",
+        "fmt": "docx",
+        "segments": [
+            {
+                "text": text,
+                "anchor": {"fmt": "docx", "locator": ["body", 0], "label": None},
+                "order": 0,
+            }
+        ],
+        "options": {"rules_only": False, "types": None, "interactive": False},
+    }
+    provider = FakeProvider()
+
+    state.update(nodes.make_detect_node(nodes.RunDeps(llm=provider))(state))
+
+    assert provider.calls > 0
+
+
+def test_make_detect_node_rules_only_never_calls_llm() -> None:
+    """``--rules-only`` обязан остаться офлайн даже при заданном ``deps.llm``
+    — «только регулярки/контрольные суммы» не должно тихо начать ходить
+    в сеть через верификатор."""
+    text = "Директор ЗУБРИЦКАЯ подписала договор аренды помещения."
+    state: dict[str, object] = {
+        "path": "test.docx",
+        "fmt": "docx",
+        "segments": [
+            {
+                "text": text,
+                "anchor": {"fmt": "docx", "locator": ["body", 0], "label": None},
+                "order": 0,
+            }
+        ],
+        "options": {"rules_only": True, "types": None, "interactive": False},
+    }
+    provider = FakeProvider()
+
+    state.update(nodes.make_detect_node(nodes.RunDeps(llm=provider))(state))
+
+    assert provider.calls == 0
 
 
 # --- 10: бюджет и отказ модели -------------------------------------------------

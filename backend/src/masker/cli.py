@@ -17,6 +17,7 @@ from typing import Any
 from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.questions import parse_answers
+from masker.highlight import highlight_background_argument
 from masker.llm import (
     LLMError,
     LLMProvider,
@@ -40,6 +41,7 @@ from masker.run import (
     resume_run,
     sqlite_checkpointer_factory,
     start_run,
+    styles_for_redact_option,
 )
 
 DEFAULT_OUTPUT = Path("out") / "inspect"
@@ -49,15 +51,6 @@ EXIT_LEAK = 4
 EXIT_RUN_FAILED = 5
 
 _SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf"})
-
-#: ``--redact-style`` → ``RunOptions.styles`` (решение Р1 плана T1.10):
-#: ``marker`` → ``masked_highlight.*``, ``blackbox`` → ``masked_black.*``,
-#: ``both`` — оба сразу.
-_STYLES_BY_REDACT_OPTION: dict[str, tuple[str, ...]] = {
-    "marker": ("marker",),
-    "blackbox": ("blackbox",),
-    "both": ("marker", "blackbox"),
-}
 
 
 def _parse_types(value: str) -> frozenset[EntityType]:
@@ -89,7 +82,10 @@ def _run_options_from_args(
     source: Path,
     interactive: bool,
 ) -> RunOptions:
-    """Опции графа из CLI. ``styles``/``preview`` вне ``thread_id`` (T1.10, раздел 4).
+    """Опции графа из CLI.
+
+    ``styles``/``preview`` вне ``thread_id`` (T1.10, раздел 4), но фон
+    читаемой маски в нём: разные цвета должны вести к разным артефактам.
 
     PDF всегда ``profile=False`` (риск R5): человек в цикле и профили для
     PDF не реализованы (T2.2 покрывает только детекцию).
@@ -107,8 +103,9 @@ def _run_options_from_args(
         unmask_critical=args.unmask_critical,
         llm_config_id=str(args.llm_config) if args.llm_config is not None else "",
         interactive=interactive,
-        styles=_STYLES_BY_REDACT_OPTION.get(args.redact_style, ()),
+        styles=styles_for_redact_option(args.redact_style),
         preview=True,
+        highlight_background=args.highlight_background,
     )
 
 
@@ -347,6 +344,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="STYLE",
         help="marker → masked_highlight.*; blackbox → masked_black.*; both — оба",
     )
+    flags, keyword_args = highlight_background_argument()
+    parser.add_argument(*flags, **keyword_args)
     parser.add_argument(
         "--profile", action="store_true", help="профили и вердикты судьи в report.json"
     )

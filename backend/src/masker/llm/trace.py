@@ -13,6 +13,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from masker.llm.base import LLMError, LLMProvider, Message
 
@@ -23,6 +24,7 @@ _OUTCOME_LABELS: dict[str, str] = {
     "applied": "роль применена",
     "empty_role": "отклонена: модель вернула пустой role_title",
     "confidence_not_higher": "отклонена: уверенность модели не выше структурной",
+    "confidence_below_threshold": "отклонена: уверенность модели ниже порога роли",
     "rejected_by_validation": "отклонена валидацией",
 }
 
@@ -77,13 +79,24 @@ class TracingProvider:
         self.calls: list[CallTrace] = []
         self.batches: list[BatchTrace] = []
 
-    def complete(self, messages: list[Message]) -> str:
-        """Выполнить вызов внутреннего поставщика и записать его дословно."""
+    def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        """Выполнить вызов внутреннего поставщика и записать его дословно.
+
+        ``schema`` пробрасывается во внутренний поставщик без изменений —
+        трейсер не часть контракта Р7-3, только прозрачная обёртка над ним.
+        Без ``schema`` зовём внутренний `complete()` тем же способом, что и
+        до Р7-3 (без keyword-аргумента), чтобы обёртка не требовала от
+        старых реализаций `LLMProvider` поддержки нового параметра.
+        """
         index = len(self.calls) + 1
         request_chars = sum(len(message.content) for message in messages)
         start = time.monotonic()
         try:
-            response = self._inner.complete(messages)
+            response = (
+                self._inner.complete(messages)
+                if schema is None
+                else self._inner.complete(messages, schema=schema)
+            )
         except LLMError as error:
             duration_ms = (time.monotonic() - start) * 1000
             self.calls.append(

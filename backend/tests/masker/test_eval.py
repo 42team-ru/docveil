@@ -10,30 +10,40 @@
 
 from __future__ import annotations
 
+import re
+import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import openpyxl
 import pytest
 from docx import Document as WordDocument
 
 import masker.eval as eval_module
+from masker.detect.result import DetectionResult
 from masker.model import (
     Anchor,
     ArtifactLayout,
     Certificate,
     CertificateCheck,
+    Document,
     Entity,
     EntityType,
     Leak,
     MaskGroup,
     MaskPlan,
+    Profile,
+    ProfileMember,
     Replacement,
+    Segment,
     Source,
     ValidationReport,
 )
 from masker.pipeline import MaskResult
+from masker.profile.agent import ProfileResult
 from masker.run import RunFailedError
 
 #: Заглушка `_profile_judge_metrics`: тесты этого файла не проверяют профили
@@ -209,6 +219,207 @@ def test_eval_reports_pdf_format_row(
     pdf_row = _row(output, "pdf")
     assert docx_row.split()[2] == "1.000", f"docx recall должен остаться 1.0: {docx_row!r}"
     assert pdf_row.split()[2] == "0.000", f"pdf recall должен показать провал: {pdf_row!r}"
+
+
+def test_eval_ingests_xlsx_fixture() -> None:
+    """XLSX из размеченного корпуса должен читаться тем же путём, что DOCX/PDF.
+
+    Иначе `_profile_judge_metrics()` оборвёт все ворота ещё до P/R/F1 с
+    ``ValueError: eval не умеет читать формат '.xlsx'``.
+    """
+    fixture = eval_module.FIXTURES / "order_01.xlsx"
+
+    document = eval_module._ingest(fixture)
+
+    assert document.fmt == "xlsx"
+    assert any(segment.text == "3662103003" for segment in document.segments)
+
+
+def test_eval_reports_xlsx_format_row(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """XLSX участвует в P/R-разрезе форматов, а не остаётся вне корпуса."""
+    xlsx_path = tmp_path / "order.xlsx"
+    xlsx_path.write_bytes(b"")
+    labels = {"entities": [{"type": "inn", "text": "1234567890"}]}
+    _patch_common(monkeypatch, [(xlsx_path, labels)])
+    result = MaskResult(
+        plan=MaskPlan(
+            replacements=(_replacement(EntityType.INN, "1234567890"),),
+            groups=(),
+            skipped=(),
+            requested_types=(),
+        ),
+        validation=_EMPTY_VALIDATION,
+        artifacts=(),
+    )
+    _patch_mask_and_validate(monkeypatch, {str(xlsx_path): result})
+
+    eval_module.run(gate=False)
+
+    xlsx_row = _row(capsys.readouterr().out, "xlsx")
+    assert xlsx_row.split()[2] == "1.000", f"xlsx recall должен учитываться: {xlsx_row!r}"
+
+
+def test_artifact_text_reads_xlsx_worksheets_shared_strings_and_formula_cache(
+    tmp_path: Path,
+) -> None:
+    """Проверка утечек XLSX не ограничивается отображаемыми ячейками.
+
+    `sharedStrings.xml` и кэш `<v>` формулы могут хранить исходное значение,
+    даже когда на листе его уже не видно. Откат ветки `.xlsx` в
+    `_artifact_text()` не сможет вернуть все три строки.
+    """
+    artifact = tmp_path / "artifact.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet["A1"] = "worksheet-secret"
+    sheet["B1"] = "=1+1"
+    workbook.save(artifact)
+
+    with zipfile.ZipFile(artifact) as archive:
+        contents = {name: archive.read(name) for name in archive.namelist()}
+    sheet_xml = contents["xl/worksheets/sheet1.xml"].decode("utf-8")
+    sheet_xml, substitutions = re.subn(
+        r'(<c r="B1"[^>]*>.*?<f>.*?</f>)(?:<v>.*?</v>)?(</c>)',
+        r"\g<1><v>991122</v>\g<2>",
+        sheet_xml,
+        count=1,
+    )
+    assert substitutions == 1
+    contents["xl/worksheets/sheet1.xml"] = sheet_xml.encode("utf-8")
+    contents["xl/sharedStrings.xml"] = (
+        b'<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        b"<si><t>shared-string-secret</t></si></sst>"
+    )
+    with zipfile.ZipFile(artifact, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in contents.items():
+            archive.writestr(name, content)
+
+    text = eval_module._artifact_text(artifact)
+
+    assert "worksheet-secret" in text
+    assert "shared-string-secret" in text
+    assert "991122" in text
+
+
+def test_role_accuracy_excludes_profile_without_documented_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Знаменатель `role_accuracy` не наказывает за роль, которой нет в тексте.
+
+    Откат к прежнему `if expected_roles:` вернёт 0.5 вместо 1.0: второй
+    документ не называет роль стороны вовсе, но в разметке она есть.
+    `role_coverage` этот профиль по-прежнему учитывает.
+    """
+    anchor = Anchor(fmt="docx", locator=("body", 0))
+    supplier = Entity(
+        type=EntityType.INN,
+        text="1111111111",
+        segment_order=0,
+        start=0,
+        end=10,
+        source=Source.RULE,
+    )
+    buyer = Entity(
+        type=EntityType.INN,
+        text="2222222222",
+        segment_order=1,
+        start=0,
+        end=10,
+        source=Source.RULE,
+    )
+    supplier_document = Document(
+        path="supplier.docx",
+        fmt="docx",
+        segments=[
+            Segment(text="Поставщик:", anchor=anchor, order=0),
+        ],
+    )
+    buyer_document = Document(
+        path="buyer.docx",
+        fmt="docx",
+        segments=[Segment(text="2222222222", anchor=anchor, order=1)],
+    )
+    supplier_profiles = ProfileResult(
+        profiles=[
+            Profile(
+                id="P1",
+                members=[ProfileMember(supplier, anchor, "R1")],
+                role_title="Поставщик",
+            )
+        ],
+        blocks=[],
+        unassigned=[],
+        candidates=[],
+    )
+    buyer_profiles = ProfileResult(
+        profiles=[
+            Profile(
+                id="P2",
+                members=[ProfileMember(buyer, anchor, "R2")],
+                role_title="",
+            )
+        ],
+        blocks=[],
+        unassigned=[],
+        candidates=[],
+    )
+    detections = {
+        "supplier.docx": DetectionResult(entities=[supplier], chunks=[]),
+        "buyer.docx": DetectionResult(entities=[buyer], chunks=[]),
+    }
+    documents = {"supplier.docx": supplier_document, "buyer.docx": buyer_document}
+    profiles_by_path = {"supplier.docx": supplier_profiles, "buyer.docx": buyer_profiles}
+    monkeypatch.setattr(eval_module, "_ingest", lambda path: documents[path.name])
+    monkeypatch.setattr(
+        eval_module,
+        "DetectAgent",
+        lambda: SimpleNamespace(detect=lambda document: detections[Path(document.path).name]),
+    )
+    monkeypatch.setattr(
+        eval_module,
+        "ProfileAgent",
+        lambda _provider: SimpleNamespace(
+            profile=lambda document, _detection: profiles_by_path[Path(document.path).name]
+        ),
+    )
+    monkeypatch.setattr(
+        eval_module,
+        "JudgeAgent",
+        lambda: SimpleNamespace(
+            judge=lambda _detection, _profiles: SimpleNamespace(questions=(), verdicts=())
+        ),
+    )
+    monkeypatch.setattr(
+        eval_module,
+        "PolicyAgent",
+        lambda: SimpleNamespace(
+            questions=lambda _detection, _profiles: (),
+            apply=lambda *_args, **_kwargs: SimpleNamespace(critical_unmasked=()),
+        ),
+    )
+
+    metrics = eval_module._profile_judge_metrics(
+        [
+            (
+                Path("supplier.docx"),
+                {"entities": [{"type": "inn", "text": "1111111111", "party": "supplier"}]},
+            ),
+            (
+                Path("buyer.docx"),
+                {"entities": [{"type": "inn", "text": "2222222222", "party": "buyer"}]},
+            ),
+        ]
+    )
+
+    assert metrics["role_accuracy"] == 1.0
+    assert metrics["role_coverage"] == 0.5
+
+
+def test_min_role_accuracy_is_pinned_to_measured_fact() -> None:
+    """Порог не должен молча съехать ниже 0.82 и снова стать формальностью."""
+    assert eval_module.MIN_ROLE_ACCURACY == 0.82
 
 
 def test_eval_gate_fails_on_leak(
@@ -602,13 +813,13 @@ def test_inconsistent_marker_count_ignores_group_without_degradations() -> None:
 # ── М5: подсветка не смеет накрывать чужой символ ─────────────────────────────
 
 
-def test_highlight_overlap_count_returns_zero_for_non_pdf_source(tmp_path: Path) -> None:
-    """DOCX не редактируется вырезанием глифов по прямоугольнику — там нет
-    геометрии подсветки, которую можно перепутать (план М5)."""
+@pytest.mark.parametrize("suffix", [".docx", ".xlsx"])
+def test_highlight_overlap_count_skips_non_pdf_source(tmp_path: Path, suffix: str) -> None:
+    """DOCX/XLSX не имеют PDF-геометрии: М5 к ним неприменима и не измеряется."""
     plan = MaskPlan(replacements=(), groups=(), skipped=(), requested_types=())
-    docx_path = tmp_path / "doc.docx"
-    artifact = tmp_path / "masked_highlight.docx"
-    assert eval_module.highlight_overlap_count(plan, docx_path, (artifact,)) == 0
+    source = tmp_path / f"document{suffix}"
+    artifact = tmp_path / f"masked_highlight{suffix}"
+    assert eval_module.highlight_overlap_count(plan, source, (artifact,)) == 0
 
 
 def test_highlight_overlap_count_returns_zero_without_highlight_artifact(tmp_path: Path) -> None:

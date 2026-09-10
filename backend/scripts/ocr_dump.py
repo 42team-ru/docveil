@@ -89,9 +89,19 @@ def main() -> int:
     return 0
 
 
+#: Шрифт с кириллицей. Без него ``insert_text`` берёт встроенную Helvetica
+#: (WinAnsiEncoding), в которой кириллических глифов нет вовсе: весь русский
+#: текст дампа превращался в точки U+00B7 — «··H: 3662103003» вместо
+#: «ИНН: 3662103003». Диагностика при этом выглядела рабочей, потому что
+#: цифры и латиница сохранялись, и по ним казалось, что OCR отработал.
+_FONT_FILE = BACKEND_DIR / "src" / "masker" / "data" / "DejaVuSans.ttf"
+
+
 def _add_text_layer(page: pymupdf.Page, segs: list, min_confidence: float) -> None:
     """Наложить OCR-текст как видимый слой на страницу (render_mode=0)."""
     import pymupdf
+
+    page.insert_font(fontname="dvu", fontfile=str(_FONT_FILE))
 
     for seg in segs:
         if not seg.text.strip():
@@ -110,6 +120,7 @@ def _add_text_layer(page: pymupdf.Page, segs: list, min_confidence: float) -> No
         page.insert_text(
             (x0, y1 - 2),
             seg.text,
+            fontname="dvu",
             fontsize=fontsize,
             color=(0.8, 0, 0),
         )

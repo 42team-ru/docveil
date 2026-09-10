@@ -35,7 +35,9 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
+# Порт по умолчанию совпадает с дефолтом Settings.app_port (src/api/core/config.py);
+# переопределяется переменной окружения APP_PORT (см. .env.example).
 EXPOSE 8000
 
 # Перед стартом накатываем миграции (DATABASE_URL берётся из окружения).
-CMD ["sh", "-c", "alembic upgrade head && uvicorn api.main:app --app-dir src --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn api.main:app --app-dir src --host 0.0.0.0 --port ${APP_PORT:-8000}"]

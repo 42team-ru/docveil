@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 from masker.graph import nodes
@@ -12,12 +13,6 @@ ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
 )
 FIXTURE = ROOT / "fixtures" / "labeled" / "contract_01.docx"
-#: Тот же PDF, что и в ``test_render_node.py`` — реальный документ с
-#: известным узким полем, на котором лестница отступления маркера реально
-#: срабатывает (не только инжектированный фейк), а значит и легенда
-#: сокращений (план М1, правило 6) реально есть что агрегировать.
-PDF_FIXTURE = ROOT / "fixtures" / "labeled" / "contract_pdf_02_school.pdf"
-
 #: Множество ключей верхнего уровня report.json «простого пути» (``cli.py::
 #: inspect_docx``) на ``contract_01.docx --profile --types all``, плюс
 #: ``decisions`` — единственная запись, которой у простого пути нет и не
@@ -176,23 +171,13 @@ def test_report_node_notes_llm_trace_limitation_only_when_tracer_present(tmp_pat
     assert any("llm-trace" in item for item in with_tracer["limitations"])
 
 
-def test_report_node_marker_legend_aggregates_real_render_degradations(tmp_path: Path) -> None:
+def test_report_node_marker_legend_aggregates_real_render_degradations(
+    tmp_path: Path, planned_pdf_state: State
+) -> None:
     """План М1, правило 6: ``report["marker_legend"]`` не пуст на документе,
     где лестница отступления реально спускается, и каждая строка легенды
     ссылается на непустой канонический маркер из тех же деградаций."""
-    state: State = {
-        "path": str(PDF_FIXTURE),
-        "options": {
-            "rules_only": False,
-            "types": None,
-            "interactive": False,
-            "styles": ["marker"],
-            "preview": False,
-        },
-    }
-    state.update(nodes.extract_node(state))
-    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
-    state.update(nodes.plan_node(state))
+    state = deepcopy(planned_pdf_state)
     state.update(nodes.make_render_node(nodes.RunDeps(artifact_dir=tmp_path))(state))
 
     result = nodes.make_report_node(nodes.RunDeps())(state)

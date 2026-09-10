@@ -45,6 +45,25 @@ def test_tracing_provider_records_request_and_response_verbatim() -> None:
     assert call.duration_ms >= 0.0
 
 
+def test_tracing_provider_forwards_schema_to_inner_provider() -> None:
+    """Р7-3: `TracingProvider` — прозрачная обёртка, схема доходит без изменений."""
+    schema = {"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}
+    inner = FakeProvider(['{"a": "x"}'])
+    tracer = TracingProvider(inner)
+
+    response = tracer.complete([Message("user", "test")], schema=schema)
+
+    assert response == '{"a": "x"}'
+
+
+def test_tracing_provider_without_schema_calls_inner_without_kwarg() -> None:
+    """Обратная совместимость: старые реализации `LLMProvider` без `schema` не ломаются."""
+    tracer = TracingProvider(_FailingProvider())
+
+    with pytest.raises(LLMError, match="HTTP 500"):
+        tracer.complete([Message("user", "test")])
+
+
 def test_tracing_provider_numbers_calls_in_order() -> None:
     inner = FakeProvider(["first", "second"])
     tracer = TracingProvider(inner)

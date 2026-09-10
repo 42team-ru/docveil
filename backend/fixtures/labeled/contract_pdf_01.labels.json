@@ -7,77 +7,77 @@
     {
       "type": "org_name",
       "text": "ООО «ТехноСнаб»",
-      "party": "contractor"
+      "party": "supplier"
     },
     {
       "type": "inn",
       "text": "3662103003",
-      "party": "contractor"
+      "party": "supplier"
     },
     {
       "type": "kpp",
       "text": "366201001",
-      "party": "contractor"
+      "party": "supplier"
     },
     {
       "type": "ogrn",
       "text": "1023601548508",
-      "party": "contractor"
+      "party": "supplier"
     },
     {
       "type": "address",
       "text": "394018, г. Воронеж, ул. Кирова, д. 4, оф. 12",
-      "party": "contractor"
+      "party": "supplier"
     },
     {
       "type": "bank_account",
       "text": "40702810100000000002",
-      "party": "contractor"
+      "party": "supplier"
     },
     {
       "type": "bik",
       "text": "042007681",
-      "party": "contractor"
+      "party": "supplier"
     },
     {
       "type": "org_name",
       "text": "АО «Триема»",
-      "party": "customer"
+      "party": "buyer"
     },
     {
       "type": "inn",
       "text": "7707083893",
-      "party": "customer"
+      "party": "buyer"
     },
     {
       "type": "kpp",
       "text": "770701001",
-      "party": "customer"
+      "party": "buyer"
     },
     {
       "type": "person",
       "text": "Иванов Иван Иванович",
-      "party": "customer"
+      "party": "buyer"
     },
     {
       "type": "passport",
       "text": "4510 123456",
-      "party": "customer"
+      "party": "buyer"
     },
     {
       "type": "snils",
       "text": "112-233-445 95",
-      "party": "customer"
+      "party": "buyer"
     },
     {
       "type": "phone",
       "text": "+7 (495) 123-45-67",
-      "party": "customer"
+      "party": "buyer"
     },
     {
       "type": "email",
       "text": "director@triema.ru",
-      "party": "customer"
+      "party": "buyer"
     }
   ]
 }

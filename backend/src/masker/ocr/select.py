@@ -1,19 +1,18 @@
-"""Выбор поставщика OCR по имени/переменной окружения.
+"""Выбор поставщика OCR по имени/переменной окружения/YAML-конфигу.
 
-По аналогии с ``masker.llm``: имя провайдера — либо явное (``select_ocr
-("rapid")``), либо из ``MASKER_OCR``, либо дефолт ``tesseract``.
+Приоритет источников: явный аргумент → ``MASKER_OCR`` → секция ``ocr`` в
+``masker.yaml`` → дефолт ``tesseract`` (быстрый, лучший CER/WER на нашем корпусе).
 
 Цепочка приоритетов при явно не заданном провайдере:
   1. ``tesseract`` — дефолт (быстрый, лучший CER/WER на тестовом корпусе).
-  2. ``rapid`` — автоматический фоллбек, если системный tesseract не установлен.
+  2. ``rapid`` — автоматический фоллбек, если системного tesseract нет.
 
 Фоллбек срабатывает **только** когда провайдер не задан ни аргументом, ни
-переменной окружения ``MASKER_OCR``. При явном ``MASKER_OCR=tesseract``
-или ``select_ocr("tesseract")`` ошибка поднимается без фоллбека — иначе
-явный выбор будет тихо проигнорирован.
+``MASKER_OCR``, ни YAML-конфигом. При любом явном выборе ошибка поднимается
+без фоллбека — иначе явный выбор будет тихо проигнорирован.
 
-``fake`` — CI-провайдер без весов и сети; ставить ``MASKER_OCR=fake`` в
-окружении ворот (gate.sh), если системный tesseract недоступен в CI.
+``fake`` — CI-провайдер без весов и сети; ставить ``MASKER_OCR=fake`` или
+``ocr.provider: fake`` в окружении ворот, если системного tesseract нет.
 
 Отсутствие пакета движка поднимается как :class:`OCRError` на этапе
 создания провайдера, а не при первом ``recognize``.
@@ -24,6 +23,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 
+from masker.config import project_section
 from masker.ocr.fake import FakeOCR
 from masker.ocr.provider import OCRError, OCRProvider
 
@@ -35,17 +35,23 @@ _FALLBACK: str = "rapid"
 
 
 def select_ocr(name: str | None = None) -> OCRProvider:
-    """Вернуть провайдер OCR по имени (``name``) или ``MASKER_OCR`` или дефолту ``tesseract``.
+    """Вернуть провайдер OCR по имени, ``MASKER_OCR``, YAML или дефолту ``tesseract``.
 
     Имена нормализуются к нижнему регистру; неизвестное имя — ``OCRError``
     со списком доступных имён.
 
-    Если имя не задано ни явно, ни через ``MASKER_OCR``, и дефолтный
-    провайдер недоступен (нет системного бинаря) — автоматически
-    пробуется фоллбек ``rapid``.
+    Если имя не задано ни явно, ни через ``MASKER_OCR``, ни через YAML,
+    и дефолтный провайдер недоступен (нет системного бинаря) —
+    автоматически пробуется фоллбек ``rapid``.
     """
-    use_fallback = name is None and ENV_VAR not in os.environ
-    key = (name if name is not None else os.environ.get(ENV_VAR, _DEFAULT)).strip().casefold()
+    configured_name = project_section("ocr").get("provider", _DEFAULT)
+    if not isinstance(configured_name, str):
+        raise ValueError("ocr.provider в YAML-конфиге должен быть строкой")
+    use_fallback = name is None and ENV_VAR not in os.environ and configured_name == _DEFAULT
+    selected_name = name
+    if selected_name is None:
+        selected_name = os.environ.get(ENV_VAR, configured_name)
+    key = selected_name.strip().casefold()
     factory = _REGISTRY.get(key)
     if factory is None:
         available = ", ".join(sorted(_REGISTRY))

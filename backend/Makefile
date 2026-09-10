@@ -10,7 +10,7 @@ include $(ENV_FILE)
 export
 endif
 
-.PHONY: gate tasks test eval demo fmt install gate-selftest migrate migration api seed-admin
+.PHONY: gate tasks test eval bench demo fmt install gate-selftest migrate migration api seed-admin
 
 install:
 	uv venv --python 3.14 .venv
@@ -33,6 +33,12 @@ test:
 eval:
 	$(PY) -m masker.eval
 
+# К3 — замеры практического эффекта: таблица ЗАМЕРЕНО/ПРОГНОЗ (docs/SCORING.md §2).
+# Прогон реального конвейера на fixtures/labeled+holdout, десятки секунд из-за
+# 46-страничного PDF в корпусе — это ожидаемо, не зависание.
+bench:
+	$(PY) -m masker.bench
+
 demo:
 	$(PY) -m masker.cli fixtures/labeled/*.docx --out out/ --types all
 
@@ -54,7 +60,7 @@ migration:
 	$(PY) -m alembic revision --autogenerate -m "$(m)"
 
 api:
-	$(PY) -m uvicorn api.main:app --reload --app-dir src --host 0.0.0.0 --port 8000
+	$(PY) -m uvicorn api.main:app --reload --app-dir src --host 0.0.0.0 --port $${APP_PORT:-8000}
 
 # make seed-admin email=admin@x.com password=secret full_name="Admin"
 # либо задать ADMIN_EMAIL/ADMIN_PASSWORD/ADMIN_FULL_NAME в .env и звать без аргументов.

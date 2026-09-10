@@ -48,7 +48,7 @@ def _unlabeled_document() -> tuple[Document, DetectionResult]:
     return document, detection
 
 
-def test_llm_cannot_lower_role_confidence() -> None:
+def test_llm_is_not_called_when_heuristic_role_is_confident() -> None:
     document, detection = _seller_document()
     response = json.dumps(
         {
@@ -59,13 +59,15 @@ def test_llm_cannot_lower_role_confidence() -> None:
         }
     )
 
-    result = ProfileAgent(FakeProvider([response])).profile(document, detection)
+    provider = FakeProvider([response])
+    result = ProfileAgent(provider).profile(document, detection)
 
     profile = result.profiles[0]
     assert profile.role_confidence == 0.9
     assert profile.source is Source.RULE
     assert profile.evidence == ["метка: продавец"]
     assert profile.role_title == "Продавец"
+    assert provider.calls == 0
 
 
 def test_llm_names_missing_role() -> None:
@@ -74,9 +76,8 @@ def test_llm_names_missing_role() -> None:
     response = json.dumps(
         {
             "profiles": [
-                {"id": "P1", "role_title": "Арендатор", "confidence": 0.6, "members": ["E1"]}
-            ],
-            "candidates": [],
+                {"id": "P1", "role_title": "Арендатор", "confidence": 0.9, "members": ["E1"]}
+            ]
         }
     )
 
@@ -84,11 +85,11 @@ def test_llm_names_missing_role() -> None:
 
     profile = result.profiles[0]
     assert profile.role_title == "Арендатор"
-    assert profile.role_confidence == 0.6
+    assert profile.role_confidence == 0.9
     assert profile.source is Source.LLM
     assert profile.evidence == [
         "структурный блок",
-        "LLM: роль «Арендатор» с уверенностью 0.6",
+        "LLM: роль «Арендатор» с уверенностью 0.9",
     ]
 
 

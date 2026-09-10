@@ -14,6 +14,7 @@ dependencies = [
     "rapidocr-onnxruntime>=1.4",
     "pillow>=12",
     "gigachat>=0.1",
+    "jsonschema>=4.20",
     "pyyaml>=6",
     "langgraph>=1.2",
     "langgraph-checkpoint-sqlite>=2",
@@ -122,4 +123,12 @@ module = [
     "masker.validate.pdf_layout",
     "masker.validate.certificate",
 ]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# langgraph 1.2.11 + mypy 2.3: перегрузки StateGraph.add_node не сходятся с
+# фабриками узлов (Callable[[State], dict[str, object]]), одновременно
+# сигналя call-overload и arg-type. Реальная сигнатура каждого узла
+# типизирована в nodes.py, поэтому здесь безопасно отключить проверку типов.
+module = ["masker.graph.build"]
 ignore_errors = true

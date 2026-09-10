@@ -3,7 +3,7 @@ import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 
-import { useUploadQueueStore } from "../model/upload-queue-store";
+import { useUploadQueueStore } from "../../../entity/document/model/upload-queue-store";
 
 /**
  * Приём файлов. Выбранное кладётся в очередь задачи: сам файл уходит на
@@ -23,7 +23,9 @@ export function UploadDropzone() {
           label="Перетащите документы или выберите файлы"
           description="PDF и DOCX. Сканы распознаются локально через OCR."
           accept=".pdf,.docx"
-          value={items.map((item) => item.file)}
+          value={items
+            .map((item) => (item.source.kind === "file" ? item.source.file : null))
+            .filter((file): file is File => file !== null)}
           onChange={(next) => add(Array.isArray(next) ? next : next ? [next] : [])}
           width="100%"
         />

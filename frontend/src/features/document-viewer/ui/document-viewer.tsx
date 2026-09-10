@@ -6,6 +6,7 @@ import { VStack } from "@astryxdesign/core/Stack";
 import type { PiiDocFormat, PiiExtraction } from "../../../entity/pii/model/types";
 import type { SelectionCapture } from "../lib/read-selection";
 import { UnsupportedFormat } from "./unsupported-format";
+import { RunSearch } from "./run-search";
 
 // docx-preview и exceljs вместе тянут больше 1 МБ в бандл (см. вывод `yarn
 // build`) — динамический импорт, чтобы открывающий DOCX не грузил exceljs и
@@ -32,11 +33,14 @@ export function DocumentViewer({ format, fileUrl, extraction, ...handlers }: Doc
   if (!fileUrl) {
     return (
       <VStack hAlign="center" vAlign="center" padding={6} height="100%">
-        <EmptyState
-          isCompact
-          title="Документ ещё не готов"
-          description="Обезличенный файл появится, когда прогон дойдёт до конца."
-        />
+        <VStack gap={4} hAlign="center">
+          <EmptyState
+            isCompact
+            title="Документ не выбран"
+            description="Найдите файл и выберите его для проверки."
+          />
+          <RunSearch />
+        </VStack>
       </VStack>
     );
   }

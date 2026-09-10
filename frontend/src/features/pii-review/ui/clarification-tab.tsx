@@ -2,11 +2,13 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { Icon } from "@astryxdesign/core/Icon";
 import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
+import { CircleCheck } from "lucide-react";
 
 import {
   buildAnswerEnvelope,
@@ -119,11 +121,14 @@ export function ClarificationTab({ ask, runId }: ClarificationTabProps) {
 
   if (!ask || ask.questions.length === 0) {
     return (
-      <EmptyState
-        isCompact
-        title="Вопросов нет"
-        description="Движок прошёл документ, не останавливаясь на уточнениях."
-      />
+      <VStack height="100%" hAlign="center" vAlign="center">
+        <EmptyState
+          isCompact
+          icon={<Icon icon={CircleCheck} size="lg" />}
+          title="Вопросов нет"
+          description="Движок прошёл документ, не останавливаясь на уточнениях."
+        />
+      </VStack>
     );
   }
 

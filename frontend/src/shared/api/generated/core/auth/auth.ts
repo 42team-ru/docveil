@@ -24,11 +24,14 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  BodyUploadMyAvatarApiAuthMeAvatarPost,
   HTTPValidationError,
   LoginRequest,
+  PasswordChangeRequest,
   RefreshRequest,
   TokenResponse,
-  UserPublic
+  UserPublic,
+  UserSelfUpdate
 } from '../triemaMaskerAPI.schemas';
 
 import { authMutator } from '../../../mutators/authMutator';
@@ -460,3 +463,490 @@ export function useMeApiAuthMeGet<TData = Awaited<ReturnType<typeof meApiAuthMeG
 
 
 
+export type updateMeApiAuthMePatchResponse200 = {
+  data: UserPublic
+  status: 200
+}
+
+export type updateMeApiAuthMePatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type updateMeApiAuthMePatchResponseSuccess = (updateMeApiAuthMePatchResponse200) & {
+  headers: Headers;
+};
+export type updateMeApiAuthMePatchResponseError = (updateMeApiAuthMePatchResponse422) & {
+  headers: Headers;
+};
+
+export type updateMeApiAuthMePatchResponse = (updateMeApiAuthMePatchResponseSuccess | updateMeApiAuthMePatchResponseError)
+
+export const getUpdateMeApiAuthMePatchUrl = () => {
+
+
+
+
+  return `/auth/me`
+}
+
+/**
+ * @summary Update Me
+ */
+export const updateMeApiAuthMePatch = async (userSelfUpdate: UserSelfUpdate, options?: Parameters<typeof authMutator>[1]): Promise<updateMeApiAuthMePatchResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return authMutator<updateMeApiAuthMePatchResponse>(getUpdateMeApiAuthMePatchUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(userSelfUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateMeApiAuthMePatchMutationKey = () => ['updateMeApiAuthMePatch'] as const;
+
+export const getUpdateMeApiAuthMePatchMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMeApiAuthMePatch>>, TError,UpdateMeApiAuthMePatchMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateMeApiAuthMePatch>>, TError,UpdateMeApiAuthMePatchMutationVariables, TContext> => {
+
+const mutationKey = getUpdateMeApiAuthMePatchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateMeApiAuthMePatch>>, UpdateMeApiAuthMePatchMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateMeApiAuthMePatch(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateMeApiAuthMePatchMutationResult = NonNullable<Awaited<ReturnType<typeof updateMeApiAuthMePatch>>>
+    export type UpdateMeApiAuthMePatchMutationBody = UserSelfUpdate
+    export type UpdateMeApiAuthMePatchMutationError = ErrorType<HTTPValidationError>
+    export type UpdateMeApiAuthMePatchMutationVariables = {data: UserSelfUpdate}
+
+    /**
+ * @summary Update Me
+ */
+export const useUpdateMeApiAuthMePatch = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMeApiAuthMePatch>>, TError,UpdateMeApiAuthMePatchMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateMeApiAuthMePatch>>,
+        TError,
+        UpdateMeApiAuthMePatchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateMeApiAuthMePatchMutationOptions(options), queryClient);
+    }
+    export type changeMyPasswordApiAuthMePasswordPostResponse204 = {
+  data: void
+  status: 204
+}
+
+export type changeMyPasswordApiAuthMePasswordPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type changeMyPasswordApiAuthMePasswordPostResponseSuccess = (changeMyPasswordApiAuthMePasswordPostResponse204) & {
+  headers: Headers;
+};
+export type changeMyPasswordApiAuthMePasswordPostResponseError = (changeMyPasswordApiAuthMePasswordPostResponse422) & {
+  headers: Headers;
+};
+
+export type changeMyPasswordApiAuthMePasswordPostResponse = (changeMyPasswordApiAuthMePasswordPostResponseSuccess | changeMyPasswordApiAuthMePasswordPostResponseError)
+
+export const getChangeMyPasswordApiAuthMePasswordPostUrl = () => {
+
+
+
+
+  return `/auth/me/password`
+}
+
+/**
+ * @summary Change My Password
+ */
+export const changeMyPasswordApiAuthMePasswordPost = async (passwordChangeRequest: PasswordChangeRequest, options?: Parameters<typeof authMutator>[1]): Promise<changeMyPasswordApiAuthMePasswordPostResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return authMutator<changeMyPasswordApiAuthMePasswordPostResponse>(getChangeMyPasswordApiAuthMePasswordPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(passwordChangeRequest)
+  }
+);}
+
+
+
+
+
+export const getChangeMyPasswordApiAuthMePasswordPostMutationKey = () => ['changeMyPasswordApiAuthMePasswordPost'] as const;
+
+export const getChangeMyPasswordApiAuthMePasswordPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof changeMyPasswordApiAuthMePasswordPost>>, TError,ChangeMyPasswordApiAuthMePasswordPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof changeMyPasswordApiAuthMePasswordPost>>, TError,ChangeMyPasswordApiAuthMePasswordPostMutationVariables, TContext> => {
+
+const mutationKey = getChangeMyPasswordApiAuthMePasswordPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof changeMyPasswordApiAuthMePasswordPost>>, ChangeMyPasswordApiAuthMePasswordPostMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  changeMyPasswordApiAuthMePasswordPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ChangeMyPasswordApiAuthMePasswordPostMutationResult = NonNullable<Awaited<ReturnType<typeof changeMyPasswordApiAuthMePasswordPost>>>
+    export type ChangeMyPasswordApiAuthMePasswordPostMutationBody = PasswordChangeRequest
+    export type ChangeMyPasswordApiAuthMePasswordPostMutationError = ErrorType<HTTPValidationError>
+    export type ChangeMyPasswordApiAuthMePasswordPostMutationVariables = {data: PasswordChangeRequest}
+
+    /**
+ * @summary Change My Password
+ */
+export const useChangeMyPasswordApiAuthMePasswordPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof changeMyPasswordApiAuthMePasswordPost>>, TError,ChangeMyPasswordApiAuthMePasswordPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof changeMyPasswordApiAuthMePasswordPost>>,
+        TError,
+        ChangeMyPasswordApiAuthMePasswordPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getChangeMyPasswordApiAuthMePasswordPostMutationOptions(options), queryClient);
+    }
+    export type getMyAvatarApiAuthMeAvatarGetResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type getMyAvatarApiAuthMeAvatarGetResponseSuccess = (getMyAvatarApiAuthMeAvatarGetResponse200) & {
+  headers: Headers;
+};
+;
+
+export type getMyAvatarApiAuthMeAvatarGetResponse = (getMyAvatarApiAuthMeAvatarGetResponseSuccess)
+
+export const getGetMyAvatarApiAuthMeAvatarGetUrl = () => {
+
+
+
+
+  return `/auth/me/avatar`
+}
+
+/**
+ * @summary Get My Avatar
+ */
+export const getMyAvatarApiAuthMeAvatarGet = async ( options?: Parameters<typeof authMutator>[1]): Promise<getMyAvatarApiAuthMeAvatarGetResponse> => {
+
+  return authMutator<getMyAvatarApiAuthMeAvatarGetResponse>(getGetMyAvatarApiAuthMeAvatarGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMyAvatarApiAuthMeAvatarGetQueryKey = () => {
+    return [
+    `/auth/me/avatar`
+    ] as const;
+    }
+
+
+export const getGetMyAvatarApiAuthMeAvatarGetQueryOptions = <TData = Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMyAvatarApiAuthMeAvatarGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>> = ({ signal }) => getMyAvatarApiAuthMeAvatarGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetMyAvatarApiAuthMeAvatarGetQueryResult = NonNullable<Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>>
+export type GetMyAvatarApiAuthMeAvatarGetQueryError = ErrorType<unknown>
+
+
+export function useGetMyAvatarApiAuthMeAvatarGet<TData = Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>,
+          TError,
+          Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetMyAvatarApiAuthMeAvatarGet<TData = Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>,
+          TError,
+          Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetMyAvatarApiAuthMeAvatarGet<TData = Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get My Avatar
+ */
+
+export function useGetMyAvatarApiAuthMeAvatarGet<TData = Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMyAvatarApiAuthMeAvatarGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetMyAvatarApiAuthMeAvatarGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type uploadMyAvatarApiAuthMeAvatarPostResponse200 = {
+  data: UserPublic
+  status: 200
+}
+
+export type uploadMyAvatarApiAuthMeAvatarPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type uploadMyAvatarApiAuthMeAvatarPostResponseSuccess = (uploadMyAvatarApiAuthMeAvatarPostResponse200) & {
+  headers: Headers;
+};
+export type uploadMyAvatarApiAuthMeAvatarPostResponseError = (uploadMyAvatarApiAuthMeAvatarPostResponse422) & {
+  headers: Headers;
+};
+
+export type uploadMyAvatarApiAuthMeAvatarPostResponse = (uploadMyAvatarApiAuthMeAvatarPostResponseSuccess | uploadMyAvatarApiAuthMeAvatarPostResponseError)
+
+export const getUploadMyAvatarApiAuthMeAvatarPostUrl = () => {
+
+
+
+
+  return `/auth/me/avatar`
+}
+
+/**
+ * @summary Upload My Avatar
+ */
+export const uploadMyAvatarApiAuthMeAvatarPost = async (bodyUploadMyAvatarApiAuthMeAvatarPost: BodyUploadMyAvatarApiAuthMeAvatarPost, options?: Parameters<typeof authMutator>[1]): Promise<uploadMyAvatarApiAuthMeAvatarPostResponse> => {
+    const formData = new FormData();
+formData.append(`file`, bodyUploadMyAvatarApiAuthMeAvatarPost.file);
+
+  return authMutator<uploadMyAvatarApiAuthMeAvatarPostResponse>(getUploadMyAvatarApiAuthMeAvatarPostUrl(),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+
+
+export const getUploadMyAvatarApiAuthMeAvatarPostMutationKey = () => ['uploadMyAvatarApiAuthMeAvatarPost'] as const;
+
+export const getUploadMyAvatarApiAuthMeAvatarPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadMyAvatarApiAuthMeAvatarPost>>, TError,UploadMyAvatarApiAuthMeAvatarPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadMyAvatarApiAuthMeAvatarPost>>, TError,UploadMyAvatarApiAuthMeAvatarPostMutationVariables, TContext> => {
+
+const mutationKey = getUploadMyAvatarApiAuthMeAvatarPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadMyAvatarApiAuthMeAvatarPost>>, UploadMyAvatarApiAuthMeAvatarPostMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  uploadMyAvatarApiAuthMeAvatarPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadMyAvatarApiAuthMeAvatarPostMutationResult = NonNullable<Awaited<ReturnType<typeof uploadMyAvatarApiAuthMeAvatarPost>>>
+    export type UploadMyAvatarApiAuthMeAvatarPostMutationBody = BodyUploadMyAvatarApiAuthMeAvatarPost
+    export type UploadMyAvatarApiAuthMeAvatarPostMutationError = ErrorType<HTTPValidationError>
+    export type UploadMyAvatarApiAuthMeAvatarPostMutationVariables = {data: BodyUploadMyAvatarApiAuthMeAvatarPost}
+
+    /**
+ * @summary Upload My Avatar
+ */
+export const useUploadMyAvatarApiAuthMeAvatarPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadMyAvatarApiAuthMeAvatarPost>>, TError,UploadMyAvatarApiAuthMeAvatarPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof uploadMyAvatarApiAuthMeAvatarPost>>,
+        TError,
+        UploadMyAvatarApiAuthMeAvatarPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUploadMyAvatarApiAuthMeAvatarPostMutationOptions(options), queryClient);
+    }
+    export type deleteMyAvatarApiAuthMeAvatarDeleteResponse200 = {
+  data: UserPublic
+  status: 200
+}
+
+export type deleteMyAvatarApiAuthMeAvatarDeleteResponseSuccess = (deleteMyAvatarApiAuthMeAvatarDeleteResponse200) & {
+  headers: Headers;
+};
+;
+
+export type deleteMyAvatarApiAuthMeAvatarDeleteResponse = (deleteMyAvatarApiAuthMeAvatarDeleteResponseSuccess)
+
+export const getDeleteMyAvatarApiAuthMeAvatarDeleteUrl = () => {
+
+
+
+
+  return `/auth/me/avatar`
+}
+
+/**
+ * @summary Delete My Avatar
+ */
+export const deleteMyAvatarApiAuthMeAvatarDelete = async ( options?: Parameters<typeof authMutator>[1]): Promise<deleteMyAvatarApiAuthMeAvatarDeleteResponse> => {
+
+  return authMutator<deleteMyAvatarApiAuthMeAvatarDeleteResponse>(getDeleteMyAvatarApiAuthMeAvatarDeleteUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteMyAvatarApiAuthMeAvatarDeleteMutationKey = () => ['deleteMyAvatarApiAuthMeAvatarDelete'] as const;
+
+export const getDeleteMyAvatarApiAuthMeAvatarDeleteMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteMyAvatarApiAuthMeAvatarDelete>>, TError,void, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteMyAvatarApiAuthMeAvatarDelete>>, TError,void, TContext> => {
+
+const mutationKey = getDeleteMyAvatarApiAuthMeAvatarDeleteMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteMyAvatarApiAuthMeAvatarDelete>>, void> = () => {
+
+
+          return  deleteMyAvatarApiAuthMeAvatarDelete(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteMyAvatarApiAuthMeAvatarDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteMyAvatarApiAuthMeAvatarDelete>>>
+
+    export type DeleteMyAvatarApiAuthMeAvatarDeleteMutationError = ErrorType<unknown>
+
+
+    /**
+ * @summary Delete My Avatar
+ */
+export const useDeleteMyAvatarApiAuthMeAvatarDelete = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteMyAvatarApiAuthMeAvatarDelete>>, TError,void, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteMyAvatarApiAuthMeAvatarDelete>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteMyAvatarApiAuthMeAvatarDeleteMutationOptions(options), queryClient);
+    }

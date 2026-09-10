@@ -25,3 +25,11 @@ class UserORM(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    #: IANA-имя пояса (`Europe/Moscow`), `None` — не выбран.
+    timezone: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: Ключ аватара в MinIO; `None` — аватара нет, показываются инициалы.
+    avatar_object_name: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    @property
+    def has_avatar(self) -> bool:
+        return self.avatar_object_name is not None

@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Files, X } from "lucide-react";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
@@ -14,7 +14,7 @@ import {
   formatSize,
   useUploadQueueStore,
   type QueuedUpload,
-} from "../model/upload-queue-store";
+} from "../../../entity/document/model/upload-queue-store";
 
 const STATE_LABEL: Record<QueuedUpload["state"], string> = {
   pending: "готов",
@@ -28,15 +28,18 @@ export function UploadQueue() {
   const items = useUploadQueueStore((state) => state.items);
   const remove = useUploadQueueStore((state) => state.remove);
 
-  const totalSize = items.reduce((sum, item) => sum + item.file.size, 0);
+  const totalSize = items.reduce((sum, item) => sum + (item.size ?? 0), 0);
 
   if (items.length === 0) {
     return (
-      <EmptyState
-        isCompact
-        title="Очередь пуста"
-        description="Перетащите документы слева — они появятся здесь."
-      />
+      <VStack height="100%" hAlign="center" vAlign="center">
+        <EmptyState
+          isCompact
+          icon={<Icon icon={Files} size="lg" />}
+          title="Очередь пуста"
+          description="Перетащите документы слева — они появятся здесь."
+        />
+      </VStack>
     );
   }
 
@@ -57,11 +60,11 @@ export function UploadQueue() {
               as="li"
               density="compact"
               startContent={<FormatToken format={item.format} />}
-              label={item.file.name}
+              label={item.name}
               labelLines={1}
               description={
                 <Text type="supporting" color="secondary">
-                  {item.error ?? formatSize(item.file.size)}
+                  {item.error ?? formatSize(item.size)}
                 </Text>
               }
               endContent={
@@ -74,7 +77,7 @@ export function UploadQueue() {
                   <IconButton
                     size="sm"
                     variant="ghost"
-                    label={`Убрать ${item.file.name} из очереди`}
+                    label={`Убрать ${item.name} из очереди`}
                     icon={<Icon icon={X} size="sm" />}
                     onClick={() => remove(item.id)}
                   />

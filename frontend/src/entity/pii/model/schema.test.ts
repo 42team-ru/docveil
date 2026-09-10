@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import type { ReportOut } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
 import { askEnvelopeFixture, maskingReportFixture } from "./fixtures";
+import reportPayload from "./report.fixture.json";
+import { parseMaskingReport } from "./schema";
 import { KEEP_CRITICAL_OPTION, MASK_OPTION } from "./types";
 
 /**
@@ -123,6 +126,42 @@ describe("parseMaskingReport", () => {
 
     // Ни одной группы уровня "possible" в этом документе нет.
     expect(maskingReportFixture.reviewPossible).toEqual([]);
+  });
+
+  it("regions/pages пусты у docx-фикстуры без PDF-артефакта", () => {
+    // report.fixture.json снят до плана feat/highlight-coords-edits — ключей
+    // pages/regions в нём нет вовсе, а не пустые массивы. Парсер обязан
+    // подставить [] сам, а не упасть на отсутствующем ключе.
+    expect(maskingReportFixture.pages).toEqual([]);
+    const occurrences = maskingReportFixture.extraction.chunks.flatMap(
+      (chunk) => chunk.pii,
+    );
+    expect(occurrences.length).toBeGreaterThan(0);
+    expect(occurrences.every((pii) => pii.regions.length === 0)).toBe(true);
+  });
+
+  it("разбирает pages и regions, когда бэкенд их прислал (план К1)", () => {
+    const withRegions = structuredClone(reportPayload) as Record<string, unknown>;
+    withRegions.pages = [{ page: 0, width_pt: 595, height_pt: 842 }];
+    const chunks = withRegions.chunks as Array<{ pii: Array<Record<string, unknown>> }>;
+    chunks[0].pii[0].regions = [{ page: 0, x0: 0.1, y0: 0.2, x1: 0.5, y1: 0.25 }];
+
+    const report = parseMaskingReport(withRegions as unknown as ReportOut);
+
+    expect(report.pages).toEqual([{ page: 0, widthPt: 595, heightPt: 842 }]);
+    const firstOccurrence = report.extraction.chunks[0].pii[0];
+    expect(firstOccurrence.regions).toEqual([
+      { page: 0, x0: 0.1, y0: 0.2, x1: 0.5, y1: 0.25 },
+    ]);
+  });
+
+  it("формат картинки не подменяется на docx (регресс toDocFormat)", () => {
+    const asImage = structuredClone(reportPayload) as Record<string, unknown>;
+    asImage.format = "jpg";
+
+    const report = parseMaskingReport(asImage as unknown as ReportOut);
+
+    expect(report.format).toBe("jpg");
   });
 });
 

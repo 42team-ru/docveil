@@ -597,6 +597,53 @@
         }
       }
     },
+    "/ocr/extract": {
+      "post": {
+        "tags": [
+          "ocr"
+        ],
+        "summary": "Extract Ocr",
+        "description": "Распознать все страницы PDF и вернуть постраничные строки с геометрией.",
+        "operationId": "extract_ocr_api_ocr_extract_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OcrExtractRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OcrExtractResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/runs": {
       "post": {
         "tags": [
@@ -1333,6 +1380,83 @@
         ],
         "title": "AskEnvelopeOut",
         "description": "Конверт паузы `ask_human` — `GET /runs/{id}/questions`."
+      },
+      "BboxRegionIn": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Page"
+          },
+          "x0": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "X0"
+          },
+          "y0": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y0"
+          },
+          "x1": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "X1"
+          },
+          "y1": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y1"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "x0",
+          "y0",
+          "x1",
+          "y1"
+        ],
+        "title": "BboxRegionIn",
+        "description": "Прямоугольник, который оператор обвёл на превью, координаты 0..1.\n\nНормализованы по размерам страницы того же PDF-артефакта, что и\n`EntityRecordOut.regions` в отчёте (`masker.highlights`) — один и тот же\nмасштаб в обе стороны."
+      },
+      "BboxRegionOut": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "x0": {
+            "type": "number",
+            "title": "X0"
+          },
+          "y0": {
+            "type": "number",
+            "title": "Y0"
+          },
+          "x1": {
+            "type": "number",
+            "title": "X1"
+          },
+          "y1": {
+            "type": "number",
+            "title": "Y1"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "x0",
+          "y0",
+          "x1",
+          "y1"
+        ],
+        "title": "BboxRegionOut",
+        "description": "Одна прямоугольная область сущности на странице PDF-артефакта.\n\nКоординаты нормализованы 0..1 по размерам страницы готового\n``masked_highlight.pdf`` (не исходного документа) — фронт умножит на\nфизический размер canvas в любом zoom без пересчёта. Одна сущность на\nодной странице — один регион; сущность, попавшая на две страницы\n(перенос), даёт две записи с разными ``page``."
       },
       "Body_upload_api_files_upload_post": {
         "properties": {
@@ -2216,6 +2340,13 @@
               }
             ],
             "title": "Reason"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/BboxRegionOut"
+            },
+            "type": "array",
+            "title": "Regions"
           }
         },
         "type": "object",
@@ -2590,6 +2721,16 @@
           "text": {
             "type": "string",
             "title": "Text"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BboxRegionIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -2598,7 +2739,7 @@
           "text"
         ],
         "title": "ManualEntityIn",
-        "description": "Значение, которое движок пропустил, а оператор нашёл глазами."
+        "description": "Значение, которое движок пропустил, а оператор нашёл глазами.\n\n`region` — опциональный якорь по координате: место, где оператор обвёл\nзначение на превью. Без него сервер ищет `text` по всему документу (как\nраньше); с ним — адресуется именно указанное место, без текстового\nпоиска, что переживает и OCR-шум на сканах."
       },
       "MarkerLegendItemOut": {
         "properties": {
@@ -2676,6 +2817,146 @@
           "by_reason"
         ],
         "title": "MaskPlanSkippedOut"
+      },
+      "OcrExtractRequest": {
+        "properties": {
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_name"
+        ],
+        "title": "OcrExtractRequest",
+        "description": "Запрос OCR-извлечения: объект MinIO с PDF-документом."
+      },
+      "OcrExtractResponse": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/OcrPageOut"
+            },
+            "type": "array",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "pages"
+        ],
+        "title": "OcrExtractResponse",
+        "description": "OCR-результат всего документа: провайдер + постраничные строки."
+      },
+      "OcrLineOut": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "bbox": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Bbox"
+          },
+          "polygon": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Polygon"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "order": {
+            "type": "integer",
+            "title": "Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "bbox",
+          "polygon",
+          "confidence",
+          "order"
+        ],
+        "title": "OcrLineOut",
+        "description": "Одна распознанная строка с геометрией в pt страницы."
+      },
+      "OcrPageOut": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "width_pt": {
+            "type": "number",
+            "title": "Width Pt"
+          },
+          "height_pt": {
+            "type": "number",
+            "title": "Height Pt"
+          },
+          "dpi": {
+            "type": "integer",
+            "title": "Dpi"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/OcrLineOut"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "width_pt",
+          "height_pt",
+          "dpi",
+          "lines"
+        ],
+        "title": "OcrPageOut",
+        "description": "OCR-результат одной страницы."
+      },
+      "PageInfoOut": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "width_pt": {
+            "type": "number",
+            "title": "Width Pt"
+          },
+          "height_pt": {
+            "type": "number",
+            "title": "Height Pt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "width_pt",
+          "height_pt"
+        ],
+        "title": "PageInfoOut",
+        "description": "Размеры одной страницы готового PDF-артефакта в pt — ``report.pages[]``."
       },
       "PasswordChangeRequest": {
         "properties": {
@@ -2779,6 +3060,13 @@
               }
             ],
             "title": "Reason"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/BboxRegionOut"
+            },
+            "type": "array",
+            "title": "Regions"
           },
           "chunk_start": {
             "type": "integer",
@@ -3507,6 +3795,13 @@
                 "type": "null"
               }
             ]
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/PageInfoOut"
+            },
+            "type": "array",
+            "title": "Pages"
           }
         },
         "type": "object",
@@ -3674,6 +3969,15 @@
             },
             "type": "array",
             "title": "Custom Types"
+          },
+          "image_output_format": {
+            "type": "string",
+            "enum": [
+              "original",
+              "pdf"
+            ],
+            "title": "Image Output Format",
+            "default": "original"
           }
         },
         "type": "object",

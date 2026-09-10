@@ -1,40 +1,34 @@
-# План: координаты подсветки на фронт и правки от пользователя
+# План: bbox-координаты сущностей и bbox-based правки (delta поверх feat/union)
 
 ## Контекст
 
-Фронтендер рендерит PDF-артефакт (`masked_highlight.pdf`) в канвасе и хочет
-поверх него подсвечивать задетекченные сущности, чтобы пользователь мог
-править решения (снять маску, добавить пропущенное, поменять тип). Данные
-для подсветки нужны **после** прогона, и должны координироваться с уже
-готовым `masked_highlight.pdf` — то есть в координатной системе финального
-рендера, а не исходного файла.
+Цикл правок от оператора уже реализован в feat/union (смержен в
+`feat/ocr-scan-render` коммитом 0c8c7a3):
 
-Сегодня у нас уже есть всё нужное:
+- Второй interrupt графа `ask_review` (узел `masker.graph.review`), новое
+  ребро `report → ask_review → apply_review_edits → plan`.
+- Статус `awaiting_review`, роуты `GET/POST /api/runs/{id}/review`.
+- Схема `ReviewEdits`: `decisions: {ref → mask|keep}`, `type_overrides:
+  {ref → type}`, `manual: [{type, text}]` — text-based, **без bbox**.
 
-- `MaskPlan.replacements: tuple[Replacement, ...]` с `paint_regions:
-  tuple[PdfRegion, ...]` (`model.py:344`) — pt-координаты на странице PDF.
-- `Segment.origin="ocr"` + `Segment.anchor.locator=("page", n, "ocr", x0, y0, x1, y1)`
-  (`ingest/scan_ingest.py`) — pt-координаты OCR-сегментов уже нормированы
-  через `pt = px * 72/dpi * 100`, целочисленно.
-- `Segment.anchor.locator=("page", n, char_start, char_end)` для текстовых
-  PDF — pt-геометрию читаем из `page_chars()` в `pdf_ingest.py`.
-- Для docx/xlsx координат PDF-типа нет — оба формата **всегда**
-  рендерятся в PDF-preview (`render/docx_preview.py`), и подсветку рисуем
-  на нём.
+Значит цикл правок целиком, `unmask_ref` через `decisions`, смена типа
+через `type_overrides`, добавление пропущенного через `manual` (по тексту)
+— **уже есть**.
 
-**Решение в одном абзаце.** После завершения графа новый компонент
-`highlights.build(...)` собирает список сущностей (одна сущность = один bbox
-на всё вхождение) в **нормализованных 0..1 координатах по каждой странице
-рендера**. Список кладётся в `report_node` под ключом `highlights` и вокруг
-него в API появляется отдельный роут `PATCH /api/runs/{tid}/edits`, куда
-фронт присылает набор правок (`unmask_ref`, `unmask_profile`, `unmask_type`,
-`add_mask`, `change_type`). Правки не мутируют старый прогон: сервис берёт
-их в `RunOptions.user_edits`, поднимает **новый** `thread_id` через
-`start_run(..., fresh=False)` и запускает второй прогон, где новый узел
-`apply_edits_node` (между `plan` и `render`) переупорядочивает и
-дополняет `MaskPlan.replacements` до применения. Идентичность правок
-кодируется как часть `canonical()`, поэтому повторные правки не создают
-дубль работы.
+Чего в feat/union нет:
+
+1. **Координаты сущностей в отчёте для UI-подсветки.** `EntityRecordOut`
+   несёт `anchor.locator` в исходной геометрии документа (символьный
+   диапазон для docx/xlsx, char-range или (page, ocr, bbox) для pdf), но
+   не нормализованный bbox готового артефакта — а фронту нужны координаты
+   для того самого PDF, что он рендерит.
+2. **bbox-based `add_mask`.** `ManualEntityIn` принимает только
+   `(type, text)`. Если оператор обвёл на канвасе область — движок не
+   поймёт, куда именно её вставить (текстовый поиск может промазать или
+   найти несколько мест).
+
+Этот план **закрывает ровно две дырки** — координаты сущностей в отчёте и
+опциональный `region` в `manual`.
 
 ## Ветка
 
@@ -42,183 +36,168 @@
 git switch -c feat/highlight-coords-edits  # от feat/ocr-scan-render
 ```
 
-## Формат `highlights` в отчёте
+## Формат координат в отчёте
 
-```json
-{
-  "highlights": {
-    "coordinate_system": "normalized_pdf_pixels",
-    "pdf_object_name": "runs/abcd/masked_highlight.pdf",
-    "pages": [
-      {
-        "page": 0,
-        "width": 1.0,   // нормализовано, всегда 1.0; фронт умножает на реальный ширину рендера
-        "height": 1.0,
-        "entities": [
-          {
-            "ref": "E17",
-            "group_id": "G3",
-            "profile_id": "P1",
-            "type": "inn",
-            "marker": "[ПОСТАВЩИК-ИНН]",
-            "text": "7707083893",
-            "action": "mask",           // mask | keep
-            "decided_by": "critical_guard",
-            "bbox": [0.1234, 0.4567, 0.2345, 0.4789],   // x0 y0 x1 y1 в долях страницы
-            "origin": "text"             // text | ocr
-          }
-        ]
-      }
-    ]
-  }
-}
+### Расширение `EntityRecordOut`
+
+Новое поле `regions: list[BboxRegionOut] = []`:
+
+```python
+class BboxRegionOut(BaseModel):
+    """Одна прямоугольная область сущности на странице PDF-артефакта.
+
+    Координаты нормализованы 0..1 по размерам страницы готового
+    ``masked_highlight.pdf`` (не исходного документа) — фронт умножит на
+    физический размер canvas в любом zoom без пересчёта. Одна сущность на
+    одной странице — один регион; сущность, попавшая на две страницы
+    (перенос), даёт две записи с разными ``page``.
+    """
+    page: int       # 0-based
+    x0: float       # 0..1
+    y0: float
+    x1: float
+    y1: float
 ```
 
-Инварианты формата:
+Поле — пустой список для форматов, где артефакт не PDF (сегодня — всех
+docx/xlsx до тех пор, пока `render/docx_preview.py` не сгенерирует PDF-
+preview; для картинки после мержа feat-image-ingest — заполняется, потому
+что промежуточный артефакт всё равно PDF).
 
-- `bbox` — **union** всех `paint_regions` сущности на данной странице; если
-  сущность распадается на две страницы (переносится) — две записи с одним
-  и тем же `ref`, на разных страницах.
-- Координаты нормализуются как `x/page.width_pt` и `y/page.height_pt` от
-  `paint_region.page` (для `Replacement`) или от `page.rect` в pt (для
-  необоснованных regions). Одна норма — легко перепрокрутить при zoom.
-- Только сущности с `action == "mask"` в первом варианте плана — «то, что
-  реально видно на подсветке». Отдельным флагом API `include_kept=true`
-  можно попросить и снятые. По умолчанию — только маска.
+### Секция `report.pages`
+
+Новое поле в `SummaryOut` (или в `ReportOut` — выбрать одно место):
+
+```python
+class PageInfoOut(BaseModel):
+    page: int
+    width_pt: float
+    height_pt: float
+```
+
+Список размеров страниц готового артефакта. Фронт сравнивает `page` в
+`BboxRegionOut` и в `PageInfoOut` — это единственный маппинг, который ему
+нужен, кроме собственно рендера PDF в канвас.
+
+## bbox-based `manual`
+
+### Расширение `ManualEntityIn`
+
+Опциональное поле `region: BboxRegionIn | None = None`:
+
+```python
+class BboxRegionIn(BaseModel):
+    page: int
+    x0: float       # 0..1
+    y0: float
+    x1: float
+    y1: float
+```
+
+Семантика:
+- Если `region is None` — старое поведение (текстовый поиск в документе).
+- Если `region is not None` — сервер создаёт искусственный `Segment` с
+  `origin="user"` и якорем `("page", n, "user", x0_pt, y0_pt, x1_pt, y1_pt)`
+  (координаты **денормализуются** в pt по размерам страницы **артефакта**),
+  `Entity(source=Source.USER, level=CONFIRMED)`, дальше `PlanAgent`
+  обрабатывает штатно. `text` в теле правки всё равно обязателен — движок
+  использует его как значение сущности для сборки группы согласованности
+  (иначе два одинаковых «Иванов» не сойдутся в один маркер).
+
+Инвариант: `text` + `region` = «текст точно этот, находится ровно здесь».
+Никакого текстового поиска и никакого OCR-извлечения — фронт видел, что
+пишет.
 
 ## Раскладка изменений
 
 | Файл | Действие |
 |---|---|
-| `backend/src/masker/highlights/__init__.py` | **NEW.** Публичный API: `build_highlights(document, plan, artifacts) -> dict`. |
-| `backend/src/masker/highlights/coords.py` | **NEW.** Собирает pt-bbox по каждому `Replacement` (union `paint_regions`), нормализует по размеру страницы PDF-артефакта (**артефакта**, не source-PDF — размеры могут отличаться после квантизации ширины). |
-| `backend/src/masker/highlights/page_dims.py` | **NEW.** Читает размеры страниц из готового `masked_highlight.pdf` через PyMuPDF. |
-| `backend/src/masker/graph/nodes.py::report_node` | В сборку отчёта добавить `report["highlights"] = build_highlights(...)`. |
-| `backend/src/masker/report/payload.py::build_report_payload` | Пропускать поле `highlights` наружу. |
-| `backend/src/api/schemas/run.py::HighlightsOut` | Реализовать (в feat-api-runs осталось заглушкой). |
-| `backend/tests/masker/highlights/test_build.py` | **NEW.** На синтетическом плане проверить: одна сущность = один bbox, многострочная = union, координаты в 0..1, `origin=ocr` пробрасывается. |
-| **Правки** | |
-| `backend/src/masker/graph/state.py` | В `options` — `user_edits: list[dict]` (сериализуемый). |
-| `backend/src/masker/run.py::RunOptions` | Поле `user_edits: tuple[dict[str, Any], ...] = ()`. **Входит в `canonical()`** (иначе разные правки не разошлись бы по thread_id). |
-| `backend/src/masker/graph/edits.py` | **NEW.** Модель правок (dataclass'ы `UnmaskRef`, `UnmaskProfile`, `UnmaskType`, `AddMask`, `ChangeType`) + `apply(plan, edits) -> plan'`. Чистая функция, тесты отдельно. |
-| `backend/src/masker/graph/nodes.py` | Новый `apply_edits_node` между `plan` и `render`. Если `state.options.user_edits` пуст — no-op. Иначе `plan' = apply(plan, edits)`. |
-| `backend/src/masker/graph/build.py` | Ребро `plan → apply_edits → render`. |
-| `backend/src/api/routers/runs.py` | Новый `POST /api/runs/{tid}/edits`. Тело — список правок в форме, идентичной `edits.py`. Сервис: создать **новый** прогон через `start_run(...)` с `user_edits=parent_edits + delta`. Возвращает новый `thread_id` + отчёт (или waiting-состояние). |
-| `backend/src/api/services/runs_service.py::apply_edits` | Найти родительский прогон в SQL, взять его `object_name` и `options`, добавить delta правок, `start_run(..., fresh=False)` — идемпотентно, `thread_id_for` уже даст новый id, старый цел. |
-| `backend/src/api/schemas/edits.py` | **NEW.** Pydantic под правки. |
-| `backend/tests/masker/graph/test_apply_edits.py` | **NEW.** unmask/add/change. |
-| `backend/tests/api/test_runs_edits.py` | **NEW.** Прогон → PATCH правок → новый thread_id, отчёт не содержит снятой сущности в highlights. |
+| `backend/src/masker/highlights/__init__.py` | **NEW.** `build_regions_by_ref(plan, artifact_pdf_path) -> dict[str, list[BboxRegion]]`. Чистая функция, тесты изолированно. |
+| `backend/src/masker/highlights/page_dims.py` | **NEW.** Читает `width_pt/height_pt` каждой страницы готового артефакта через PyMuPDF. |
+| `backend/src/masker/highlights/coords.py` | **NEW.** Union `paint_regions` каждого `Replacement` → нормализация по размерам страницы артефакта. |
+| `backend/src/masker/graph/nodes.py::_build_report_dict` (или где формируется `report`) | Дополнить `entities[]` полем `regions`, добавить `report["pages"]`. |
+| `backend/src/api/schemas/report.py::EntityRecordOut` | Добавить `regions: list[BboxRegionOut] = []`. |
+| `backend/src/api/schemas/report.py::PiiEntryOut` | Наследует поле от `EntityRecordOut`. |
+| `backend/src/api/schemas/report.py` | Новые `BboxRegionOut`, `PageInfoOut`. `ReportOut` (или `SummaryOut`) получает `pages: list[PageInfoOut]`. |
+| `backend/src/api/schemas/run.py::ManualEntityIn` | Опциональное `region: BboxRegionIn = None`. |
+| `backend/src/api/schemas/run.py::BboxRegionIn` | **NEW.** |
+| `backend/src/masker/graph/review.py::parse_review_edits` | Обработка `manual[].region`: если задан — денормализация pt через размеры страниц артефакта (`highlights.page_dims`), сборка искусственного сегмента `origin="user"`. Артефакт-файл читается из `state["artifacts"]` (уже там лежит). |
+| `backend/tests/masker/highlights/test_build.py` | **NEW.** Юниты: одна сущность = один регион на странице, многострочная = один union-регион, нормализация 0..1, разбивка при переносе. |
+| `backend/tests/masker/graph/test_review_region.py` | **NEW.** `manual` c `region` создаёт сегмент с `origin="user"`; повторный прогон включает в `report.entities[]` сущность с этим регионом. |
+| `backend/tests/api/test_runs_report.py` | **NEW.** После завершения прогона `GET /runs/{id}/report` содержит `entities[].regions` и `pages[]`. |
 | `docs/plans/feat-highlight-coords-edits.md` | Этот файл. |
-
-## Операции правок — семантика
-
-1. **`unmask_ref(ref)`** — исключает конкретный `Replacement`. Работает на
-   любом `ref`, включая критичные (осознанное решение, но с флагом
-   `override_critical=true` в теле — иначе `422`).
-2. **`unmask_profile(profile_id)`** — исключает все `Replacement`, у которых
-   `profile_id` совпадает.
-3. **`unmask_type(entity_type)`** — исключает все с `entity.type == type`.
-   Не работает на CRITICAL_TYPES без `override_critical`.
-4. **`add_mask(page, bbox_normalized, entity_type, marker?)`** — добавляет
-   ручную маску. Внутри графа кладётся как искусственный `Segment`
-   `origin="user"` с якорем `("page", n, "user", x0, y0, x1, y1)` (в pt,
-   пересчёт из normalized через размеры страницы **артефакта**) и
-   `Entity(source=Source.USER, level=CONFIRMED)`; дальше `PlanAgent` строит
-   `Replacement` штатно.
-5. **`change_type(ref, new_type)`** — только для не-критичных: детектор
-   переклассифицировал, маркер строится от нового типа.
-
-**Критичный тип защищён.** Инвариант «судья не спрашивает про критичное»
-превращается в «фронт не снимает критичное без `override_critical=true`»;
-без флага сервис возвращает `422` c `reason="critical_requires_override"`.
 
 ## Инварианты
 
-1. **Первый прогон не мутируется.** Правки всегда создают новый `thread_id`
-   и новую строку в `runs`. Отчёт первого прогона неизменен.
-2. **Идемпотентность правок.** Тот же список правок в том же порядке даёт
-   тот же `thread_id`. `canonical()` сортирует правки по стабильному ключу.
-3. **`user_edits` не могут ломать граф.** `apply_edits_node` валидирует
-   `ref`/`profile_id`/`type` относительно `plan` до применения; неизвестный
-   `ref` — `ValueError` (превращается в `RunFailedError`).
-4. **Ссылочная целостность.** `ref`, отданные во фронт, стабильны в
-   пределах документа: `EntityIndex` уже строит их детерминированно.
-   `unmask_ref("E17")` из первого прогона обязан адресовать ту же сущность
-   в родительском плане второго прогона — то есть **правки применяются к
-   исходному плану до фильтрации**, а не к плану предыдущего прогона.
-5. **Валидация после правок.** `ValidateAgent` не отключается: снятая
-   вручную маска на критичном типе всё равно попадает в `residual`
-   секцию отчёта как «сознательное решение», чтобы это было видно.
+1. **Координаты — по артефакту, не по source.** Размеры страниц читаются
+   из готового `masked_highlight.pdf`, потому что после квантизации ширины
+   (`_quantize_erase_rect`, `pdf_render.py`) страницы могут чуть-чуть
+   отличаться от исходного PDF.
+2. **`regions: []` для docx/xlsx без PDF-preview.** Не выдумывать
+   координаты для форматов, для которых нет геометрии. Пустой список —
+   валидный ответ.
+3. **`manual[].region` требует `text`.** Иначе групповая согласованность
+   маркеров ломается. 422 без text.
+4. **Денормализация в pt — по артефакту первого прогона.** Артефакт для
+   `ask_review` уже собран, файл на диске; `review.py` читает размеры из
+   него. Если артефакт удалён (не должно, но) — сервис отвечает 409.
+5. **`origin="user"` — новый допустимый строковый тег `Segment.origin`.**
+   Проверить, что все потребители `origin` (детекция, план, рендер,
+   отчёт) видели `"text"`/`"ocr"`/`"user"` и не падают на новом. Скорее
+   всего они `origin` не смотрят — но проверить явно.
+6. **Ссылочная целостность.** `ref` в `decisions`/`type_overrides` уже
+   стабильны в рамках прогона (это ссылки на `Replacement`). Не трогаем.
 
 ## Порядок работ
 
-### К1 — highlights только по существующему плану (без правок)
-- `highlights/*`, интеграция в `report_node`, `HighlightsOut`;
-- `test_build.py`;
-- `pytest backend/tests/masker/highlights/`.
+Три инкремента, каждый — самостоятельно проходит `make gate`.
 
-Приёмка: `report["highlights"]` есть у любого прошедшего прогона.
+### К1 — координаты сущностей в отчёте
+- `highlights/*`, интеграция в `_build_report_dict`, схемы `BboxRegionOut`
+  + `PageInfoOut`.
+- Юниты + API-тест.
 
-### К2 — модель правок и `apply_edits_node`
-- `graph/edits.py` + узел;
-- сериализация в state;
-- `test_apply_edits.py`.
+Приёмка: `test_build.py`, `test_runs_report.py`.
 
-Приёмка: юниты зелёные, `make gate` не сломался (пустой список правок =
-no-op).
+### К2 — bbox-based manual
+- `BboxRegionIn`, расширение `ManualEntityIn`, поддержка в
+  `parse_review_edits`.
+- Юнит + review-round тест.
 
-### К3 — API-роут `/edits` и сервис
-- `runs.py`, `runs_service.apply_edits`;
-- `test_runs_edits.py`.
+Приёмка: `test_review_region.py`.
 
-Приёмка: PATCH с правками возвращает новый `thread_id`, старый прогон цел.
+### К3 — валидация
+- 422 без `text` при заданном `region`.
+- 422 если `region` вне 0..1.
+- Тесты.
 
-### К4 — критичные типы и `override_critical`
-- Валидация в сервисе;
-- сообщение с `critical_requires_override`;
-- e2e тест: попытка снять ИНН без флага → 422.
-
-Приёмка: тест `test_runs_edits.py::test_critical_requires_override`.
-
-### К5 — «добавить пропущенное»
-- `add_mask` целиком;
-- тест: `POST /edits` c `add_mask` → в новом прогоне маска есть в
-  `highlights` и в артефакте.
-
-Приёмка: `test_runs_edits.py::test_add_mask`.
+Приёмка: `test_runs_review.py` (или где живут негативные кейсы review).
 
 ## Возможные грабли
 
-- **Артефакт для координат ≠ исходный PDF.** Размеры страниц после
-  квантизации ширины (`_quantize_erase_rect`, `pdf_render.py`) могут
-  измениться на доли pt. Читаем размеры **из готового артефакта**, а не из
-  source-документа.
-- **Docx-preview PDF рендерит через LibreOffice в контейнере.** Если
-  контейнер не поднят локально — highlight-координат для docx не будет.
-  Не блокер плана: за отсутствие preview отвечает `render_node`, `highlights`
-  просто вернёт пустой список для страниц, которых нет.
-- **`add_mask` в OCR-режиме.** Пользователь может обвести на канвасе
-  область, где OCR ничего не увидел. Тогда `Segment("", ...)` — пусто.
-  Правило: `add_mask` требует `text` в теле правки (юзер видел, что писал)
-  либо `text_from_ocr=true` — сервис вызовет OCR на bbox и заберёт распознанное.
-- **`unmask_profile` + автоматически найденный второй профиль.** Если после
-  повторной детекции профилей стало больше или id сдвинулись — правка
-  сломается. Решение: `profile_id` в правке — не тот, что вернулся из
-  первого прогона, а **строковый ключ профиля** (см. `ProfileAgent`), который
-  стабилен между прогонами при том же документе. Проверить, что такой
-  стабильный ключ уже есть; если нет — вынести в отдельный микрошаг.
-- **Отсутствие обратной совместимости.** `HighlightsOut` был заглушкой в
-  feat-api-runs; здесь мы её реализуем. Фронт увидит непустое поле — это ок,
-  контракт формы не меняется.
+- **Артефакт `masked_highlight.pdf` может отсутствовать.** Если пользователь
+  запросил только `blackbox` — highlight-варианта нет. Тогда `regions`
+  строятся по `masked_black.pdf` (координаты идентичны — одни и те же
+  `paint_regions`). Правило: берём первый попавшийся PDF-артефакт в
+  `state["artifacts"]`. Если ни одного PDF нет — `regions: []`.
+- **`origin="user"` и валидатор.** `ValidateAgent` не должен считать
+  добавленную вручную маску утечкой (её же не было в исходнике). Проверить,
+  что таксономия `Leak` не срабатывает на `Segment.origin="user"`.
+- **Порядок правок оператора.** Если оператор в одном раунде и снял маску,
+  и добавил по bbox — движок обрабатывает всё в одном `apply_review_edits`:
+  сначала `decisions` (снимает), потом `manual` (добавляет), потом
+  `type_overrides`. Порядок фиксирован для детерминизма.
+- **Размер страниц докс-превью.** Если docx-preview не собран (нет
+  LibreOffice), артефакт-PDF не появится — тогда `pages: []` и все
+  `regions: []`. Не блокер плана.
 
 ## Определение готовности
 
 1. `make gate` зелёный.
-2. Все пять шагов К1–К5 закрыты.
-3. `report["highlights"]` содержит непустой список на любом прогоне из
-   fixtures.
-4. `PATCH /api/runs/{tid}/edits` c простой правкой возвращает новый
-   `thread_id` и отчёт с изменённым `highlights`.
-5. Попытка снять критичный тип без `override_critical` — `422`.
-6. Ручной smoke: провести один документ через фронт (или `curl`), сделать
-   правку, увидеть новую версию в `GET /runs`. Приложить в PR-описание.
+2. Три инкремента закрыты, тесты в CI.
+3. `GET /api/runs/{id}/report` возвращает `entities[].regions` и `pages[]`
+   для PDF-прогона.
+4. `POST /api/runs/{id}/review` c `manual[].region` создаёт правильную
+   маску в новом раунде.
+5. Ручной smoke: прогон → координаты → отрисовать в canvas → проверить
+   геометрию глазами.

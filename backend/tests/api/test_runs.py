@@ -206,6 +206,50 @@ def test_review_edits_finish_the_run(client: TestClient, storage: Path) -> None:
     assert finished["finished_at"] is not None
 
 
+def test_review_manual_region_bad_coordinates_are_422(client: TestClient, storage: Path) -> None:
+    """`BboxRegionIn` валидируется до графа: x0>=x1 отвергается формой запроса."""
+    created = _create_run(client)
+
+    response = client.post(
+        f"/api/runs/{created['id']}/review",
+        json={
+            "edits": {
+                "manual": [
+                    {
+                        "type": "org_name",
+                        "text": "x",
+                        "region": {"page": 0, "x0": 0.6, "y0": 0.1, "x1": 0.5, "y1": 0.2},
+                    }
+                ]
+            }
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_review_manual_region_requires_non_empty_text(client: TestClient, storage: Path) -> None:
+    """Инвариант «text + region обязательны вместе» — пустой text с region тоже 422."""
+    created = _create_run(client)
+
+    response = client.post(
+        f"/api/runs/{created['id']}/review",
+        json={
+            "edits": {
+                "manual": [
+                    {
+                        "type": "org_name",
+                        "text": "  ",
+                        "region": {"page": 0, "x0": 0.1, "y0": 0.1, "x1": 0.5, "y1": 0.2},
+                    }
+                ]
+            }
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
 def test_review_edits_before_report_are_rejected(client: TestClient, storage: Path) -> None:
     """Пока прогон стоит на вопросах, правок он не ждёт — 409, а не молча в граф."""
     created = _create_run(client)
@@ -240,6 +284,61 @@ def test_artifact_download_returns_docx_bytes(client: TestClient, storage: Path)
     )
     # DOCX — это ZIP: подпись файла проверяется байтами, а не заголовком ответа.
     assert response.content[:2] == b"PK"
+
+
+def test_artifact_download_returns_image_content_type(
+    client: TestClient, storage: Path, mocker, tmp_path: Path
+) -> None:
+    """`_MEDIA_TYPES` должен знать картиночные суффиксы — иначе `<img>` во
+    фронтовом вьюере получает `Blob` с `application/octet-stream`."""
+    from PIL import Image
+
+    from masker.ocr.fake import FakeOCR
+    from masker.ocr.provider import OCRLine
+
+    def _line(text: str, y: int) -> OCRLine:
+        return OCRLine(
+            text=text,
+            bbox=(50.0, float(y), 50.0 + 10.0 * len(text), float(y + 20)),
+            polygon=(
+                (50.0, float(y)),
+                (50.0 + 10.0 * len(text), float(y)),
+                (50.0 + 10.0 * len(text), float(y + 20)),
+                (50.0, float(y + 20)),
+            ),
+            confidence=1.0,
+        )
+
+    image_source = tmp_path / "contract.jpg"
+    Image.new("RGB", (800, 1100), (255, 255, 255)).save(
+        str(image_source), format="JPEG", dpi=(300, 300)
+    )
+
+    def _fget_image(_bucket: str, _name: str, file_path: str) -> None:
+        shutil.copyfile(image_source, file_path)
+
+    mocker.patch("api.services.run_service.minio_client.fget_object", side_effect=_fget_image)
+    mocker.patch(
+        "api.services.run_service.select_ocr",
+        return_value=FakeOCR(
+            lines=(
+                _line("Договор поставки № 42", 100),
+                _line("ИНН 7707083893 КПП 770701001", 200),
+                _line("Стороны: ООО Ромашка и ИП Иванов", 300),
+            )
+        ),
+    )
+
+    response = client.post("/api/runs", json={**_BODY, "object_name": "documents/contract.jpg"})
+    assert response.status_code == status.HTTP_202_ACCEPTED
+    run_id = response.json()["id"]
+    client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
+
+    download = client.get(f"/api/runs/{run_id}/artifacts/masked_highlight")
+
+    assert download.status_code == status.HTTP_200_OK
+    assert download.headers["content-type"] == "image/jpeg"
+    assert download.content[:2] == b"\xff\xd8"  # JPEG-сигнатура
 
 
 def test_unknown_artifact_role_is_404(client: TestClient, storage: Path) -> None:
@@ -292,9 +391,7 @@ def test_run_execution_wires_ocr_provider(client: TestClient, storage: Path, moc
     (T1.5.1: «веб меняет только вызывающего, а не логику узлов») — этот тест
     ловит регресс, из-за которого `run_service` строил `RunDeps` без OCR.
     """
-    select_ocr = mocker.patch(
-        "api.services.run_service.select_ocr", wraps=run_service.select_ocr
-    )
+    select_ocr = mocker.patch("api.services.run_service.select_ocr", wraps=run_service.select_ocr)
 
     _create_run(client)
 

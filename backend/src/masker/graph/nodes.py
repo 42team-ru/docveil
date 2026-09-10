@@ -41,6 +41,7 @@ from masker.graph.review import (
 )
 from masker.graph.serde import (
     anchor_from_dict,
+    anchor_to_dict,
     decisions_to_dicts,
     entity_from_dict,
     entity_to_dict,
@@ -57,7 +58,13 @@ from masker.graph.serde import (
 )
 from masker.graph.state import State
 from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND
-from masker.highlights import build_regions_by_ref, page_infos_for_report
+from masker.highlights import (
+    PageDims,
+    build_regions_by_ref,
+    denormalize,
+    page_infos_for_report,
+    read_page_dims,
+)
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.image_ingest import ingest_image
 from masker.ingest.image_meta import SUPPORTED_SUFFIXES as _IMAGE_SUFFIXES
@@ -70,6 +77,7 @@ from masker.mask import PlanAgent
 from masker.mask.select import resolve_requested_types
 from masker.model import (
     Action,
+    Anchor,
     DecisionSource,
     Document,
     Entity,
@@ -539,9 +547,15 @@ def apply_review_edits_node(state: State) -> dict[str, object]:
     2. **Сменить тип** у сущности. Тип меняется на самой сущности, поэтому
        новый маркер построит ``PlanAgent`` — второго места, где собирается
        маркер, не появляется.
-    3. **Добавить пропущенное значение.** Ищется по всему документу, а не
-       только там, где оператор его выделил: одно значение — один маркер во
-       всём документе (инвариант согласованности псевдонимов).
+    3. **Добавить пропущенное значение.** Без координаты — ищется по всему
+       документу, а не только там, где оператор его выделил: одно значение —
+       один маркер во всём документе (инвариант согласованности
+       псевдонимов). С координатой (``region``, план feat/highlight-coords-
+       edits) — оператор обвёл место на превью; текстовый поиск не нужен и
+       не надёжен на сканах (OCR может распознать не то, что видит
+       человек), поэтому вместо поиска заводится искусственный сегмент с
+       якорем-bbox (``origin="user"``), который рендер обрабатывает тем же
+       путём, что и OCR-сегмент (``pdf_render._is_ocr_locator``).
 
     Ссылки ``E1..En`` считаются от порядка сущностей в тексте, поэтому
     добавление сущности их сдвигает. Правки разбираются до вставки, решения
@@ -600,7 +614,10 @@ def apply_review_edits_node(state: State) -> dict[str, object]:
         }
 
     document = _document(state)
-    added = _manual_entities(edits.get("manual", []), document, registry)
+    dims_by_page = _page_dims_by_number(state)
+    added, new_segments = _manual_entities(
+        edits.get("manual", []), document, registry, dims_by_page
+    )
     for entity in added:
         decisions_by_entity[id(entity)] = {
             "ref": "",
@@ -625,13 +642,44 @@ def apply_review_edits_node(state: State) -> dict[str, object]:
     review["review_diagnostics"] = diagnostics
     review["review_manual_added"] = len(added)
 
-    return {
+    result: dict[str, object] = {
         "entities": [entity_to_dict(entity) for entity in entities],
         "final_actions": final_actions,
         "decisions": review,
         "options": _options_with_manual_types(state, added),
         "review_round": int(state.get("review_round", 0)) + 1,
     }
+    if new_segments:
+        # State-редьюсер по умолчанию — full replace (`state.py` не несёт
+        # `Annotated[..., operator.add]` для `segments`): вернуть нужно ВЕСЬ
+        # список сегментов, а не только новые, иначе следующий проход графа
+        # (`_document(state)` в `plan`/`render`/`report`) потеряет исходный
+        # текст документа целиком.
+        result["segments"] = [
+            {
+                "text": segment.text,
+                "anchor": anchor_to_dict(segment.anchor),
+                "order": segment.order,
+                "origin": segment.origin,
+            }
+            for segment in (*document.segments, *new_segments)
+        ]
+    return result
+
+
+def _page_dims_by_number(state: State) -> dict[int, PageDims]:
+    """Размеры страниц PDF-артефакта прогона, по номеру страницы.
+
+    Тот же артефакт и та же геометрия, что и у ``regions``/``pages`` в
+    отчёте (``report_node``) — иначе денормализация ``region`` из правки
+    легла бы на другой масштаб, чем тот, на котором оператор его нарисовал.
+    Пустой словарь, если PDF-артефакта нет (docx/xlsx) или прогон ещё не
+    дошёл до рендера.
+    """
+    artifact_pdf_path = _pick_pdf_artifact(state.get("artifacts", []))
+    if artifact_pdf_path is None:
+        return {}
+    return {item.page: item for item in read_page_dims(artifact_pdf_path)}
 
 
 def _options_with_manual_types(state: State, added: list[Entity]) -> dict[str, object]:
@@ -651,20 +699,86 @@ def _options_with_manual_types(state: State, added: list[Entity]) -> dict[str, o
 
 
 def _manual_entities(
-    manual: list[dict[str, str]], document: Document, registry: EntityTypeRegistry
-) -> list[Entity]:
-    """Сущности для значений, добавленных оператором, — по всем вхождениям.
+    manual: list[dict[str, object]],
+    document: Document,
+    registry: EntityTypeRegistry,
+    dims_by_page: dict[int, PageDims],
+) -> tuple[list[Entity], list[Segment]]:
+    """Сущности для значений, добавленных оператором — по тексту или по bbox.
 
-    Пустой результат на неизвестный тип и на значение, которого в документе
-    нет: молча добавить сущность без места в тексте нельзя — рендер не найдёт,
-    что заменять, а отчёт покажет замену, которой не было.
+    Без ``region`` (или когда денормализовать его нечем — нет PDF-артефакта
+    или страница вне него) — прежнее поведение: искать по всем вхождениям
+    текста во всём документе. Пустой результат на неизвестный тип и на
+    значение, которого в документе нет: молча добавить сущность без места в
+    тексте нельзя — рендер не найдёт, что заменять, а отчёт покажет замену,
+    которой не было.
+
+    С валидным ``region`` — заводится ровно один искусственный сегмент с
+    якорем-bbox (``origin="user"``, тот же 7-элементный вид локатора, что у
+    OCR-сегмента, но с тегом ``"user"``) и одна сущность на весь его текст.
+    Текстовый поиск не выполняется: на сканах OCR может распознать место
+    иначе, чем видит человек, и поиск точного текста там, где оператор его
+    напечатал, может не найти ничего — координата не подведёт.
+
+    Возвращает ``(сущности, новые сегменты)`` — новые сегменты вызывающий
+    обязан дописать в ``state["segments"]`` целиком (редьюсер состояния —
+    full replace), иначе следующий проход графа потеряет как исходный текст
+    документа, так и добавленные вручную значения.
     """
     added: list[Entity] = []
+    new_segments: list[Segment] = []
+    next_order = max((segment.order for segment in document.segments), default=-1) + 1
+
     for item in manual:
         type_id = item["type"]
-        text = item["text"]
-        if type_id not in registry:
+        text = str(item["text"])
+        if not isinstance(type_id, str) or type_id not in registry:
             continue
+
+        region = item.get("region")
+        dims = dims_by_page.get(int(region["page"])) if isinstance(region, dict) else None
+        if isinstance(region, dict) and dims is not None:
+            pdf_region = denormalize(
+                float(region["x0"]),
+                float(region["y0"]),
+                float(region["x1"]),
+                float(region["y1"]),
+                page=int(region["page"]),
+                width_pt=dims.width_pt,
+                height_pt=dims.height_pt,
+            )
+            locator = (
+                "page",
+                pdf_region.page,
+                "user",
+                round(pdf_region.x0 * 100),
+                round(pdf_region.y0 * 100),
+                round(pdf_region.x1 * 100),
+                round(pdf_region.y1 * 100),
+            )
+            segment = Segment(
+                text=text,
+                anchor=Anchor(
+                    fmt="pdf", locator=locator, label=f"стр. {pdf_region.page + 1} (правка)"
+                ),
+                order=next_order,
+                origin="user",
+            )
+            next_order += 1
+            new_segments.append(segment)
+            added.append(
+                Entity(
+                    type=type_id,
+                    text=text,
+                    segment_order=segment.order,
+                    start=0,
+                    end=len(text),
+                    source=Source.USER,
+                    confidence=1.0,
+                )
+            )
+            continue
+
         for segment in document.segments:
             start = segment.text.find(text)
             while start != -1:
@@ -680,7 +794,7 @@ def _manual_entities(
                     )
                 )
                 start = segment.text.find(text, start + len(text))
-    return added
+    return added, new_segments
 
 
 def needs_review(state: State) -> str:
@@ -1039,11 +1153,20 @@ def image_export_node(state: State) -> dict[str, object]:
         # открывать .jpg/.png. Оставляем PDF рядом, чтобы сторонний
         # потребитель мог перепроверить прогон на «настоящем» артефакте.
         # Итоговый пользователь видит картинку по обновлённому `path`.
+        # `pdf_path` — отдельный ключ для `_pick_pdf_artifact`: без него
+        # `report_node` не находит PDF по суффиксу `path` (там уже картинка)
+        # и координаты подсветки (`regions`/`pages`) молча становятся
+        # пустыми для любой картинки с дефолтным `image_output_format`.
+        # Геометрия совпадает без поправок: `pdf_to_image` рендерит страницу
+        # целиком (`page.get_pixmap(dpi=meta.dpi_x)`), без полей и обрезки,
+        # значит нормализованные 0..1 регионы ложатся на картинку так же,
+        # как на PDF-страницу.
         updated.append(
             {
                 **item,
                 "name": target.name,
                 "path": str(target),
+                "pdf_path": str(pdf_path),
             }
         )
     # Промежуточный PDF (из ingest'а) не удаляем: `mask_and_validate`
@@ -1093,11 +1216,16 @@ def _pick_pdf_artifact(artifacts: list[dict[str, object]]) -> Path | None:
     ``masked_highlight.pdf`` встречается раньше ``masked_black.pdf`` — при
     любом стиле рендера победит именно тот файл, что уходит фронту.
     ``None`` — валидный ответ, если PDF-артефактов нет вовсе (docx/xlsx).
+
+    Для картинки ``item["path"]`` после ``image_export_node`` — уже
+    ``.jpg``/``.png``; настоящий PDF-артефакт (тот, что рендерился и на
+    котором посчитаны bbox) лежит в ``item["pdf_path"]``, если он есть.
     """
     for item in artifacts:
         if not item.get("redacting"):
             continue
-        raw_path = item.get("path")
+        raw_pdf_path = item.get("pdf_path")
+        raw_path = raw_pdf_path if isinstance(raw_pdf_path, str) else item.get("path")
         if not isinstance(raw_path, str):
             continue
         path = Path(raw_path)

@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 #: Стиль маски в терминах фронта; в `RunOptions.styles` уходит как
 #: `marker` → `masked_highlight.*`, `blackbox` → `masked_black.*`
@@ -103,11 +103,45 @@ class AnswersRequest(BaseModel):
     answers: dict[str, str]
 
 
+class BboxRegionIn(BaseModel):
+    """Прямоугольник, который оператор обвёл на превью, координаты 0..1.
+
+    Нормализованы по размерам страницы того же PDF-артефакта, что и
+    `EntityRecordOut.regions` в отчёте (`masker.highlights`) — один и тот же
+    масштаб в обе стороны.
+    """
+
+    page: int = Field(ge=0)
+    x0: float = Field(ge=0.0, le=1.0)
+    y0: float = Field(ge=0.0, le=1.0)
+    x1: float = Field(ge=0.0, le=1.0)
+    y1: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> BboxRegionIn:
+        if self.x0 >= self.x1 or self.y0 >= self.y1:
+            raise ValueError("region: x0 < x1 и y0 < y1 обязательны")
+        return self
+
+
 class ManualEntityIn(BaseModel):
-    """Значение, которое движок пропустил, а оператор нашёл глазами."""
+    """Значение, которое движок пропустил, а оператор нашёл глазами.
+
+    `region` — опциональный якорь по координате: место, где оператор обвёл
+    значение на превью. Без него сервер ищет `text` по всему документу (как
+    раньше); с ним — адресуется именно указанное место, без текстового
+    поиска, что переживает и OCR-шум на сканах.
+    """
 
     type: str
     text: str
+    region: BboxRegionIn | None = None
+
+    @model_validator(mode="after")
+    def _text_required_with_region(self) -> ManualEntityIn:
+        if self.region is not None and not self.text.strip():
+            raise ValueError("manual: region требует непустой text")
+        return self
 
 
 class ReviewEdits(BaseModel):

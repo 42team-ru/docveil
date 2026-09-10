@@ -45,7 +45,13 @@ router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(get_curr
 #: и не покажет документ во вьюере.
 _MEDIA_TYPES = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
 }
 
 

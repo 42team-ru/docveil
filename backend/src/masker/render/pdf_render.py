@@ -169,14 +169,22 @@ _LINE_BREAK_RECT = pymupdf.Rect(0.0, 0.0, 0.0, 0.0)
 _NO_LINE = -1
 
 
+#: Третий элемент локатора-bbox: ``"ocr"`` — строка со скан-страницы,
+#: ``"user"`` — искусственный сегмент bbox-правки оператора (план
+#: feat/highlight-coords-edits, К2). Обе формы несут готовый прямоугольник
+#: вместо символьного диапазона и обрабатываются рендером одинаково —
+#: у сегмента bbox-правки нет текстового слоя PDF, который можно искать.
+_BBOX_LOCATOR_TAGS = frozenset({"ocr", "user"})
+
+
 def _is_ocr_locator(locator: tuple[str | int | float, ...]) -> bool:
-    return len(locator) == 7 and locator[2] == "ocr"
+    return len(locator) == 7 and locator[2] in _BBOX_LOCATOR_TAGS
 
 
 def _parse_ocr_locator(
     locator: tuple[str | int | float, ...],
 ) -> tuple[int, float, float, float, float]:
-    _, page_num, _ocr, x0, y0, x1, y1 = locator
+    _, page_num, _tag, x0, y0, x1, y1 = locator
     return int(page_num), int(x0) / 100.0, int(y0) / 100.0, int(x1) / 100.0, int(y1) / 100.0
 
 

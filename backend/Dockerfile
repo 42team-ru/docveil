@@ -21,6 +21,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # uv ставим из официального distroless-образа, версия зафиксирована.
 COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /uvx /bin/
 
+# Образ ставит tesseract-ocr системным пакетом (выше) — значит и объявляет
+# его. Без этой строки выигрывает `provider: fake` из `masker.yaml`, который
+# приезжает вместе с исходниками: в репозитории он стоит намеренно, чтобы
+# ворота были воспроизводимы на машине без tesseract. В продукте же это
+# означало бы, что сканы молча не распознаются при установленном движке —
+# проверено на собранном образе 10.09.2026, `select_ocr()` возвращал FakeOCR.
+ENV MASKER_OCR=tesseract
+
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \

@@ -36,9 +36,10 @@ def _no_bucket_check(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def auth_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    from api.models.user import UserORM
     import uuid
     from datetime import UTC, datetime
+
+    from api.models.user import UserORM
 
     user = UserORM(
         id=uuid.uuid4(),
@@ -85,9 +86,7 @@ def test_extract_rejects_non_pdf(auth_client: TestClient) -> None:
     assert resp.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
-def test_extract_returns_pages_and_lines(
-    auth_client: TestClient, _mock_minio_scan: None
-) -> None:
+def test_extract_returns_pages_and_lines(auth_client: TestClient, _mock_minio_scan: None) -> None:
     """FakeOCR (пустые строки) → ответ содержит pages с полями геометрии."""
     resp = auth_client.post("/api/ocr/extract", json={"object_name": "documents/scan.pdf"})
     assert resp.status_code == status.HTTP_200_OK

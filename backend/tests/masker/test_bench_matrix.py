@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import pathlib
 import warnings
 from typing import Any
@@ -338,6 +339,11 @@ def test_run_prints_plan_and_each_cell_when_it_finishes(
         "gliner_layer_cell",
         lambda: _gliner_cell_with_library_banner(),
     )
+    monkeypatch.setattr(
+        bm,
+        "regex_llm_filter_layer_cell",
+        lambda: _class_d_cell("regex_llm_filter", f1=1.0),
+    )
 
     def fake_llm(axis: str, _corpus: Any, **kwargs: Any) -> bm.CellResult:
         layer = kwargs.get("layer_label", "ner")
@@ -362,7 +368,8 @@ def test_run_prints_plan_and_each_cell_when_it_finishes(
     output = capsys.readouterr().out
 
     assert result["llm"]["ner+none"]["status"] == "ok"
-    assert "ПЛАН: 6 клеток" in output
+    assert result["regex_llm_filter"]["status"] == "ok"
+    assert "ПЛАН: 7 клеток" in output
     assert "СТОЛБЦЫ:" in output
     assert "role_acc — точность назначения роли" in output
     assert "purity — доля профилей" in output
@@ -370,7 +377,8 @@ def test_run_prints_plan_and_each_cell_when_it_finishes(
     assert "leaked — сколько исходных значений" in output
     assert output.index("считаю слой детекции rules") < output.index("готово: rules")
     assert output.index("считаю слой детекции ner") < output.index("готово: ner")
-    assert output.index("считаю слой детекции gliner") < output.index("готово: время")
+    assert output.index("считаю слой детекции gliner") < output.index("готово: gliner")
+    assert "считаю слой детекции regex_llm_filter (живой GigaChat)" in output
     assert "шум GLiNER2" not in output
     assert output.index("считаю профиль/судья ner+none") < output.index("готово: ner+none")
     assert output.index("считаю профиль/судья ner+cassette") < output.index("готово: ner+cassette")
@@ -405,6 +413,19 @@ def _gliner_cell_with_library_banner() -> bm.CellResult:
     )
 
 
+def _class_d_cell(name: str, *, f1: float) -> bm.CellResult:
+    return bm.CellResult(
+        name=name,
+        status="ok",
+        metrics={
+            "by_type": {
+                type_id: {"precision": f1, "recall": f1, "f1": f1, "fn": 0, "fp": 0}
+                for type_id in ("shipment_date", "signing_date")
+            }
+        },
+    )
+
+
 def test_quiet_library_noise_keeps_our_warning_visible() -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -434,6 +455,37 @@ def test_gliner_layer_cell_skips_when_package_missing(monkeypatch: pytest.Monkey
 
     assert cell.status == "skipped"
     assert "gliner2" in cell.reason
+
+
+def test_regex_llm_filter_layer_cell_skips_without_gigachat_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(bm, "llm_axis_skip_reason", lambda _axis: "нет GIGACHAT_CREDENTIALS")
+    monkeypatch.setattr(bm, "get_provider", lambda _config: pytest.fail("провайдер не нужен"))
+
+    cell = bm.regex_llm_filter_layer_cell()
+
+    assert cell.status == "skipped"
+    assert "GIGACHAT_CREDENTIALS" in cell.reason
+
+
+def test_class_d_regex_llm_filter_types_are_separate_from_gliner_labels() -> None:
+    """Сравнение не меняет исходную GLiNER-разметку и несёт русские различители."""
+    payload = json.loads(bm.REGEX_LLM_FILTER_TYPES.read_text(encoding="utf-8"))
+
+    assert [item["detect"]["kind"] for item in payload["types"]] == [
+        "regex_llm_filter",
+        "regex_llm_filter",
+    ]
+    assert all(item["detect"]["description"] for item in payload["types"])
+
+
+def test_human_summary_says_when_class_d_is_unsolved(capsys: pytest.CaptureFixture[str]) -> None:
+    bm._print_human_summary(
+        [], _class_d_cell("gliner", f1=0.0), _class_d_cell("regex_llm_filter", f1=0.0), []
+    )
+
+    assert "Задача класса D не решена ни одним из двух подходов" in capsys.readouterr().out
 
 
 def test_gliner_available_reflects_real_environment() -> None:

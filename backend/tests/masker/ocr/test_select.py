@@ -47,8 +47,8 @@ def test_yaml_provider_is_used_and_environment_has_priority(
     monkeypatch.delenv("MASKER_OCR", raising=False)
     assert isinstance(select_ocr(), FakeOCR)
 
-    monkeypatch.setenv("MASKER_OCR", "not-a-real-engine")
-    with pytest.raises(OCRError, match="not-a-real-engine"):
+    monkeypatch.setenv("MASKER_OCR", "not-a-real-contracts-engine")
+    with pytest.raises(OCRError, match="not-a-real-contracts-engine"):
         select_ocr()
 
 
@@ -64,7 +64,7 @@ def test_unknown_provider_raises_with_available_names(
 ) -> None:
     monkeypatch.delenv("MASKER_OCR", raising=False)
     with pytest.raises(OCRError) as excinfo:
-        select_ocr("not-a-real-engine")
+        select_ocr("not-a-real-contracts-engine")
     message = str(excinfo.value)
     assert "fake" in message
     assert "paddle" in message

@@ -57,6 +57,25 @@ def test_valid_regex_type_with_context_loaded() -> None:
     assert specs[0].context == ("отгрузк", "поставк")
 
 
+def test_regex_llm_filter_keeps_russian_description() -> None:
+    specs = load_type_config(
+        _config(
+            _type(
+                id_="shipment_date",
+                title="Дата отгрузки",
+                marker="[ДАТА-ОТГРУЗКИ-{n}]",
+                detect={
+                    "kind": "regex_llm_filter",
+                    "pattern": r"\d{2}\.\d{2}\.\d{4}",
+                    "description": "Дата фактической отгрузки товара, а не дата подписания.",
+                },
+            )
+        )
+    )
+
+    assert specs[0].description == "Дата фактической отгрузки товара, а не дата подписания."
+
+
 def test_valid_literals_type_loaded() -> None:
     item = _type(
         id_="internal_secret",

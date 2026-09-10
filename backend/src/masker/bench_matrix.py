@@ -88,6 +88,7 @@ DETECTION_LAYERS: tuple[str, ...] = ("rules", "ner", "gliner")
 GLINER_FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "gliner"
 GLINER_DOC = GLINER_FIXTURES / "contract_10_roles_dates.docx"
 GLINER_LABELS = GLINER_FIXTURES / "contract_10_roles_dates.labels.json"
+REGEX_LLM_FILTER_TYPES = GLINER_FIXTURES / "contract_10_roles_dates.regex_llm_filter.types.json"
 #: Порог из T1.13.1 (шаг 17, `test_gliner_corpus.py`) — сюда не переносится
 #: как ворота (`make gate` этот модуль не гоняет), только как ориентир в
 #: печати, чтобы число было с чем сравнить, а не голым.
@@ -312,6 +313,71 @@ def gliner_layer_cell() -> CellResult:
     )
 
 
+def regex_llm_filter_layer_cell() -> CellResult:
+    """F1 фильтра GigaChat на том же классе D, что и у GLiNER.
+
+    Вторая спека хранится отдельным файлом: исходная GLiNER-разметка остаётся
+    неизменяемым снимком старого измерения. Фильтр требует именно живой
+    GigaChat: fake/cassette не являются честным ответом на вопрос, может ли
+    модель разобрать смысл двух одинаковых дат.
+    """
+    reason = llm_axis_skip_reason("gigachat")
+    if reason is not None:
+        return CellResult(name="regex_llm_filter", status="skipped", reason=reason)
+    if not GLINER_DOC.exists() or not GLINER_LABELS.exists() or not REGEX_LLM_FILTER_TYPES.exists():
+        return CellResult(
+            name="regex_llm_filter",
+            status="skipped",
+            reason=f"нет корпуса или второй спеки класса D в {GLINER_FIXTURES}",
+        )
+
+    from masker.detect import default_detectors
+    from masker.entity_types import EntityTypeRegistry
+    from masker.ingest.docx_ingest import ingest_docx
+    from masker.typeconfig import load_type_config
+
+    try:
+        provider = get_provider(llm_axis_config("gigachat"))
+    except LLMError as error:
+        return CellResult(
+            name="regex_llm_filter", status="failed", reason=f"провайдер не собрался: {error}"
+        )
+
+    payload = json.loads(GLINER_LABELS.read_text(encoding="utf-8"))
+    types_payload = json.loads(REGEX_LLM_FILTER_TYPES.read_text(encoding="utf-8"))
+    document = ingest_docx(GLINER_DOC)
+    specs = load_type_config(types_payload)
+    registry = EntityTypeRegistry.builtin().extend(item.spec for item in specs)
+    agent = DetectAgent(default_detectors(specs, llm=provider), registry)
+
+    t0 = time.perf_counter()
+    try:
+        entities = agent.detect(document).entities
+    except (ValueError, ImportError, FileNotFoundError) as error:
+        return CellResult(
+            name="regex_llm_filter",
+            status="failed",
+            reason=f"regex_llm_filter не смог отработать: {error}",
+            elapsed_seconds=time.perf_counter() - t0,
+        )
+    elapsed = time.perf_counter() - t0
+
+    found = {
+        _gliner_span_key(entity.type, entity.segment_order, entity.start, entity.end)
+        for entity in entities
+        if entity.type in {"shipment_date", "signing_date"}
+    }
+    expected = _gliner_expected_spans(document, payload["class_d"])
+    by_type = {}
+    for type_id in ("shipment_date", "signing_date"):
+        exp = {item for item in expected if item[0] == type_id}
+        got = {item for item in found if item[0] == type_id}
+        by_type[type_id] = eval_module.score(exp, got)
+    return CellResult(
+        name="regex_llm_filter", status="ok", metrics={"by_type": by_type}, elapsed_seconds=elapsed
+    )
+
+
 # ---------------------------------------------------------------------------
 # Ось 2 — провайдеры LLM (профиль/судья).
 # ---------------------------------------------------------------------------
@@ -427,6 +493,8 @@ def _print_column_guide() -> None:
 def _print_plan(layers: tuple[str, ...], axes: tuple[str, ...]) -> None:
     cells: list[str] = []
     cells.extend(f"слой {layer}" for layer in layers if layer in ("rules", "ner", "gliner"))
+    if "gliner" in layers:
+        cells.append("regex_llm_filter (класс D)")
     cells.extend(f"ner+{axis}" for axis in axes)
     if "rules" in layers:
         cells.append("rules+none")
@@ -436,7 +504,8 @@ def _print_plan(layers: tuple[str, ...], axes: tuple[str, ...]) -> None:
     print(f"ПЛАН: {len(cells)} клеток: {', '.join(cells)}.")
     print("Ориентиры прошлого прогона: rules ≈40 с, ner ≈50 с, gliner ≈6 с;")
     print("каждая живая LLM-клетка — от 5 до 350 с. Самыми долгими обычно бывают живые модели.")
-    if any(axis in {"gigachat", "openrouter", "ceiling"} for axis in axes):
+    class_d_uses_gigachat = "gliner" in layers
+    if any(axis in {"gigachat", "openrouter", "ceiling"} for axis in axes) or class_d_uses_gigachat:
         print(
             "ВНИМАНИЕ: живые модели требуют сети и тратят деньги; "
             "их результат — один прогон, не среднее."
@@ -483,10 +552,12 @@ def _print_detection_result(cell: CellResult) -> None:
         )
 
 
-def _print_gliner_row(cell: CellResult) -> None:
+def _print_class_d_row(cell: CellResult) -> None:
+    """Напечатать одну из двух сопоставимых строк точного замера класса D."""
     if cell.status != "ok":
-        print(f"готово: {cell.status}: {cell.reason}", flush=True)
+        print(f"готово: {cell.name}: {cell.status}: {cell.reason}", flush=True)
         return
+    print(f"  подход: {cell.name}")
     print(
         f"{'тип':<15}{'P':>7}{'R':>7}{'F1':>7}{'FN':>5}{'FP':>5}  "
         f"(порог приёмки F1>={GLINER_ACCEPTANCE_F1})"
@@ -498,7 +569,10 @@ def _print_gliner_row(cell: CellResult) -> None:
             f"{m['fn']:>5}{m['fp']:>5}  {flag}",
             flush=True,
         )
-    print(f"готово: время{cell.elapsed_seconds:>10.2f} с (N=1, один документ)", flush=True)
+    print(
+        f"готово: {cell.name}, время{cell.elapsed_seconds:>10.2f} с (N=1, один документ)",
+        flush=True,
+    )
 
 
 def _print_llm_header() -> None:
@@ -535,7 +609,10 @@ def _print_llm_result(cell: CellResult) -> None:
 
 
 def _print_human_summary(
-    detection_cells: list[CellResult], gliner_cell: CellResult | None, llm_cells: list[CellResult]
+    detection_cells: list[CellResult],
+    gliner_cell: CellResult | None,
+    regex_llm_filter_cell: CellResult | None,
+    llm_cells: list[CellResult],
 ) -> None:
     """Напечатать осторожный вывод поверх чисел, не делая из одного замера рейтинг."""
     print("\nВЫВОД:")
@@ -562,10 +639,36 @@ def _print_human_summary(
         if gliner_cell.status == "ok":
             print(
                 "  GLiNER измерен отдельно на одном документе с датами; "
-                "это проверка слоя, а не сравнение с основным корпусом."
+                "сопоставимая ячейка regex_llm_filter использует тот же документ и те же позиции."
             )
         else:
             print(f"  GLiNER не измерен: {gliner_cell.reason}")
+    if gliner_cell is not None and regex_llm_filter_cell is not None:
+        class_d_cells = [gliner_cell, regex_llm_filter_cell]
+        measured_class_d = [cell for cell in class_d_cells if cell.status == "ok"]
+        solved_by = [
+            cell.name
+            for cell in measured_class_d
+            if all(
+                metrics["f1"] >= GLINER_ACCEPTANCE_F1
+                for metrics in cell.metrics["by_type"].values()
+            )
+        ]
+        if solved_by:
+            print(
+                "  Задача класса D решена подходом(ами): "
+                f"{', '.join(solved_by)} (оба типа достигли F1 >= {GLINER_ACCEPTANCE_F1})."
+            )
+        elif len(measured_class_d) == len(class_d_cells):
+            print(
+                "  Задача класса D не решена ни одним из двух подходов: "
+                "ни GLiNER, ни regex_llm_filter не достигли порога по обоим типам."
+            )
+        else:
+            skipped = ", ".join(
+                f"{cell.name}: {cell.reason}" for cell in class_d_cells if cell.status != "ok"
+            )
+            print(f"  Сравнение класса D неполно: {skipped}")
 
     ner_cells = [cell for cell in llm_cells if cell.status == "ok" and cell.name.startswith("ner+")]
     live_axes = {"gigachat", "openrouter", "ceiling"}
@@ -622,15 +725,19 @@ def run(
             _print_detection_result(cell)
 
         gliner_cell: CellResult | None = None
+        regex_llm_filter_cell: CellResult | None = None
         if "gliner" in layers:
-            print("\nОСЬ 1 — СЛОЙ gliner (свой корпус: fixtures/gliner, класс D)")
+            print("\nКЛАСС D — GLiNER ПРОТИВ regex_llm_filter (fixtures/gliner, один документ)")
             _print_cell_start("слой детекции gliner")
             # GLiNER2 пишет баннер конфигурации прямо в stdout при загрузке
             # весов, минуя warnings и logging. Это не сообщение masker и не
             # результат клетки, поэтому не даём ему разорвать таблицу.
             with redirect_stdout(io.StringIO()):
                 gliner_cell = gliner_layer_cell()
-            _print_gliner_row(gliner_cell)
+            _print_class_d_row(gliner_cell)
+            _print_cell_start("слой детекции regex_llm_filter (живой GigaChat)")
+            regex_llm_filter_cell = regex_llm_filter_layer_cell()
+            _print_class_d_row(regex_llm_filter_cell)
 
         llm_cells: list[CellResult] = []
         if axes or "rules" in layers:
@@ -674,11 +781,14 @@ def run(
         "    отдельная строка добавила бы дублирующее число, а не новую информацию."
     )
 
-    _print_human_summary(detection_cells, gliner_cell, llm_cells)
+    _print_human_summary(detection_cells, gliner_cell, regex_llm_filter_cell, llm_cells)
 
     return {
         "detection": {cell.name: _cell_to_dict(cell) for cell in detection_cells},
         "gliner": _cell_to_dict(gliner_cell) if gliner_cell is not None else None,
+        "regex_llm_filter": (
+            _cell_to_dict(regex_llm_filter_cell) if regex_llm_filter_cell is not None else None
+        ),
         "llm": {cell.name: _cell_to_dict(cell) for cell in llm_cells},
     }
 

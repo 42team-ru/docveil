@@ -296,8 +296,20 @@ def _build_regex_type(
         )
     context = tuple(context_raw)
 
+    description = ""
+    if kind == "regex_llm_filter":
+        description_raw = detect.get("description", "")
+        if not isinstance(description_raw, str):
+            raise CustomTypeError(f"Тип {type_id!r}: 'detect.description' должен быть строкой")
+        # Старые конфигурации фильтра не содержали описания. Заголовок типа
+        # остаётся для них осмысленным минимумом, а новые спеки могут дать
+        # модели точное русское различение похожих кандидатов.
+        description = description_raw.strip() or spec.title
+
     compiled = _compile_safe_regex(pattern_str, ignorecase, type_id)
-    return CustomTypeSpec(spec=spec, kind=kind, pattern=compiled, context=context)
+    return CustomTypeSpec(
+        spec=spec, kind=kind, pattern=compiled, context=context, description=description
+    )
 
 
 def _compile_safe_regex(pattern_str: str, ignorecase: bool, type_id: str) -> re.Pattern[str]:

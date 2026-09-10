@@ -13,10 +13,12 @@ usage() {
     cat <<'USAGE'
 Использование: watch-codex.sh [ОПЦИИ] [ЗАПРОС]
 
-ЗАПРОС — UUID сессии, кусок текста из промпта или ничего (самая свежая).
+ЗАПРОС — номер из `--list`, UUID сессии, кусок текста из промпта
+или ничего (тогда берётся самая свежая).
 
 Опции:
-  -l, --list          список последних сессий и выход
+  -l, --list          список сессий и выход (по умолчанию 25 последних)
+  -N, --limit N       сколько сессий показать в списке
   -n, --lines N       сколько строк истории показать перед слежением (по умолчанию 40)
   -c, --commands      только команды и их вывод, без рассуждений
   -q, --quiet         только сообщения модели и команды, без вывода команд
@@ -29,6 +31,8 @@ usage() {
   watch-codex.sh                     # следить за текущей сессией
   watch-codex.sh -l                  # какие вообще есть сессии
   watch-codex.sh -c                  # только что он запускает
+  watch-codex.sh 3                   # третья сессия из списка --list
+  watch-codex.sh -l -N 100           # длинная история
   watch-codex.sh Z1                  # сессия, в промпте которой встречается «Z1»
   watch-codex.sh -o -n 200 | less -R # почитать законченную сессию
 USAGE
@@ -36,6 +40,7 @@ USAGE
 
 LINES=40
 WIDE=12
+LIST_LIMIT=25
 MODE=full
 ONCE=0
 RAW=0
@@ -50,6 +55,7 @@ while [ $# -gt 0 ]; do
         -o|--once) ONCE=1; shift ;;
         -r|--raw) RAW=1; shift ;;
         -n|--lines) LINES="${2:?-n требует число}"; shift 2 ;;
+        -N|--limit) LIST_LIMIT="${2:?-N требует число}"; shift 2 ;;
         -w|--wide) WIDE="${2:?-w требует число}"; shift 2 ;;
         --) shift; QUERY="${1:-}"; break ;;
         -*) echo "Неизвестная опция: $1" >&2; usage >&2; exit 2 ;;
@@ -73,24 +79,113 @@ else
     C_THINK=""; C_WARN=""; C_ERR=""; C_HEAD=""
 fi
 
+# История сессий. Считает python, а не конвейер из jq и head: с
+# `set -euo pipefail` связка `jq … | head -1` роняет весь скрипт — head
+# закрывает пайп, jq получает SIGPIPE и возвращает ненулевой код. Из-за
+# этого `--list` печатал один заголовок и молча выходил (найдено 10.09.2026).
 list_sessions() {
+    local limit="${1:-25}"
+    LIST_LIMIT="$limit" SESSIONS_DIR="$SESSIONS" python3 - "$SESSIONS" <<'PYLIST'
+import json, os, re, sys, time
+
+sessions_dir = sys.argv[1]
+limit = int(os.environ.get("LIST_LIMIT", "25"))
+uuid_re = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+files = []
+for root, _dirs, names in os.walk(sessions_dir):
+    for name in names:
+        if name.startswith("rollout-") and name.endswith(".jsonl"):
+            path = os.path.join(root, name)
+            try:
+                files.append((os.path.getmtime(path), path))
+            except OSError:
+                pass
+files.sort(reverse=True)
+
+BOLD, DIM, WARN, RESET = "\033[1m", "\033[2m", "\033[33m", "\033[0m"
+if not sys.stdout.isatty():
+    BOLD = DIM = WARN = RESET = ""
+
+def summarize(path):
+    """Первое сообщение человека, число команд и время последней записи.
+
+    Служебные блоки (`<skills_instructions>`, `<environment_context>` и
+    прочая обвязка) — не задача, а обёртка вокруг неё: если показать их,
+    все строки списка будут одинаковыми.
+    """
+    prompt, commands, last = "", 0, None
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                payload = event.get("payload") or {}
+                if payload.get("type") in ("function_call", "custom_tool_call", "local_shell_call"):
+                    commands += 1
+                if event.get("timestamp"):
+                    last = event["timestamp"]
+                if prompt or payload.get("type") != "message":
+                    continue
+                if payload.get("role") not in (None, "user"):
+                    continue
+                content = payload.get("content")
+                if isinstance(content, list):
+                    text = " ".join(
+                        part.get("text") or part.get("input_text") or ""
+                        for part in content
+                        if isinstance(part, dict)
+                    )
+                else:
+                    text = str(content or "")
+                text = " ".join(text.split())
+                # Обвязка, а не задача: служебные блоки в угловых скобках и
+                # врезка правил проекта, которую Codex подставляет сам.
+                if not text or text.startswith("<") or text.startswith("# AGENTS.md"):
+                    continue
+                prompt = text
+    except OSError:
+        pass
+    return prompt, commands, last
+
+running = os.popen("pgrep -fa 'codex' 2>/dev/null").read()
+
+rows = []
+for index, (mtime, path) in enumerate(files[:limit], 1):
+    match = uuid_re.search(os.path.basename(path))
+    session = match.group(0) if match else "?"
+    prompt, commands, _last = summarize(path)
+    age = time.time() - mtime
+    alive = session[:8] in running or (age < 90 and "codex" in running)
+    rows.append((index, session, mtime, commands, prompt, alive))
+
+if not rows:
+    print("сессий нет")
+    sys.exit(0)
+
+print(f"{BOLD}№   КОГДА         КОМАНД  СЕССИЯ    ЗАДАЧА{RESET}")
+for index, session, mtime, commands, prompt, alive in rows:
+    when = time.strftime("%d.%m %H:%M", time.localtime(mtime))
+    mark = f"{WARN}●{RESET}" if alive else " "
+    prompt = prompt or "—"
+    if len(prompt) > 62:
+        prompt = prompt[:61] + "…"
+    print(f"{index:<3} {DIM}{when}{RESET} {mark} {commands:>5}  {session[:8]}  {prompt}")
+print()
+print(f"{DIM}watch-codex.sh N — смотреть сессию по номеру; можно и по UUID или куску промпта{RESET}")
+PYLIST
+}
+
+# Путь к сессии по её порядковому номеру из `--list`.
+session_by_index() {
+    local want="$1"
     find "$SESSIONS" -type f -name 'rollout-*.jsonl' -printf '%T@ %p\n' \
-        | sort -nr | head -20 | cut -d' ' -f2- \
-        | while read -r f; do
-            local_uuid="$(basename "$f" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')"
-            when="$(date -r "$f" '+%d.%m %H:%M')"
-            # Первое сообщение пользователя — это и есть суть задачи.
-            head="$(jq -r 'select(.type=="response_item" and .payload.type=="message")
-                           | .payload.content
-                           | if type=="array" then map(.text // .input_text // empty) | join(" ") else tostring end' \
-                    "$f" 2>/dev/null | grep -v '^$' | head -1 | cut -c1-70)"
-            alive=""
-            if pgrep -f "codex exec" >/dev/null 2>&1 && [ "$f" = "$(newest)" ]; then
-                alive="${C_WARN}● идёт${C_RESET} "
-            fi
-            printf '%s%s%s  %s  %s%s\n' "$C_DIM" "$when" "$C_RESET" "$alive$local_uuid" "$C_BOLD" "${head:-—}"
-            printf '%s\n' "$C_RESET" | tr -d '\n'
-        done
+        | sort -nr | sed -n "${want}p" | cut -d' ' -f2-
 }
 
 newest() {
@@ -100,6 +195,8 @@ newest() {
 
 find_session() {
     if [ -z "$QUERY" ]; then newest; return; fi
+    # Номер строки из `--list` — самый быстрый способ выбрать сессию руками.
+    if [[ "$QUERY" =~ ^[0-9]+$ ]]; then session_by_index "$QUERY"; return; fi
     if [[ "$QUERY" =~ ^[0-9a-fA-F-]{36}$ ]]; then
         find "$SESSIONS" -type f -name "*${QUERY}.jsonl" -print -quit
         return
@@ -108,8 +205,8 @@ find_session() {
 }
 
 if [ "$MODE" = list ]; then
-    printf '%sПоследние сессии Codex%s\n\n' "$C_HEAD" "$C_RESET"
-    list_sessions
+    printf '%sСессии Codex%s\n\n' "$C_HEAD" "$C_RESET"
+    list_sessions "$LIST_LIMIT"
     exit 0
 fi
 

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "codex": {
+      "type": "stdio",
+      "command": "./scripts/codex.sh",
+      "args": [
+        "mcp-server"
+      ],
+      "env": {}
+    }
+  }
+}

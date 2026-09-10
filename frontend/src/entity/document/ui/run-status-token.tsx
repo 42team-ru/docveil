@@ -4,7 +4,7 @@ import { Token } from "@astryxdesign/core/Token";
 
 import type { RunStatus } from "../../../features/masking-run/api/masking-run";
 
-const STATUS_LABEL: Record<RunStatus, string> = {
+export const STATUS_LABEL: Record<RunStatus, string> = {
   queued: "в очереди",
   running: "обрабатывается",
   awaiting_answers: "ждёт ответов",

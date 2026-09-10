@@ -12,8 +12,13 @@ import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { SelectableCard } from "@astryxdesign/core/SelectableCard";
 import { Section } from "@astryxdesign/core/Section";
 
+import { piiTypeOptions } from "../../../entity/pii/model/pii-type-dict";
 import { useRuleProfileStore } from "../../../entity/rule-profile/model/rule-profile-store";
 import type { MaskStyle } from "../../../entity/rule-profile/model/types";
+import { pluralRu } from "../../../shared/lib/plural-ru";
+
+/** Сколько типов ПДн знает движок — весь реестр маскируется без исключений. */
+const REGISTRY_TYPE_COUNT = piiTypeOptions().length;
 
 /**
  * Как «Поставщик»/«ИНН» из примера выглядят в превью каждого стиля маски.
@@ -27,7 +32,8 @@ const HIGHLIGHT_CLASS: Record<MaskStyle, string> = {
   blackbox: "bg-primary text-transparent",
 };
 
-const MASK_STYLE_OPTIONS: Array<{
+/** Подписи стилей маски — переиспользуются в подтверждении запуска на `UploadPage`. */
+export const MASK_STYLE_OPTIONS: Array<{
   id: MaskStyle;
   name: string;
   description: string;
@@ -70,7 +76,12 @@ export function MaskStylePicker() {
   return (
     <Section padding={0}>
       <VStack gap={3} paddingBlock={4} paddingInline={4}>
-        <Heading level={4}>Как выглядит маска</Heading>
+        <VStack gap={1}>
+          <Heading level={4}>Как выглядит маска</Heading>
+          <Text type="supporting" size="sm" color="secondary">
+            {`Маскируются все ${REGISTRY_TYPE_COUNT} ${pluralRu(REGISTRY_TYPE_COUNT, ["тип", "типа", "типов"])} персональных данных из реестра движка — выбор типов на этом экране недоступен.`}
+          </Text>
+        </VStack>
         <Grid columns={2} gap={4} align="start">
           {MASK_STYLE_OPTIONS.map((option) => {
             const isSelected = maskStyle === option.id;

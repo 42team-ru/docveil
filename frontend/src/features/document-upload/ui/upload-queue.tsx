@@ -63,9 +63,16 @@ export function UploadQueue() {
               label={item.name}
               labelLines={1}
               description={
-                <Text type="supporting" color="secondary">
-                  {item.error ?? formatSize(item.size)}
-                </Text>
+                <VStack gap={0}>
+                  <Text type="supporting" color="secondary">
+                    {formatSize(item.size)}
+                  </Text>
+                  {item.error !== null ? (
+                    <Text type="supporting" className="text-red-vivid">
+                      {item.error}
+                    </Text>
+                  ) : null}
+                </VStack>
               }
               endContent={
                 <HStack gap={2} vAlign="center">

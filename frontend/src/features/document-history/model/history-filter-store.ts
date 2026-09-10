@@ -10,6 +10,7 @@ type HistoryFilterState = {
   status: HistoryStatusFilter;
   setQuery: (query: string) => void;
   setStatus: (status: HistoryStatusFilter) => void;
+  reset: () => void;
 };
 
 /**
@@ -22,4 +23,5 @@ export const useHistoryFilterStore = create<HistoryFilterState>((set) => ({
   status: "all",
   setQuery: (query) => set({ query }),
   setStatus: (status) => set({ status }),
+  reset: () => set({ query: "", status: "all" }),
 }));

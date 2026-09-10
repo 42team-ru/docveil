@@ -25,8 +25,11 @@ down:
 logs:
 	docker compose logs -f
 
+# Дефолты — на уровне make ($(if ...)), не шелла ($${VAR:-default}): последнее
+# раскрывает только POSIX sh, а на Windows без sh.exe на PATH make гонит
+# рецепты через cmd.exe, который передаёт psql буквальную строку с «${...}».
 db-shell:
-	docker compose exec postgres psql -U $${POSTGRES_USER:-masker} -d $${POSTGRES_DB:-masker}
+	docker compose exec postgres psql -U $(if $(POSTGRES_USER),$(POSTGRES_USER),masker) -d $(if $(POSTGRES_DB),$(POSTGRES_DB),masker)
 
 front:
 	cd frontend && yarn install --frozen-lockfile && yarn typecheck && yarn test

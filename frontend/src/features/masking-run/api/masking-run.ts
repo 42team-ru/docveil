@@ -77,8 +77,6 @@ export const runKeys = {
 
 export type StartRunInput = {
   source: UploadSource;
-  /** Типы ПДн из `EntityType` бэкенда; пустой список — все известные типы. */
-  types: string[];
   maskStyle: MaskStyle;
 };
 
@@ -92,7 +90,7 @@ export function useStartRun() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ source, types, maskStyle }: StartRunInput): Promise<RunResponse> => {
+    mutationFn: async ({ source, maskStyle }: StartRunInput): Promise<RunResponse> => {
       const objectName =
         source.kind === "existing"
           ? source.objectName
@@ -106,7 +104,7 @@ export function useStartRun() {
 
       const created = await createRunApiRunsPost({
         object_name: objectName,
-        types: types.length > 0 ? types : null,
+        types: [],
         mask_style: maskStyle,
       });
       if (created.status !== 202) {

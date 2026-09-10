@@ -30,11 +30,11 @@ from masker.graph.nodes import (
     make_profile_node,
     make_render_node,
     make_report_node,
+    make_summary_node,
     needs_human,
     needs_review,
     plan_node,
     policy_node,
-    summary_node,
     validate_node,
 )
 from masker.graph.state import State
@@ -127,7 +127,7 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     graph.add_node("apply_answers", _instrument("apply_answers", apply_answers_node, deps))  # type: ignore[call-overload]
     graph.add_node("finalize", _instrument("finalize", finalize_node, deps))  # type: ignore[call-overload]
     graph.add_node("plan", _instrument("plan", plan_node, deps))  # type: ignore[call-overload]
-    graph.add_node("summary", _instrument("summary", summary_node, deps))  # type: ignore[call-overload]
+    graph.add_node("summary", _instrument("summary", make_summary_node(deps), deps))  # type: ignore[call-overload]
     graph.add_node("render", _instrument("render", make_render_node(deps), deps))  # type: ignore[call-overload]
     graph.add_node("validate", _instrument("validate", validate_node, deps))  # type: ignore[call-overload]
     graph.add_node("report", _instrument("report", make_report_node(deps), deps))  # type: ignore[call-overload]

@@ -235,6 +235,21 @@ def test_eval_ingests_xlsx_fixture() -> None:
     assert any(segment.text == "3662103003" for segment in document.segments)
 
 
+def test_eval_ingest_uses_fake_ocr_sidecar_for_scan_pdf() -> None:
+    """Скан-PDF должен читаться через FakeOCR из сайдкара, а не как пустой текстовый.
+
+    Без ``ocr=`` в ``ingest_pdf`` скан-страница не даёт ни одного сегмента:
+    любой замер по `_ingest` на скан-документе считает все его сущности
+    «пропущенными фильтром», хотя baseline их находит (см. Р7/К2 в TASKS.md).
+    """
+    fixture = eval_module.FIXTURES / "scan_synth_01.pdf"
+
+    document = eval_module._ingest(fixture)
+
+    total_chars = sum(len(segment.text) for segment in document.segments)
+    assert total_chars > 0, "скан-документ дал пустой Document — сайдкар не подхвачен"
+
+
 def test_eval_reports_xlsx_format_row(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

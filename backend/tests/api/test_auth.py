@@ -267,9 +267,7 @@ def test_update_me_success(client, mocker):
         is_active=user.is_active,
         created_at=user.created_at,
     )
-    mock_update = mocker.patch(
-        "api.routers.auth.update_profile", new_callable=AsyncMock
-    )
+    mock_update = mocker.patch("api.routers.auth.update_profile", new_callable=AsyncMock)
     mock_update.return_value = updated
 
     _override_current_user(user)
@@ -299,9 +297,7 @@ def test_change_my_password_success(client, mocker):
         is_active=True,
         created_at=datetime.now(UTC),
     )
-    mock_change = mocker.patch(
-        "api.routers.auth.change_password", new_callable=AsyncMock
-    )
+    mock_change = mocker.patch("api.routers.auth.change_password", new_callable=AsyncMock)
 
     _override_current_user(user)
     try:
@@ -326,12 +322,8 @@ def test_change_my_password_wrong_current_password(client, mocker):
         is_active=True,
         created_at=datetime.now(UTC),
     )
-    mock_change = mocker.patch(
-        "api.routers.auth.change_password", new_callable=AsyncMock
-    )
-    mock_change.side_effect = HTTPException(
-        status.HTTP_401_UNAUTHORIZED, "Неверный текущий пароль"
-    )
+    mock_change = mocker.patch("api.routers.auth.change_password", new_callable=AsyncMock)
+    mock_change.side_effect = HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный текущий пароль")
 
     _override_current_user(user)
     try:
@@ -375,9 +367,7 @@ def test_update_me_timezone_success(client, mocker):
         created_at=user.created_at,
         timezone="Europe/Moscow",
     )
-    mock_update = mocker.patch(
-        "api.routers.auth.update_profile", new_callable=AsyncMock
-    )
+    mock_update = mocker.patch("api.routers.auth.update_profile", new_callable=AsyncMock)
     mock_update.return_value = updated
 
     _override_current_user(user)
@@ -435,9 +425,7 @@ def test_upload_my_avatar_success(client, mocker):
         new_callable=AsyncMock,
         return_value=("abc123/photo.png", 1234),
     )
-    mock_set = mocker.patch(
-        "api.routers.auth.set_avatar", new_callable=AsyncMock
-    )
+    mock_set = mocker.patch("api.routers.auth.set_avatar", new_callable=AsyncMock)
     mock_set.return_value = updated
 
     _override_current_user(user)
@@ -541,9 +529,7 @@ def test_delete_my_avatar_success(client, mocker):
         created_at=user.created_at,
         avatar_object_name=None,
     )
-    mock_clear = mocker.patch(
-        "api.routers.auth.clear_avatar", new_callable=AsyncMock
-    )
+    mock_clear = mocker.patch("api.routers.auth.clear_avatar", new_callable=AsyncMock)
     mock_clear.return_value = updated
 
     _override_current_user(user)

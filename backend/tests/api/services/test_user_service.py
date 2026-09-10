@@ -18,6 +18,7 @@ from api.services.user_service import (
     create_user,
     email_exists,
     list_users,
+    reset_password,
     set_avatar,
     update_profile,
 )

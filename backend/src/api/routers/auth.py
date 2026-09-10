@@ -116,9 +116,7 @@ async def change_my_password(
     current_user: UserORM = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> None:
-    await change_password(
-        session, current_user, payload.current_password, payload.new_password
-    )
+    await change_password(session, current_user, payload.current_password, payload.new_password)
 
 
 @router.post("/me/avatar", response_model=UserPublic)

@@ -57,6 +57,8 @@ class State(TypedDict, total=False):
     render_degradations: list[dict[str, Any]]
     #: Карточка договора — сериализованный ``ContractSummary.model_dump()``.
     contract_summary: dict[str, Any]
+    #: Вызовы LLM, выполненные именно для жанра и краткого содержания.
+    summary_llm_calls: int
     #: Правки оператора с экрана проверки (``graph.review.parse_review_edits``):
     #: решения по ссылкам, смена типа, добавленные вручную значения.
     review_edits: dict[str, Any]

@@ -7,6 +7,16 @@ from typing import Literal
 from pydantic import BaseModel, model_validator
 
 FactStatus = Literal["found", "ambiguous", "not_found", "confirmed"]
+DocumentKindStatus = Literal["contract", "non_contract", "unknown"]
+
+
+class DocumentKind(BaseModel):
+    """Результат определения жанра без подмены сбоя фактом."""
+
+    status: DocumentKindStatus = "unknown"
+    genre: str | None = None
+    confidence: float | None = None
+    source: Literal["rule", "llm", "unavailable"] = "unavailable"
 
 
 class FactAnchor(BaseModel):
@@ -93,7 +103,7 @@ class ContractParty(BaseModel):
 
 
 class ContractSummary(BaseModel):
-    """Карточка договора.
+    """Карточка документа: общее содержание и, когда уместно, поля договора.
 
     Старые плоские поля остаются временно для совместимости отчёта. Новые
     ``*_fact`` поля — контракт карточки: они содержат статус, цитату и якорь.
@@ -116,6 +126,10 @@ class ContractSummary(BaseModel):
     payment_facts: list[PaymentFact] = []
     delivery_facts: list[DeliveryFact] = []
     contract_number_fact: ContractFact = ContractFact()
+
+    #: Модель читает оригинал, но экспорт всегда проходит через ``MaskPlan``.
+    brief_summary: str | None = None
+    document_kind: DocumentKind = DocumentKind()
 
     generated_at: str = ""
     llm_calls: int = 0

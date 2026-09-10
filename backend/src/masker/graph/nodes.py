@@ -60,7 +60,7 @@ from masker.ingest.pdf_ingest import ingest_pdf
 from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.judge import JudgeAgent
 from masker.judge.agent import JudgeResult
-from masker.llm import LLMProvider, TracingProvider
+from masker.llm import FakeProvider, LLMProvider, TracingProvider
 from masker.mask import PlanAgent
 from masker.mask.select import resolve_requested_types
 from masker.model import (
@@ -719,12 +719,34 @@ def plan_node(state: State) -> dict[str, object]:
 
 
 def summary_node(state: State) -> dict[str, object]:
-    """Собрать и экспортировать карточку через тот же план масок, что документ."""
-    from masker.summary import build_summary, export_summary
+    """Совместимый офлайн-узел: поля правил без вызова LLM."""
+    return _summary_node(state, llm=None)
+
+
+def make_summary_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
+    """Собрать summary-узел с LLM вне JSON-состояния LangGraph."""
+
+    if isinstance(deps.llm, FakeProvider):
+        # ``MASKER_LLM=fake`` — офлайн-ворота: нет ни придуманного жанра,
+        # ни синтетического пересказа, и ответ-заглушка не расходуется.
+        return summary_node
+
+    def _node(state: State) -> dict[str, object]:
+        with deps.llm_for_stage("summary") as llm:
+            return _summary_node(state, llm=llm)
+
+    return _node
+
+
+def _summary_node(state: State, llm: LLMProvider | None) -> dict[str, object]:
+    """Собрать части карточки и не дать полям договора попасть в не-договор."""
+    from masker.summary import ContractSummary, analyze_document, build_summary, export_summary
 
     entities = [entity_from_dict(item) for item in state.get("entities", [])]
     profiles = profiles_from_dicts(state.get("profiles", []))
     llm_calls = int(state.get("llm_calls", 0))
+    document = _document(state)
+    analysis = analyze_document(document, profiles, llm)
     # generated_at фиксируется пустой строкой: отчёт должен быть детерминированным
     # (AGENTS.md: «два прогона на одном файле дают побайтово одинаковый отчёт»).
     # Временная метка сборки хранится в артефактах файловой системы, не в отчёте.
@@ -732,11 +754,28 @@ def summary_node(state: State) -> dict[str, object]:
     summary = build_summary(
         entities,
         profiles,
-        llm_calls=llm_calls,
+        llm_calls=llm_calls + analysis.llm_calls,
         generated_at="",
-        document=_document(state),
+        document=document,
     )
-    return {"contract_summary": export_summary(summary, plan_from_dict(state.get("plan", {})))}
+    if analysis.kind.status == "non_contract":
+        # ``not_found`` не доказывает, что условие отсутствует. На документе
+        # другого жанра полей договора нет совсем, а не «ничего не найдено».
+        summary = ContractSummary(
+            brief_summary=analysis.brief_summary,
+            document_kind=analysis.kind,
+            generated_at="",
+            llm_calls=llm_calls + analysis.llm_calls,
+        )
+    else:
+        # Offline/fake-режим намеренно сохраняет поля правил: неизвестный
+        # жанр — техническая неопределённость, а не отрицание договора.
+        summary.brief_summary = analysis.brief_summary
+        summary.document_kind = analysis.kind
+    return {
+        "contract_summary": export_summary(summary, plan_from_dict(state.get("plan", {}))),
+        "summary_llm_calls": analysis.llm_calls,
+    }
 
 
 #: Порядок ролей артефактов — фиксированный, не по обходу множества стилей

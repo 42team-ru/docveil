@@ -74,6 +74,7 @@ def build_context_blocks(segments: list[Segment], entities: list[Entity]) -> lis
     for segment in sorted(segments, key=lambda item: item.order):
         segment_anchor_kind = _anchor_kind(segment)
         is_numbered_heading = bool(HEADING.match(segment.text.strip()))
+        heading = segment.text.strip() if _is_heading(segment.text) else ""
         # Сброс выполняется до применения explicit_label этого же сегмента —
         # иначе заголовок, который сам несёт метку, погасил бы её же.
         if is_numbered_heading or (
@@ -90,8 +91,13 @@ def build_context_blocks(segments: list[Segment], entities: list[Entity]) -> lis
             explicit_label = _known_label(explicit_label, seen_labels)
             seen_labels.add(explicit_label)
             active_label = explicit_label
-            active_label_from_heading = is_numbered_heading
-        heading = segment.text.strip() if _is_heading(segment.text) else ""
+            # Роль в беззапятой короткой шапке («Реквизиты Исполнителя»,
+            # «Заказчик Исполнитель») так же задаёт последующий табличный
+            # блок, как нумерованный заголовок. Преамбула с запятой не
+            # шапка: её метка по-прежнему гасится на body -> table.
+            active_label_from_heading = is_numbered_heading or bool(
+                heading and "," not in segment.text
+            )
         segment_entities = entities_by_segment.get(segment.order, [])
         new_block = current is None
         if current is not None:
@@ -100,6 +106,10 @@ def build_context_blocks(segments: list[Segment], entities: list[Entity]) -> lis
             )
             new_block = (
                 bool(explicit_label and explicit_label != current.label)
+                # Метка — свойство всего блока, а не последнего сегмента.
+                # Без границы здесь следующий label (или сброс active_label)
+                # переписывал роль у уже добавленных сущностей.
+                or bool(current.entities and active_label != current.label)
                 or _anchor_kind(segment) != prior_kind
                 or len(current.spans) >= MAX_BLOCK_SPANS
                 or sum(span.end - span.start for span in current.spans) + len(segment.text)
@@ -117,13 +127,11 @@ def build_context_blocks(segments: list[Segment], entities: list[Entity]) -> lis
             )
             blocks.append(current)
         assert current is not None
-        # Метка блока всегда следует за текущей активной меткой, а не только
-        # заполняет пустое поле: иначе блок, начавшийся без сущностей на
-        # сегменте с меткой (например, преамбула), донесёт эту метку до
-        # сегмента с сущностью даже после того, как метка уже погашена
-        # заголовком — граница блока по заголовку срабатывает только когда в
-        # блоке уже есть хотя бы одна сущность.
-        current.label = active_label
+        # Пока в блоке нет сущностей, метка может уточняться формулировкой
+        # следующего сегмента. После первой сущности изменение метки создаёт
+        # отдельный блок выше, поэтому роль уже собранного блока не стирается.
+        if not current.entities:
+            current.label = active_label
         if heading and not current.heading:
             current.heading = heading
         current.spans.append(BlockSpan(segment.order, 0, len(segment.text)))

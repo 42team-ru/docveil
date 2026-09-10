@@ -33,6 +33,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from masker.graph.nodes import RunDeps
 from masker.graph.serde import plan_from_dict
+from masker.llm.base import LLMProvider
 from masker.model import EntityType, MaskPlan, ValidationReport
 from masker.ocr.provider import OCRProvider
 from masker.run import RunOptions, start_run
@@ -108,6 +109,8 @@ def mask_and_validate(
     types: Iterable[EntityType],
     custom_types: Iterable[Mapping[str, Any]] = (),
     ocr: OCRProvider | None = None,
+    rules_only: bool = False,
+    llm: LLMProvider | None = None,
 ) -> Iterator[MaskResult]:
     """Построить план, отрендерить оба редактирующих артефакта и проверить их.
 
@@ -121,6 +124,15 @@ def mask_and_validate(
     типов (T1.13, шаг 6), тот же формат, что и в ``RunOptions.custom_types``:
     сырые словари, а не ``CustomTypeSpec``. Пустой по умолчанию — обычный
     прогон без пользовательских типов не меняет поведение.
+
+    ``rules_only`` и ``llm`` нужны матричному бенчмарку (``masker.bench_matrix``,
+    К4 — «нужен ли GLiNER» и «что даёт LLM»): по умолчанию оба сохраняют
+    прежнее поведение (детекция — как и раньше, без ``rules_only``; LLM в граф
+    не передаётся, как и раньше). ``llm`` идёт в ``RunDeps`` тем же путём, что
+    и в проде (``LLMProvider`` из ``masker.llm`` — требование заказчика №6),
+    поэтому включает и LLM-верификатор детекции (когда не ``rules_only``), и
+    роли профилей, и вопросы судьи/политики — то же самое, что видит боевой
+    прогон с этим провайдером.
     """
     options = RunOptions(
         types=_types_tuple(types),
@@ -128,10 +140,11 @@ def mask_and_validate(
         preview=False,
         styles=("marker", "blackbox"),
         custom_types=tuple(dict(item) for item in custom_types),
+        rules_only=rules_only,
     )
 
     with tempfile.TemporaryDirectory(prefix="masker-pipeline-") as scratch:
-        deps = RunDeps(artifact_dir=Path(scratch), ocr=ocr)
+        deps = RunDeps(artifact_dir=Path(scratch), ocr=ocr, llm=llm)
         outcome = start_run(
             path,
             options,

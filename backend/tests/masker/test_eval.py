@@ -132,7 +132,14 @@ def _patch_mask_and_validate(
     """Подменить `masker.pipeline.mask_and_validate` на заранее заготовленные результаты."""
 
     @contextmanager
-    def fake(path: Path, *, types: Any, custom_types: Any = ()) -> Iterator[MaskResult]:
+    def fake(
+        path: Path,
+        *,
+        types: Any,
+        custom_types: Any = (),
+        rules_only: bool = False,
+        llm: Any = None,
+    ) -> Iterator[MaskResult]:
         yield by_path[str(path)]
 
     monkeypatch.setattr("masker.pipeline.mask_and_validate", fake)
@@ -913,7 +920,14 @@ def test_eval_gate_fails_on_render_failure_but_keeps_measuring_the_rest(
     )
 
     @contextmanager
-    def fake(path: Path, *, types: Any, custom_types: Any = ()) -> Iterator[MaskResult]:
+    def fake(
+        path: Path,
+        *,
+        types: Any,
+        custom_types: Any = (),
+        rules_only: bool = False,
+        llm: Any = None,
+    ) -> Iterator[MaskResult]:
         if str(path) == str(broken_path):
             cause = ValueError(
                 "маркер '[СТОРОНА-27-ОРГАНИЗАЦИЯ]' не помещается в прямоугольник "

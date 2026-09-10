@@ -208,7 +208,14 @@ def _isolate_from_rest_of_the_gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     )
 
     @contextmanager
-    def fake(path: Path, *, types: Any, custom_types: Any = ()) -> Iterator[MaskResult]:
+    def fake(
+        path: Path,
+        *,
+        types: Any,
+        custom_types: Any = (),
+        rules_only: bool = False,
+        llm: Any = None,
+    ) -> Iterator[MaskResult]:
         yield result
 
     monkeypatch.setattr("masker.pipeline.mask_and_validate", fake)

@@ -54,6 +54,16 @@ gliner = [
     "peft>=0.17",
     "torch>=2.8",
 ]
+ocr = [
+    # PaddleOCR 3.x — актуальный API (PP-OCRv5/v6). Веса кэшируются в
+    # ~/.paddleocr/ на первый прогон, не в репе. Пакет не тянется в CI:
+    # `make gate` работает через MASKER_OCR=fake, реальный движок нужен
+    # только локально и в приёмочных прогонах.
+    "paddleocr>=3.0",
+    # RapidOCR — альтернативный провайдер без зависимости от paddlepaddle;
+    # использует те же ONNX-веса из кэша PaddleX. MASKER_OCR=rapid.
+    "rapidocr-onnxruntime>=1.4",
+]
 
 [project.scripts]
 masker = "masker.cli:main"
@@ -81,6 +91,7 @@ markers = [
     "models: использует настоящие локальные модели (natasha). Отобрать: pytest -m models",
     "gliner: использует локальные веса GLiNER2. Отобрать: pytest -m gliner",
     "private: работает на реальных документах из fixtures/private. Отобрать: pytest -m private",
+    "ocr: использует настоящий OCR-движок (PaddleOCR/Tesseract). Отобрать: pytest -m ocr",
 ]
 
 [tool.ruff]
@@ -107,6 +118,7 @@ ignore_missing_imports = true
 # PyMuPDF не поставляет стабы — все ошибки в этих модулях артефакт библиотеки, а не логики.
 module = [
     "masker.ingest.pdf_ingest",
+    "masker.ingest.scan_ingest",
     "masker.render.pdf_render",
     "masker.validate.parts",
     "masker.validate.pdf_layout",

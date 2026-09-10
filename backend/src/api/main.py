@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,7 +47,7 @@ api_router.include_router(runs.router)
 app.include_router(api_router)
 
 
-def custom_openapi() -> dict:
+def custom_openapi() -> dict[str, Any]:
     """Схема отдаёт пути без `/api` — Orval строит из них клиент, а базовый URL
     (с `/api`) уже добавляет фронтовый `authMutator`. Реальные маршруты
     (`api_router`, выше) от этого не меняются — `servers` ниже возвращает
@@ -57,8 +58,7 @@ def custom_openapi() -> dict:
 
     schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
     schema["paths"] = {
-        path.removeprefix("/api") or "/": path_item
-        for path, path_item in schema["paths"].items()
+        path.removeprefix("/api") or "/": path_item for path, path_item in schema["paths"].items()
     }
     schema["servers"] = [{"url": "/api"}]
 
@@ -66,4 +66,4 @@ def custom_openapi() -> dict:
     return app.openapi_schema
 
 
-app.openapi = custom_openapi
+app.openapi = custom_openapi  # type: ignore[method-assign]

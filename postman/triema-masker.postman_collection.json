@@ -43,20 +43,22 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 200', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const body = pm.response.json();",
-                  "pm.test('access_token present', function () {",
-                  "    pm.expect(body.access_token).to.be.a('string').and.not.empty;",
-                  "});",
-                  "pm.test('refresh_token present in body (mobile device)', function () {",
-                  "    pm.expect(body.refresh_token).to.be.a('string').and.not.empty;",
-                  "});",
-                  "",
-                  "pm.environment.set('admin_access_token', body.access_token);",
-                  "pm.environment.set('admin_refresh_token', body.refresh_token);"
+                  "if (pm.response.code !== 200) {",
+                  "    pm.execution.setNextRequest(null);",
+                  "    pm.test('administrator login prerequisite', function () {",
+                  "        pm.expect.fail(`Не удалось войти администратором (HTTP ${pm.response.code}). Заполните admin_email и admin_password; если пароль меняли через сид, используйте make seed-admin ... reset_password=1.`);",
+                  "    });",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('access_token present', function () {",
+                  "        pm.expect(body.access_token).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "    pm.test('refresh_token present in body (mobile device)', function () {",
+                  "        pm.expect(body.refresh_token).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "    pm.environment.set('admin_access_token', body.access_token);",
+                  "    pm.environment.set('admin_refresh_token', body.refresh_token);",
+                  "}"
                 ]
               }
             }
@@ -86,19 +88,21 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 200', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const body = pm.response.json();",
-                  "pm.test('refresh_token is null in body for web device', function () {",
-                  "    pm.expect(body.refresh_token).to.be.null;",
-                  "});",
-                  "pm.test('refresh_token cookie is set', function () {",
-                  "    pm.expect(pm.cookies.has('refresh_token')).to.be.true;",
-                  "});",
-                  "",
-                  "pm.environment.set('access_token', body.access_token);"
+                  "if (pm.response.code !== 200) {",
+                  "    pm.execution.setNextRequest(null);",
+                  "    pm.test('test-user login prerequisite', function () {",
+                  "        pm.expect.fail(`Не удалось войти тестовым пользователем (HTTP ${pm.response.code}). Сначала успешно выполните Create User и проверьте user_email/user_password.`);",
+                  "    });",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('refresh_token is null in body for web device', function () {",
+                  "        pm.expect(body.refresh_token).to.be.null;",
+                  "    });",
+                  "    pm.test('refresh_token cookie is set', function () {",
+                  "        pm.expect(pm.cookies.has('refresh_token')).to.be.true;",
+                  "    });",
+                  "    pm.environment.set('access_token', body.access_token);",
+                  "}"
                 ]
               }
             }
@@ -128,13 +132,16 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 200', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const body = pm.response.json();",
-                  "pm.environment.set('access_token', body.access_token);",
-                  "pm.environment.set('refresh_token', body.refresh_token);"
+                  "if (pm.response.code !== 200) {",
+                  "    pm.execution.setNextRequest(null);",
+                  "    pm.test('test-user login prerequisite', function () {",
+                  "        pm.expect.fail(`Не удалось войти тестовым пользователем (HTTP ${pm.response.code}). Сначала успешно выполните Create User и проверьте user_email/user_password.`);",
+                  "    });",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set('access_token', body.access_token);",
+                  "    pm.environment.set('refresh_token', body.refresh_token);",
+                  "}"
                 ]
               }
             }
@@ -390,22 +397,44 @@
           "response": [],
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const template = pm.environment.get('new_user_email_template');",
+                  "const at = template ? template.lastIndexOf('@') : -1;",
+                  "if (at <= 0 || at === template.length - 1) {",
+                  "    pm.execution.setNextRequest(null);",
+                  "    pm.execution.skipRequest();",
+                  "    pm.test('new_user_email_template is configured', function () {",
+                  "        pm.expect.fail('Заполните new_user_email_template корректным email (например newuser@example.com).');",
+                  "    });",
+                  "} else {",
+                  "    const suffix = pm.variables.replaceIn('{{$guid}}').replaceAll('-', '');",
+                  "    pm.environment.set('new_user_email', `${template.slice(0, at)}+postman-${suffix}${template.slice(at)}`);",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 201', function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "",
-                  "const body = pm.response.json();",
-                  "pm.test('no password_hash leaked', function () {",
-                  "    pm.expect(body).to.not.have.property('password_hash');",
-                  "});",
-                  "",
-                  "pm.environment.set('created_user_id', body.id);",
-                  "pm.environment.set('user_email', pm.environment.get('new_user_email'));",
-                  "pm.environment.set('user_password', pm.environment.get('new_user_password'));"
+                  "if (pm.response.code !== 201) {",
+                  "    pm.execution.setNextRequest(null);",
+                  "    pm.test('test-user creation prerequisite', function () {",
+                  "        pm.expect.fail(`Не удалось создать тестового пользователя (HTTP ${pm.response.code}). Зависимые запросы остановлены; проверьте логин администратора и new_user_password.`);",
+                  "    });",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('no password_hash leaked', function () {",
+                  "        pm.expect(body).to.not.have.property('password_hash');",
+                  "    });",
+                  "    pm.environment.set('created_user_id', body.id);",
+                  "    pm.environment.set('user_email', pm.environment.get('new_user_email'));",
+                  "    pm.environment.set('user_password', pm.environment.get('new_user_password'));",
+                  "}"
                 ]
               }
             }
@@ -533,7 +562,7 @@
                   "key": "file",
                   "type": "file",
                   "src": "",
-                  "description": "Документ для загрузки (PDF/DOCX/XLSX). Выберите файл вручную перед отправкой."
+                  "description": "Документ для запуска: PDF или DOCX. Выберите файл вручную перед отправкой."
                 }
               ]
             },
@@ -600,6 +629,244 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "E2E - Mask document",
+      "description": "Запускайте в Collection Runner как единственную папку. В окружении нужны user_email, user_password и абсолютный путь input_file. Для polling установите в Runner Request delay 1000 ms: лимит poll_max_attempts=60 означает примерно минуту ожидания.",
+      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+        "const inputFile = pm.environment.get('input_file');",
+        "if (!inputFile || /^<[^>]+>$/.test(inputFile.trim())) {",
+        "  pm.execution.setNextRequest(null);",
+        "  pm.execution.skipRequest();",
+        "  pm.test('input_file prerequisite', () => pm.expect.fail('Заполните input_file абсолютным путём к существующему DOCX или PDF на машине, где запущен Postman.'));",
+        "}"
+      ] } }],
+      "item": [
+        {
+          "name": "E2E - Login",
+          "request": { "auth": { "type": "noauth" }, "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device\": \"mobile\"\n}" }, "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "if (pm.response.code !== 200) {",
+            "  pm.execution.setNextRequest(null);",
+            "  pm.test('E2E login prerequisite', () => pm.expect.fail(`Не удалось войти для E2E (HTTP ${pm.response.code}). Сначала создайте пользователя и проверьте user_email/user_password.`));",
+            "} else {",
+            "  const body = pm.response.json();",
+            "  pm.test('mobile login returns usable tokens', () => { pm.expect(body.access_token).to.be.a('string').and.not.empty; pm.expect(body.refresh_token).to.be.a('string').and.not.empty; });",
+            "  pm.environment.set('access_token', body.access_token);",
+            "  pm.environment.set('refresh_token', body.refresh_token);",
+            "}"
+          ] } }]
+        },
+        {
+          "name": "E2E - Upload input file",
+          "request": { "method": "POST", "header": [], "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "{{input_file}}", "description": "Путь берётся из input_file окружения." }] }, "url": { "raw": "{{base_url}}/files/upload", "host": ["{{base_url}}"], "path": ["files", "upload"] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('upload identifies stored object and its size', () => { pm.expect(body.object_name).to.be.a('string').and.not.empty; pm.expect(body.bucket).to.be.a('string').and.not.empty; pm.expect(body.size).to.be.a('number').and.to.be.above(0); });",
+            "pm.environment.set('uploaded_object_name', body.object_name);"
+          ] } }]
+        },
+        {
+          "name": "E2E - Start run",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"mask_style\": \"both\",\n  \"profile\": false,\n  \"review\": false\n}" }, "url": { "raw": "{{base_url}}/runs", "host": ["{{base_url}}"], "path": ["runs"] }, "description": "profile=false и review=false исключают две штатные интерактивные паузы; они проверяются в отдельных папках." },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 202', () => pm.response.to.have.status(202));",
+            "const body = pm.response.json();",
+            "pm.test('queued run has identifiers and uploaded document', () => { pm.expect(body.id).to.be.a('string').and.not.empty; pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(body.status).to.equal('queued'); pm.expect(body.document).to.have.property('name'); pm.expect(body.document).to.have.property('format'); });",
+            "pm.environment.set('run_id', body.id);",
+            "pm.environment.set('run_status', body.status);",
+            "pm.environment.set('poll_attempt', '0');"
+          ] } }]
+        },
+        {
+          "name": "E2E - Poll run status",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}"] }, "description": "В Runner повторяет сам себя, пока фоновый граф не завершится. Задержку между запросами задаёт Request delay Runner-а." },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('state contains run identity and a known status', () => { pm.expect(body.id).to.equal(pm.environment.get('run_id')); pm.expect(['queued', 'running', 'awaiting_answers', 'awaiting_review', 'done', 'failed', 'leaked']).to.include(body.status); pm.expect(body.document).to.have.property('format'); });",
+            "pm.environment.set('run_status', body.status);",
+            "if (['queued', 'running'].includes(body.status)) {",
+            "  const attempt = Number(pm.environment.get('poll_attempt') || 0) + 1;",
+            "  const maximum = Number(pm.environment.get('poll_max_attempts') || 60);",
+            "  pm.environment.set('poll_attempt', String(attempt));",
+            "  pm.test('polling limit is not exceeded', () => pm.expect(attempt).to.be.at.most(maximum));",
+            "  if (attempt < maximum) pm.execution.setNextRequest('E2E - Poll run status'); else pm.execution.setNextRequest(null);",
+            "} else if (body.status === 'awaiting_answers') {",
+            "  pm.execution.setNextRequest('E2E - Get questions');",
+            "} else if (body.status === 'done') {",
+            "  pm.test('run completed', () => pm.expect(body.finished_at).to.not.equal(null));",
+            "  pm.execution.setNextRequest('E2E - Get report');",
+            "} else {",
+            "  pm.test('run did not stop for review or fail', () => pm.expect.fail(`unexpected terminal status: ${body.status}; ${body.error || ''}`));",
+            "  pm.execution.setNextRequest(null);",
+            "}"
+          ] } }]
+        },
+        {
+          "name": "E2E - Get questions",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{run_id}}/questions", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}", "questions"] }, "description": "Автоматическая ветка: собирает default-ответы на все вопросы политики." },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('question envelope has all choices needed to resume', () => { pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(body.questions).to.be.an('array').and.not.empty; body.questions.forEach((question) => pm.expect(question).to.include.keys('id', 'default', 'options')); });",
+            "const answers = Object.fromEntries(body.questions.map((question) => [question.id, question.default]));",
+            "pm.environment.set('e2e_answers_json', JSON.stringify({ schema_version: 1, answers }));"
+          ] } }]
+        },
+        {
+          "name": "E2E - Answer questions",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{{e2e_answers_json}}" }, "url": { "raw": "{{base_url}}/runs/{{run_id}}/answers", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}", "answers"] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 202', () => pm.response.to.have.status(202));",
+            "const body = pm.response.json();",
+            "pm.test('answer request resumes this run', () => { pm.expect(body.id).to.equal(pm.environment.get('run_id')); pm.expect(body.status).to.equal('awaiting_answers'); });",
+            "pm.execution.setNextRequest('E2E - Poll run status');"
+          ] } }]
+        },
+        {
+          "name": "E2E - Get report",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{run_id}}/report", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}", "report"] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('report contains contract summary, certificate and validation', () => { pm.expect(body).to.have.property('contract_summary'); pm.expect(body.certificate).to.be.an('object'); pm.expect(body.certificate.ok).to.equal(true); pm.expect(body.validation).to.be.an('object'); });",
+            "pm.test('finished document has no leaked source values', () => pm.expect(body.leaked).to.be.an('array').that.is.empty);"
+          ] } }]
+        },
+        {
+          "name": "E2E - List artifacts",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{run_id}}/artifacts", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}", "artifacts"] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "const highlight = body.find((artifact) => artifact.role === 'masked_highlight');",
+            "const black = body.find((artifact) => artifact.role === 'masked_black');",
+            "pm.test('both redacted artifact variants are available', () => { pm.expect(body).to.be.an('array'); pm.expect(highlight).to.be.an('object'); pm.expect(black).to.be.an('object'); pm.expect(highlight.redacting).to.equal(true); pm.expect(highlight.url).to.contain('/artifacts/masked_highlight'); });",
+            "pm.environment.set('artifact_role', 'masked_highlight');"
+          ] } }]
+        },
+        {
+          "name": "E2E - Download highlighted artifact",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{run_id}}/artifacts/{{artifact_role}}", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}", "artifacts", "{{artifact_role}}"] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "pm.test('download is a named non-empty document', () => { pm.expect(pm.response.headers.get('Content-Disposition')).to.contain('filename='); pm.expect(pm.response.headers.get('Content-Type')).to.be.a('string').and.not.empty; pm.expect(pm.response.text().length).to.be.above(0); });"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Run history and negative cases",
+      "description": "foreign_run_id должен быть UUID реального прогона другого пользователя: API намеренно отвечает тем же 404, что и для отсутствующего объекта.",
+      "item": [
+        {
+          "name": "List runs with filters",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs?query=&status=done&limit=50&offset=0", "host": ["{{base_url}}"], "path": ["runs"], "query": [{ "key": "query", "value": "" }, { "key": "status", "value": "done" }, { "key": "limit", "value": "50" }, { "key": "offset", "value": "0" }] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('history has paginated items and total', () => { pm.expect(body.items).to.be.an('array'); pm.expect(body.total).to.be.a('number').and.not.below(0); body.items.forEach((item) => { pm.expect(item).to.have.all.keys('id', 'status', 'document', 'created_at', 'finished_at'); }); });"] } }]
+        },
+        {
+          "name": "Get nonexistent run (404)",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{nonexistent_run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{nonexistent_run_id}}"] } },
+          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 404', () => pm.response.to.have.status(404));"] } }]
+        },
+        {
+          "name": "Get another user's run (404)",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{foreign_run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{foreign_run_id}}"] } },
+          "response": [], "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "const runId = pm.environment.get('foreign_run_id');",
+              "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
+              "  pm.execution.setNextRequest(null);",
+              "  pm.execution.skipRequest();",
+              "  pm.test('foreign_run_id prerequisite', () => pm.expect.fail('Заполните foreign_run_id UUID настоящего прогона другого пользователя.'));",
+              "}"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('foreign run is not disclosed', () => pm.response.to.have.status(404));"] } }
+          ]
+        },
+        {
+          "name": "Get run without token (401)",
+          "request": { "auth": { "type": "noauth" }, "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{nonexistent_run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{nonexistent_run_id}}"] } },
+          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 401', () => pm.response.to.have.status(401));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "Run questions and answers",
+      "description": "Для этой ветки нужен question_run_id прогона в awaiting_answers. Сначала выполните GET: он извлечёт id первого вопроса и его default в переменные, затем POST answers.",
+      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+        "const runId = pm.environment.get('question_run_id');",
+        "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
+        "  pm.execution.setNextRequest(null);",
+        "  pm.execution.skipRequest();",
+        "  pm.test('question_run_id prerequisite', () => pm.expect.fail('Заполните question_run_id UUID прогона в статусе awaiting_answers.'));",
+        "}"
+      ] } }],
+      "item": [
+        {
+          "name": "Get questions",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{question_run_id}}/questions", "host": ["{{base_url}}"], "path": ["runs", "{{question_run_id}}", "questions"] } },
+          "response": [],
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('question envelope has an actionable question', () => { pm.expect(body.schema_version).to.be.a('number'); pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(body.questions).to.be.an('array').and.not.empty; pm.expect(body.questions[0]).to.include.keys('id', 'kind', 'options', 'default', 'critical'); });", "pm.environment.set('question_answer_id', body.questions[0].id);", "pm.environment.set('question_answer_value', body.questions[0].default);"] } }]
+        },
+        {
+          "name": "Answer questions and resume run",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"schema_version\": 1,\n  \"answers\": {\n    \"{{question_answer_id}}\": \"{{question_answer_value}}\"\n  }\n}" }, "url": { "raw": "{{base_url}}/runs/{{question_run_id}}/answers", "host": ["{{base_url}}"], "path": ["runs", "{{question_run_id}}", "answers"] } },
+          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 202', () => pm.response.to.have.status(202));", "const body = pm.response.json();", "pm.test('resume response identifies the same waiting run', () => { pm.expect(body.id).to.equal(pm.environment.get('question_run_id')); pm.expect(body.status).to.equal('awaiting_answers'); pm.expect(body.thread_id).to.be.a('string').and.not.empty; });"] } }]
+        }
+      ]
+    },
+    {
+      "name": "Operator review edits",
+      "description": "Для этой ветки нужен review_run_id прогона в awaiting_review с хотя бы одной сущностью. GET сохраняет ref первой сущности; POST демонстрирует решение оператора keep для этой ссылки.",
+      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+        "const runId = pm.environment.get('review_run_id');",
+        "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
+        "  pm.execution.setNextRequest(null);",
+        "  pm.execution.skipRequest();",
+        "  pm.test('review_run_id prerequisite', () => pm.expect.fail('Заполните review_run_id UUID прогона в статусе awaiting_review.'));",
+        "}"
+      ] } }],
+      "item": [
+        {
+          "name": "Get review payload",
+          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{review_run_id}}/review", "host": ["{{base_url}}"], "path": ["runs", "{{review_run_id}}", "review"] } },
+          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('review exposes report and an editable entity', () => { pm.expect(body).to.have.all.keys('schema_version', 'thread_id', 'document', 'report'); pm.expect(body.report.entities).to.be.an('array').and.not.empty; pm.expect(body.report).to.have.property('review_possible'); });", "pm.environment.set('review_entity_ref', body.report.entities[0].ref);"] } }]
+        },
+        {
+          "name": "Submit review edits",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"schema_version\": 1,\n  \"edits\": {\n    \"decisions\": { \"{{review_entity_ref}}\": \"keep\" },\n    \"type_overrides\": {},\n    \"manual\": []\n  }\n}" }, "url": { "raw": "{{base_url}}/runs/{{review_run_id}}/review", "host": ["{{base_url}}"], "path": ["runs", "{{review_run_id}}", "review"] } },
+          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 202', () => pm.response.to.have.status(202));", "const body = pm.response.json();", "pm.test('review resumption addresses the selected run', () => { pm.expect(body.id).to.equal(pm.environment.get('review_run_id')); pm.expect(body.status).to.equal('awaiting_review'); pm.expect(body.document).to.have.property('name'); });"] } }]
+        }
+      ]
+    },
+    {
+      "name": "Custom data types",
+      "description": "Compile требует уже загруженный uploaded_object_name. Если ответ compile имеет status=waiting, выполните GET-подобный POST answers ниже; если done, answers корректно вернёт 404 и его не надо запускать.",
+      "item": [
+        {
+          "name": "Compile custom type",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"descriptions\": [\n    \"Номер внутреннего проекта в формате PRJ-1234\"\n  ]\n}" }, "url": { "raw": "{{base_url}}/custom_types/compile", "host": ["{{base_url}}"], "path": ["custom_types", "compile"] } },
+          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('compiler returns a typed outcome and capabilities', () => { pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(['done', 'waiting']).to.include(body.status); pm.expect(body.engine_capabilities).to.be.an('array'); pm.expect(body.compiled).to.be.an('array'); pm.expect(body.failed).to.be.an('array'); pm.expect(body.questions).to.be.an('array'); });", "pm.environment.set('custom_type_thread_id', body.thread_id);", "if (body.status === 'waiting') { pm.test('waiting compiler has a question', () => pm.expect(body.questions).to.not.be.empty); pm.environment.set('custom_type_question_id', body.questions[0].id); pm.environment.set('custom_type_question_answer', body.questions[0].options[0] || ''); }"] } }]
+        },
+        {
+          "name": "Answer custom type compiler questions",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"schema_version\": 1,\n  \"answers\": {\n    \"{{custom_type_question_id}}\": \"{{custom_type_question_answer}}\"\n  }\n}" }, "url": { "raw": "{{base_url}}/custom_types/compile/{{custom_type_thread_id}}/answers", "host": ["{{base_url}}"], "path": ["custom_types", "compile", "{{custom_type_thread_id}}", "answers"] }, "description": "Запускайте только после Compile custom type со status=waiting." },
+          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('compiler resume returns the same thread and result collections', () => { pm.expect(body.thread_id).to.equal(pm.environment.get('custom_type_thread_id')); pm.expect(['done', 'waiting']).to.include(body.status); pm.expect(body.compiled).to.be.an('array'); pm.expect(body.failed).to.be.an('array'); });"] } }]
         }
       ]
     }

@@ -35,6 +35,18 @@ async def create_user(session: AsyncSession, payload: UserCreate) -> UserORM:
     return user
 
 
+async def reset_password(session: AsyncSession, email: str, password: str) -> UserORM | None:
+    """Сменить пароль пользователя по email и вернуть его, если он существует."""
+    result = await session.execute(select(UserORM).where(UserORM.email == email))
+    user = result.scalar_one_or_none()
+    if user is None:
+        return None
+    user.password_hash = hash_password(password)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
 async def list_users(session: AsyncSession) -> list[UserORM]:
     result = await session.execute(select(UserORM).order_by(UserORM.created_at))
     return list(result.scalars().all())

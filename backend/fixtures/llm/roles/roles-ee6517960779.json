@@ -1,0 +1,4 @@
+{
+  "key": "ee6517960779411d2af4d9b3aaabdb5db4a707f1355c1f22ad782d8a3282acb2",
+  "response": "{\n    \"profiles\": [\n        {\n            \"id\": \"P1\",\n            \"members\": [\n                \"E1\",\n                \"E2\",\n                \"E3\",\n                \"E4\",\n                \"E5\",\n                \"E7\",\n                \"E8\"\n            ],\n            \"role_title\": \"Продавец\",\n            \"confidence\": 0.9\n        },\n        {\n            \"id\": \"P3\",\n            \"members\": [\n                \"E12\"\n            ],\n            \"role_title\": \"\",\n            \"confidence\": 0.0\n        },\n        {\n            \"id\": \"P4\",\n            \"members\": [\n                \"E13\"\n            ],\n            \"role_title\": \"\",\n            \"confidence\": 0.0\n        }\n    ],\n    \"candidates\": []\n}"
+}

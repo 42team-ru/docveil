@@ -100,6 +100,16 @@ def test_thread_id_for_does_not_depend_on_styles_or_preview() -> None:
     assert baseline == with_styles == without_preview
 
 
+def test_thread_id_for_changes_with_highlight_background() -> None:
+    same_as_default = thread_id_for(FIXTURE, RunOptions(highlight_background="ffde66"))
+    default = thread_id_for(FIXTURE, RunOptions())
+    other = thread_id_for(FIXTURE, RunOptions(highlight_background="#12AB34"))
+    without_background = thread_id_for(FIXTURE, RunOptions(highlight_background="none"))
+    assert same_as_default == default
+    assert other != default
+    assert without_background != default
+
+
 def test_thread_id_for_changes_with_schema_version(monkeypatch: pytest.MonkeyPatch) -> None:
     import masker.run as run_module
 
@@ -316,6 +326,6 @@ def test_report_of_and_artifacts_of_are_non_empty_after_completed_run(tmp_path: 
     report = report_of(outcome)
     artifacts = artifacts_of(outcome)
     assert report
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     assert artifacts
     assert artifacts[0]["role"] == "preview"

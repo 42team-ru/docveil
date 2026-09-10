@@ -69,7 +69,7 @@ def test_trace_records_empty_role_outcome() -> None:
     assert outcome.new_role_title == ""
 
 
-def test_trace_records_confidence_not_higher_outcome() -> None:
+def test_trace_is_empty_when_heuristic_role_is_confident() -> None:
     document, detection = _seller_document()
     response = json.dumps(
         {"profiles": [{"id": "P1", "role_title": "Продавец", "confidence": 0.5, "members": ["E1"]}]}
@@ -78,11 +78,8 @@ def test_trace_records_confidence_not_higher_outcome() -> None:
 
     ProfileAgent(tracer).profile(document, detection)
 
-    outcome = tracer.batches[0].outcomes[0]
-    assert outcome.outcome == "confidence_not_higher"
-    assert outcome.old_confidence == 0.9
-    assert outcome.new_confidence == 0.5
-    assert outcome.old_role_title == "Продавец"
+    assert tracer.calls == []
+    assert tracer.batches == []
 
 
 def test_trace_records_rejected_by_validation_outcome() -> None:
@@ -120,7 +117,7 @@ def test_trace_records_applied_outcome() -> None:
     response = json.dumps(
         {
             "profiles": [
-                {"id": "P1", "role_title": "Арендатор", "confidence": 0.6, "members": ["E1"]}
+                {"id": "P1", "role_title": "Арендатор", "confidence": 0.9, "members": ["E1"]}
             ]
         }
     )
@@ -133,7 +130,7 @@ def test_trace_records_applied_outcome() -> None:
     assert outcome.old_role_title == ""
     assert outcome.new_role_title == "Арендатор"
     assert outcome.old_confidence == 0.0
-    assert outcome.new_confidence == 0.6
+    assert outcome.new_confidence == 0.9
 
 
 def test_trace_batch_call_index_matches_wire_call() -> None:
@@ -141,7 +138,7 @@ def test_trace_batch_call_index_matches_wire_call() -> None:
     response = json.dumps(
         {
             "profiles": [
-                {"id": "P1", "role_title": "Арендатор", "confidence": 0.6, "members": ["E1"]}
+                {"id": "P1", "role_title": "Арендатор", "confidence": 0.9, "members": ["E1"]}
             ]
         }
     )
@@ -158,7 +155,7 @@ def test_result_is_unchanged_without_tracer() -> None:
     response = json.dumps(
         {
             "profiles": [
-                {"id": "P1", "role_title": "Арендатор", "confidence": 0.6, "members": ["E1"]}
+                {"id": "P1", "role_title": "Арендатор", "confidence": 0.9, "members": ["E1"]}
             ]
         }
     )

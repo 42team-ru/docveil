@@ -9,6 +9,10 @@
 
 from __future__ import annotations
 
+import time
+from collections import Counter
+from collections.abc import Callable
+
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -19,9 +23,9 @@ from masker.graph.nodes import (
     apply_review_edits_node,
     ask_human_node,
     ask_review_node,
-    extract_node,
     finalize_node,
     make_detect_node,
+    make_extract_node,
     make_judge_node,
     make_profile_node,
     make_render_node,
@@ -34,8 +38,71 @@ from masker.graph.nodes import (
     validate_node,
 )
 from masker.graph.state import State
+from masker.telemetry import append_stage
 
 __all__ = ["RunDeps", "build_graph", "compile_graph"]
+
+
+def _instrument(
+    name: str, node: Callable[[State], dict[str, object]], deps: RunDeps
+) -> Callable[[State], dict[str, object]]:
+    """Добавить к каждому узлу дешёвый замер и ленту без значений PII."""
+
+    def wrapped(state: State) -> dict[str, object]:
+        offset = deps.metering_offset()
+        started = time.perf_counter()
+        result = node(state)
+        duration_ms = (time.perf_counter() - started) * 1000
+        combined = {**state, **result}
+        return {
+            **result,
+            "telemetry": append_stage(
+                state.get("telemetry"),
+                node=name,
+                duration_ms=duration_ms,
+                message=_event_message(name, combined),
+                calls=deps.metering_delta(offset),
+                pricing=deps.pricing,
+            ),
+        }
+
+    return wrapped
+
+
+def _event_message(node: str, state: dict[str, object]) -> str:
+    """Сформулировать понятное событие только из счётчиков, не из текста документа."""
+    if node == "extract":
+        fmt = str(state.get("fmt", "документ")).upper()
+        coverage = state.get("coverage", {})
+        if isinstance(coverage, dict) and isinstance(coverage.get("pages"), dict):
+            return f"разобран {fmt}, {int(coverage['pages'].get('count', 0))} страниц"
+        return f"разобран {fmt}, сегментов текста: {len(state.get('segments', []))}"  # type: ignore[arg-type]
+    if node == "detect":
+        # `State` — нетипизированный словарь графа: сужаем явно, иначе mypy
+        # видит `object`, а на неверном содержимом узел молча падал бы.
+        raw = state.get("entities", [])
+        entities = raw if isinstance(raw, list) else []
+        sources = Counter(
+            str(item.get("source", "unknown")) for item in entities if isinstance(item, dict)
+        )
+        details = ", ".join(f"{source} {count}" for source, count in sorted(sources.items()))
+        return f"найдено сущностей {len(entities)}" + (f": {details}" if details else "")
+    if node == "profile":
+        return f"определено профилей сторон: {len(state.get('profiles', []))}"  # type: ignore[arg-type]
+    if node in {"judge", "policy", "ask_human"}:
+        questions = len(state.get("questions", [])) + len(state.get("policy_questions", []))  # type: ignore[arg-type]
+        return f"вопросов пользователю: {questions}"
+    if node in {"plan", "apply_review_edits"}:
+        plan = state.get("plan", {})
+        replacements = plan.get("replacements", []) if isinstance(plan, dict) else []
+        return f"сформировано замен {len(replacements)}"
+    if node == "render":
+        return f"сформировано файлов: {len(state.get('artifacts', []))}"  # type: ignore[arg-type]
+    if node == "validate":
+        return f"проверены артефакты, утечек: {len(state.get('leaked', []))}"  # type: ignore[arg-type]
+    if node == "report":
+        return "сформирован отчёт"
+    return f"выполнен узел {node}"
 
 
 def build_graph(deps: RunDeps) -> StateGraph[State]:
@@ -47,25 +114,28 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     → report → END``.
     """
     graph: StateGraph[State] = StateGraph(State)
-    graph.add_node("extract", extract_node)
-    graph.add_node("detect", make_detect_node(deps))  # type: ignore[arg-type]
+    graph.add_node("extract", _instrument("extract", make_extract_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("detect", _instrument("detect", make_detect_node(deps), deps))  # type: ignore[call-overload]
     # mypy не умеет вывести NodeInputT из значения типа Callable[[State], ...],
     # только из def-функции с конкретной сигнатурой (проверено минимальным
     # воспроизведением на langgraph 1.2.11): без игнора аргумент разрешается
     # в _Node[Never]. Реальная сигнатура узла типизирована в nodes.py.
-    graph.add_node("profile", make_profile_node(deps))  # type: ignore[arg-type]
-    graph.add_node("judge", make_judge_node(deps))  # type: ignore[arg-type]
-    graph.add_node("policy", policy_node)
-    graph.add_node("ask_human", ask_human_node)
-    graph.add_node("apply_answers", apply_answers_node)
-    graph.add_node("finalize", finalize_node)
-    graph.add_node("plan", plan_node)
-    graph.add_node("summary", summary_node)
-    graph.add_node("render", make_render_node(deps))  # type: ignore[arg-type]
-    graph.add_node("validate", validate_node)
-    graph.add_node("report", make_report_node(deps))  # type: ignore[arg-type]
-    graph.add_node("ask_review", ask_review_node)
-    graph.add_node("apply_review_edits", apply_review_edits_node)
+    graph.add_node("profile", _instrument("profile", make_profile_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("judge", _instrument("judge", make_judge_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("policy", _instrument("policy", policy_node, deps))  # type: ignore[call-overload]
+    graph.add_node("ask_human", _instrument("ask_human", ask_human_node, deps))  # type: ignore[call-overload]
+    graph.add_node("apply_answers", _instrument("apply_answers", apply_answers_node, deps))  # type: ignore[call-overload]
+    graph.add_node("finalize", _instrument("finalize", finalize_node, deps))  # type: ignore[call-overload]
+    graph.add_node("plan", _instrument("plan", plan_node, deps))  # type: ignore[call-overload]
+    graph.add_node("summary", _instrument("summary", summary_node, deps))  # type: ignore[call-overload]
+    graph.add_node("render", _instrument("render", make_render_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("validate", _instrument("validate", validate_node, deps))  # type: ignore[call-overload]
+    graph.add_node("report", _instrument("report", make_report_node(deps), deps))  # type: ignore[call-overload]
+    graph.add_node("ask_review", _instrument("ask_review", ask_review_node, deps))  # type: ignore[call-overload]
+    graph.add_node(  # type: ignore[call-overload]
+        "apply_review_edits",
+        _instrument("apply_review_edits", apply_review_edits_node, deps),
+    )
 
     graph.add_edge(START, "extract")
     graph.add_edge("extract", "detect")

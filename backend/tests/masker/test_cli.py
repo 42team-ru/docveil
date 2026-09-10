@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from docx import Document as open_docx
 from docx.enum.text import WD_COLOR_INDEX
+from docx.oxml.ns import qn
 
 import masker.render.docx_redact as docx_redact_module
 from masker.cli import EXIT_LEAK, main
@@ -48,7 +49,7 @@ def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
     original = open_docx(FIXTURE)
 
     assert report["preview_only"] is True
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     # 4 → 6 после T1.15: две даты в фикстуре (12.02.2026, 10.05.2018).
     assert report["entity_count"] == 6
     # chunk_count тоже растёт: даты в отдельных абзацах — новые PII-чанки.
@@ -148,8 +149,15 @@ def test_cli_returns_4_on_leak(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     в report.json ``leaked`` непуст."""
     original_redact_paragraph = docx_redact_module._redact_paragraph
 
-    def broken(paragraph: object, replacements: list[object], style: str) -> None:
-        original_redact_paragraph(paragraph, replacements[:-1], style)  # type: ignore[arg-type]
+    def broken(
+        paragraph: object,
+        replacements: list[object],
+        style: str,
+        highlight_background: str | None,
+    ) -> None:
+        original_redact_paragraph(  # type: ignore[arg-type]
+            paragraph, replacements[:-1], style, highlight_background
+        )
 
     monkeypatch.setattr(docx_redact_module, "_redact_paragraph", broken)
 
@@ -192,12 +200,47 @@ def test_cli_returns_0_when_clean(tmp_path: Path) -> None:
     assert report["validation"]["status"] == "checked"
 
 
+def test_cli_passes_highlight_background_into_graph(tmp_path: Path) -> None:
+    assert (
+        main(
+            [
+                str(FIXTURE),
+                "--out",
+                str(tmp_path),
+                "--rules-only",
+                "--redact-style",
+                "marker",
+                "--highlight-background",
+                "12ab34",
+            ]
+        )
+        == 0
+    )
+    rendered = open_docx(tmp_path / FIXTURE.stem / "masked_highlight.docx")
+    marker_run = next(
+        run
+        for paragraph in rendered.paragraphs
+        for run in iter_runs(paragraph)
+        if run.text.startswith("[")
+    )
+    shading = marker_run._r.find(f"{qn('w:rPr')}/{qn('w:shd')}")
+    assert shading is not None
+    assert shading.get(qn("w:fill")) == "12AB34"
+
+
 def test_cli_without_redact_style_reports_validation_skipped(tmp_path: Path) -> None:
     assert main([str(FIXTURE), "--out", str(tmp_path), "--types", "all"]) == 0
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
     assert report["validation"]["status"] == "skipped"
     assert report["validation"]["reason"]
     assert report["leaked"] == []
+
+
+def test_cli_rejects_invalid_highlight_background(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as error:
+        main([str(FIXTURE), "--highlight-background", "chartreuse"])
+    assert error.value.code == 2
+    assert "некорректный фон подсветки" in capsys.readouterr().err
 
 
 def test_cli_filters_entity_types(tmp_path: Path) -> None:
@@ -589,7 +632,7 @@ def test_decisions_block_reflects_type_keep_and_preview_excludes_it(tmp_path: Pa
 
     report_path = tmp_path / "contract_01" / "report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     phone_records = [item for item in report["entities"] if item["type"] == "phone"]
     assert phone_records
     for record in phone_records:

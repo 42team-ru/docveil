@@ -80,6 +80,30 @@ async def test_create_user_defaults_to_user_role():
 
 
 @pytest.mark.asyncio
+async def test_reset_password_hashes_new_value_and_persists():
+    user = MagicMock(password_hash="old-hash")
+    session = _session_returning(user)
+
+    result = await reset_password(session, "taken@example.com", "new-password")
+
+    assert result is user
+    assert verify_password("new-password", user.password_hash) is True
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(user)
+
+
+@pytest.mark.asyncio
+async def test_reset_password_returns_none_for_missing_user():
+    session = _session_returning(None)
+
+    result = await reset_password(session, "missing@example.com", "new-password")
+
+    assert result is None
+    session.commit.assert_not_awaited()
+    session.refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_list_users_returns_ordered_list():
     session = AsyncMock()
     execute_result = MagicMock()

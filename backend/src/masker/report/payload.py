@@ -24,7 +24,7 @@ from masker.judge.agent import JudgeResult
 from masker.model import ConfidenceLevel, Document, Entity, Leak, MaskPlan, ValidationReport
 from masker.profile.agent import ProfileResult
 
-REPORT_VERSION = 3
+REPORT_VERSION = 4
 
 
 def _entity_record(

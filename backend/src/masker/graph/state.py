@@ -62,3 +62,5 @@ class State(TypedDict, total=False):
     #: Итоговая структура report.json, собранная узлом ``report`` — раздел 7 плана T1.10.
     #: Без абсолютных путей: ``artifacts[].path`` сюда не попадает.
     report: dict[str, Any]
+    #: Технические замеры прогона; длительности не копируются в report.json.
+    telemetry: dict[str, Any]

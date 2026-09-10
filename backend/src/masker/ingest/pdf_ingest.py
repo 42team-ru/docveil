@@ -22,6 +22,11 @@
 Поэтому блок дополнительно режется перед строкой, начинающейся с номера
 пункта договора (``1.``, ``2.3.``) — деталь, извлекаемая из структуры
 документа, а не подобранный порог длины.
+
+Пер-страничный роутинг скан-страниц введён в T2.3/O3: если ``ocr`` передан
+в ``ingest_pdf``, каждая страница проверяется через ``_page_is_scan`` из
+``scan_ingest``; скан-страницы обрабатываются через OCR, текстовые —
+существующим путём. Без ``ocr`` поведение не меняется.
 """
 
 from __future__ import annotations
@@ -32,7 +37,9 @@ from dataclasses import dataclass
 
 import pymupdf
 
+from masker.ingest.scan_ingest import _page_is_scan, ocr_segments_for_page
 from masker.model import Anchor, Document, Segment
+from masker.ocr.provider import OCRProvider
 
 #: Символы, которые не считаются видимым текстом на конце блока/строки —
 #: та же логика, что раньше отбрасывала пустые строки.
@@ -69,21 +76,31 @@ def page_chars(page: pymupdf.Page) -> PageChars:
     return PageChars(text=text, boxes=boxes, line_ids=line_ids)
 
 
-def ingest_pdf(path: str | pathlib.Path) -> Document:
-    """Разобрать текстовый PDF и вернуть Document с сегментами по блокам."""
+def ingest_pdf(path: str | pathlib.Path, ocr: OCRProvider | None = None) -> Document:
+    """Разобрать PDF и вернуть Document с сегментами.
+
+    Без ``ocr``: все страницы трактуются как текстовые (прежнее поведение).
+    С ``ocr``: пер-страничный роутинг — скан-страницы идут через OCR,
+    текстовые — через существующий ``_walk_page``-путь.
+    """
     doc = pymupdf.open(str(path))
     segments: list[Segment] = []
     for page_num, page in enumerate(doc):
-        text, _, _, segment_ranges = _walk_page(page)
-        label = f"стр. {page_num + 1}"
-        for char_start, char_end in segment_ranges:
-            segment_text = text[char_start:char_end]
-            if not segment_text.strip(_BLANK_CHARS):
-                continue
-            anchor = Anchor(
-                fmt="pdf", locator=("page", page_num, char_start, char_end), label=label
-            )
-            segments.append(Segment(text=segment_text, anchor=anchor, order=len(segments)))
+        if ocr is not None and _page_is_scan(page):
+            ocr_segs = ocr_segments_for_page(page, page_num, ocr)
+            for seg in ocr_segs:
+                segments.append(Segment(seg.text, seg.anchor, len(segments), seg.origin))
+        else:
+            text, _, _, segment_ranges = _walk_page(page)
+            label = f"стр. {page_num + 1}"
+            for char_start, char_end in segment_ranges:
+                segment_text = text[char_start:char_end]
+                if not segment_text.strip(_BLANK_CHARS):
+                    continue
+                anchor = Anchor(
+                    fmt="pdf", locator=("page", page_num, char_start, char_end), label=label
+                )
+                segments.append(Segment(text=segment_text, anchor=anchor, order=len(segments)))
     meta = _extract_meta(doc)
     doc.close()
     return Document(path=str(path), fmt="pdf", segments=segments, meta=meta)

@@ -1,0 +1,4 @@
+{
+  "key": "3b22973eb57a5f3a5c6d752b72df6ee0245ca3019ae6b933975fd52ecd9193c5",
+  "response": "{\n    \"profiles\": [\n        {\n            \"id\": \"P1\",\n            \"members\": [\n                \"E1\",\n                \"E2\",\n                \"E3\",\n                \"E5\",\n                \"E7\"\n            ],\n            \"role_title\": \"\",\n            \"confidence\": 0.0\n        }\n    ],\n    \"candidates\": []\n}"
+}

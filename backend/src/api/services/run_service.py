@@ -27,7 +27,7 @@ from api.core.storage import minio_client
 from api.models.run import RunORM
 from api.schemas.run import RunCreateRequest
 from masker.graph.nodes import RunDeps
-from masker.llm import LLMProvider, get_provider
+from masker.llm import LLMProvider, get_provider, resolve_llm_config
 from masker.run import (
     AlreadyFinishedError,
     CheckpointerFactory,
@@ -300,7 +300,11 @@ def _execute(
     """
     document = _ensure_document(run_id, object_name)
     artifact_dir = _work_dir(run_id) / "artifacts"
-    deps = RunDeps(llm=llm, artifact_dir=artifact_dir)
+    deps = RunDeps(
+        llm=llm,
+        artifact_dir=artifact_dir,
+        pricing=resolve_llm_config().pricing,
+    )
     try:
         if options is not None:
             outcome = start_run(

@@ -34,6 +34,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from masker.graph.nodes import RunDeps
 from masker.graph.serde import plan_from_dict
 from masker.model import EntityType, MaskPlan, ValidationReport
+from masker.ocr.provider import OCRProvider
 from masker.run import RunOptions, start_run
 from masker.validate import ValidateAgent
 
@@ -106,6 +107,7 @@ def mask_and_validate(
     *,
     types: Iterable[EntityType],
     custom_types: Iterable[Mapping[str, Any]] = (),
+    ocr: OCRProvider | None = None,
 ) -> Iterator[MaskResult]:
     """Построить план, отрендерить оба редактирующих артефакта и проверить их.
 
@@ -129,7 +131,7 @@ def mask_and_validate(
     )
 
     with tempfile.TemporaryDirectory(prefix="masker-pipeline-") as scratch:
-        deps = RunDeps(artifact_dir=Path(scratch))
+        deps = RunDeps(artifact_dir=Path(scratch), ocr=ocr)
         outcome = start_run(
             path,
             options,

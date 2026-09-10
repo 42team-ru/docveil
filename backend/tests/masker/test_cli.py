@@ -49,7 +49,7 @@ def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
     original = open_docx(FIXTURE)
 
     assert report["preview_only"] is True
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     # 4 → 6 после T1.15: две даты в фикстуре (12.02.2026, 10.05.2018).
     assert report["entity_count"] == 6
     # chunk_count тоже растёт: даты в отдельных абзацах — новые PII-чанки.
@@ -632,7 +632,7 @@ def test_decisions_block_reflects_type_keep_and_preview_excludes_it(tmp_path: Pa
 
     report_path = tmp_path / "contract_01" / "report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     phone_records = [item for item in report["entities"] if item["type"] == "phone"]
     assert phone_records
     for record in phone_records:

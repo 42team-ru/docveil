@@ -8,12 +8,15 @@ from typing import Any
 
 import yaml
 
+from masker.telemetry import LLMPricing, pricing_from_dict
+
 
 @dataclass(frozen=True, slots=True)
 class LLMConfig:
     """Настройки LLM без секретного значения ключа."""
 
     provider: str = "fake"
+    profile: str = ""
     model: str = ""
     api_key_env: str = "OPENROUTER_API_KEY"
     timeout_seconds: float = 60.0
@@ -25,6 +28,7 @@ class LLMConfig:
     gigachat_temperature: float = 0.0001
     gigachat_ca_bundle_file: str = ""
     gigachat_insecure_skip_tls_verify: bool = False
+    pricing: LLMPricing | None = None
 
 
 def load_llm_config(path: Path) -> LLMConfig:
@@ -42,19 +46,28 @@ def load_llm_config(path: Path) -> LLMConfig:
 
 
 def llm_config_from_mapping(settings: Any) -> LLMConfig:
-    """Собрать LLMConfig из секции ``llm`` общего либо прежнего YAML-файла."""
+    """Собрать LLMConfig из секции ``llm`` общего либо прежнего YAML-файла.
+
+    Новый формат выбирает один именованный профиль из ``llm.profiles``.
+    Профиль хранит вместе поставщика, модель и тариф, чтобы смена модели не
+    оставляла в отчёте цену от предыдущей. Плоский формат остаётся рабочим
+    для уже развёрнутых конфигов.
+    """
     if not isinstance(settings, dict):
         raise ValueError("секция llm должна быть YAML-объектом")
 
-    provider = _required_text(settings, "provider", default="fake").casefold()
-    model = _required_text(settings, "model", default="")
-    api_key_env = _required_text(settings, "api_key_env", default="OPENROUTER_API_KEY")
-    site_url = _required_text(settings, "site_url", default="")
-    title = _required_text(settings, "title", default="triema-masker")
-    timeout = _positive_number(settings, "timeout_seconds", default=60.0)
-    cassette_directory = _required_text(settings, "cassette_directory", default="")
-    openrouter = _mapping(settings, "openrouter")
-    gigachat = _mapping(settings, "gigachat")
+    profile = _required_text(settings, "profile", default="")
+    selected = _profile_settings(settings, profile) if profile else settings
+    provider = _required_text(selected, "provider", default="fake").casefold()
+    model = _required_text(selected, "model", default="")
+    api_key_env = _required_text(selected, "api_key_env", default="OPENROUTER_API_KEY")
+    site_url = _required_text(selected, "site_url", default="")
+    title = _required_text(selected, "title", default="triema-masker")
+    pricing = pricing_from_dict(selected.get("pricing"))
+    timeout = _positive_number(selected, "timeout_seconds", default=60.0)
+    cassette_directory = _required_text(selected, "cassette_directory", default="")
+    openrouter = _merged_mapping(settings, selected, "openrouter")
+    gigachat = _merged_mapping(settings, selected, "gigachat")
     openrouter_temperature = _number(openrouter, "temperature", default=0.0)
     gigachat_scope = _required_text(gigachat, "scope", default="GIGACHAT_API_PERS")
     gigachat_temperature = _number(gigachat, "temperature", default=0.0001)
@@ -68,6 +81,7 @@ def llm_config_from_mapping(settings: Any) -> LLMConfig:
         raise ValueError("llm.api_key_env должен быть именем переменной окружения")
     return LLMConfig(
         provider=provider,
+        profile=profile,
         model=model,
         api_key_env=api_key_env,
         timeout_seconds=timeout,
@@ -79,7 +93,25 @@ def llm_config_from_mapping(settings: Any) -> LLMConfig:
         gigachat_temperature=gigachat_temperature,
         gigachat_ca_bundle_file=gigachat_ca_bundle_file,
         gigachat_insecure_skip_tls_verify=gigachat_insecure_skip_tls_verify,
+        pricing=pricing,
     )
+
+
+def _profile_settings(settings: dict[str, Any], profile: str) -> dict[str, Any]:
+    """Наложить выбранный профиль на общие поля ``llm``."""
+    profiles = _mapping(settings, "profiles")
+    selected = profiles.get(profile)
+    if not isinstance(selected, dict):
+        raise ValueError(f"llm.profile={profile!r} отсутствует в llm.profiles")
+    # Общие поля (например timeout) можно определить один раз наверху, а
+    # профиль переопределяет их без копирования. ``profiles`` не должен
+    # попадать в итоговую плоскую настройку.
+    return {key: value for key, value in settings.items() if key != "profiles"} | selected
+
+
+def _merged_mapping(defaults: dict[str, Any], selected: dict[str, Any], key: str) -> dict[str, Any]:
+    """Слить общую и профильную вложенные секции параметров провайдера."""
+    return _mapping(defaults, key) | _mapping(selected, key)
 
 
 def _required_text(settings: dict[str, Any], key: str, *, default: str) -> str:

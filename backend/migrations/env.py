@@ -14,7 +14,7 @@ from alembic import context
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from api.core.db import Base  # noqa: E402
-from api.models import refresh_token, user  # noqa: E402,F401  регистрирует таблицы в metadata
+from api.models import refresh_token, run, user  # noqa: E402,F401  регистрирует таблицы в metadata
 
 config = context.config
 

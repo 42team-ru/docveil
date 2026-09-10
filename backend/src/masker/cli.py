@@ -18,14 +18,7 @@ from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.questions import parse_answers
 from masker.highlight import highlight_background_argument
-from masker.llm import (
-    LLMError,
-    LLMProvider,
-    TracingProvider,
-    get_provider,
-    load_llm_config,
-    write_trace,
-)
+from masker.llm import LLMError, LLMProvider, TracingProvider, resolve_cli_llm, write_trace
 from masker.model import EntityType
 from masker.ocr.select import select_ocr
 from masker.report.html import render_html_report
@@ -43,6 +36,7 @@ from masker.run import (
     start_run,
     styles_for_redact_option,
 )
+from masker.telemetry import LLMPricing
 
 DEFAULT_OUTPUT = Path("out") / "inspect"
 
@@ -145,19 +139,15 @@ def _load_answers(path: Path, parser: argparse.ArgumentParser) -> dict[str, str]
         raise AssertionError("unreachable") from error
 
 
-def _load_llm(args: argparse.Namespace, parser: argparse.ArgumentParser) -> LLMProvider | None:
-    if args.llm_config is None:
-        return None
+def _load_llm(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> tuple[LLMProvider | None, LLMPricing | None]:
+    """Ошибку конфигурации ``resolve_cli_llm`` превратить в код возврата 2."""
     try:
-        config = load_llm_config(args.llm_config)
-        if config.provider != "fake" and not args.allow_remote_pii:
-            parser.error("OpenRouter получит исходные PII и контекст; добавьте --allow-remote-pii")
-        return get_provider(config)
-    except LLMError as error:
+        return resolve_cli_llm(args.llm_config, allow_remote_pii=args.allow_remote_pii)
+    except (LLMError, ValueError) as error:
         parser.error(str(error))
-    except ValueError as error:
-        parser.error(str(error))
-    raise AssertionError("unreachable")
+        raise AssertionError("unreachable") from error
 
 
 def _print_leaks(source: Path, report: dict[str, Any]) -> bool:
@@ -228,6 +218,7 @@ def _start(
     parser: argparse.ArgumentParser,
     selected_types: frozenset[EntityType],
     llm: LLMProvider | None,
+    pricing: LLMPricing | None,
     *,
     interactive: bool,
 ) -> int:
@@ -247,7 +238,13 @@ def _start(
     if args.llm_trace and llm is not None:
         tracer = TracingProvider(llm)
         run_llm = tracer
-    deps = RunDeps(llm=run_llm, tracer=tracer, artifact_dir=artifact_dir, ocr=select_ocr())
+    deps = RunDeps(
+        llm=run_llm,
+        tracer=tracer,
+        artifact_dir=artifact_dir,
+        ocr=select_ocr(),
+        pricing=pricing,
+    )
     pre_answers = _load_answers(args.answers, parser) if args.answers is not None else None
 
     try:
@@ -426,17 +423,17 @@ def main(argv: list[str] | None = None) -> int:
     if (args.ask or args.answers is not None) and len(args.files) != 1:
         parser.error("--ask/--answers без --resume работают ровно с одним файлом")
 
-    llm = _load_llm(args, parser)
+    llm, pricing = _load_llm(args, parser)
 
     if args.llm_trace and llm is None:
         print("--llm-trace: LLM не подключена (--llm-config не задан), трейс не будет записан.")
 
     if args.ask or args.answers is not None:
-        return _start(args.files[0], args, parser, selected_types, llm, interactive=True)
+        return _start(args.files[0], args, parser, selected_types, llm, pricing, interactive=True)
 
     any_leaked = False
     for source in args.files:
-        code = _start(source, args, parser, selected_types, llm, interactive=False)
+        code = _start(source, args, parser, selected_types, llm, pricing, interactive=False)
         if code == EXIT_LEAK:
             any_leaked = True
         elif code != 0:

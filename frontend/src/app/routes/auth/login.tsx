@@ -21,6 +21,7 @@
  */
 
 import { useState, type CSSProperties } from "react";
+import { useNavigate } from "react-router";
 import {
   ShieldCheck,
   Building2,
@@ -43,6 +44,9 @@ import { Link } from "@astryxdesign/core/Link";
 import { Divider } from "@astryxdesign/core/Divider";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Section } from "@astryxdesign/core/Section";
+
+import { loginApiAuthLoginPost } from "../../../shared/api/generated/core/auth/auth";
+import { setAccessToken } from "../../../shared/api/auth-token";
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -123,6 +127,7 @@ const LOGIN_CSS = `
 // ─── component ───────────────────────────────────────────────────────────────
 
 export default function LoginPage() {
+  const navigate = useNavigate();
   const [step, setStep] = useState<Step>("main");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -138,17 +143,35 @@ export default function LoginPage() {
     }, 1500);
   };
 
-  const handlePasswordLogin = () => {
+  /**
+   * Вход логином и паролем. Access-токен кладётся в память вкладки, refresh
+   * бэкенд ставит httpOnly-cookie сам (`device: "web"`), поэтому обновление
+   * сессии дальше идёт без участия этого экрана.
+   */
+  const handlePasswordLogin = async () => {
     if (!login || !password) {
       setLoginFailed(true);
       return;
     }
     setIsLoading(true);
     setLoginFailed(false);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const response = await loginApiAuthLoginPost({
+        email: login,
+        password,
+        device: "web",
+      });
+      if (response.status !== 200) {
+        setLoginFailed(true);
+        return;
+      }
+      setAccessToken(response.data.access_token);
+      navigate("/");
+    } catch {
       setLoginFailed(true);
-    }, 2000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleBack = () => {
@@ -380,7 +403,7 @@ export default function LoginPage() {
                       variant="primary"
                       size="lg"
                       isLoading={isLoading}
-                      onClick={handlePasswordLogin}
+                      onClick={() => void handlePasswordLogin()}
                     />
 
                     <Button

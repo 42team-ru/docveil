@@ -53,6 +53,7 @@ _REFERENCE_KEYS = frozenset(
         #: Р8 — «снять одним кликом»: группы уровня "possible" отдельным
         #: списком, даже пустым, если план был построен.
         "review_possible",
+        "telemetry",
     }
 )
 
@@ -98,7 +99,7 @@ def test_report_node_top_level_keys_match_reference(tmp_path: Path) -> None:
     result = nodes.make_report_node(nodes.RunDeps())(state)
 
     report = result["report"]
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     assert set(report.keys()) == _REFERENCE_KEYS
 
 

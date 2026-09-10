@@ -8,7 +8,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from masker.llm.base import LLMError, Message
+from masker.llm.base import LLMError, LLMUsage, Message
 
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -40,6 +40,12 @@ class OpenRouterProvider:
     title: str = "triema-masker"
 
     def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        """Вернуть текст; usage доступен обёрткам через ``complete_with_usage``."""
+        return self.complete_with_usage(messages, schema=schema)[0]
+
+    def complete_with_usage(
+        self, messages: list[Message], *, schema: dict[str, Any] | None = None
+    ) -> tuple[str, LLMUsage | None]:
         """Вернуть текст первого варианта chat completion.
 
         При переданной ``schema`` просит строгий структурированный вывод в
@@ -85,7 +91,7 @@ class OpenRouterProvider:
             raise LLMError("OpenRouter вернул ответ без choices[0].message.content") from error
         if not isinstance(content, str) or not content.strip():
             raise LLMError("OpenRouter вернул пустой текст ответа")
-        return content
+        return content, _usage_from_payload(payload)
 
     def _headers(self) -> dict[str, str]:
         headers = {
@@ -96,3 +102,23 @@ class OpenRouterProvider:
         if self.site_url:
             headers["HTTP-Referer"] = self.site_url
         return headers
+
+
+def _usage_from_payload(payload: object) -> LLMUsage | None:
+    """Забрать OpenAI-совместимый ``usage`` без оценки токенов по тексту."""
+    if not isinstance(payload, dict):
+        return None
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    prompt = usage.get("prompt_tokens")
+    completion = usage.get("completion_tokens")
+    if not _token_count(prompt) or not _token_count(completion):
+        return None
+    assert isinstance(prompt, int)
+    assert isinstance(completion, int)
+    return LLMUsage(prompt_tokens=prompt, completion_tokens=completion)
+
+
+def _token_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0

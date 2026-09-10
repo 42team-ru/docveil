@@ -1,9 +1,20 @@
 # Конфигурация живой LLM для профилирования через OpenRouter.
 # Ключ не записывается в этот файл: export OPENROUTER_API_KEY='...'.
 llm:
-  provider: openrouter
-  model: z-ai/glm-5.3-flash
-  api_key_env: OPENROUTER_API_KEY
+  profile: openrouter-glm-5-3-flash
   timeout_seconds: 60
   title: triema-masker
   # site_url: https://example.invalid/triema-masker
+  profiles:
+    openrouter-glm-5-3-flash:
+      provider: openrouter
+      model: z-ai/glm-5.3-flash
+      api_key_env: OPENROUTER_API_KEY
+      openrouter:
+        temperature: 0.0
+      # Цена за 1 000 токенов. Указать после сверки с прайсом OpenRouter.
+      pricing:
+        prompt_per_1k: null
+        completion_per_1k: null
+        currency: RUB
+        verified_at: ""

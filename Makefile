@@ -2,7 +2,7 @@
 #
 #   - питон-цели (gate, test, eval, demo, ...) пробрасываются в backend/Makefile;
 #   - инфраструктура (docker compose) живёт здесь, рядом с docker-compose.yml;
-#   - frontend/ пока только каркас — см. frontend/README.md.
+#   - frontend/ — проверки веб-интерфейса (make front), см. frontend/README.md.
 #
 # Переменные командной строки (m=, email=, password=, full_name=) make
 # автоматически передаёт во вложенный вызов, отдельно прокидывать не нужно.
@@ -29,7 +29,7 @@ db-shell:
 	docker compose exec postgres psql -U $${POSTGRES_USER:-masker} -d $${POSTGRES_DB:-masker}
 
 front:
-	@echo "frontend/ — пока только каркас без сборки, см. frontend/README.md"
+	cd frontend && yarn install --frozen-lockfile && yarn typecheck && yarn test
 
 help:
 	@echo "Питон-цели (уходят в backend/): $(BACKEND_TARGETS)"

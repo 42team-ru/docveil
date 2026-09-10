@@ -1,0 +1,3992 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Triema Masker API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Refresh",
+        "operationId": "refresh_api_auth_refresh_post",
+        "parameters": [
+          {
+            "name": "refresh_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Refresh Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout",
+        "operationId": "logout_api_auth_logout_post",
+        "parameters": [
+          {
+            "name": "refresh_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Refresh Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Me",
+        "operationId": "me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPublic"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "List Users Endpoint",
+        "operationId": "list_users_endpoint_api_users_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserPublic"
+                  },
+                  "type": "array",
+                  "title": "Response List Users Endpoint Api Users Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Create User Endpoint",
+        "operationId": "create_user_endpoint_api_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPublic"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/files/upload": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Upload",
+        "operationId": "upload_api_files_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_api_files_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/custom_types/compile": {
+      "post": {
+        "tags": [
+          "custom_types"
+        ],
+        "summary": "Compile Types",
+        "description": "Скомпилировать пользовательские описания типов по документу.",
+        "operationId": "compile_types_api_custom_types_compile_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/custom_types/compile/{thread_id}/answers": {
+      "post": {
+        "tags": [
+          "custom_types"
+        ],
+        "summary": "Answer Questions",
+        "description": "Прислать ответы на вопросы приостановленной компиляции.\n\nНеизвестный или уже завершённый `thread_id` — 404: отвечать сервису\nздесь нечего, а не молча создавать состояние, которого не было.",
+        "operationId": "answer_questions_api_custom_types_compile__thread_id__answers_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Thread Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Create Run",
+        "description": "Запустить прогон по загруженному файлу; граф крутится фоном.",
+        "operationId": "create_run_api_runs_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "List Runs",
+        "description": "Журнал обработок текущего пользователя.",
+        "operationId": "list_runs_api_runs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "queued",
+                    "running",
+                    "awaiting_answers",
+                    "awaiting_review",
+                    "done",
+                    "failed",
+                    "leaked"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Run",
+        "description": "Состояние прогона — то, что опрашивает фронт.",
+        "operationId": "get_run_api_runs__run_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/questions": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Questions",
+        "description": "Конверт вопросов приостановленного прогона (`ask_human`).\n\n404 — прогон ещё не дошёл до паузы или уже завершён: вопросов нет, и\nвыдумывать пустой конверт вместо честного «нечего спрашивать» нельзя.",
+        "operationId": "get_questions_api_runs__run_id__questions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskEnvelopeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/answers": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Post Answers",
+        "description": "Прислать ответы человека и продолжить прогон фоном.",
+        "operationId": "post_answers_api_runs__run_id__answers_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswersRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/review": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Post Review",
+        "description": "Утвердить документ с правками оператора.\n\nПравки не применяются здесь: они уходят вторым прерыванием в граф, и\nдокумент пересобирается штатным путём `plan → … → report`. Поэтому маркеры\nостаются согласованными, критичные типы — под защитой, а результат заново\nпроверяется на утечки.",
+        "operationId": "post_review_api_runs__run_id__review_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Review Payload",
+        "description": "Конверт паузы раунда правок: отчёт, который правит оператор.",
+        "operationId": "get_review_payload_api_runs__run_id__review_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewEnvelopeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/report": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Report",
+        "description": "`report.json` прогона — ровно то, что собрал узел `report`.",
+        "operationId": "get_report_api_runs__run_id__report_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/artifacts": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Artifacts",
+        "description": "Список файлов рендера со ссылками на скачивание.",
+        "operationId": "get_artifacts_api_runs__run_id__artifacts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactOut"
+                  },
+                  "title": "Response Get Artifacts Api Runs  Run Id  Artifacts Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/artifacts/{role}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Download Artifact",
+        "description": "Отдать файл рендера — им фронт кормит вьюер и кнопку «Скачать».",
+        "operationId": "download_artifact_api_runs__run_id__artifacts__role__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Action": {
+        "type": "string",
+        "enum": [
+          "mask",
+          "ask",
+          "keep"
+        ],
+        "title": "Action",
+        "description": "Действие судьи над сущностью."
+      },
+      "AnchorOut": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "title": "Format"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "locator": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Locator"
+          }
+        },
+        "type": "object",
+        "required": [
+          "format",
+          "label",
+          "locator"
+        ],
+        "title": "AnchorOut",
+        "description": "Адресация фрагмента в документ — `entities[]`/`chunks[]`."
+      },
+      "AnswerRequest": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "answers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "title": "AnswerRequest",
+        "description": "Тело `POST /custom_types/compile/{thread_id}/answers` — ответы на `questions`.\n\nКонверт с версией, а не голый словарь — по той же причине, что и у\nосновного графа (`masker.run.resume_run`): пустой `answers` не должен\nмолча трактоваться как «нет значения» на стороне LangGraph."
+      },
+      "AnswersRequest": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "answers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "answers"
+        ],
+        "title": "AnswersRequest",
+        "description": "Конверт ответов человека — ровно то, что ждёт `masker.graph.questions.parse_answers`."
+      },
+      "ArtifactOut": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "redacting": {
+            "type": "boolean",
+            "title": "Redacting"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "name",
+          "redacting",
+          "url"
+        ],
+        "title": "ArtifactOut",
+        "description": "Артефакт рендера: `preview`, `masked_highlight`, `masked_black`."
+      },
+      "AskDocumentOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "format"
+        ],
+        "title": "AskDocumentOut"
+      },
+      "AskEnvelopeOut": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "document": {
+            "$ref": "#/components/schemas/AskDocumentOut"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionOut"
+            },
+            "type": "array",
+            "title": "Questions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "thread_id",
+          "document",
+          "questions"
+        ],
+        "title": "AskEnvelopeOut",
+        "description": "Конверт паузы `ask_human` — `GET /runs/{id}/questions`."
+      },
+      "Body_upload_api_files_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_api_files_upload_post"
+      },
+      "CertificateCheckOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "ok",
+          "detail"
+        ],
+        "title": "CertificateCheckOut",
+        "description": "Один пункт сертификата обезличивания — `certificate.checks[]`."
+      },
+      "CertificateOut": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CertificateCheckOut"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "checks"
+        ],
+        "title": "CertificateOut",
+        "description": "Сертификат обезличивания (план М3) — `report.certificate` и\n`report.validation.certificate` (тот же объект, продублирован для\nдоступа одним взглядом, см. `graph/nodes.py::_build_report_dict`)."
+      },
+      "ChunkOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "annotated_text": {
+            "type": "string",
+            "title": "Annotated Text"
+          },
+          "pii_count": {
+            "type": "integer",
+            "title": "Pii Count"
+          },
+          "pii": {
+            "items": {
+              "$ref": "#/components/schemas/PiiEntryOut"
+            },
+            "type": "array",
+            "title": "Pii"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "segment_order",
+          "start",
+          "end",
+          "text",
+          "annotated_text",
+          "pii_count",
+          "pii",
+          "anchor"
+        ],
+        "title": "ChunkOut",
+        "description": "Абзац/сегмент документа — `report.chunks[]`."
+      },
+      "CompileQuestionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "text",
+          "target"
+        ],
+        "title": "CompileQuestionOut",
+        "description": "Один вопрос уточнения от компилятора — конверт `ask_types` (T1.13, шаг 11)."
+      },
+      "CompileRequest": {
+        "properties": {
+          "object_name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Object Name"
+          },
+          "descriptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Descriptions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_name",
+          "descriptions"
+        ],
+        "title": "CompileRequest",
+        "description": "Тело `POST /custom_types/compile`.\n\n``object_name`` — файл в MinIO (тот же идентификатор, что возвращает\n`POST /files/upload`, `api.schemas.file.FileUploadResponse`): live\npreview (шаг 10) исполняет executor'ы по настоящим сегментам этого\nдокумента, а не по синтетике. ``descriptions`` — по одному пользовательскому\nтипу словами на элемент списка; частичный успех (design notes, вопрос 3)\nразбирает их независимо друг от друга."
+      },
+      "CompileResponse": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "waiting"
+            ],
+            "title": "Status"
+          },
+          "engine_capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Engine Capabilities"
+          },
+          "compiled": {
+            "items": {
+              "$ref": "#/components/schemas/CompiledTypeOut"
+            },
+            "type": "array",
+            "title": "Compiled"
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/FailedTypeOut"
+            },
+            "type": "array",
+            "title": "Failed"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/CompileQuestionOut"
+            },
+            "type": "array",
+            "title": "Questions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "status"
+        ],
+        "title": "CompileResponse",
+        "description": "Ответ `POST /custom_types/compile` и `.../compile/{thread_id}/answers`."
+      },
+      "CompiledTypeOut": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "compile",
+              "use_builtin"
+            ],
+            "title": "Outcome"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomTypeSpecIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type Id"
+          },
+          "marker_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marker Override"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreviewOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "title": "CompiledTypeOut",
+        "description": "Один успешно обработанный элемент `CompileRequest.descriptions`.\n\n``outcome == \"compile\"``: заполнен ``spec`` — готовая спека. ``outcome\n== \"use_builtin\"``: спеки нет (тип уже покрыт встроенным детектором,\nкомпилировать нечего) — заполнены ``type_id`` и, если пользователь\nпопросил другую метку маркера, ``marker_override`` (design notes T1.13,\nраздел 2.6). Ровно один из ``spec``/``type_id`` осмыслен для данного\n``outcome`` — второй остаётся ``None``."
+      },
+      "ConfidenceLevel": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "probable",
+          "possible"
+        ],
+        "title": "ConfidenceLevel",
+        "description": "Три уровня уверенности детекции (Р8, режим «мазать всё»).\n\nАсимметрия, ради которой уровни существуют: человек снимает лишнее\nодним кликом, а не дописывает пропущенное — найти забытый реквизит\nпочти невозможно, поэтому детектор маскирует на всех трёх уровнях,\nразница только в том, как решение показано в отчёте.\n\n``CONFIRMED`` — контрольная сумма реквизита либо ≥2 независимых\nдетектора нашли пересекающиеся спаны: маскируется молча.\n``PROBABLE`` — один сигнал (морфология, структура, локальная NER):\nмаскируется, но помечается в отчёте.\n``POSSIBLE`` — заглавное имя собственное вне белого списка, без\nформального подтверждения: маскируется и выносится в отчёте отдельной\nсекцией «снять одним кликом» (``report[\"review_possible\"]``).\n\nКритичные типы (``CRITICAL_TYPES``) всегда ``CONFIRMED`` независимо от\nтого, как их нашли — см. ``masker.detect.confidence.classify_level``."
+      },
+      "ContractPartyOut": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Title"
+          },
+          "inn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inn"
+          },
+          "ogrn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ogrn"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "role_title",
+          "inn",
+          "ogrn"
+        ],
+        "title": "ContractPartyOut",
+        "description": "Сторона в карточке договора — `contract_summary.customer`/`.supplier`."
+      },
+      "ContractSummaryOut": {
+        "properties": {
+          "customer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContractPartyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supplier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContractPartyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "federal_law": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Federal Law"
+          },
+          "contract_amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Amount"
+          },
+          "delivery_periods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Delivery Periods"
+          },
+          "payment_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Terms"
+          },
+          "contract_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Number"
+          },
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "llm_calls": {
+            "type": "integer",
+            "title": "Llm Calls"
+          }
+        },
+        "type": "object",
+        "required": [
+          "customer",
+          "supplier",
+          "federal_law",
+          "contract_amount",
+          "delivery_periods",
+          "payment_terms",
+          "contract_number",
+          "generated_at",
+          "llm_calls"
+        ],
+        "title": "ContractSummaryOut",
+        "description": "Карточка договора — `report.contract_summary`."
+      },
+      "CriticalUnmaskedOut": {
+        "properties": {
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question_id",
+          "kind",
+          "target",
+          "count"
+        ],
+        "title": "CriticalUnmaskedOut",
+        "description": "Снятие маски с критичного типа/профиля — `decisions.critical_unmasked[]`."
+      },
+      "CustomTypeSpecIn": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Title"
+          },
+          "marker": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Marker"
+          },
+          "critical": {
+            "type": "boolean",
+            "title": "Critical",
+            "default": false
+          },
+          "detect": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LiteralsDetectIn"
+              },
+              {
+                "$ref": "#/components/schemas/RegexDetectIn"
+              },
+              {
+                "$ref": "#/components/schemas/GlinerLabelDetectIn"
+              },
+              {
+                "$ref": "#/components/schemas/GlinerStructureDetectIn"
+              }
+            ],
+            "title": "Detect",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "gliner_label": "#/components/schemas/GlinerLabelDetectIn",
+                "gliner_structure": "#/components/schemas/GlinerStructureDetectIn",
+                "literals": "#/components/schemas/LiteralsDetectIn",
+                "regex": "#/components/schemas/RegexDetectIn"
+              }
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "marker",
+          "detect"
+        ],
+        "title": "CustomTypeSpecIn",
+        "description": "Пользовательский тип из тела REST-запроса — вход `load_type_config`.\n\nПолей меньше, чем проверяет `load_type_config` (например, формат\n`id` и плейсхолдер в `marker` здесь не проверяются намеренно —\n«тонкий фронт», раздел докстринга модуля)."
+      },
+      "DecisionOverriddenOut": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/Action"
+          },
+          "decided_by": {
+            "type": "string",
+            "title": "Decided By"
+          },
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "decided_by",
+          "question_id",
+          "reason"
+        ],
+        "title": "DecisionOverriddenOut",
+        "description": "Проигравшее решение, перекрытое итоговым — `decisions.by_ref[].overridden[]`."
+      },
+      "DecisionsOut": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "interactive",
+              "non_interactive",
+              "unknown"
+            ],
+            "title": "Mode"
+          },
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "by_ref": {
+            "items": {
+              "$ref": "#/components/schemas/RefDecisionOut"
+            },
+            "type": "array",
+            "title": "By Ref"
+          },
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/GroupAnswerOut"
+            },
+            "type": "array",
+            "title": "Types"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/GroupAnswerOut"
+            },
+            "type": "array",
+            "title": "Profiles"
+          },
+          "entity_questions": {
+            "items": {
+              "$ref": "#/components/schemas/EntityQuestionSummaryOut"
+            },
+            "type": "array",
+            "title": "Entity Questions"
+          },
+          "critical_unmasked": {
+            "items": {
+              "$ref": "#/components/schemas/CriticalUnmaskedOut"
+            },
+            "type": "array",
+            "title": "Critical Unmasked"
+          },
+          "unanswered_defaults": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unanswered Defaults"
+          },
+          "ignored_answers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ignored Answers"
+          },
+          "invalid_answers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Invalid Answers"
+          },
+          "diagnostics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "thread_id",
+          "by_ref"
+        ],
+        "title": "DecisionsOut",
+        "description": "Решения движка по документу — `report.decisions`."
+      },
+      "DetectionCoverageOut": {
+        "properties": {
+          "requested_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requested Types"
+          },
+          "active_detector_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Active Detector Types"
+          },
+          "requested_without_detector": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requested Without Detector"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requested_types",
+          "active_detector_types",
+          "requested_without_detector"
+        ],
+        "title": "DetectionCoverageOut",
+        "description": "Какие запрошенные типы движок умеет искать — `report.detection_coverage`."
+      },
+      "DeviceType": {
+        "type": "string",
+        "enum": [
+          "web",
+          "mobile",
+          "desktop"
+        ],
+        "title": "DeviceType",
+        "description": "Тип клиента, выполняющего вход.\n\nWEB получает refresh-токен только в httponly-cookie; остальные — в теле ответа,\nчтобы сами отвечали за его хранение (secure storage на мобильном/десктопе)."
+      },
+      "EntityBareOut": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "normalized": {
+            "type": "string",
+            "title": "Normalized"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "level": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text",
+          "normalized",
+          "source",
+          "confidence",
+          "level",
+          "segment_order",
+          "start",
+          "end",
+          "anchor"
+        ],
+        "title": "EntityBareOut",
+        "description": "Сущность без адресации в план — `profile_judge.candidates[]`."
+      },
+      "EntityQuestionSummaryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "human",
+              "default"
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "prompt",
+          "answer",
+          "source"
+        ],
+        "title": "EntityQuestionSummaryOut",
+        "description": "Итог вопроса судьи — `decisions.entity_questions[]`."
+      },
+      "EntityRecordOut": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "normalized": {
+            "type": "string",
+            "title": "Normalized"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "level": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorOut"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "marker": {
+            "type": "string",
+            "title": "Marker"
+          },
+          "group_id": {
+            "type": "string",
+            "title": "Group Id"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Action"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text",
+          "normalized",
+          "source",
+          "confidence",
+          "level",
+          "segment_order",
+          "start",
+          "end",
+          "anchor",
+          "ref",
+          "marker",
+          "group_id"
+        ],
+        "title": "EntityRecordOut",
+        "description": "Сущность, уже размеченная планом — `report.entities[]`."
+      },
+      "FailedTypeOut": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "description",
+          "reason"
+        ],
+        "title": "FailedTypeOut",
+        "description": "Элемент `CompileRequest.descriptions`, который компилятор не осилил\n(после ретрая на невалидном JSON/регулярке или после `MAX_ASK_ROUNDS`)."
+      },
+      "FileUploadResponse": {
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "title": "Bucket"
+          },
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "content_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket",
+          "object_name",
+          "size"
+        ],
+        "title": "FileUploadResponse"
+      },
+      "GlinerLabelDetectIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "gliner_label",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Description"
+          },
+          "threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold",
+            "default": 0.3
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "description"
+        ],
+        "title": "GlinerLabelDetectIn",
+        "description": "Именованная семантическая категория (executor ``gliner_label``, T1.13.1)."
+      },
+      "GlinerStructureDetectIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "gliner_structure",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Description"
+          },
+          "structure": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Structure"
+          },
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Field"
+          },
+          "threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold",
+            "default": 0.3
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "description",
+          "structure",
+          "field"
+        ],
+        "title": "GlinerStructureDetectIn",
+        "description": "Роль поверх структуры документа (executor ``gliner_structure``, T1.13.1)."
+      },
+      "GroupAnswerOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "human",
+              "default"
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "target",
+          "answer",
+          "source"
+        ],
+        "title": "GroupAnswerOut",
+        "description": "Итог группового вопроса (по типу/профилю) — `decisions.types[]`/`.profiles[]`."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JudgeQuestionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "default": {
+            "type": "string",
+            "title": "Default"
+          },
+          "refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Refs"
+          },
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileAnchorOut"
+            },
+            "type": "array",
+            "title": "Anchors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "key",
+          "prompt",
+          "options",
+          "default",
+          "refs",
+          "anchors"
+        ],
+        "title": "JudgeQuestionOut",
+        "description": "Вопрос судьи о повторяющемся значении — `profile_judge.questions[]`."
+      },
+      "LayoutOut": {
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "title": "Artifact"
+          },
+          "removed_chars": {
+            "type": "integer",
+            "title": "Removed Chars"
+          },
+          "inserted_chars": {
+            "type": "integer",
+            "title": "Inserted Chars"
+          },
+          "pages": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Pages"
+          },
+          "first_diff": {
+            "type": "string",
+            "title": "First Diff"
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact",
+          "removed_chars",
+          "inserted_chars",
+          "pages",
+          "first_diff"
+        ],
+        "title": "LayoutOut",
+        "description": "Сохранность текстового слоя PDF вне замен — `validation.layout[]`."
+      },
+      "LiteralsDetectIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "literals",
+            "title": "Kind"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Values"
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "whole_word",
+              "substring"
+            ],
+            "title": "Match",
+            "default": "whole_word"
+          },
+          "ignorecase": {
+            "type": "boolean",
+            "title": "Ignorecase",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "values"
+        ],
+        "title": "LiteralsDetectIn",
+        "description": "Точный список значений (executor ``literals``, `typeconfig.py`)."
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "device": {
+            "$ref": "#/components/schemas/DeviceType",
+            "default": "web"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "ManualEntityIn": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text"
+        ],
+        "title": "ManualEntityIn",
+        "description": "Значение, которое движок пропустил, а оператор нашёл глазами."
+      },
+      "MarkerLegendItemOut": {
+        "properties": {
+          "shown_label": {
+            "type": "string",
+            "title": "Shown Label"
+          },
+          "canonical_label": {
+            "type": "string",
+            "title": "Canonical Label"
+          },
+          "pages": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shown_label",
+          "canonical_label",
+          "pages"
+        ],
+        "title": "MarkerLegendItemOut",
+        "description": "Строка легенды сокращений маркера — `report.marker_legend[]`."
+      },
+      "MaskPlanOut": {
+        "properties": {
+          "requested_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requested Types"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/PlanGroupOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "skipped": {
+            "$ref": "#/components/schemas/MaskPlanSkippedOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requested_types",
+          "groups",
+          "skipped"
+        ],
+        "title": "MaskPlanOut",
+        "description": "План замен — `report.plan`."
+      },
+      "MaskPlanSkippedOut": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "by_reason": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count",
+          "by_reason"
+        ],
+        "title": "MaskPlanSkippedOut"
+      },
+      "PiiEntryOut": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "normalized": {
+            "type": "string",
+            "title": "Normalized"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "level": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorOut"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "marker": {
+            "type": "string",
+            "title": "Marker"
+          },
+          "group_id": {
+            "type": "string",
+            "title": "Group Id"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Action"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "chunk_start": {
+            "type": "integer",
+            "title": "Chunk Start"
+          },
+          "chunk_end": {
+            "type": "integer",
+            "title": "Chunk End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text",
+          "normalized",
+          "source",
+          "confidence",
+          "level",
+          "segment_order",
+          "start",
+          "end",
+          "anchor",
+          "ref",
+          "marker",
+          "group_id",
+          "chunk_start",
+          "chunk_end"
+        ],
+        "title": "PiiEntryOut",
+        "description": "То же самое, но внутри `chunks[].pii[]` — со смещениями в тексте чанка."
+      },
+      "PlanGroupOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "marker": {
+            "type": "string",
+            "title": "Marker"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "type_title": {
+            "type": "string",
+            "title": "Type Title"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "ref_count": {
+            "type": "integer",
+            "title": "Ref Count"
+          },
+          "sample": {
+            "type": "string",
+            "title": "Sample"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "",
+              "confirmed",
+              "probable",
+              "possible"
+            ],
+            "title": "Level"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "marker",
+          "type",
+          "type_title",
+          "profile_id",
+          "ref_count",
+          "sample",
+          "level"
+        ],
+        "title": "PlanGroupOut",
+        "description": "Группа замен — `report.plan.groups[]` и `report.review_possible[]`."
+      },
+      "PreviewMatchOut": {
+        "properties": {
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "value"
+        ],
+        "title": "PreviewMatchOut",
+        "description": "Одно совпадение внутри окна ``PreviewSegmentOut.text``."
+      },
+      "PreviewOut": {
+        "properties": {
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewSegmentOut"
+            },
+            "type": "array",
+            "title": "Segments"
+          },
+          "total_matches": {
+            "type": "integer",
+            "title": "Total Matches",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "PreviewOut",
+        "description": "Итог live preview (T1.13, шаг 10): до трёх сегментов, реально исполненных."
+      },
+      "PreviewSegmentOut": {
+        "properties": {
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "anchor_label": {
+            "type": "string",
+            "title": "Anchor Label"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewMatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "segment_order",
+          "anchor_label",
+          "text"
+        ],
+        "title": "PreviewSegmentOut",
+        "description": "Сегмент документа с окном ±120 символов вокруг совпадения (план, шаг 7).\n\nСмещения ``matches`` локальны в этом ``text``, а не в документе целиком\n— фронту не нужно пересчитывать координаты (design notes, вопрос 2)."
+      },
+      "ProfileAnchorOut": {
+        "properties": {
+          "fmt": {
+            "type": "string",
+            "title": "Fmt"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "locator": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Locator"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fmt",
+          "label",
+          "locator"
+        ],
+        "title": "ProfileAnchorOut",
+        "description": "Тот же якорь, но с именем поля `fmt` — так его кладёт `graph/serde.py`\nвнутри `profile_judge` (историческое расхождение, не переименовывать\nбез синхронной правки обеих сторон)."
+      },
+      "ProfileJudgeOut": {
+        "properties": {
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileOut"
+            },
+            "type": "array",
+            "title": "Profiles"
+          },
+          "unassigned": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unassigned"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/EntityBareOut"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "llm_calls": {
+            "type": "integer",
+            "title": "Llm Calls"
+          },
+          "diagnostics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          },
+          "verdicts": {
+            "items": {
+              "$ref": "#/components/schemas/VerdictOut"
+            },
+            "type": "array",
+            "title": "Verdicts"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/JudgeQuestionOut"
+            },
+            "type": "array",
+            "title": "Questions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profiles",
+          "unassigned",
+          "candidates",
+          "llm_calls",
+          "diagnostics",
+          "verdicts",
+          "questions"
+        ],
+        "title": "ProfileJudgeOut",
+        "description": "Профили сторон и вердикты судьи — `report.profile_judge`."
+      },
+      "ProfileMemberEntityOut": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "normalized": {
+            "type": "string",
+            "title": "Normalized"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "level": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text",
+          "normalized",
+          "confidence",
+          "source",
+          "level",
+          "segment_order",
+          "start",
+          "end"
+        ],
+        "title": "ProfileMemberEntityOut",
+        "description": "Сущность внутри `profile_judge.profiles[].members[].entity`."
+      },
+      "ProfileMemberOut": {
+        "properties": {
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/ProfileAnchorOut"
+          },
+          "entity": {
+            "$ref": "#/components/schemas/ProfileMemberEntityOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ref",
+          "anchor",
+          "entity"
+        ],
+        "title": "ProfileMemberOut"
+      },
+      "ProfileOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "role_title": {
+            "type": "string",
+            "title": "Role Title"
+          },
+          "marker_label": {
+            "type": "string",
+            "title": "Marker Label"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "role_confidence": {
+            "type": "number",
+            "title": "Role Confidence"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileMemberOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "role_id",
+          "role_title",
+          "marker_label",
+          "confidence",
+          "role_confidence",
+          "source",
+          "evidence",
+          "members"
+        ],
+        "title": "ProfileOut",
+        "description": "Профиль стороны — `report.profile_judge.profiles[]`."
+      },
+      "QuestionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "type",
+              "profile",
+              "entity"
+            ],
+            "title": "Kind"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "default": {
+            "type": "string",
+            "title": "Default"
+          },
+          "critical": {
+            "type": "boolean",
+            "title": "Critical"
+          },
+          "found": {
+            "type": "integer",
+            "title": "Found"
+          },
+          "samples": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Samples"
+          },
+          "anchors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Anchors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "target",
+          "title",
+          "prompt",
+          "options",
+          "default",
+          "critical",
+          "found",
+          "samples",
+          "anchors"
+        ],
+        "title": "QuestionOut",
+        "description": "Один вопрос оператору — `questions.json`/`AskEnvelopeOut.questions[]`."
+      },
+      "RefDecisionOut": {
+        "properties": {
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "action": {
+            "$ref": "#/components/schemas/Action"
+          },
+          "decided_by": {
+            "type": "string",
+            "title": "Decided By"
+          },
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "overridden": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionOverriddenOut"
+            },
+            "type": "array",
+            "title": "Overridden"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ref",
+          "action",
+          "decided_by",
+          "question_id",
+          "reason"
+        ],
+        "title": "RefDecisionOut",
+        "description": "Итоговое решение по одной ссылке — `report.decisions.by_ref[]`."
+      },
+      "RefreshRequest": {
+        "properties": {
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          }
+        },
+        "type": "object",
+        "title": "RefreshRequest",
+        "description": "Для не-WEB клиентов: передают refresh-токен явно, а не через cookie."
+      },
+      "RegexDetectIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "regex",
+            "title": "Kind"
+          },
+          "pattern": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Pattern"
+          },
+          "context": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Context"
+          },
+          "ignorecase": {
+            "type": "boolean",
+            "title": "Ignorecase",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "pattern"
+        ],
+        "title": "RegexDetectIn",
+        "description": "Регулярка, опционально с якорными словами контекста (``regex``/``regex_context``).\n\nИмя ``regex_context`` — только для промпта LLM-компилятора (план,\nраздел «Отвергнутые альтернативы»): на схеме это тот же ``kind=\"regex\"``\nс непустым ``context``."
+      },
+      "ReportOut": {
+        "properties": {
+          "report_version": {
+            "type": "integer",
+            "title": "Report Version"
+          },
+          "input": {
+            "type": "string",
+            "title": "Input"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format"
+          },
+          "preview_only": {
+            "type": "boolean",
+            "title": "Preview Only"
+          },
+          "selected_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Types"
+          },
+          "entity_count": {
+            "type": "integer",
+            "title": "Entity Count"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/SummaryOut"
+          },
+          "detection_coverage": {
+            "$ref": "#/components/schemas/DetectionCoverageOut"
+          },
+          "document_coverage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Document Coverage"
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/EntityRecordOut"
+            },
+            "type": "array",
+            "title": "Entities"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkOut"
+            },
+            "type": "array",
+            "title": "Chunks"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          },
+          "review_possible": {
+            "items": {
+              "$ref": "#/components/schemas/PlanGroupOut"
+            },
+            "type": "array",
+            "title": "Review Possible"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaskPlanOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile_judge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProfileJudgeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contract_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContractSummaryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decisions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "validation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ValidationSkippedOut"
+              },
+              {
+                "$ref": "#/components/schemas/ValidationCheckedOut"
+              }
+            ],
+            "title": "Validation",
+            "discriminator": {
+              "propertyName": "status",
+              "mapping": {
+                "checked": "#/components/schemas/ValidationCheckedOut",
+                "skipped": "#/components/schemas/ValidationSkippedOut"
+              }
+            }
+          },
+          "leaked": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Leaked"
+          },
+          "render_degradations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Render Degradations"
+          },
+          "marker_legend": {
+            "items": {
+              "$ref": "#/components/schemas/MarkerLegendItemOut"
+            },
+            "type": "array",
+            "title": "Marker Legend"
+          },
+          "layout": {
+            "items": {
+              "$ref": "#/components/schemas/LayoutOut"
+            },
+            "type": "array",
+            "title": "Layout"
+          },
+          "certificate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_version",
+          "input",
+          "format",
+          "preview_only",
+          "selected_types",
+          "entity_count",
+          "chunk_count",
+          "summary",
+          "detection_coverage",
+          "document_coverage",
+          "entities",
+          "chunks",
+          "limitations",
+          "review_possible",
+          "validation",
+          "leaked",
+          "render_degradations",
+          "marker_legend",
+          "layout"
+        ],
+        "title": "ReportOut",
+        "description": "`report.json` целиком — то, что отдаёт узел `report` (`masker.graph.nodes`)."
+      },
+      "ReviewEdits": {
+        "properties": {
+          "decisions": {
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "mask",
+                "keep"
+              ]
+            },
+            "type": "object",
+            "title": "Decisions"
+          },
+          "type_overrides": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Type Overrides"
+          },
+          "manual": {
+            "items": {
+              "$ref": "#/components/schemas/ManualEntityIn"
+            },
+            "type": "array",
+            "title": "Manual"
+          }
+        },
+        "type": "object",
+        "title": "ReviewEdits",
+        "description": "Правки оператора: решения по ссылкам, смена типа, добавленные значения."
+      },
+      "ReviewEnvelopeOut": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "document": {
+            "$ref": "#/components/schemas/AskDocumentOut"
+          },
+          "report": {
+            "$ref": "#/components/schemas/ReportOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "thread_id",
+          "document",
+          "report"
+        ],
+        "title": "ReviewEnvelopeOut",
+        "description": "Конверт паузы раунда правок — `GET /runs/{id}/review`."
+      },
+      "ReviewRequest": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "edits": {
+            "$ref": "#/components/schemas/ReviewEdits"
+          }
+        },
+        "type": "object",
+        "title": "ReviewRequest",
+        "description": "Конверт правок — то, что ждёт `masker.graph.review.parse_review_edits`."
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "user"
+        ],
+        "title": "Role"
+      },
+      "RunCreateRequest": {
+        "properties": {
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Types"
+          },
+          "mask_style": {
+            "type": "string",
+            "enum": [
+              "marker",
+              "blackbox",
+              "both"
+            ],
+            "title": "Mask Style",
+            "default": "marker"
+          },
+          "rules_only": {
+            "type": "boolean",
+            "title": "Rules Only",
+            "default": false
+          },
+          "profile": {
+            "type": "boolean",
+            "title": "Profile",
+            "default": true
+          },
+          "unmask_critical": {
+            "type": "boolean",
+            "title": "Unmask Critical",
+            "default": false
+          },
+          "review": {
+            "type": "boolean",
+            "title": "Review",
+            "default": true
+          },
+          "custom_types": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Custom Types"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_name"
+        ],
+        "title": "RunCreateRequest",
+        "description": "Запуск прогона по уже загруженному в MinIO файлу (`/api/files/upload`)."
+      },
+      "RunDocument": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "format"
+        ],
+        "title": "RunDocument",
+        "description": "Документ прогона — то, что нужно вьюеру и журналу."
+      },
+      "RunListItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_answers",
+              "awaiting_review",
+              "done",
+              "failed",
+              "leaked"
+            ],
+            "title": "Status"
+          },
+          "document": {
+            "$ref": "#/components/schemas/RunDocument"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "document",
+          "created_at"
+        ],
+        "title": "RunListItem",
+        "description": "Строка журнала обработок (`/history`)."
+      },
+      "RunListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "RunListResponse"
+      },
+      "RunResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_answers",
+              "awaiting_review",
+              "done",
+              "failed",
+              "leaked"
+            ],
+            "title": "Status"
+          },
+          "document": {
+            "$ref": "#/components/schemas/RunDocument"
+          },
+          "node_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Hint"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "thread_id",
+          "status",
+          "document",
+          "created_at"
+        ],
+        "title": "RunResponse",
+        "description": "Состояние одного прогона."
+      },
+      "SummaryOut": {
+        "properties": {
+          "entities_total": {
+            "type": "integer",
+            "title": "Entities Total"
+          },
+          "by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Type"
+          },
+          "by_source": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Source"
+          },
+          "by_level": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Level"
+          },
+          "minimum_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entities_total",
+          "by_type",
+          "by_source",
+          "by_level",
+          "minimum_confidence"
+        ],
+        "title": "SummaryOut",
+        "description": "Сводка по документу — `report.summary`."
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token"
+        ],
+        "title": "TokenResponse"
+      },
+      "UserCreate": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "type": "array",
+            "title": "Roles",
+            "default": [
+              "user"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password",
+          "full_name"
+        ],
+        "title": "UserCreate",
+        "description": "Тело запроса создания пользователя администратором."
+      },
+      "UserPublic": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "full_name",
+          "roles",
+          "is_active",
+          "created_at"
+        ],
+        "title": "UserPublic",
+        "description": "Публичное представление пользователя — без password_hash."
+      },
+      "ValidationCheckedOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "checked",
+            "title": "Status"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "checked_artifacts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Checked Artifacts"
+          },
+          "checked_parts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Checked Parts"
+          },
+          "leaked_count": {
+            "type": "integer",
+            "title": "Leaked Count"
+          },
+          "residual_count": {
+            "type": "integer",
+            "title": "Residual Count"
+          },
+          "layout": {
+            "items": {
+              "$ref": "#/components/schemas/LayoutOut"
+            },
+            "type": "array",
+            "title": "Layout"
+          },
+          "certificate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "ok",
+          "checked_artifacts",
+          "checked_parts",
+          "leaked_count",
+          "residual_count",
+          "layout",
+          "certificate"
+        ],
+        "title": "ValidationCheckedOut",
+        "description": "`validation` после прогона `ValidateAgent`."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidationSkippedOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "skipped",
+            "title": "Status"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "reason"
+        ],
+        "title": "ValidationSkippedOut",
+        "description": "`validation`, когда проверять было нечего (`preview_only`)."
+      },
+      "VerdictOut": {
+        "properties": {
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "action": {
+            "$ref": "#/components/schemas/Action"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ref",
+          "action",
+          "confidence",
+          "reason",
+          "profile_id",
+          "question_id"
+        ],
+        "title": "VerdictOut",
+        "description": "Решение судьи по одной сущности — `profile_judge.verdicts[]`."
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ]
+}

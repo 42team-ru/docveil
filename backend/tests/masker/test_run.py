@@ -326,6 +326,6 @@ def test_report_of_and_artifacts_of_are_non_empty_after_completed_run(tmp_path: 
     report = report_of(outcome)
     artifacts = artifacts_of(outcome)
     assert report
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     assert artifacts
     assert artifacts[0]["role"] == "preview"

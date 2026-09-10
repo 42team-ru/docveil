@@ -16,7 +16,7 @@ from pathlib import Path
 from api.core.config import settings
 from api.core.storage import minio_client
 from api.schemas.ocr import OcrExtractRequest, OcrExtractResponse, OcrLineOut, OcrPageOut
-from masker.ingest.scan_ingest import OcrPageResult, _OCR_DPI, ocr_pages_from_pdf
+from masker.ingest.scan_ingest import _OCR_DPI, OcrPageResult, ocr_pages_from_pdf
 from masker.ocr.select import ENV_VAR, select_ocr
 
 __all__ = [

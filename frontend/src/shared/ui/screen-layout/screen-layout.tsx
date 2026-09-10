@@ -11,16 +11,30 @@ import { Toolbar } from "@astryxdesign/core/Toolbar";
 type SpacingStep = 0 | 0.5 | 1 | 1.5 | 2 | 3 | 4 | 5 | 6 | 8 | 10;
 
 type ScreenLayoutProps = {
-  /** Заголовок экрана. Рендерится как h4 с aria-level=1 — это h1 страницы. */
-  title: string;
+  /**
+   * Заголовок экрана. Рендерится как h4 с aria-level=1 — это h1 страницы.
+   * Без заголовка Heading не рендерится вовсе — экран остаётся без h1.
+   */
+  title?: string;
   /** Короткий контекст справа от заголовка: счётчики, шаг, имя файла. */
   meta?: ReactNode;
   /** Содержимое перед заголовком: чип формата, иконка. */
   startContent?: ReactNode;
-  /** Кнопки в правой части шапки. */
+  /**
+   * Переключатель вкладок экрана (`TabList`) — с большим отступом от действий,
+   * в самом правом углу шапки. Так проверка и отчёт документа делят одну
+   * шапку и переключаются без смены страницы, а таб не путается с кнопками.
+   */
+  tabs?: ReactNode;
+  /** Кнопки в правой части шапки, левее вкладок. */
   actions?: ReactNode;
   /** Правая панель экрана (`LayoutPanel`). */
   panel?: ReactNode;
+  /**
+   * `id` тела экрана — цель `aria-controls` у `tabs`, когда `TabList` там
+   * работает в паттерне `role="tablist"`, а не как навигация.
+   */
+  contentId?: string;
   contentPadding?: SpacingStep;
   isContentScrollable?: boolean;
   children: ReactNode;
@@ -34,35 +48,56 @@ export function ScreenLayout({
   title,
   meta,
   startContent,
+  tabs,
   actions,
   panel,
+  contentId,
   contentPadding = 6,
   isContentScrollable = true,
   children,
 }: ScreenLayoutProps) {
+  const hasHeader =
+    title !== undefined ||
+    meta !== undefined ||
+    startContent !== undefined ||
+    tabs !== undefined ||
+    actions !== undefined;
+
   return (
     <Layout
       height="fill"
-      header={
+      header={hasHeader ? (
         <LayoutHeader hasDivider>
           <Toolbar
-            label={title}
+            label={title ?? "Экран"}
             size="sm"
             startContent={
               <HStack gap={2} vAlign="center">
                 {startContent}
-                <Heading level={4} accessibilityLevel={1}>
-                  {title}
-                </Heading>
+                {title !== undefined && (
+                  <Heading level={4} accessibilityLevel={1}>
+                    {title}
+                  </Heading>
+                )}
                 {meta}
               </HStack>
             }
-            endContent={actions}
+            endContent={
+              tabs !== undefined ? (
+                <HStack gap={8} vAlign="center">
+                  {actions}
+                  {tabs}
+                </HStack>
+              ) : (
+                actions
+              )
+            }
           />
         </LayoutHeader>
-      }
+      ) : undefined}
       content={
         <LayoutContent
+          id={contentId}
           padding={contentPadding}
           isScrollable={isContentScrollable}
         >

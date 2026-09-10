@@ -19,33 +19,46 @@ application:
 #   gigachat  — GigaChat (Сбер)
 #   openrouter — OpenRouter
 #
-# model нужна только для gigachat и openrouter.
-# cassette_directory используется только при provider: cassette.
+# Профиль связывает провайдера, модель и тариф. Чтобы переключиться, меняйте
+# только profile: стоимость в отчёте останется от выбранной модели, а не от
+# предыдущей. Добавляйте профили для каждой нужной модели.
 llm:
-  provider: fake
-  model: ""
-  api_key_env: OPENROUTER_API_KEY
+  profile: fake
   timeout_seconds: 60
   site_url: ""
   title: triema-masker
   cassette_directory: fixtures/llm/roles
-
-  # temperature ниже 0.001 включает у GigaChat режим строгого контроля:
-  # одинаковый запрос даёт одинаковый ответ. Обе задачи, где здесь нужна
-  # модель, — извлечение фактов, а не сочинение текста, и отчёт обязан быть
-  # побайтово воспроизводимым.
-  #
-  # GigaChat ходит через сертификаты Минцифры. Если их нет в системном
-  # хранилище, укажите путь в ca_bundle_file. Флаг insecure_skip_tls_verify
-  # отключает проверку подлинности сервера целиком — крайняя мера.
-  gigachat:
-    scope: GIGACHAT_API_PERS
-    temperature: 0.0001
-    ca_bundle_file: ""
-    insecure_skip_tls_verify: false
-
-  openrouter:
-    temperature: 0.0
+  profiles:
+    fake:
+      provider: fake
+      pricing: &pricing_unknown
+        prompt_per_1k: null
+        completion_per_1k: null
+        currency: RUB
+        verified_at: ""
+    cassette:
+      provider: cassette
+      pricing: *pricing_unknown
+    gigachat-max:
+      provider: gigachat
+      model: GigaChat-Max
+      api_key_env: GIGACHAT_CREDENTIALS
+      # temperature ниже 0.001 включает у GigaChat режим строгого контроля.
+      gigachat:
+        scope: GIGACHAT_API_PERS
+        temperature: 0.0001
+        ca_bundle_file: ""
+        insecure_skip_tls_verify: false
+      # Цена за 1 000 токенов. Заполните обе цены только после сверки с
+      # прайсом поставщика и обязательно укажите дату сверки.
+      pricing: *pricing_unknown
+    openrouter-glm-5-3-flash:
+      provider: openrouter
+      model: z-ai/glm-5.3-flash
+      api_key_env: OPENROUTER_API_KEY
+      openrouter:
+        temperature: 0.0
+      pricing: *pricing_unknown
 
 # Распознавание сканов. fake не ходит в сеть и не тянет веса — этого
 # достаточно для тестов и ворот.

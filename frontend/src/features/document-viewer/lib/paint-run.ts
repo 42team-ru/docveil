@@ -5,17 +5,17 @@ import type { PiiDecisionKind } from "../../../entity/pii/model/types";
  * из исходного docx). Наша работа — не добавить подсветку, а перекрасить уже
  * существующий ран в статусный цвет. Токены берём напрямую через CSS custom
  * properties — так уже сделано для выделения строки в
- * `entity/mask/ui/mask-list-item.tsx` (`var(--color-accent)` и т.п.), это
+ * прежней строке списка масок (`var(--color-accent)` и т.п.), это
  * принятый в проекте способ ссылаться на токены там, где нет подходящего
  * пропа компонента. Tailwind-утилиты вроде `bg-yellow-subtle` здесь не
  * применимы: `tailwind-theme.css` в проекте пока нигде не импортирован
  * (`src/app/styles/app.css` тянет только reset/astryx/theme), чинить это
  * попутно — отдельная, не относящаяся к задаче правка.
  *
- * `"redacted"` — режим тулбара «Оригинал»/«Только замены»: возвращает ран к
- * исходному виду чёрного редакта, будто подсветки нет вовсе.
+ * `"original"` — режим тулбара «Оригинал»: не перекрашивает исходный текст
+ * preview-артефакта и не скрывает его.
  */
-export type PaintState = PiiDecisionKind | "redacted";
+export type PaintState = PiiDecisionKind | "original";
 
 const STATUS_STYLE: Record<
   PaintState,
@@ -36,9 +36,9 @@ const STATUS_STYLE: Record<
     color: "var(--color-text-gray)",
     strike: true,
   },
-  redacted: {
-    background: "rgb(0, 0, 0)",
-    color: "rgb(0, 0, 0)",
+  original: {
+    background: "transparent",
+    color: "inherit",
     strike: false,
   },
 };

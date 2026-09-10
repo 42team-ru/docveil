@@ -7,6 +7,9 @@ import {
   ScrollRestoration,
 } from "react-router";
 
+import { useState } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+
 import type { Route } from "./+types/root";
 import "./styles/app.css";
 import { neutralTheme } from "../themes/neutral/neutralTheme";
@@ -18,6 +21,7 @@ import { LinkProvider } from "@astryxdesign/core/Link";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Theme } from "@astryxdesign/core/theme";
 import { NotFoundPage } from "../pages/not-found/not-found-page";
+import { createQueryClient } from "../shared/api/query-client";
 import { RouterLink } from "../shared/ui/router-link/router-link";
 
 export const links: Route.LinksFunction = () => [
@@ -33,7 +37,14 @@ export const links: Route.LinksFunction = () => [
     // падает на системный шрифт.
     href: "https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&display=swap",
   },
+  {
+    rel: "stylesheet",
+    href: "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&display=swap",
+  },
+  { rel: "icon", type: "image/png", href: "/logo.png" },
 ];
+
+export const meta: Route.MetaFunction = () => [{ title: "DocVeil" }];
 
 import { useThemeStore } from "../shared/model/theme-store";
 
@@ -64,7 +75,15 @@ export default function App() {
     import("react-grab");
   }
 
-  return <Outlet />;
+  // Клиент создаётся один раз на монтирование приложения: на сервере рендера
+  // общий клиент утёк бы между запросами разных пользователей.
+  const [queryClient] = useState(createQueryClient);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <Outlet />
+    </QueryClientProvider>
+  );
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

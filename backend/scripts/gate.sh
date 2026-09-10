@@ -3,7 +3,11 @@
 # Ворота обязаны уметь не пройти: проверить это можно `make gate-selftest`.
 set -uo pipefail
 
+# bin/python — POSIX-раскладка venv (по умолчанию, см. AGENTS.md);
+# Scripts/python.exe — Windows. Та же развилка, что в Makefile: без неё ворота
+# на Windows падают всеми шагами сразу «No such file or directory».
 PY=.venv/bin/python
+[ -x "$PY" ] || PY=.venv/Scripts/python.exe
 export PYTHONPATH=src
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1

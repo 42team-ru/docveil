@@ -14,6 +14,7 @@ from masker.llm import (
     OpenRouterProvider,
     get_provider,
     load_llm_config,
+    resolve_llm_config,
 )
 
 
@@ -219,6 +220,32 @@ def test_openrouter_provider_forwards_custom_temperature(
     assert body["temperature"] == 0.7
 
 
+def test_openrouter_returns_usage_to_wrapper_without_mutating_frozen_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            del exc_type, exc, traceback
+
+        def read(self) -> bytes:
+            return (
+                b'{"choices":[{"message":{"content":"ok"}}],'
+                b'"usage":{"prompt_tokens":12,"completion_tokens":3}}'
+            )
+
+    monkeypatch.setattr("masker.llm.openrouter.urlopen", lambda *_args, **_kwargs: Response())
+    provider = OpenRouterProvider(api_key="secret", model="openrouter/auto")
+
+    response, usage = provider.complete_with_usage([Message("user", "test")])
+
+    assert response == "ok"
+    assert usage is not None
+    assert (usage.prompt_tokens, usage.completion_tokens) == (12, 3)
+
+
 def test_get_provider_builds_openrouter_with_default_temperature(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -289,6 +316,63 @@ def test_load_llm_config_keeps_key_in_environment(tmp_path: Path) -> None:
     assert config.timeout_seconds == 5.0
 
 
+def test_load_llm_config_selects_provider_model_and_pricing_as_one_profile(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "llm.yaml"
+    path.write_text(
+        """llm:
+  profile: openrouter-fast
+  timeout_seconds: 15
+  profiles:
+    gigachat-max:
+      provider: gigachat
+      model: GigaChat-Max
+      api_key_env: GIGACHAT_CREDENTIALS
+      pricing:
+        prompt_per_1k: 1
+        completion_per_1k: 2
+        currency: RUB
+        verified_at: "2026-09-10"
+    openrouter-fast:
+      provider: openrouter
+      model: provider/fast
+      api_key_env: OPENROUTER_API_KEY
+      openrouter:
+        temperature: 0.25
+      pricing:
+        prompt_per_1k: 3
+        completion_per_1k: 4
+        currency: USD
+        verified_at: "2026-09-10"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_llm_config(path)
+
+    assert config.profile == "openrouter-fast"
+    assert config.provider == "openrouter"
+    assert config.model == "provider/fast"
+    assert config.timeout_seconds == 15.0
+    assert config.openrouter_temperature == 0.25
+    assert config.pricing is not None
+    assert config.pricing.as_dict() == {
+        "prompt_per_1k": "3",
+        "completion_per_1k": "4",
+        "currency": "USD",
+        "verified_at": "2026-09-10",
+    }
+
+
+def test_load_llm_config_rejects_unknown_profile(tmp_path: Path) -> None:
+    path = tmp_path / "llm.yaml"
+    path.write_text("llm:\n  profile: absent\n  profiles: {}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"llm\.profile='absent' отсутствует"):
+        load_llm_config(path)
+
+
 def test_project_yaml_configures_llm_and_environment_overrides_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -315,6 +399,34 @@ def test_project_yaml_configures_llm_and_environment_overrides_it(
     assert provider.model == "provider/from-environment"
     assert provider.timeout_seconds == 12.0
     assert provider.temperature == 0.5
+
+
+def test_project_yaml_pricing_and_environment_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "masker.yaml"
+    path.write_text(
+        """llm:
+  pricing:
+    prompt_per_1k: 2.5
+    completion_per_1k: 5
+    currency: rub
+    verified_at: "2026-09-10"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MASKER_CONFIG", str(path))
+    monkeypatch.setenv("MASKER_LLM_PRICING_PROMPT_PER_1K", "3")
+
+    pricing = resolve_llm_config().pricing
+
+    assert pricing is not None
+    assert pricing.as_dict() == {
+        "prompt_per_1k": "3",
+        "completion_per_1k": "5",
+        "currency": "RUB",
+        "verified_at": "2026-09-10",
+    }
 
 
 @pytest.mark.e2e

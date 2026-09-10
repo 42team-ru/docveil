@@ -1,47 +1,48 @@
-import type { DataType, RulePreset } from "./types";
+import type { RulePreset } from "./types";
 
-export const dataTypes: DataType[] = [
-  { id: "org", name: "Наименование организации", marker: "[ОРГАНИЗАЦИЯ_N]" },
-  { id: "inn", name: "ИНН / КПП", marker: "[ИНН_N]" },
-  { id: "ogrn", name: "ОГРН", marker: "[ОГРН_N]" },
-  { id: "fio", name: "ФИО", marker: "[ФИО_N]" },
-  { id: "post", name: "Должности", marker: "[ДОЛЖНОСТЬ_N]" },
-  { id: "pass", name: "Паспортные данные", marker: "[ПАСПОРТ_N]" },
-  { id: "addr", name: "Адреса", marker: "[АДРЕС_N]" },
-  { id: "phone", name: "Телефоны", marker: "[ТЕЛЕФОН_N]" },
-  { id: "email", name: "E-mail и сайты", marker: "[EMAIL_N]" },
-  { id: "bank", name: "Банковские реквизиты", marker: "[СЧЁТ_N]" },
-  { id: "money", name: "Суммы и цены", marker: "[СУММА_N]" },
-  { id: "contract", name: "Номера договоров", marker: "[НОМЕР_N]" },
-];
-
+/**
+ * Пресеты правил маскирования.
+ *
+ * Списка типов здесь больше нет: он строится из общего словаря
+ * `entity/pii/model/pii-type-dict.ts` в `features/document-upload` — фича
+ * вправе видеть обе сущности, а горизонтальный импорт `entity/rule-profile`
+ * → `entity/pii` запрещён (ARCHITECTURE.md, «Границы слоёв»). До этого фронт
+ * держал здесь третий, ни с чем не совпадающий набор идентификаторов
+ * (`org`, `fio`, `addr`, `pass`) плюс «Должности», которых в движке нет.
+ */
 export const rulePresets: RulePreset[] = [
   {
     id: "tender",
     name: "Тендерная документация",
-    description: "Стороны, реквизиты, суммы. Предмет и сроки сохраняются.",
+    description: "Стороны, реквизиты, счета и номер договора.",
   },
   {
     id: "full",
     name: "Максимальное обезличивание",
-    description: "Все 12 типов, включая должности и даты.",
+    description: "Все типы реестра, включая даты и коммерческие условия.",
   },
   {
     id: "fin",
     name: "Финансовый отчёт",
-    description: "Суммы и счета скрыты, названия сторон остаются.",
+    description: "Счета, суммы и сроки скрыты, названия сторон остаются.",
   },
 ];
 
-/** Типы, включённые профилем «Тендерная документация». */
-export const defaultEnabledTypes = [
-  "org",
+/**
+ * Типы, включённые профилем «Тендерная документация». Идентификаторы — те же,
+ * что у `EntityType` бэкенда (`backend/src/masker/model.py`).
+ */
+export const defaultEnabledTypes: string[] = [
+  "org_name",
+  "person",
   "inn",
-  "fio",
-  "addr",
+  "kpp",
+  "ogrn",
+  "bank_account",
+  "bik",
+  "address",
   "phone",
   "email",
-  "bank",
-  "money",
-  "contract",
+  "passport",
+  "contract_number",
 ];

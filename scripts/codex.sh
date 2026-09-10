@@ -38,6 +38,9 @@ done
 
 # MCP-сервер context7 подключается ключом из окружения, а не из файла в репозитории.
 extra=()
+extra+=(
+    -c 'mcp_servers.xds.url="https://astryx.atmeta.com/mcp"'
+)
 if [ -n "${CONTEXT7_API_KEY:-}" ]; then
     extra+=(
         -c 'mcp_servers.context7.type="http"'

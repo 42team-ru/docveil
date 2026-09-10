@@ -16,7 +16,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
@@ -29,3 +29,204 @@ jobs:
 
       - name: Run tests
         run: uv run --locked pytest -q
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Ни одна из проверок не требует живого бэкенда: сгенерированный
+      # Orval-клиент никем не импортируется, а фикстуры лежат в репозитории.
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Run tests
+        run: yarn test
+
+  release:
+    name: Publish DocVeil release
+    needs: [test, frontend]
+    # Публиковать может только уже проверенный merge в master, никогда PR или ветка.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    concurrency:
+      # Очередь исключает гонку двух merge: второй расчёт увидит тег первого выпуска.
+      group: docveil-release-master
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calculate version and release notes
+        id: plan
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+
+          def git(*args: str) -> str:
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+
+          tag_re = re.compile(r"^v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
+          header_re = re.compile(
+              r"^(?P<type>[a-z]+)(?:\([^)]*\))?(?P<breaking>!)?:\s+(?P<subject>.+)$"
+          )
+          breaking_re = re.compile(r"(?mi)^BREAKING[ -]CHANGE(?::|$)")
+          section_names = {
+              "feat": "Новые возможности",
+              "fix": "Исправления",
+              "perf": "Производительность",
+              "docs": "Документация",
+              "test": "Тесты",
+              "chore": "Технические изменения",
+              "tooling": "Инструменты разработки",
+              "wip": "Незавершённая работа",
+          }
+          release_types = {"feat": 2, "fix": 1, "perf": 1}
+
+          last_tag = None
+          for tag in git("tag", "--merged", "HEAD", "--sort=-version:refname").splitlines():
+              if tag_re.fullmatch(tag):
+                  last_tag = tag
+                  break
+
+          log_range = f"{last_tag}..HEAD" if last_tag else "HEAD"
+          raw = git("log", log_range, "--format=%H%x00%s%x00%b%x00")
+          fields = raw.split("\x00")
+          commits: list[tuple[str, str, str]] = []
+          for index in range(0, len(fields) - 1, 3):
+              commit, subject, body = fields[index : index + 3]
+              commit = commit.strip()
+              if commit:
+                  commits.append((commit, subject, body))
+
+          bump = 0
+          sections: dict[str, list[tuple[str, str]]] = {}
+          breaking_changes: list[tuple[str, str]] = []
+          for commit, subject, body in commits:
+              match = header_re.match(subject)
+              if not match:
+                  continue
+              change_type = match["type"]
+              description = match["subject"]
+              is_breaking = bool(match["breaking"]) or bool(breaking_re.search(body))
+              if is_breaking:
+                  bump = max(bump, 3)
+                  breaking_changes.append((commit, description))
+                  continue
+              bump = max(bump, release_types.get(change_type, 0))
+              if change_type in section_names:
+                  sections.setdefault(change_type, []).append((commit, description))
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          if bump == 0:
+              output.write_text("release=false\n", encoding="utf-8")
+              print("Релизных коммитов с предыдущего тега нет: выпуск не создаётся.")
+              raise SystemExit(0)
+
+          if last_tag:
+              last_match = tag_re.fullmatch(last_tag)
+              assert last_match is not None
+              major, minor, patch = (int(last_match[group]) for group in ("major", "minor", "patch"))
+          else:
+              major = minor = patch = 0
+
+          if bump == 3:
+              next_version = (major + 1, 0, 0)
+          elif bump == 2:
+              next_version = (major, minor + 1, 0)
+          else:
+              next_version = (major, minor, patch + 1)
+          version = ".".join(map(str, next_version))
+
+          lines = [f"# DocVeil {version}", ""]
+          if breaking_changes:
+              lines.extend(["## Критические изменения", ""])
+              lines.extend(f"- {text} ({sha[:7]})" for sha, text in breaking_changes)
+              lines.append("")
+          for change_type in ("feat", "fix", "perf", "docs", "test", "chore", "tooling", "wip"):
+              entries = sections.get(change_type, [])
+              if entries:
+                  lines.extend([f"## {section_names[change_type]}", ""])
+                  lines.extend(f"- {text} ({sha[:7]})" for sha, text in entries)
+                  lines.append("")
+          if last_tag:
+              lines.append(f"Полный список изменений: {last_tag}...v{version}")
+          else:
+              lines.append("Первый выпуск DocVeil.")
+
+          Path("release-notes.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          output.write_text(f"release=true\nversion={version}\ntag=v{version}\n", encoding="utf-8")
+          print(f"Подготовлен выпуск v{version} от {last_tag or 'начала истории'}.")
+          PY
+
+      - name: Set up Docker Buildx
+        if: steps.plan.outputs.release == 'true'
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Log in to GitHub Container Registry
+        if: steps.plan.outputs.release == 'true'
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish backend image
+        if: steps.plan.outputs.release == 'true'
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: true
+          build-args: |
+            DOCVEIL_VERSION=${{ steps.plan.outputs.version }}
+          tags: |
+            ghcr.io/42team-ru/docveil-backend:${{ steps.plan.outputs.version }}
+            ghcr.io/42team-ru/docveil-backend:latest
+
+      - name: Build and publish frontend image
+        if: steps.plan.outputs.release == 'true'
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/42team-ru/docveil-frontend:${{ steps.plan.outputs.version }}
+            ghcr.io/42team-ru/docveil-frontend:latest
+
+      - name: Create GitHub release and tag
+        if: steps.plan.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.plan.outputs.tag }}" \
+            --target "$GITHUB_SHA" \
+            --title "DocVeil ${{ steps.plan.outputs.version }}" \
+            --notes-file release-notes.md

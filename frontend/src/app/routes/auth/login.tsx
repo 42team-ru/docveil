@@ -21,8 +21,8 @@
  */
 
 import { useState, type CSSProperties } from "react";
+import { useNavigate } from "react-router";
 import {
-  ShieldCheck,
   Building2,
   LogIn,
   Network,
@@ -43,6 +43,9 @@ import { Link } from "@astryxdesign/core/Link";
 import { Divider } from "@astryxdesign/core/Divider";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Section } from "@astryxdesign/core/Section";
+
+import { loginApiAuthLoginPost } from "../../../shared/api/generated/core/auth/auth";
+import { setAccessToken } from "../../../shared/api/auth-token";
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -123,6 +126,7 @@ const LOGIN_CSS = `
 // ─── component ───────────────────────────────────────────────────────────────
 
 export default function LoginPage() {
+  const navigate = useNavigate();
   const [step, setStep] = useState<Step>("main");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -138,17 +142,35 @@ export default function LoginPage() {
     }, 1500);
   };
 
-  const handlePasswordLogin = () => {
+  /**
+   * Вход логином и паролем. Access-токен кладётся в память вкладки, refresh
+   * бэкенд ставит httpOnly-cookie сам (`device: "web"`), поэтому обновление
+   * сессии дальше идёт без участия этого экрана.
+   */
+  const handlePasswordLogin = async () => {
     if (!login || !password) {
       setLoginFailed(true);
       return;
     }
     setIsLoading(true);
     setLoginFailed(false);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const response = await loginApiAuthLoginPost({
+        email: login,
+        password,
+        device: "web",
+      });
+      if (response.status !== 200) {
+        setLoginFailed(true);
+        return;
+      }
+      setAccessToken(response.data.access_token);
+      navigate("/");
+    } catch {
       setLoginFailed(true);
-    }, 2000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleBack = () => {
@@ -168,8 +190,14 @@ export default function LoginPage() {
             <VStack gap={10} width="100%" hAlign="stretch" style={{ maxWidth: 440 }}>
               <VStack gap={4}>
                 <HStack gap={3} vAlign="center">
-                  <Icon icon={ShieldCheck} size="lg" color="primary" />
-                  <Heading level={2}>TriemaMasker</Heading>
+                  <img
+                    src="/logo.png"
+                    alt="DocVeil"
+                    className="size-10 object-contain"
+                  />
+                  <Heading level={2} className="font-brand">
+                    DocVeil
+                  </Heading>
                 </HStack>
                 <Text type="body" color="secondary" size="lg">
                   Автоматическое обезличивание юридических документов в защищенном контуре.
@@ -205,8 +233,14 @@ export default function LoginPage() {
               {/* Header on mobile only, replacing the missing left panel context */}
               <div className="mobile-only-brand">
                 <VStack gap={2} hAlign="center" width="100%">
-                  <Icon icon={ShieldCheck} size="md" color="primary" />
-                  <Heading level={3}>TriemaMasker</Heading>
+                  <img
+                    src="/logo.png"
+                    alt="DocVeil"
+                    className="size-8 object-contain"
+                  />
+                  <Heading level={3} className="font-brand">
+                    DocVeil
+                  </Heading>
                 </VStack>
               </div>
 
@@ -380,7 +414,7 @@ export default function LoginPage() {
                       variant="primary"
                       size="lg"
                       isLoading={isLoading}
-                      onClick={handlePasswordLogin}
+                      onClick={() => void handlePasswordLogin()}
                     />
 
                     <Button

@@ -121,6 +121,19 @@ def test_gigachat_successful_completion(monkeypatch: pytest.MonkeyPatch) -> None
     assert transport.chat_call_headers[0]["Authorization"] == "Bearer token-1"
 
 
+def test_gigachat_returns_usage_to_wrapper_without_provider_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = _FakeTransport(chat_responses=deque([(200, _success_body("Ответ модели"))]))
+    _install_transport(monkeypatch, transport)
+
+    response, usage = _provider().complete_with_usage([Message("user", "вопрос")])
+
+    assert response == "Ответ модели"
+    assert usage is not None
+    assert (usage.prompt_tokens, usage.completion_tokens) == (10, 5)
+
+
 def test_gigachat_reuses_client_and_caches_token_across_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

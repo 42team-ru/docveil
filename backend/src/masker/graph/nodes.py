@@ -8,8 +8,9 @@ LLM в ``State`` не кладётся: узлы, которым он нужен
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from langgraph.types import interrupt
@@ -31,6 +32,11 @@ from masker.detect.contract_params import (
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.entity_types import EntityTypeRegistry
 from masker.graph.questions import build_ask_payload, parse_answers
+from masker.graph.review import (
+    KEEP_ACTION,
+    build_review_payload,
+    parse_review_edits,
+)
 from masker.graph.serde import (
     anchor_from_dict,
     decisions_to_dicts,
@@ -54,10 +60,18 @@ from masker.ingest.pdf_ingest import ingest_pdf
 from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.judge import JudgeAgent
 from masker.judge.agent import JudgeResult
-from masker.llm import LLMProvider, TracingProvider
+from masker.llm import FakeProvider, LLMProvider, TracingProvider
 from masker.mask import PlanAgent
 from masker.mask.select import resolve_requested_types
-from masker.model import Action, Document, Question, Segment
+from masker.model import (
+    Action,
+    DecisionSource,
+    Document,
+    Entity,
+    Question,
+    Segment,
+    Source,
+)
 from masker.ocr.provider import OCRProvider
 from masker.policy.agent import CriticalUnmask, GroupAnswer, PolicyAgent
 from masker.profile import ProfileAgent
@@ -74,9 +88,13 @@ from masker.report.payload import (
     _validation_skipped,
     build_report_payload,
     marker_legend,
+    verifier_record,
 )
+from masker.telemetry import RUNTIME_METRICS_NAME, LLMPricing, MeteringProvider, report_telemetry
 from masker.typeconfig import CustomTypeSpec, load_type_config
 from masker.validate import ValidateAgent
+
+StageObserver = Callable[[str, str, str], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +113,33 @@ class RunDeps:
     tracer: TracingProvider | None = None
     artifact_dir: Path | None = None
     ocr: OCRProvider | None = None
+    pricing: LLMPricing | None = None
+    stage_observer: StageObserver | None = field(default=None, compare=False, repr=False)
+    _meter: MeteringProvider | None = field(default=None, init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.llm is not None:
+            object.__setattr__(self, "_meter", MeteringProvider(self.llm, self.pricing))
+
+    @contextmanager
+    def llm_for_stage(self, stage: str) -> Iterator[LLMProvider | None]:
+        """Передать узлу провайдер с пометкой узла, не зная его реализации."""
+        if self._meter is None:
+            yield None
+            return
+        with self._meter.for_stage(stage):
+            yield self._meter
+
+    def metering_offset(self) -> int:
+        return self._meter.delta_since(0)[0] if self._meter is not None else 0
+
+    def metering_delta(self, offset: int) -> list[dict[str, object]]:
+        return self._meter.delta_since(offset)[1] if self._meter is not None else []
+
+    def notify_stage(self, node: str, status: str, message: str = "") -> None:
+        """Передать вызывающему ход графа, не добавляя UI-данные в State."""
+        if self.stage_observer is not None:
+            self.stage_observer(node, status, message)
 
 
 def _document(state: State) -> Document:
@@ -219,35 +264,46 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         options = state.get("options", {})
         registry, specs = _registry_and_specs(state)
         rules_only = bool(options.get("rules_only", False))
-        if rules_only:
-            # DateDetector — тоже правило (regex + `datetime.date`-валидация),
-            # его место в rules-only, чтобы `date`/`birth_date` не оказывались
-            # в `requested_without_detector` только из-за --rules-only.
-            detectors: list[EntityDetector] = [
-                RuleDetector(),
-                AddressDetector(),
-                DateDetector(),
-                ContractAmountDetector(),
-                DeliveryPeriodDetector(),
-                PaymentTermsDetector(),
-            ]
-            if specs:
-                detectors.append(ConfigDetector(specs))
-        else:
-            detectors = default_detectors(specs, llm=deps.llm)
-        verifier_llm = None if rules_only else deps.llm
-        detector = DetectAgent(detectors, registry, llm=verifier_llm)
-        raw_types = options.get("types")
-        selected_types = resolve_requested_types(
-            tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
-        )
-        entities = detector.detect(document).entities
-        return {
+        with deps.llm_for_stage("detect") as llm:
+            if rules_only:
+                # DateDetector — тоже правило (regex + `datetime.date`-валидация),
+                # его место в rules-only, чтобы `date`/`birth_date` не оказывались
+                # в `requested_without_detector` только из-за --rules-only.
+                detectors: list[EntityDetector] = [
+                    RuleDetector(),
+                    AddressDetector(),
+                    DateDetector(),
+                    ContractAmountDetector(),
+                    DeliveryPeriodDetector(),
+                    PaymentTermsDetector(),
+                ]
+                if specs:
+                    detectors.append(ConfigDetector(specs))
+            else:
+                detectors = default_detectors(specs, llm=llm)
+            verifier_llm = None if rules_only else llm
+            detector = DetectAgent(detectors, registry, llm=verifier_llm)
+            raw_types = options.get("types")
+            selected_types = resolve_requested_types(
+                tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
+            )
+            detection = detector.detect(document)
+            entities = detection.entities
+        result: dict[str, object] = {
             "entities": [entity_to_dict(entity) for entity in entities],
             # Тот же ``detector``, которым только что детектировали — второй
             # DetectAgent() поднял бы Natasha ещё раз ради двух списков строк.
             "detection_coverage": detection_coverage(selected_types, detector),
         }
+        # Р7-2: сводка верификатора доезжает до `report.json`. В ``State``
+        # кладём уже сериализованную запись, а не ``VerifierReport``:
+        # состояние графа обязано быть JSON — оно уходит в чекпойнтер и
+        # переживает перезапуск процесса. ``r_filter`` здесь не считается:
+        # он требует размеченного корпуса, которого у обычного документа
+        # нет, и остаётся `None` — «не измерен», а не «измерен и равен нулю».
+        if detection.verifier is not None:
+            result["verifier"] = verifier_record(detection.verifier)
+        return result
 
     return detect_node
 
@@ -270,9 +326,10 @@ def make_profile_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
             }
         document = _document(state)
         entities = [entity_from_dict(item) for item in state["entities"]]
-        result = ProfileAgent(deps.llm).profile(
-            document, DetectionResult(entities, build_pii_chunks(document.segments, entities))
-        )
+        with deps.llm_for_stage("profile") as llm:
+            result = ProfileAgent(llm).profile(
+                document, DetectionResult(entities, build_pii_chunks(document.segments, entities))
+            )
         return {
             "profiles": profiles_to_dicts(result.profiles),
             "unassigned": result.unassigned,
@@ -440,6 +497,186 @@ def finalize_node(state: State) -> dict[str, object]:
     }
 
 
+def ask_review_node(state: State) -> dict[str, object]:
+    """Второе прерывание графа: показать отчёт и принять правки оператора.
+
+    Как и ``ask_human_node``, узел без побочных эффектов: LangGraph выполняет
+    его заново при каждом возобновлении треда, поэтому он ничего не пишет и
+    не меняет входной ``state``, кроме поля с правками.
+    """
+    return {"review_edits": parse_review_edits(interrupt(build_review_payload(state)))}
+
+
+def apply_review_edits_node(state: State) -> dict[str, object]:
+    """Развернуть правки оператора в сущности и решения по ссылкам.
+
+    Три вида правок, все — через тот же путь, что и решения движка:
+
+    1. **Снять/поставить маску** по ссылке. Снятие с критичного типа держит
+       ``critical_guard``: без ``unmask_critical`` воля оператора его не
+       перебивает — это тот же двойной барьер, что и на первом проходе.
+    2. **Сменить тип** у сущности. Тип меняется на самой сущности, поэтому
+       новый маркер построит ``PlanAgent`` — второго места, где собирается
+       маркер, не появляется.
+    3. **Добавить пропущенное значение.** Ищется по всему документу, а не
+       только там, где оператор его выделил: одно значение — один маркер во
+       всём документе (инвариант согласованности псевдонимов).
+
+    Ссылки ``E1..En`` считаются от порядка сущностей в тексте, поэтому
+    добавление сущности их сдвигает. Правки разбираются до вставки, решения
+    переносятся на сущности, а не на строки-ссылки, и заново нумеруются
+    после — иначе оператор снял бы маску не с того.
+    """
+    edits = state.get("review_edits", {})
+    entities = [entity_from_dict(item) for item in state.get("entities", [])]
+    registry, _ = _registry_and_specs(state)
+    allow_unmask_critical = bool(state.get("options", {}).get("unmask_critical", False))
+
+    index = EntityIndex(entities)
+    by_ref = {ref: index.entity(ref) for ref in index.refs()}
+
+    for ref, type_id in edits.get("type_overrides", {}).items():
+        entity = by_ref.get(ref)
+        if entity is None or type_id not in registry:
+            continue
+        entity.type = type_id
+
+    # Решения переносятся с ссылок на сами объекты сущностей: после вставки
+    # ручных значений те же сущности получат другие номера ссылок.
+    decisions_by_entity: dict[int, dict[str, object]] = {}
+    for item in state.get("final_actions", []):
+        entity = by_ref.get(str(item["ref"]))
+        if entity is not None:
+            decisions_by_entity[id(entity)] = dict(item)
+
+    diagnostics: list[str] = []
+    for ref, action in edits.get("decisions", {}).items():
+        entity = by_ref.get(ref)
+        if entity is None:
+            continue
+        guarded = registry.is_critical(entity.type) and not allow_unmask_critical
+        if action == KEEP_ACTION and guarded:
+            diagnostics.append(
+                f"{ref}: снятие маски с критичного типа {entity.type!r} отклонено "
+                "(прогон без unmask_critical)"
+            )
+            decisions_by_entity[id(entity)] = {
+                "ref": ref,
+                "action": Action.MASK.value,
+                "decided_by": DecisionSource.CRITICAL_GUARD,
+                "question_id": "",
+                "reason": "критичный тип: снятие маски требует явного разрешения прогона",
+                "overridden": [],
+            }
+            continue
+        decisions_by_entity[id(entity)] = {
+            "ref": ref,
+            "action": action,
+            "decided_by": DecisionSource.ENTITY,
+            "question_id": "",
+            "reason": "решение оператора на экране проверки",
+            "overridden": [],
+        }
+
+    document = _document(state)
+    added = _manual_entities(edits.get("manual", []), document, registry)
+    for entity in added:
+        decisions_by_entity[id(entity)] = {
+            "ref": "",
+            "action": Action.MASK.value,
+            "decided_by": DecisionSource.ENTITY,
+            "question_id": "",
+            "reason": "значение добавлено оператором на экране проверки",
+            "overridden": [],
+        }
+    entities.extend(added)
+
+    reindexed = EntityIndex(entities)
+    final_actions: list[dict[str, object]] = []
+    for ref in reindexed.refs():
+        entity = reindexed.entity(ref)
+        decision = decisions_by_entity.get(id(entity))
+        if decision is None:
+            continue
+        final_actions.append({**decision, "ref": ref})
+
+    review = dict(state.get("decisions", {}))
+    review["review_diagnostics"] = diagnostics
+    review["review_manual_added"] = len(added)
+
+    return {
+        "entities": [entity_to_dict(entity) for entity in entities],
+        "final_actions": final_actions,
+        "decisions": review,
+        "options": _options_with_manual_types(state, added),
+        "review_round": int(state.get("review_round", 0)) + 1,
+    }
+
+
+def _options_with_manual_types(state: State, added: list[Entity]) -> dict[str, object]:
+    """Дописать типы добавленных вручную значений в запрошенные типы прогона.
+
+    ``PlanAgent`` пропускает сущность, тип которой не запрошен. Без этой
+    дописки значение, добавленное оператором типом вне отбора прогона, молча
+    не попало бы ни в документ, ни в отчёт — оператор увидел бы, что его
+    правка исчезла без объяснений.
+    """
+    options = dict(state.get("options", {}))
+    requested = options.get("types")
+    if not requested or not added:
+        return options
+    options["types"] = sorted({*(str(item) for item in requested), *(e.type for e in added)})
+    return options
+
+
+def _manual_entities(
+    manual: list[dict[str, str]], document: Document, registry: EntityTypeRegistry
+) -> list[Entity]:
+    """Сущности для значений, добавленных оператором, — по всем вхождениям.
+
+    Пустой результат на неизвестный тип и на значение, которого в документе
+    нет: молча добавить сущность без места в тексте нельзя — рендер не найдёт,
+    что заменять, а отчёт покажет замену, которой не было.
+    """
+    added: list[Entity] = []
+    for item in manual:
+        type_id = item["type"]
+        text = item["text"]
+        if type_id not in registry:
+            continue
+        for segment in document.segments:
+            start = segment.text.find(text)
+            while start != -1:
+                added.append(
+                    Entity(
+                        type=type_id,
+                        text=text,
+                        segment_order=segment.order,
+                        start=start,
+                        end=start + len(text),
+                        source=Source.USER,
+                        confidence=1.0,
+                    )
+                )
+                start = segment.text.find(text, start + len(text))
+    return added
+
+
+def needs_review(state: State) -> str:
+    """Нужен ли раунд правок оператора после отчёта.
+
+    Ровно один раунд на прогон: второй заход ведёт в конец. Иначе граф
+    зациклился бы на паре ``ask_review → report``, а прогон никогда бы не
+    завершился — и `resume` на нём всегда возвращал бы «жду правок».
+    """
+    options = state.get("options", {})
+    if not bool(options.get("review", False)):
+        return "end"
+    if int(state.get("review_round", 0)) > 0:
+        return "end"
+    return "ask_review"
+
+
 def needs_human(state: State) -> str:
     """Направить на ``ask_human`` только если это действительно нужно.
 
@@ -490,12 +727,34 @@ def plan_node(state: State) -> dict[str, object]:
 
 
 def summary_node(state: State) -> dict[str, object]:
-    """Собрать и экспортировать карточку через тот же план масок, что документ."""
-    from masker.summary import build_summary, export_summary
+    """Совместимый офлайн-узел: поля правил без вызова LLM."""
+    return _summary_node(state, llm=None)
+
+
+def make_summary_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
+    """Собрать summary-узел с LLM вне JSON-состояния LangGraph."""
+
+    if isinstance(deps.llm, FakeProvider):
+        # ``MASKER_LLM=fake`` — офлайн-ворота: нет ни придуманного жанра,
+        # ни синтетического пересказа, и ответ-заглушка не расходуется.
+        return summary_node
+
+    def _node(state: State) -> dict[str, object]:
+        with deps.llm_for_stage("summary") as llm:
+            return _summary_node(state, llm=llm)
+
+    return _node
+
+
+def _summary_node(state: State, llm: LLMProvider | None) -> dict[str, object]:
+    """Собрать части карточки и не дать полям договора попасть в не-договор."""
+    from masker.summary import ContractSummary, analyze_document, build_summary, export_summary
 
     entities = [entity_from_dict(item) for item in state.get("entities", [])]
     profiles = profiles_from_dicts(state.get("profiles", []))
     llm_calls = int(state.get("llm_calls", 0))
+    document = _document(state)
+    analysis = analyze_document(document, profiles, llm)
     # generated_at фиксируется пустой строкой: отчёт должен быть детерминированным
     # (AGENTS.md: «два прогона на одном файле дают побайтово одинаковый отчёт»).
     # Временная метка сборки хранится в артефактах файловой системы, не в отчёте.
@@ -503,11 +762,28 @@ def summary_node(state: State) -> dict[str, object]:
     summary = build_summary(
         entities,
         profiles,
-        llm_calls=llm_calls,
+        llm_calls=llm_calls + analysis.llm_calls,
         generated_at="",
-        document=_document(state),
+        document=document,
     )
-    return {"contract_summary": export_summary(summary, plan_from_dict(state.get("plan", {})))}
+    if analysis.kind.status == "non_contract":
+        # ``not_found`` не доказывает, что условие отсутствует. На документе
+        # другого жанра полей договора нет совсем, а не «ничего не найдено».
+        summary = ContractSummary(
+            brief_summary=analysis.brief_summary,
+            document_kind=analysis.kind,
+            generated_at="",
+            llm_calls=llm_calls + analysis.llm_calls,
+        )
+    else:
+        # Offline/fake-режим намеренно сохраняет поля правил: неизвестный
+        # жанр — техническая неопределённость, а не отрицание договора.
+        summary.brief_summary = analysis.brief_summary
+        summary.document_kind = analysis.kind
+    return {
+        "contract_summary": export_summary(summary, plan_from_dict(state.get("plan", {}))),
+        "summary_llm_calls": analysis.llm_calls,
+    }
 
 
 #: Порядок ролей артефактов — фиксированный, не по обходу множества стилей
@@ -701,12 +977,31 @@ def make_report_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """
 
     def report_node(state: State) -> dict[str, object]:
-        return _build_report_dict(state, llm_trace=deps.tracer is not None)
+        result = _build_report_dict(
+            state,
+            llm_trace=deps.tracer is not None,
+            runtime_available=deps.artifact_dir is not None,
+        )
+        if deps.artifact_dir is None:
+            return result
+        artifacts = list(state.get("artifacts", []))
+        if not any(item.get("role") == "runtime_metrics" for item in artifacts):
+            artifacts.append(
+                {
+                    "role": "runtime_metrics",
+                    "name": RUNTIME_METRICS_NAME,
+                    "path": str(deps.artifact_dir / RUNTIME_METRICS_NAME),
+                    "redacting": False,
+                }
+            )
+        return {**result, "artifacts": artifacts}
 
     return report_node
 
 
-def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
+def _build_report_dict(
+    state: State, *, llm_trace: bool, runtime_available: bool = False
+) -> dict[str, object]:
     document = _document(state)
     entities = [entity_from_dict(item) for item in state.get("entities", [])]
     chunks = build_pii_chunks(document.segments, entities)
@@ -769,6 +1064,12 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
         plan=plan,
         registry=registry,
     )
+    # Секция верификатора приезжает из ``detect_node`` тем же приёмом, что
+    # ``validation``/``leaked`` ниже: узел, который знает факт, кладёт его в
+    # состояние, а отчёт собирает готовое.
+    verifier = state.get("verifier")
+    if verifier:
+        report["verifier"] = verifier
     report["preview_only"] = preview_only
     report["validation"] = state.get(
         "validation", _validation_skipped("preview_only: --redact-style не задан")
@@ -786,6 +1087,9 @@ def _build_report_dict(state: State, *, llm_trace: bool) -> dict[str, object]:
     # сертификат обезличивания читается одним взглядом, не через вложенный
     # validation.certificate (тот же приём, что и layout строкой выше).
     report["certificate"] = report["validation"].get("certificate")
+    report["telemetry"] = report_telemetry(
+        state.get("telemetry"), runtime_available=runtime_available
+    )
     contract_summary = state.get("contract_summary")
     if contract_summary:
         report["contract_summary"] = contract_summary

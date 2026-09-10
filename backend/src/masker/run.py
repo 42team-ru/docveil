@@ -130,6 +130,12 @@ class RunOptions:
     #: Скомпилированные JSON-спеки пользовательских типов. Объекты с
     #: ``re.Pattern`` в State не кладём: они не сериализуются чекпойнтером.
     custom_types: tuple[dict[str, Any], ...] = ()
+    #: Формат вывода для прогонов, начавшихся с картинки:
+    #: ``"original"`` — вернуть JPEG/PNG/TIFF того же расширения, что вход;
+    #: ``"pdf"`` — отдать одностраничный PDF-артефакт как есть. **Входит в
+    #: ``canonical()``**: разные форматы вывода — разные прогоны (API-контракт
+    #: №2 — feat/api-runs). Для не-картиночных входов значение игнорируется.
+    image_output_format: Literal["original", "pdf"] = "original"
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -153,6 +159,7 @@ class RunOptions:
             "llm_config_id": self.llm_config_id,
             "highlight_background": self.highlight_background,
             "custom_types": custom_types,
+            "image_output_format": self.image_output_format,
         }
 
 

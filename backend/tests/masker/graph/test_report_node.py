@@ -137,6 +137,7 @@ def test_report_node_certificate_mirrors_validation_certificate(tmp_path: Path) 
         "leak_scan",
         "metadata_cleared",
         "width_quantization",
+        "image_metadata_stripped",
     }
 
 

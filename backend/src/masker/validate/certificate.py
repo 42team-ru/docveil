@@ -1,7 +1,7 @@
-"""Сертификат обезличивания — три независимые проверки итогового файла (план М3).
+"""Сертификат обезличивания — независимые проверки итогового файла (план М3).
 
-Сертификат — не диагностика, а порог: провал любого из трёх пунктов роняет
-ворота (``masker.eval``), так же безусловно, как ``leaked_total`` или
+Сертификат — не диагностика, а порог: провал любого пункта роняет ворота
+(``masker.eval``), так же безусловно, как ``leaked_total`` или
 ``layout_removed_chars``. Смысл — не «мы обезличили», а «вот доказательство,
 и его можно перепроверить», поэтому каждый пункт даёт человекочитаемый
 ``detail`` независимо от исхода.
@@ -22,6 +22,10 @@
    ``_quantize_erase_rect``/``_free_extension_right``: соседа ищем заново по
    ``page_chars`` источника, а не переиспользуем ту же функцию, которая
    квант посчитала — иначе проверка была бы тавтологией самой себя.
+4. ``image_metadata_stripped`` — только для прогонов, начавшихся с картинки
+   (план feat-image-ingest, инвариант 1). EXIF итоговой картинки обязан
+   содержать только `DPI` (тег 0x011A/0x011B) и `Orientation` (0x0112);
+   всё остальное (`Software`, `Artist`, GPS, ICC, thumbnail, XMP) — провал.
 """
 
 from __future__ import annotations
@@ -86,6 +90,14 @@ _XLSX_SAFE_GENERATED_VALUES: dict[str, frozenset[str]] = {
 #: 0.01pt): здесь сравниваются два независимо посчитанных числа, а не одно и
 #: то же значение с самим собой.
 _NEIGHBOR_TOLERANCE = _GEOMETRY_EPS * 3
+#: Расширения, для которых `image_metadata_stripped` имеет смысл. Список
+#: синхронизирован с `masker.ingest.image_meta.SUPPORTED_SUFFIXES` — не
+#: импортируем оттуда, чтобы certificate/validate/render оставались слоем
+#: над ingest'ом, а не наоборот.
+_IMAGE_SUFFIXES: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".tif", ".tiff"})
+#: EXIF-теги, которые разрешены в итоговой картинке (только они и ничего больше).
+#: 0x0112 — Orientation, 0x011A/B — X/Y Resolution (DPI), 0x0128 — ResolutionUnit.
+_ALLOWED_EXIF_TAGS: frozenset[int] = frozenset({0x0112, 0x011A, 0x011B, 0x0128})
 
 
 def _check_leak_scan(leaked: tuple[Leak, ...], checked_parts: tuple[str, ...]) -> CertificateCheck:
@@ -160,6 +172,10 @@ def _check_metadata_cleared(artifacts: Sequence[Path]) -> CertificateCheck:
             findings.extend(_metadata_findings_docx(artifact))
         elif suffix == ".xlsx":
             findings.extend(_metadata_findings_xlsx(artifact))
+        elif suffix in _IMAGE_SUFFIXES:
+            # У картинок метаданные проверяет отдельный пункт
+            # `image_metadata_stripped` — здесь пропускаем.
+            continue
         else:
             raise ValueError(
                 f"сертификат не умеет проверять метаданные формата {suffix!r}: {artifact}"
@@ -280,6 +296,73 @@ def _check_width_quantization(
     return verify_width_quantization(widths, chars_by_page=chars_by_page)
 
 
+def _image_exif_findings(path: Path) -> list[str]:
+    """Собрать список неразрешённых EXIF/метаданных в готовой картинке.
+
+    Пустой список = метаданные вычищены до `DPI`/`Orientation`, любые
+    другие теги (Software, Artist, GPS, ICC-Profile сцены, thumbnail) —
+    провал сертификата. Функция открывает файл через Pillow — тот же
+    движок, которым его писал `image_export`, что даёт максимально
+    честную реконструкцию содержимого EXIF.
+    """
+    # Ленивый импорт: Pillow тянется в проекте всегда, но модуль
+    # certificate историчeски избегал зависимостей вне PyMuPDF/docx/openpyxl.
+    from PIL import Image
+
+    findings: list[str] = []
+    with Image.open(str(path)) as image:
+        exif = image.getexif()
+        for tag_id in exif:
+            if tag_id not in _ALLOWED_EXIF_TAGS:
+                # Название тега (для читаемости) — из справочника Pillow.
+                # Отсутствующие в справочнике теги показываем как hex.
+                # Импорт локальный: `ExifTags` — часть Pillow.
+                from PIL import ExifTags
+
+                tag_name = ExifTags.TAGS.get(tag_id, f"0x{tag_id:04X}")
+                findings.append(f"{path.name}: EXIF[{tag_name}]={exif.get(tag_id)!r}")
+        # ICC-профиль (PNG iCCP, JPEG APP2 ICC) — тоже метаданные сцены,
+        # не имеющие отношения к DPI/ориентации.
+        icc = image.info.get("icc_profile")
+        if icc:
+            findings.append(f"{path.name}: ICC-профиль не пуст ({len(icc)} байт)")
+        # PNG-фрагменты `tEXt`/`iTXt` — свободные текстовые метаданные.
+        text_meta = image.info.get("Description") or image.info.get("Comment")
+        if text_meta:
+            findings.append(f"{path.name}: текстовые метаданные не пусты: {text_meta!r}")
+    return findings
+
+
+def _check_image_metadata_stripped(artifacts: Sequence[Path]) -> CertificateCheck:
+    """Проверить, что все итоговые картинки очищены до `DPI`+`Orientation`."""
+    image_artifacts = [
+        artifact for artifact in artifacts if artifact.suffix.lower() in _IMAGE_SUFFIXES
+    ]
+    if not image_artifacts:
+        return CertificateCheck(
+            name="image_metadata_stripped",
+            ok=True,
+            detail="не применимо: среди артефактов нет картинок",
+        )
+    findings: list[str] = []
+    for artifact in image_artifacts:
+        findings.extend(_image_exif_findings(artifact))
+    if findings:
+        return CertificateCheck(
+            name="image_metadata_stripped",
+            ok=False,
+            detail=f"{len(findings)} посторонних полей: " + "; ".join(findings),
+        )
+    return CertificateCheck(
+        name="image_metadata_stripped",
+        ok=True,
+        detail=(
+            f"проверено {len(image_artifacts)} картинок — EXIF содержит только"
+            " DPI/Orientation, ICC-профиль и текстовые метаданные пусты"
+        ),
+    )
+
+
 def build_certificate(
     plan: MaskPlan,
     leaked: tuple[Leak, ...],
@@ -288,10 +371,11 @@ def build_certificate(
     *,
     source: Path | None,
 ) -> Certificate:
-    """Собрать сертификат обезличивания из трёх независимых пунктов (план М3)."""
+    """Собрать сертификат обезличивания из независимых пунктов (план М3 + image-ingest)."""
     checks = (
         _check_leak_scan(leaked, checked_parts),
         _check_metadata_cleared(artifacts),
         _check_width_quantization(plan, source, artifacts),
+        _check_image_metadata_stripped(artifacts),
     )
     return Certificate(ok=all(check.ok for check in checks), checks=checks)

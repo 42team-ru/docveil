@@ -295,10 +295,10 @@ def test_check_metadata_cleared_fails_on_dirty_xlsx_creator(tmp_path: pathlib.Pa
     assert "creator" in check.detail
 
 
-# ── build_certificate: конъюнкция трёх пунктов ────────────────────────────────
+# ── build_certificate: конъюнкция независимых пунктов ─────────────────────────
 
 
-def test_build_certificate_ok_only_if_all_three_checks_pass(tmp_path: pathlib.Path) -> None:
+def test_build_certificate_ok_only_if_all_checks_pass(tmp_path: pathlib.Path) -> None:
     path = tmp_path / "clean.docx"
     _make_clean_docx(path)
     from masker.model import MaskPlan
@@ -306,7 +306,16 @@ def test_build_certificate_ok_only_if_all_three_checks_pass(tmp_path: pathlib.Pa
     plan = MaskPlan(replacements=(), groups=(), skipped=(), requested_types=())
     certificate = build_certificate(plan, (), (), [path], source=None)
     assert certificate.ok is True
-    assert len(certificate.checks) == 3
+    # feat-image-ingest добавил 4-й пункт — `image_metadata_stripped`.
+    # На DOCX-артефактах он всегда «не применимо».
+    assert len(certificate.checks) == 4
+    names = {check.name for check in certificate.checks}
+    assert names == {
+        "leak_scan",
+        "metadata_cleared",
+        "width_quantization",
+        "image_metadata_stripped",
+    }
 
 
 def test_build_certificate_fails_if_leak_scan_fails(tmp_path: pathlib.Path) -> None:

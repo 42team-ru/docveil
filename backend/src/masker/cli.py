@@ -44,7 +44,9 @@ DEFAULT_OUTPUT = Path("out") / "inspect"
 EXIT_LEAK = 4
 EXIT_RUN_FAILED = 5
 
-_SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf"})
+_SUPPORTED_SUFFIXES = frozenset(
+    {".docx", ".pdf", ".xlsx", ".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+)
 
 
 def _parse_types(value: str) -> frozenset[EntityType]:
@@ -76,14 +78,7 @@ def _run_options_from_args(
     source: Path,
     interactive: bool,
 ) -> RunOptions:
-    """Опции графа из CLI.
-
-    ``styles``/``preview`` вне ``thread_id`` (T1.10, раздел 4), но фон
-    читаемой маски в нём: разные цвета должны вести к разным артефактам.
-
-    PDF всегда ``profile=False`` (риск R5): человек в цикле и профили для
-    PDF не реализованы (T2.2 покрывает только детекцию).
-    """
+    """Опции графа из CLI. PDF принудительно ``profile=False`` (риск R5, T2.2)."""
     types_tuple = (
         None
         if selected_types == frozenset(EntityType)
@@ -100,6 +95,7 @@ def _run_options_from_args(
         styles=styles_for_redact_option(args.redact_style),
         preview=True,
         highlight_background=args.highlight_background,
+        image_output_format=args.output_format,
     )
 
 
@@ -117,10 +113,8 @@ def _print_questions(outcome: RunOutcome, questions_path: Path) -> None:
         options_text = ", ".join(question["options"])
         print(f"  [{question['id']}] {question['prompt']} — варианты: {options_text}")
     print(f"  файл вопросов: {questions_path}")
-    print(
-        "  для ответа: masker --resume "
-        f"{outcome.thread_id} --answers <файл> --out <тот же --out> --profile"
-    )
+    cmd = f"masker --resume {outcome.thread_id} --answers <файл> --out <--out> --profile"
+    print(f"  для ответа: {cmd}")
 
 
 def _load_answers(path: Path, parser: argparse.ArgumentParser) -> dict[str, str]:
@@ -203,10 +197,7 @@ def _finish(
         trace_jsonl, trace_markdown = trace_paths
         print(f"  LLM-трейс:  {trace_jsonl}")
         print(f"  LLM-трейс (человекочитаемый): {trace_markdown}")
-        print(
-            "  ВНИМАНИЕ: файлы llm-trace содержат исходные PII в открытом виде "
-            "и не предназначены для передачи наружу."
-        )
+        print("  ВНИМАНИЕ: llm-trace содержит исходные PII в открытом виде — не передавать наружу.")
     leaked = _print_leaks(source, report)
     print("ВАЖНО: preview содержит исходный текст и служит только для проверки детектора.")
     return EXIT_LEAK if leaked else 0
@@ -222,13 +213,7 @@ def _start(
     *,
     interactive: bool,
 ) -> int:
-    """Начать прогон файла через граф.
-
-    ``interactive`` — только при ``--ask``/``--answers``: вправе
-    приостановиться на ``ask_human``, ``--fresh`` берётся с CLI как есть.
-    Пакетный прогон нескольких файлов — всегда ``fresh=True`` (T1.10, шаг
-    9), иначе второй прогон того же файла упрётся в ``AlreadyFinishedError``.
-    """
+    """Начать прогон файла. Пакет файлов всегда ``fresh=True`` — иначе AlreadyFinishedError."""
     artifact_dir = args.out / source.stem
     factory = sqlite_checkpointer_factory(_state_db_path(args))
     options = _run_options_from_args(args, selected_types, source=source, interactive=interactive)
@@ -272,17 +257,17 @@ def _start(
         return 10
 
     trace_paths = write_trace(artifact_dir, tracer) if tracer is not None else None
-    return _finish(source, outcome, artifact_dir, args, trace_paths=trace_paths)
+    try:
+        return _finish(source, outcome, artifact_dir, args, trace_paths=trace_paths)
+    finally:
+        # image_intermediate_pdf — tempfile, удаляем после завершения прогона
+        meta = outcome.state.get("meta")
+        if isinstance(meta, dict) and (p := meta.get("image_intermediate_pdf")):
+            Path(str(p)).unlink(missing_ok=True)
 
 
 def _resume(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    """Вторая фаза: прислать ответы на приостановленный прогон.
-
-    Каталог артефактов зависит от имени файла первой фазы (``meta.name``),
-    уже лежащего в чекпойнте на паузе ``ask_human``: читается через
-    ``get_state`` без выполнения узлов, чтобы ``render_node`` внутри
-    ``resume_run`` сразу писал в правильный каталог (T1.10, шаг 9).
-    """
+    """Вторая фаза: ответы. ``meta.name`` читается через ``get_state``, без запуска узлов."""
     if args.answers is None:
         parser.error("--resume требует --answers")
     answers = _load_answers(args.answers, parser)
@@ -372,6 +357,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--fresh", action="store_true", help="удалить тред и начать заново")
     parser.add_argument(
+        "--output-format",
+        choices=["original", "pdf"],
+        default="original",
+        dest="output_format",
+        help="формат вывода для картинок: original — исходный формат, pdf — одностраничный PDF",
+    )
+    parser.add_argument(
         "--unmask-critical",
         action="store_true",
         help="разрешить снятие маски с критичных типов/профилей (первое из двух подтверждений)",
@@ -411,7 +403,8 @@ def main(argv: list[str] | None = None) -> int:
     ]
     if invalid:
         parser.error(
-            "ожидались существующие DOCX или PDF: " + ", ".join(str(path) for path in invalid)
+            "ожидались существующие DOCX/PDF/XLSX/JPG/PNG/TIFF: "
+            + ", ".join(str(path) for path in invalid)
         )
 
     if args.llm_config is not None and not args.profile:

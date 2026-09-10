@@ -1,16 +1,22 @@
 """Выбор поставщика OCR по имени/переменной окружения.
 
 По аналогии с ``masker.llm``: имя провайдера — либо явное (``select_ocr
-("paddle")``), либо из ``MASKER_OCR``, либо дефолт ``fake``. Дефолт
-именно ``fake``, а не ``paddle``: `make gate` в CI обязан работать без
-весов и сети (инвариант «не тащить веса на импорте», см. план
-``docs/plans/T2.3-ocr-paddleocr.md``).
+("rapid")``), либо из ``MASKER_OCR``, либо дефолт ``tesseract``.
 
-Отсутствие пакета движка (например, `paddleocr` не установлен, т.к.
-пользователь не поставил extra `ocr`) поднимается как :class:`OCRError`
-на этапе создания провайдера, а не при первом ``recognize``. Так вызов
-падает сразу, до открытия PDF, — понятно, что чинить (``pip install
-triema-masker[ocr]``).
+Цепочка приоритетов при явно не заданном провайдере:
+  1. ``tesseract`` — дефолт (быстрый, лучший CER/WER на тестовом корпусе).
+  2. ``rapid`` — автоматический фоллбек, если системный tesseract не установлен.
+
+Фоллбек срабатывает **только** когда провайдер не задан ни аргументом, ни
+переменной окружения ``MASKER_OCR``. При явном ``MASKER_OCR=tesseract``
+или ``select_ocr("tesseract")`` ошибка поднимается без фоллбека — иначе
+явный выбор будет тихо проигнорирован.
+
+``fake`` — CI-провайдер без весов и сети; ставить ``MASKER_OCR=fake`` в
+окружении ворот (gate.sh), если системный tesseract недоступен в CI.
+
+Отсутствие пакета движка поднимается как :class:`OCRError` на этапе
+создания провайдера, а не при первом ``recognize``.
 """
 
 from __future__ import annotations
@@ -24,16 +30,21 @@ from masker.ocr.provider import OCRError, OCRProvider
 #: Имя переменной окружения, из которой читается провайдер по умолчанию.
 ENV_VAR: str = "MASKER_OCR"
 
-_DEFAULT: str = "fake"
+_DEFAULT: str = "tesseract"
+_FALLBACK: str = "rapid"
 
 
 def select_ocr(name: str | None = None) -> OCRProvider:
-    """Вернуть провайдер OCR по имени (``name``) или ``MASKER_OCR`` или дефолту ``fake``.
+    """Вернуть провайдер OCR по имени (``name``) или ``MASKER_OCR`` или дефолту ``tesseract``.
 
     Имена нормализуются к нижнему регистру; неизвестное имя — ``OCRError``
-    со списком доступных имён, а не молчаливый фолбэк на ``fake`` (иначе
-    опечатка в переменной окружения тихо отключит настоящий OCR).
+    со списком доступных имён.
+
+    Если имя не задано ни явно, ни через ``MASKER_OCR``, и дефолтный
+    провайдер недоступен (нет системного бинаря) — автоматически
+    пробуется фоллбек ``rapid``.
     """
+    use_fallback = name is None and ENV_VAR not in os.environ
     key = (name if name is not None else os.environ.get(ENV_VAR, _DEFAULT)).strip().casefold()
     factory = _REGISTRY.get(key)
     if factory is None:
@@ -42,7 +53,14 @@ def select_ocr(name: str | None = None) -> OCRProvider:
             f"неизвестный OCR-провайдер {key!r}; доступные: {available}. "
             f"Задать через {ENV_VAR}=<имя> или аргументом select_ocr(name=...)"
         )
-    return factory()
+    try:
+        return factory()
+    except OCRError:
+        if use_fallback and _FALLBACK and key != _FALLBACK:
+            fallback_factory = _REGISTRY.get(_FALLBACK)
+            if fallback_factory is not None:
+                return fallback_factory()
+        raise
 
 
 def _make_fake() -> OCRProvider:

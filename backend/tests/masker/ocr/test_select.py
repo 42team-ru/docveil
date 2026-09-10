@@ -8,13 +8,14 @@ import pytest
 
 from masker.ocr import OCRError, OCRProvider, select_ocr
 from masker.ocr.fake import FakeOCR
+from masker.ocr.tesseract import TesseractOCRProvider
 
 
-def test_default_is_fake_when_env_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Без переменной ``MASKER_OCR`` дефолт — ``FakeOCR``, а не реальный движок."""
+def test_default_is_tesseract_when_env_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Без переменной ``MASKER_OCR`` дефолт — ``TesseractOCRProvider``."""
     monkeypatch.delenv("MASKER_OCR", raising=False)
     provider = select_ocr()
-    assert isinstance(provider, FakeOCR)
+    assert isinstance(provider, TesseractOCRProvider)
     # Runtime-check с Protocol — заодно проверяет, что интерфейс совместим.
     assert isinstance(provider, OCRProvider)
 

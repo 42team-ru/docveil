@@ -20,7 +20,7 @@ CER и WER нормализованного OCR-вывода против нор
   • схлопывание множественных пробелов
   Не трогаем: буквы, цифры, email, ИНН, даты, номера телефонов, адреса.
 
-DPI рендера: 400 (как в scan_ingest.py). Менять через --dpi.
+DPI рендера: 300 (по умолчанию). Менять через --dpi.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ _FIXTURE_DIRS = [
 _REF_DIR = Path("fixtures/non-text-pdfs/TEXTS")
 
 # Провайдеры в порядке скорости (быстрые первыми).
-_ALL_PROVIDERS = ["rapid", "easy", "paddle", "tesseract"]
+_ALL_PROVIDERS = ["rapid", "easy", "tesseract"]
 
 
 # ---------------------------------------------------------------------------
@@ -257,8 +257,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dpi",
         type=int,
-        default=400,
-        help="DPI рендера страниц (default: 400)",
+        default=300,
+        help="DPI рендера страниц (default: 300)",
     )
     parser.add_argument(
         "--out",

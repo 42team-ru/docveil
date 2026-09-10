@@ -18,8 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# uv ставим из официального distroless-образа, версия зафиксирована.
-COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /uvx /bin/
+# uv устанавливается через pip: не нужна аутентификация в ghcr.io.
+RUN pip install --no-cache-dir "uv==0.12.12"
 
 # Образ ставит tesseract-ocr системным пакетом (выше) — значит и объявляет
 # его. Без этой строки выигрывает `provider: fake` из `masker.yaml`, который

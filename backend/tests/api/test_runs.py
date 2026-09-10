@@ -284,6 +284,23 @@ def test_image_output_format_pdf_is_accepted(client: TestClient, storage: Path) 
     assert response.status_code == status.HTTP_202_ACCEPTED
 
 
+def test_run_execution_wires_ocr_provider(client: TestClient, storage: Path, mocker) -> None:
+    """`RunDeps.ocr` не должен оставаться `None` — иначе картинки падают в `extract_node`.
+
+    `ingest_image` требует OCR явно (`ValueError`, если провайдера нет), а
+    CLI собирает `RunDeps` с `ocr=select_ocr()`. Веб обязан делать то же самое
+    (T1.5.1: «веб меняет только вызывающего, а не логику узлов») — этот тест
+    ловит регресс, из-за которого `run_service` строил `RunDeps` без OCR.
+    """
+    select_ocr = mocker.patch(
+        "api.services.run_service.select_ocr", wraps=run_service.select_ocr
+    )
+
+    _create_run(client)
+
+    assert select_ocr.called
+
+
 def test_unknown_run_id_is_404(client: TestClient) -> None:
     assert client.get(f"/api/runs/{uuid.uuid4()}").status_code == status.HTTP_404_NOT_FOUND
 

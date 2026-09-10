@@ -8,7 +8,7 @@ type UnsupportedFormatProps = {
   fileUrl: string;
 };
 
-/** Заглушка для pdf/xlsx — привязка ПДн к этим форматам не входит в эту итерацию. */
+/** Заглушка для pdf — привязка ПДн к этому формату не входит в эту итерацию. */
 export function UnsupportedFormat({ format, fileUrl }: UnsupportedFormatProps) {
   return (
     <EmptyState

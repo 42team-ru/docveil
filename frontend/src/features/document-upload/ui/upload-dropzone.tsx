@@ -52,8 +52,8 @@ export function UploadDropzone() {
           mode="dropzone"
           isMultiple
           label="Загрузите документ"
-          description="Перетащите PDF или DOCX сюда либо выберите файл на компьютере."
-          accept=".pdf,.docx"
+          description="Перетащите PDF, DOCX или XLSX сюда либо выберите файл на компьютере."
+          accept=".pdf,.docx,.xlsx"
           value={items
             .map((item) => (item.source.kind === "file" ? item.source.file : null))
             .filter((file): file is File => file !== null)}

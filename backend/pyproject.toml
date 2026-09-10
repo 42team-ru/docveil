@@ -9,6 +9,9 @@ dependencies = [
     "openpyxl>=3.1",
     "natasha>=1.6",
     "pytesseract>=0.3.13",
+    # RapidOCR — обязательный фоллбек, если системный tesseract недоступен.
+    # Веса скачиваются через paddleocr-extra или вручную в ~/.paddlex/.
+    "rapidocr-onnxruntime>=1.4",
     "pillow>=12",
     "gigachat>=0.1",
     "jsonschema>=4.20",
@@ -62,13 +65,12 @@ gliner = [
 ]
 ocr = [
     # PaddleOCR 3.x — актуальный API (PP-OCRv5/v6). Веса кэшируются в
-    # ~/.paddleocr/ на первый прогон, не в репе. Пакет не тянется в CI:
-    # `make gate` работает через MASKER_OCR=fake, реальный движок нужен
-    # только локально и в приёмочных прогонах.
+    # ~/.paddleocr/ на первый прогон, не в репе. MASKER_OCR=paddle.
     "paddleocr>=3.0",
-    # RapidOCR — альтернативный провайдер без зависимости от paddlepaddle;
-    # использует те же ONNX-веса из кэша PaddleX. MASKER_OCR=rapid.
-    "rapidocr-onnxruntime>=1.4",
+    # EasyOCR (JaidedAI) — альтернативный нейронный движок на PyTorch.
+    # Медленнее tesseract/rapid на CPU. MASKER_OCR=easy.
+    # Веса скачиваются в ~/.EasyOCR/model/.
+    "easyocr>=1.7",
 ]
 
 [project.scripts]

@@ -115,6 +115,35 @@ def pdf_coverage(source: Path, document: Document) -> dict[str, Any]:
     }
 
 
+def image_coverage(source: Path, document: Document) -> dict[str, Any]:
+    """Что из картинки реально обработано — раздел ``document_coverage`` отчёта.
+
+    Одна страница по определению; сегменты приходят из OCR-ветки
+    (``origin="ocr"``). Отличается от ``pdf_coverage`` тем, что заголовок
+    указывает на исходный формат картинки — читать отчёт человеку легче.
+    """
+    ocr_segments = sum(1 for segment in document.segments if segment.origin == "ocr")
+    return {
+        "safe_to_export": False,
+        "image": {
+            "processed": True,
+            "source": document.meta.get("image_source", source.name),
+            "format": document.meta.get("image_format", ""),
+            "width": document.meta.get("image_width", ""),
+            "height": document.meta.get("image_height", ""),
+            "dpi_x": document.meta.get("image_dpi_x", ""),
+            "dpi_y": document.meta.get("image_dpi_y", ""),
+            "orientation": document.meta.get("image_orientation", "1"),
+            "segment_count": len(document.segments),
+            "ocr_segment_count": ocr_segments,
+        },
+        "metadata": {
+            "processed": False,
+            "present_fields": sorted(document.meta),
+        },
+    }
+
+
 def xlsx_coverage(source: Path, document: Document) -> dict[str, Any]:
     """Что из XLSX реально обработано — раздел ``document_coverage`` отчёта.
 

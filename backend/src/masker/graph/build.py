@@ -18,6 +18,7 @@ from masker.graph.nodes import (
     apply_answers_node,
     ask_human_node,
     finalize_node,
+    image_export_node,
     make_detect_node,
     make_extract_node,
     make_judge_node,
@@ -60,6 +61,7 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     graph.add_node("summary", summary_node)
     graph.add_node("render", make_render_node(deps))
     graph.add_node("validate", validate_node)
+    graph.add_node("image_export", image_export_node)
     graph.add_node("report", make_report_node(deps))
 
     graph.add_edge(START, "extract")
@@ -78,7 +80,12 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     graph.add_edge("plan", "summary")
     graph.add_edge("summary", "render")
     graph.add_edge("render", "validate")
-    graph.add_edge("validate", "report")
+    # `image_export` идёт **после** валидации: побайтовая проверка «нет
+    # исходной строки» выполняется на PDF-артефакте (инвариант 2 плана
+    # feat-image-ingest.md — JPEG после пересжатия побайтово другой), а
+    # уже потом PDF-артефакты подменяются картинками нужного формата.
+    graph.add_edge("validate", "image_export")
+    graph.add_edge("image_export", "report")
     graph.add_edge("report", END)
     return graph
 

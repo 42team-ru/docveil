@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "document_file": "hse-2013-contract-157.pdf",
+  "source": {
+    "publication_page": "https://busedu.hse.ru/data/2016/02/02/1136695496/%D0%93%D0%BE%D1%81.%20%D0%BA%D0%BE%D0%BD%D1%82%D1%80%D0%B0%D0%BA%D1%82%20%E2%84%96%20157%20%D0%BE%D1%82%2002.09.2013.pdf",
+    "download_url": "https://busedu.hse.ru/data/2016/02/02/1136695496/%D0%93%D0%BE%D1%81.%20%D0%BA%D0%BE%D0%BD%D1%82%D1%80%D0%B0%D0%BA%D1%82%20%E2%84%96%20157%20%D0%BE%D1%82%2002.09.2013.pdf",
+    "official_source": true,
+    "acquisition_basis": "Officially published procurement/contract record; no third-party archive used."
+  },
+  "contract": {
+    "procurement_law": "unspecified",
+    "type": "state contract",
+    "source_card_status": "No EIS contract-card JSON was retrievable in this pass; the complete text extracted from the official published document is retained below. Values not present in the source are deliberately not inferred."
+  },
+  "file_verification": {
+    "sha256": "9a052f825bad3e1b0ace4076b7f173d57d9a8b13c61250cbdaf5245daa05fb29",
+    "format": "PDF",
+    "page_count": 9,
+    "has_text_layer": false,
+    "extracted_text_bytes": 9
+  },
+  "extracted_document_text": "\f\f\f\f\f\f\f\f\f"
+}

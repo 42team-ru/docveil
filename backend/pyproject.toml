@@ -36,6 +36,7 @@ dependencies = [
     # pymorphy3 (не использует pkg_resources) или когда pymorphy2 сам
     # перестанет его импортировать.
     "setuptools<81",
+    "textual>=6.6",
 ]
 
 [project.optional-dependencies]
@@ -94,6 +95,7 @@ markers = [
     "e2e: ходит в сеть (настоящий GigaChat, живые модели). Отобрать: pytest -m e2e",
     "models: использует настоящие локальные модели (natasha). Отобрать: pytest -m models",
     "gliner: использует локальные веса GLiNER2. Отобрать: pytest -m gliner",
+    "asyncio: асинхронный тест (pytest-asyncio в строгом режиме)",
     "private: работает на реальных документах из fixtures/private. Отобрать: pytest -m private",
     "ocr: использует настоящий OCR-движок (PaddleOCR/Tesseract). Отобрать: pytest -m ocr",
 ]

@@ -307,6 +307,13 @@ def _resume(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    command_args = sys.argv[1:] if argv is None else argv
+    if command_args and command_args[0] == "tui":
+        # Textual и весь интерфейс намеренно остаются вне CLI: этот модуль
+        # продолжает быть тонким вызывающим для пакетного сценария.
+        from masker.tui import launch_tui
+
+        return launch_tui()
     parser = build_parser()
     args = parser.parse_args(argv)
 

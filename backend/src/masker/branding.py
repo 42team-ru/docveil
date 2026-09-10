@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import sys
 
-__all__ = ["PRODUCT", "TAGLINE", "banner", "logo_lines"]
+__all__ = ["PRODUCT", "TAGLINE", "banner", "logo_lines", "wordmark_lines"]
 
 #: Имя продукта. Внутреннее имя пакета (`masker`) намеренно не трогаем:
 #: переименование пакета задевает каждый импорт в проекте и ничего не даёт
@@ -133,8 +133,137 @@ def logo_lines(colour: bool = True) -> list[str]:
     return lines
 
 
-def banner(colour: bool | None = None) -> str:
-    """Логотип с именем продукта сбоку — заставка запуска."""
+#: Начертание имени продукта: та же техника, что у щита — пиксели, а не
+#: набранные вручную строки псевдографики. Заглавные высотой десять пикселей,
+#: строчные — семь, посаженные на общую базовую линию: иначе «DocVeil»
+#: рассыпается на буквы разного роста и перестаёт читаться как одно слово.
+_GLYPHS: dict[str, tuple[str, ...]] = {
+    "D": (
+        "██████ ",
+        "██   ██",
+        "██    █",
+        "██    █",
+        "██    █",
+        "██    █",
+        "██    █",
+        "██    █",
+        "██   ██",
+        "██████ ",
+    ),
+    "o": (
+        "      ",
+        "      ",
+        "      ",
+        " ████ ",
+        "██  ██",
+        "██  ██",
+        "██  ██",
+        "██  ██",
+        "██  ██",
+        " ████ ",
+    ),
+    "c": (
+        "      ",
+        "      ",
+        "      ",
+        " ████ ",
+        "██  ██",
+        "██    ",
+        "██    ",
+        "██    ",
+        "██  ██",
+        " ████ ",
+    ),
+    "V": (
+        "██   ██",
+        "██   ██",
+        "██   ██",
+        "██   ██",
+        "██   ██",
+        " ██ ██ ",
+        " ██ ██ ",
+        "  ███  ",
+        "  ███  ",
+        "   █   ",
+    ),
+    "e": (
+        "      ",
+        "      ",
+        "      ",
+        " ████ ",
+        "██  ██",
+        "██  ██",
+        "██████",
+        "██    ",
+        "██  ██",
+        " ████ ",
+    ),
+    "i": (
+        "██",
+        "██",
+        "  ",
+        "██",
+        "██",
+        "██",
+        "██",
+        "██",
+        "██",
+        "██",
+    ),
+    "l": (
+        "██",
+        "██",
+        "██",
+        "██",
+        "██",
+        "██",
+        "██",
+        "██",
+        "██",
+        "██",
+    ),
+}
+
+#: Ширина имени в столбцах вместе с пробелами между буквами.
+WORDMARK_WIDTH = sum(len(_GLYPHS[ch][0]) for ch in PRODUCT) + len(PRODUCT) - 1
+
+
+def wordmark_lines(colour: bool = True) -> list[str]:
+    """Имя продукта крупными буквами — пять строк терминала."""
+    rows = [""] * 10
+    for index, char in enumerate(PRODUCT):
+        glyph = _GLYPHS[char]
+        gap = " " if index else ""
+        rows = [row + gap + glyph[y] for y, row in enumerate(rows)]
+
+    lines: list[str] = []
+    for y in range(0, 10, 2):
+        parts: list[str] = []
+        for x in range(len(rows[0])):
+            top = rows[y][x] != " "
+            bottom = rows[y + 1][x] != " " if y + 1 < 10 else False
+            if not colour:
+                # Полублоки, а не сплошной «█»: без них «e» и «o» слипаются
+                # в одинаковые кирпичи и слово перестаёт читаться.
+                parts.append("█" if top and bottom else "▀" if top else "▄" if bottom else " ")
+            elif top and bottom:
+                parts.append("\033[38;2;{};{};{}m█\033[0m".format(*STEEL))
+            elif top:
+                parts.append("\033[38;2;{};{};{}m▀\033[0m".format(*STEEL))
+            elif bottom:
+                parts.append("\033[38;2;{};{};{}m▄\033[0m".format(*STEEL))
+            else:
+                parts.append(" ")
+        lines.append("".join(parts))
+    return lines
+
+
+def banner(colour: bool | None = None, width: int | None = None) -> str:
+    """Логотип с именем продукта сбоку — заставка запуска.
+
+    В узком терминале имя набирается обычным текстом: крупные буквы,
+    перенесённые на следующую строку, выглядят хуже отсутствия крупных букв.
+    """
     use = _use_colour() if colour is None else colour
     art = logo_lines(use)
     accent = "\033[38;2;{};{};{}m".format(*STEEL) if use else ""
@@ -142,15 +271,26 @@ def banner(colour: bool | None = None) -> str:
     dim = "\033[2m" if use else ""
     reset = "\033[0m" if use else ""
 
-    side = ["", f"{bright}{accent}{PRODUCT}{reset}", f"{dim}{TAGLINE}{reset}", ""]
-    while len(side) < len(art):
-        side.append("")
-    top = (len(art) - 4) // 2
-    side = [""] * top + side[:4] + [""] * (len(art) - 4 - top)
+    columns = width if width is not None else _terminal_width()
+    roomy = columns >= _W + 2 + max(WORDMARK_WIDTH, len(TAGLINE))
+    if roomy:
+        side = [*wordmark_lines(use), "", f"{dim}{TAGLINE}{reset}"]
+    else:
+        side = [f"{bright}{accent}{PRODUCT}{reset}", f"{dim}{TAGLINE}{reset}"]
+
+    top = max(0, (len(art) - len(side)) // 2)
+    side = [""] * top + side + [""] * max(0, len(art) - len(side) - top)
 
     return "\n".join(
-        f"{art_line}  {text}".rstrip() for art_line, text in zip(art, side, strict=True)
+        f"{art_line}  {text}".rstrip() for art_line, text in zip(art, side[: len(art)], strict=True)
     )
+
+
+def _terminal_width(default: int = 80) -> int:
+    try:
+        return os.get_terminal_size().columns
+    except OSError:
+        return default
 
 
 if __name__ == "__main__":  # pragma: no cover — ручной просмотр логотипа

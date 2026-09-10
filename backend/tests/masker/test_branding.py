@@ -14,10 +14,11 @@ def test_banner_without_colour_has_no_ansi() -> None:
     Вывод прогонов читают глазами и грепают; тринадцать строк ANSI в начале
     лога делают и то, и другое невозможным.
     """
-    plain = branding.banner(colour=False)
+    for columns in (60, 100):
+        plain = branding.banner(colour=False, width=columns)
 
-    assert "\033[" not in plain
-    assert branding.PRODUCT in plain
+        assert "\033[" not in plain
+        assert branding.TAGLINE in plain
 
 
 def test_banner_with_colour_uses_truecolor_from_the_logo() -> None:
@@ -51,3 +52,25 @@ def test_logo_silhouette_narrows_to_a_point() -> None:
     # Монотонное сужение начиная с плеч — иначе силуэт «дребезжит».
     tail = width[len(width) // 2 :]
     assert all(later <= earlier for earlier, later in pairwise(tail))
+
+
+def test_wordmark_spells_the_product_name() -> None:
+    """Крупное начертание — это имя продукта, а не абстрактный узор."""
+    lines = branding.wordmark_lines(colour=False)
+
+    assert len(lines) == 5
+    assert max(len(line) for line in lines) == branding.WORDMARK_WIDTH
+    # Заглавная «D» начинается с самой первой колонки, строчные — ниже
+    # базовой линии заглавных: слово обязано стоять на одной строке.
+    assert lines[0].startswith("█")
+    assert lines[0][8:14].strip() == ""
+
+
+def test_narrow_terminal_falls_back_to_plain_name() -> None:
+    """Крупные буквы, переносящиеся на следующую строку, хуже их отсутствия."""
+    narrow = branding.banner(colour=False, width=60)
+    wide = branding.banner(colour=False, width=100)
+
+    assert branding.PRODUCT in narrow
+    assert branding.PRODUCT not in wide  # там имя нарисовано, а не написано
+    assert branding.TAGLINE in narrow and branding.TAGLINE in wide

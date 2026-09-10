@@ -71,7 +71,7 @@ _STYLES_BY_MASK_STYLE: dict[str, tuple[str, ...]] = {
 }
 
 #: Форматы, которые умеет ingest движка (`masker.cli._SUPPORTED_SUFFIXES`).
-SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf"})
+SUPPORTED_SUFFIXES = frozenset({".docx", ".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff"})
 
 
 class UnsupportedFormatError(Exception):
@@ -127,6 +127,7 @@ def _run_options(request: RunCreateRequest, document_format: str) -> RunOptions:
         preview=True,
         review=request.review,
         custom_types=tuple(request.custom_types),
+        image_output_format=request.image_output_format,
     )
 
 

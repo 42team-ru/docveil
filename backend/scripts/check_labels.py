@@ -16,8 +16,8 @@
 сущность есть в документе, но не размечена, здесь это не видно — для
 полноты нужен человек либо второй независимый проход.
 
-    python scripts/check_labels.py fixtures/real/open-contracts
-    python scripts/check_labels.py fixtures/real/open-contracts --fix
+    python scripts/check_labels.py fixtures/real-contracts/open-contracts
+    python scripts/check_labels.py fixtures/real-contracts/open-contracts --fix
 """
 
 from __future__ import annotations

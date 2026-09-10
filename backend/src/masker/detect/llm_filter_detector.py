@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -22,7 +23,9 @@ from masker.typeconfig import CustomTypeError, CustomTypeSpec
 #: Бюджет обращений к LLM на документ (design notes T1.13, раздел 2.7).
 #: Считается по числу *уникальных* пар (тип, нормализованное значение), не
 #: по числу вхождений — иначе один и тот же номер, повторённый в футере на
-#: каждой странице, исчерпывал бы бюджет сам по себе.
+#: каждой странице, исчерпывал бы бюджет сам по себе. Исключение — два
+#: одинаковых кандидата в одном сегменте: это могут быть разные роли, и их
+#: нельзя склеивать до решения LLM.
 MAX_LLM_FILTER_CALLS_PER_DOCUMENT = 500
 
 #: Окно контекста вокруг кандидата, в символах в каждую сторону — тот же
@@ -36,8 +39,9 @@ CONTEXT_WINDOW_CHARS = 80
 LLM_FILTER_CONFIDENCE = 0.7
 
 _SYSTEM_PROMPT = (
-    "Тебе показан кандидат на персональные/платёжные данные, найденный регулярным "
-    "выражением, и окно текста документа вокруг него. Верни ровно один JSON-объект "
+    "Тебе показан кандидат, найденный регулярным выражением, описание искомого типа "
+    "и окно текста документа вокруг конкретного вхождения. Кандидат внутри окна "
+    "выделен символами ⟦ и ⟧. Верни ровно один JSON-объект "
     'без пояснений: {"mask": true} — если это настоящее значение искомого типа и его '
     'нужно замаскировать, {"mask": false} — если это похожий, но нерелевантный текст '
     "(ложное совпадение регулярки, например номер из другого контекста)."
@@ -52,6 +56,7 @@ class _Candidate:
     end: int
     text: str
     context: str
+    context_start: int
 
 
 class LlmFilterDetector:
@@ -106,6 +111,7 @@ class LlmFilterDetector:
                             end=match.end(),
                             text=match.group(),
                             context=segment.text[window_start:window_end],
+                            context_start=window_start,
                         )
                     )
         return found
@@ -124,18 +130,25 @@ def _key(candidate: _Candidate) -> tuple[str, str]:
     return candidate.spec.spec.id, normalize_value(candidate.spec.spec.id, candidate.text)
 
 
-def _group_by_key(candidates: Sequence[_Candidate]) -> dict[tuple[str, str], list[_Candidate]]:
-    grouped: dict[tuple[str, str], list[_Candidate]] = {}
+def _group_by_key(candidates: Sequence[_Candidate]) -> dict[tuple[str, ...], list[_Candidate]]:
+    """Сгруппировать повторы, не склеивая две одинаковые роли в одном тексте."""
+    repeated_in_segment = Counter((_key(item), item.segment_order) for item in candidates)
+    grouped: dict[tuple[str, ...], list[_Candidate]] = {}
     for candidate in candidates:
-        grouped.setdefault(_key(candidate), []).append(candidate)
+        base_key = _key(candidate)
+        key: tuple[str, ...] = base_key
+        if repeated_in_segment[base_key, candidate.segment_order] > 1:
+            key = (*key, str(candidate.segment_order), str(candidate.start), str(candidate.end))
+        grouped.setdefault(key, []).append(candidate)
     return grouped
 
 
 def _build_messages(candidate: _Candidate) -> list[Message]:
     payload = {
         "type": candidate.spec.spec.id,
+        "type_description": candidate.spec.description or candidate.spec.spec.title,
         "candidate": candidate.text,
-        "context": candidate.context,
+        "context": _marked_context(candidate),
     }
     return [
         Message("system", _SYSTEM_PROMPT),
@@ -143,6 +156,15 @@ def _build_messages(candidate: _Candidate) -> list[Message]:
             "user", json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         ),
     ]
+
+
+def _marked_context(candidate: _Candidate) -> str:
+    """Выделить именно это вхождение, когда одинаковая строка встречается дважды."""
+    relative_start = candidate.start - candidate.context_start
+    relative_end = relative_start + len(candidate.text)
+    return (
+        f"{candidate.context[:relative_start]}⟦{candidate.text}⟧{candidate.context[relative_end:]}"
+    )
 
 
 def _parse_decision(raw: str) -> bool:

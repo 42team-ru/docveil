@@ -22,6 +22,7 @@ from masker.ingest.docx_ingest import (
     count_skipped_body_blocks,
     iter_body_blocks,
 )
+from masker.ingest.xlsx_ingest import PART_CELL
 from masker.model import Document
 
 WORD_TEXT_TAG = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
@@ -112,6 +113,43 @@ def pdf_coverage(source: Path, document: Document) -> dict[str, Any]:
             "present_fields": sorted(document.meta),
         },
     }
+
+
+def xlsx_coverage(source: Path, document: Document) -> dict[str, Any]:
+    """Что из XLSX реально обработано — раздел ``document_coverage`` отчёта.
+
+    Один сегмент XLSX соответствует непустой ячейке, поэтому число сегментов
+    одновременно показывает число проверенных отображаемых значений. Формулы
+    учитываются отдельно: ingest читает только их кэш, а рендер обезвреживает
+    зависимости от замаскированных ячеек.
+    """
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(str(source), data_only=False, read_only=True)
+    try:
+        formula_count = sum(
+            cell.data_type == "f"
+            for sheet in workbook.worksheets
+            for row in sheet.iter_rows()
+            for cell in row
+        )
+        return {
+            "safe_to_export": False,
+            "sheets": {"processed": True, "count": len(workbook.sheetnames)},
+            "cells": {
+                "processed": True,
+                "segment_count": len(document.segments),
+                "anchor_part": PART_CELL,
+            },
+            "formulas": {
+                "processed": True,
+                "count": formula_count,
+                "note": "Зависимые от маски ячейки заменяются заглушкой.",
+            },
+            "metadata": {"processed": False, "present_fields": sorted(document.meta)},
+        }
+    finally:
+        workbook.close()
 
 
 def detection_coverage(

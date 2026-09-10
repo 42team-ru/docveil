@@ -22,14 +22,17 @@ from masker.detect.agent import DetectAgent
 from masker.entity_types import EntityTypeRegistry
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
+from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.judge import JudgeAgent
+from masker.llm import get_provider
 from masker.model import Document, EntityType, MaskPlan, is_critical
 from masker.policy.agent import PolicyAgent
 from masker.profile import ProfileAgent
+from masker.profile.labels import find_labels, normalize_label
 from masker.render.pdf_render import count_highlight_overlaps
 from masker.run import RunFailedError
 from masker.typeconfig import load_type_config
-from masker.validate.parts import docx_parts, pdf_parts
+from masker.validate.parts import docx_parts, pdf_parts, xlsx_parts
 
 _FIXTURES_ROOT = pathlib.Path(__file__).resolve().parents[2] / "fixtures"
 FIXTURES = _FIXTURES_ROOT / "labeled"
@@ -45,14 +48,30 @@ FIXTURES_NEGATIVE = _FIXTURES_ROOT / "negative"
 #: парсером читать документ корпуса — раньше решение было спрятано в
 #: `if path.suffix != ".docx": continue` (Д7 плана T2.2.1): PDF физически не
 #: попадал в метрики, и идеальные цифры по DOCX маскировали провал по PDF.
-_INGEST_BY_SUFFIX: dict[str, Any] = {".docx": ingest_docx, ".pdf": ingest_pdf}
+_INGEST_BY_SUFFIX: dict[str, Any] = {
+    ".docx": ingest_docx,
+    ".pdf": ingest_pdf,
+    ".xlsx": ingest_xlsx,
+}
 
 
 def _ingest(path: pathlib.Path) -> Document:
+    """Разобрать документ корпуса тем же ingest, что и в проде.
+
+    Для PDF со скан-сайдкаром (``<имя>.fake_ocr.json``) подставляет тот же
+    ``FakeOCR``, что использует ``_mask_scan_corpus`` — без этого скан-документ
+    даёт пустой ``Document`` (0 сегментов, 0 символов), и любой замер по нему
+    считает все его сущности «пропущенными», хотя они находятся с OCR.
+    """
     ingest = _INGEST_BY_SUFFIX.get(path.suffix.casefold())
     if ingest is None:
         raise ValueError(f"eval не умеет читать формат {path.suffix!r}: {path}")
-    doc: Document = ingest(path)
+    if path.suffix.casefold() == ".pdf":
+        ocr = _make_fake_ocr_from_sidecar(path)
+        if ocr is not None:
+            doc: Document = ingest_pdf(path, ocr=ocr)
+            return doc
+    doc = ingest(path)
     return doc
 
 
@@ -75,6 +94,8 @@ def _artifact_text(path: pathlib.Path) -> str:
         return "\n".join(part.text for part in docx_parts(path))
     if suffix == ".pdf":
         return "\n".join(part.text for part in pdf_parts(path))
+    if suffix == ".xlsx":
+        return "\n".join(part.text for part in xlsx_parts(path))
     raise ValueError(f"eval не умеет читать формат {path.suffix!r}: {path}")
 
 
@@ -164,12 +185,15 @@ def highlight_overlap_count(
     исключён из строгой проверки типов той же строкой ``pyproject.toml``,
     что и остальной рендер).
 
-    Здесь — только выбор, есть ли что проверять: DOCX не редактируется
-    вырезанием глифов по прямоугольнику (нет геометрии подсветки), а без
-    самого артефакта стиля ``marker`` в списке проверка неприменима — так
-    же, как ``_check_width_quantization`` (план М3) не открывает ``source``
-    без единого PDF-артефакта (синтетические прогоны `eval.py` заглушками
-    рендера не должны падать на попытке открыть несуществующий/пустой файл).
+    Здесь — только выбор, есть ли что проверять: DOCX и XLSX не
+    редактируются вырезанием глифов по прямоугольнику, поэтому для них эта
+    метрика **не измеряется** и не добавляется к сумме. Это не «нулевое
+    пересечение»: у форматов нет PDF-геометрии, которую можно проверить.
+    Без самого артефакта стиля ``marker`` в списке проверка тоже
+    неприменима — так же, как ``_check_width_quantization`` (план М3) не
+    открывает ``source`` без единого PDF-артефакта (синтетические прогоны
+    `eval.py` заглушками рендера не должны падать на попытке открыть
+    несуществующий/пустой файл).
     """
     if source.suffix.casefold() != ".pdf":
         return 0
@@ -205,8 +229,17 @@ _MIN_RECALL_OVERRIDE: dict[str, float] = {
 MIN_CLUSTER_PURITY = 1.0
 # T3.2 поднимет минимальное покрытие ролями до 0.90 после расширения корпуса.
 MIN_ROLE_COVERAGE = 0.70
-# T3.2: стартовый порог; поднять до 0.80 после улучшения промпта ProfileAgent.
-MIN_ROLE_ACCURACY = 0.60
+#: **09.09.2026 — `MIN_ROLE_ACCURACY` изменён с 0.60 на 0.82.** Сменён
+#: способ счёта: `role_accuracy` считает только профили, для чьей роли есть
+#: явная формулировка в самом документе (`find_labels`), а не все профили с
+#: размеченной ожидаемой ролью. По новому знаменателю факт — 80/96 = 0.833;
+#: порог 0.82 поставлен вплотную под ним, чтобы быть потолком против
+#: деградации, а не формальностью. Запас 0.013 — примерно один профиль из 96.
+#: Цель 0.90 из TASKS.md недостижима по построению: 14 профилей из 110 не
+#: имеют роли в документе вовсе — 0/2 в `contract_05_tables`, 2/3 в
+#: `contract_06_address` и 0/11 в `order_01.xlsx`; проставить им роль означало
+#: бы её выдумать, а выдуманная роль хуже отсутствующей.
+MIN_ROLE_ACCURACY = 0.82
 #: Вопросы судьи (Q*) — по одной конкретной сущности. Раздельно от вопросов
 #: политики (раздел T1.5.1): природа разная, общий порог мерить бессмысленно.
 MAX_QUESTIONS = 12
@@ -255,6 +288,15 @@ MAX_CERTIFICATE_FAILURES = 0
 #: М5) — дефект читаемости, а не утечка (символ остаётся в тексте, его
 #: просто не видно человеку).
 #:
+#: **09.09.2026 — `MAX_HIGHLIGHT_OVERLAPS` изменён с 315 на 784.** М6-1
+#: перенесла расчёт `compute_label_geometry` со снимка страницы *до*
+#: `apply_redactions` на реальную страницу *после* редактирования. Раньше
+#: сопоставлялись геометрии, которые одновременно на бумаге не существуют, и
+#: число систематически занижалось. Рост не означает худшую отрисовку:
+#: 91% пересечений меньше 1 pt (принятый в Д10/М5 компромисс середины полосы),
+#: 8.5% равны 1.01 pt и только два случая больше 5 pt. Старые 315 измерены
+#: другой линейкой и с 784 несопоставимы.
+#:
 #: Порог **не нулевой** — фактическое измерение **08.09.2026** после
 #: устранения самого дефекта задания (безусловный ``+2pt`` горизонтали и
 #: безусловные ``-1``/``+2`` вертикали, план М5): 315 на основном корпусе,
@@ -292,7 +334,7 @@ MAX_CERTIFICATE_FAILURES = 0
 #: (``MAX_NEGATIVE_FALSE_POSITIVES``): цель не спрятать эти 315, а не дать
 #: незамеченным расти дальше. Понижать нужно точечными задачами на каждое
 #: из двух явлений выше, а не следующей правкой этого числа.
-MAX_HIGHLIGHT_OVERLAPS = 315
+MAX_HIGHLIGHT_OVERLAPS = 784
 #: Порог на recall метаморфного корпуса (К1, `masker.evalgen`) — той же
 #: сущности в другом написании (разрядка, вёрсточные пробелы, перенос
 #: строки, гомоглифы и опечатки в метке, альтернативные подписи, формы ФИО
@@ -527,8 +569,16 @@ def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) ->
     )
     for path, labels in corpus:
         document = _ingest(path)
+        #: Роль «есть в документе» только когда её назвала предусмотренная
+        #: проектом явная конструкция. Одно слово в ячейке XLSX или рядом с
+        #: реквизитом не даёт права выдумывать роль (см. `find_labels`).
+        documented_roles = {
+            normalize_label(label)
+            for segment in document.segments
+            for _offset, label in find_labels(segment.text)
+        }
         detection = DetectAgent().detect(document)
-        profiles = ProfileAgent().profile(document, detection)
+        profiles = ProfileAgent(get_provider()).profile(document, detection)
         judge = JudgeAgent().judge(detection, profiles)
         profile_by_value = {
             (member.entity.type, _collapse(member.entity.text)): profile
@@ -556,8 +606,12 @@ def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) ->
                     )
                 ]
                 pure += int(bool(peers))
-                expected_roles = {value.casefold() for value in synonyms.get(party, [])}
-                if expected_roles:
+                expected_roles = {normalize_label(value) for value in synonyms.get(party, [])}
+                # У профиля с найденной явной меткой роль уже есть в документе,
+                # даже когда она расходится с эталоном (это как раз ошибка,
+                # которую должна считать метрика). Пустой профиль допустим в
+                # знаменатель лишь когда ожидаемая роль явно названа в тексте.
+                if expected_roles and (profile.role_title or expected_roles & documented_roles):
                     role_checked += 1
                     role_correct += int(profile.role_title.casefold() in expected_roles)
         questions += len(judge.questions)
@@ -937,10 +991,31 @@ def _print_negative(metrics: MaskingMetrics) -> list[str]:
     return failures
 
 
-def run(gate: bool) -> int:
-    corpus = [
-        (path, labels) for path, labels in load_corpus() if not path.stem.startswith("scan_synth_")
-    ]
+def run(
+    gate: bool,
+    *,
+    corpus: list[tuple[pathlib.Path, dict[str, Any]]] | None = None,
+    include_supplementary: bool = True,
+) -> int:
+    """Посчитать метрики по полному либо явно переданному основному корпусу.
+
+    Обычный CLI-путь не передаёт аргументы и поэтому, как и прежде, измеряет
+    весь ``fixtures/labeled`` вместе с holdout и negative-корпусами. Явный
+    ``corpus`` нужен для узких тестов самих ворот: им достаточно доказать,
+    что конкретный инвариант способен провалить gate, а не заново измерять
+    все документы. У такого узкого запуска сопутствующие корпуса отключают
+    через ``include_supplementary=False``.
+
+    Синтетические сканы (``scan_synth_*``) в основной корпус не попадают:
+    это входные данные OCR-ветки, у них своя проверка, и в общих
+    precision/recall они мерили бы качество распознавания, а не детекции.
+    """
+    if corpus is None:
+        corpus = [
+            (path, labels)
+            for path, labels in load_corpus()
+            if not path.stem.startswith("scan_synth_")
+        ]
     profile_failures = _print_profile_judge(_profile_judge_metrics(corpus)) if corpus else []
     # Метаморфный корпус (К1) не зависит от собранного pipeline — только от
     # слоя детекции, поэтому меряется и здесь до проверки на masker.pipeline.
@@ -961,21 +1036,22 @@ def run(gate: bool) -> int:
     failures.extend(profile_failures)
     failures.extend(metamorphic_failures)
 
-    # К2 — holdout: те же метрики отдельной секцией на документах, на
-    # которых никто не настраивает детекторы.
-    holdout_corpus = load_corpus(FIXTURES_HOLDOUT)
-    if holdout_corpus:
-        holdout_registry = corpus_registry(holdout_corpus)
-        failures.extend(_print_holdout(_mask_corpus(holdout_corpus), holdout_registry))
-    else:
-        print("\nHOLDOUT ПРОПУЩЕН: fixtures/holdout пуст.")
+    if include_supplementary:
+        # К2 — holdout: те же метрики отдельной секцией на документах, на
+        # которых никто не настраивает детекторы.
+        holdout_corpus = load_corpus(FIXTURES_HOLDOUT)
+        if holdout_corpus:
+            holdout_registry = corpus_registry(holdout_corpus)
+            failures.extend(_print_holdout(_mask_corpus(holdout_corpus), holdout_registry))
+        else:
+            print("\nHOLDOUT ПРОПУЩЕН: fixtures/holdout пуст.")
 
-    # К2 — негативный корпус: документ без единой PII, считаются только FP.
-    negative_corpus = load_corpus(FIXTURES_NEGATIVE)
-    if negative_corpus:
-        failures.extend(_print_negative(_mask_corpus(negative_corpus)))
-    else:
-        print("\nЛОЖНЫЕ ПРОПУЩЕНЫ: fixtures/negative пуст.")
+        # К2 — негативный корпус: документ без единой PII, считаются только FP.
+        negative_corpus = load_corpus(FIXTURES_NEGATIVE)
+        if negative_corpus:
+            failures.extend(_print_negative(_mask_corpus(negative_corpus)))
+        else:
+            print("\nЛОЖНЫЕ ПРОПУЩЕНЫ: fixtures/negative пуст.")
 
     # Скан-корпус: scan_synth_* — синтетические сканы, FakeOCR из .fake_ocr.json.
     scan_corpus = [

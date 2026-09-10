@@ -12,6 +12,19 @@
 своей реакции: одни ретраятся, другие — нет) и `finish_reason=blacklist`
 как отдельный исход, который нельзя путать с пустым ответом.
 
+GigaChat работает через сертификаты Минцифры России, которых обычно нет в
+стандартном системном хранилище доверенных корневых сертификатов. Без них
+любой запрос падает на этапе TLS-рукопожатия:
+`httpx.ConnectError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify
+failed: self-signed certificate in certificate chain`. Правильное решение —
+указать доверенный корневой сертификат явно через `ca_bundle_file`
+(параметр `GigaChat.__init__`, путь к уже имеющемуся у пользователя
+`.pem`/`.cer`-файлу; переменная окружения `MASKER_LLM_GIGACHAT_CA_BUNDLE`,
+см. `.env.example`), а не отключать проверку TLS целиком. Отключение
+(`verify_ssl_certs=False`) недоступно как удобный путь по умолчанию — см.
+ниже, почему проект вообще не берёт этот пример из документации Сбера;
+включить его можно только явно через одноимённый параметр конструктора.
+
 Пакет `gigachat` уже реализует всё перечисленное и проверен библиотекой
 кода Сбера: кэширование и автообновление access-токена
 (`GigaChatSyncClient._is_token_usable` / `_update_token`), генерацию `RqUID`
@@ -38,13 +51,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from gigachat import GigaChat
 from gigachat.exceptions import GigaChatException, ResponseError
 
-from masker.llm.base import LLMError, Message
+from masker.llm.base import LLMError, LLMUsage, Message
 
 DEFAULT_SCOPE = "GIGACHAT_API_PERS"
+
+# Документация Сбера про параметр `temperature`: "Когда температура меньше
+# 0.001, включается режим строгого контроля, дающий одинаковые ответы."
+# Обе роли, где используется GigaChat в проекте (ProfileAgent — определение
+# роли стороны договора, верификатор Р7 — поиск пропущенных персональных
+# данных), извлекают факты, а не сочиняют текст: разнообразие ответов только
+# вредит и ломает инвариант побайтовой воспроизводимости отчёта (кассеты
+# записывают ответ модели как истину). Поэтому по умолчанию берём значение
+# ниже порога строгого контроля, а не дефолт самой модели, рассчитанный на
+# «сбалансированные, слегка творческие ответы».
+DEFAULT_TEMPERATURE = 0.0001
 
 
 @dataclass(slots=True)
@@ -60,18 +85,40 @@ class GigaChatProvider:
     credentials: str
     model: str
     scope: str = DEFAULT_SCOPE
+    temperature: float = DEFAULT_TEMPERATURE
     timeout_seconds: float = 60.0
     max_retries: int = 3
     retry_backoff_factor: float = 0.5
     verify_ssl_certs: bool = True
+    ca_bundle_file: str | None = None
     _client: GigaChat | None = field(default=None, init=False, repr=False, compare=False)
 
-    def complete(self, messages: list[Message]) -> str:
-        """Вернуть текст первого варианта chat completion GigaChat."""
+    def complete(self, messages: list[Message], *, schema: dict[str, Any] | None = None) -> str:
+        """Вернуть текст; usage доступен обёрткам через ``complete_with_usage``."""
+        return self.complete_with_usage(messages, schema=schema)[0]
+
+    def complete_with_usage(
+        self, messages: list[Message], *, schema: dict[str, Any] | None = None
+    ) -> tuple[str, LLMUsage | None]:
+        """Вернуть текст первого варианта chat completion GigaChat.
+
+        При переданной ``schema`` просит GigaChat о строгом структурированном
+        выводе (`response_format.type=json_schema`, `strict: true`) — модель
+        или версия API, не поддерживающие этот режим, отвечают HTTP 422,
+        который `_describe_response_error` превращает в понятный `LLMError`,
+        а не тихо возвращает произвольный текст.
+        """
         client = self._get_client()
-        payload = {
+        payload: dict[str, Any] = {
             "messages": [{"role": item.role, "content": item.content} for item in messages],
+            "temperature": self.temperature,
         }
+        if schema is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "schema": schema,
+                "strict": True,
+            }
         try:
             completion = client.chat(payload)
         except ResponseError as error:
@@ -89,7 +136,7 @@ class GigaChatProvider:
         content = choice.message.content
         if not isinstance(content, str) or not content.strip():
             raise LLMError("GigaChat вернул пустой текст ответа")
-        return content
+        return content, _usage_from_completion(completion)
 
     def _get_client(self) -> GigaChat:
         if self._client is None:
@@ -99,6 +146,7 @@ class GigaChatProvider:
                 model=self.model,
                 timeout=self.timeout_seconds,
                 verify_ssl_certs=self.verify_ssl_certs,
+                ca_bundle_file=self.ca_bundle_file,
                 max_retries=self.max_retries,
                 retry_backoff_factor=self.retry_backoff_factor,
             )
@@ -117,3 +165,19 @@ def _describe_response_error(error: ResponseError) -> str:
     if status == 429:
         return f"GigaChat превысил лимит запросов (HTTP 429) после исчерпания повторов: {error}"
     return f"GigaChat вернул HTTP {status}: {error}"
+
+
+def _usage_from_completion(completion: Any) -> LLMUsage | None:
+    """Забрать v1 ``usage`` GigaChat, не подменяя отсутствующие данные нулём."""
+    usage = getattr(completion, "usage", None)
+    prompt = getattr(usage, "prompt_tokens", None)
+    completion_tokens = getattr(usage, "completion_tokens", None)
+    if not _token_count(prompt) or not _token_count(completion_tokens):
+        return None
+    assert isinstance(prompt, int)
+    assert isinstance(completion_tokens, int)
+    return LLMUsage(prompt_tokens=prompt, completion_tokens=completion_tokens)
+
+
+def _token_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0

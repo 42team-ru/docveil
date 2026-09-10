@@ -1,21 +1,24 @@
 import type { PiiAnchor } from "../../../entity/pii/model/types";
 
-/** Захваченное выделение мышью — текст плюс уже готовый якорь для «добавить пропущенное». */
+/** Захваченное выделение мышью — текст, готовый якорь для «добавить пропущенное»
+ * и координаты выделения в вьюпорте, чтобы показать кнопку добавления рядом с ним. */
 export type SelectionCapture = {
   text: string;
   anchor: PiiAnchor;
+  rect: DOMRect;
 };
 
 /**
- * Текст текущего выделения (Selection API) внутри хоста документа и ближайший
- * элемент, подходящий под `blockSelector`. Формат-агностичное ядро: не знает
- * про абзацы docx или ячейки xlsx — эту интерпретацию делают
+ * Текст текущего выделения (Selection API) внутри хоста документа, ближайший
+ * элемент, подходящий под `blockSelector`, и рамка выделения в координатах
+ * вьюпорта (для позиционирования плавающей кнопки). Формат-агностичное ядро:
+ * не знает про абзацы docx или ячейки xlsx — эту интерпретацию делают
  * `captureDocxSelection`/`captureXlsxSelection` ниже.
  */
 function readSelectedBlock(
   host: HTMLElement,
   blockSelector: string,
-): { text: string; block: Element } | null {
+): { text: string; block: Element; rect: DOMRect } | null {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
     return null;
@@ -41,7 +44,7 @@ function readSelectedBlock(
     return null;
   }
 
-  return { text, block };
+  return { text, block, rect: range.getBoundingClientRect() };
 }
 
 /** docx: блок — абзац, локатор — его индекс среди querySelectorAll("p"). */
@@ -60,6 +63,7 @@ export function captureDocxSelection(host: HTMLElement): SelectionCapture | null
       label: `абзац ${index + 1}`,
       locator: ["body", index],
     },
+    rect: found.rect,
   };
 }
 
@@ -84,6 +88,7 @@ export function captureXlsxSelection(
         label: `${sheetName}!R${row}C${col}`,
         locator: ["sheet", sheetName, Number(row), Number(col)],
       },
+      rect: found.rect,
     };
   };
 }

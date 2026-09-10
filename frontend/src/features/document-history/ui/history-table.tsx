@@ -1,156 +1,165 @@
+import { useState } from "react";
+import { useNavigate } from "react-router";
+import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Section } from "@astryxdesign/core/Section";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Table, pixel, proportional } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
-import { Button } from "@astryxdesign/core/Button";
-import { DialogHeader, useImperativeDialog } from "@astryxdesign/core/Dialog";
-import {
-  Table,
-  pixel,
-  proportional,
-} from "@astryxdesign/core/Table";
-import { VStack } from "@astryxdesign/core/Stack";
 
-import { documentHistory } from "../../../entity/document/model/fixtures";
-import type { HistoryRecord } from "../../../entity/document/model/types";
-import { DocumentStatusToken } from "../../../entity/document/ui/document-status-token";
+import type { DocumentFormat } from "../../../entity/document/model/types";
 import { FormatToken } from "../../../entity/document/ui/format-token";
-import {
-  ALL_PROJECTS,
-  useHistoryFilterStore,
-} from "../model/history-filter-store";
-import { HistoryRunList } from "./history-run-list";
+import { RunStatusToken } from "../../../entity/document/ui/run-status-token";
+import { useRunList } from "../../masking-run/api/masking-run";
+import type { RunListItem } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
+import { formatMoment } from "../../../shared/lib/format-moment";
+import { useHistoryFilterStore } from "../model/history-filter-store";
+import { RunDetailsDialog } from "./run-details-dialog";
 
-const REVIEW_STATUSES: HistoryRecord["status"][] = ["review", "ocr"];
+/**
+ * `Table` требует от строки индексной сигнатуры, а сгенерированный из
+ * OpenAPI интерфейс её не имеет. Расширяем строку журнала здесь, а не правим
+ * генерируемый код: `src/shared/api/generated` перезаписывается Orval.
+ */
+type RunRow = RunListItem & Record<string, unknown>;
 
-/** Таблица истории файлов. */
+/** Строка журнала как её видит `Table`; полей не добавляет, только сигнатуру. */
+const asRows = (items: RunListItem[]): RunRow[] => items as RunRow[];
+
+/** Журнал прогонов текущего пользователя. */
 export function HistoryTable() {
+  const navigate = useNavigate();
   const query = useHistoryFilterStore((state) => state.query);
-  const project = useHistoryFilterStore((state) => state.project);
   const status = useHistoryFilterStore((state) => state.status);
-  const dialog = useImperativeDialog();
+  const [detailsRunId, setDetailsRunId] = useState<string | null>(null);
 
-  const rows = documentHistory.filter((record) => {
-    if (project !== ALL_PROJECTS && record.project !== project) return false;
-    if (status === "ok" && record.status !== "ok") return false;
-    if (status === "review" && !REVIEW_STATUSES.includes(record.status)) {
-      return false;
-    }
-    if (query && !record.name.toLowerCase().includes(query.toLowerCase())) {
-      return false;
-    }
-    return true;
+  const runs = useRunList({
+    query: query || undefined,
+    status: status === "all" ? undefined : status,
   });
+
+  const detailsDialog = (
+    <RunDetailsDialog
+      runId={detailsRunId}
+      onClose={() => setDetailsRunId(null)}
+      onOpenReview={(runId) => navigate(`/documents/${runId}`)}
+    />
+  );
+
+  if (runs.isLoading) {
+    return (
+      <Section padding={4}>
+        <Skeleton height={240} width="100%" />
+        {detailsDialog}
+      </Section>
+    );
+  }
+
+  if (runs.isError) {
+    return (
+      <Section padding={0}>
+        <EmptyState
+          title="Журнал недоступен"
+          description="Не удалось получить список прогонов. Проверьте, что сервер обезличивания запущен."
+        />
+        {detailsDialog}
+      </Section>
+    );
+  }
+
+  const rows = asRows(runs.data?.items ?? []);
 
   if (rows.length === 0) {
     return (
       <Section padding={0}>
         <EmptyState
           title="Ничего не найдено"
-          description="Ни один документ не подходит под выбранные фильтры."
+          description="Ни один прогон не подходит под выбранные фильтры."
         />
+        {detailsDialog}
       </Section>
     );
   }
 
   return (
-    <>
-      <Section padding={0}>
-        <VStack gap={0} paddingInline={4}>
-          <Table<HistoryRecord>
-            data={rows}
-            idKey="id"
-            density="balanced"
-            hasHover
-            textOverflow="truncate"
-            columns={[
-              {
-                key: "name",
-                header: "Документ",
-                width: proportional(2),
-                renderCell: (record) => (
-                  <VStack gap={0.5}>
-                    <Text weight="medium" maxLines={1}>
-                      {record.name}
-                    </Text>
-                    <Text type="supporting" color="secondary" maxLines={1}>
-                      {record.meta}
-                    </Text>
-                  </VStack>
-                ),
-              },
-              {
-                key: "replacements",
-                header: "Замен",
-                width: pixel(96),
-                align: "end",
-                renderCell: (record) => (
-                  <Text hasTabularNumbers>{record.replacements}</Text>
-                ),
-              },
-              {
-                key: "versions",
-                header: "Версии",
-                width: pixel(88),
-                align: "end",
-                renderCell: (record) => (
-                  <Text color="secondary" hasTabularNumbers>
-                    {record.versions}
-                  </Text>
-                ),
-              },
-              {
-                key: "format",
-                header: "Формат",
-                width: pixel(96),
-                renderCell: (record) => <FormatToken format={record.format} />,
-              },
-              {
-                key: "updated",
-                header: "Обновлён",
-                width: pixel(132),
-                renderCell: (record) => (
-                  <Text color="secondary">{record.updated}</Text>
-                ),
-              },
-              {
-                key: "status",
-                header: "Статус",
-                width: pixel(170),
-                renderCell: (record) => (
-                  <DocumentStatusToken status={record.status} />
-                ),
-              },
-              {
-                key: "actions",
-                header: "",
-                width: pixel(100),
-                align: "end",
-                renderCell: (record) => (
+    <Section padding={0}>
+      <VStack gap={0} paddingInline={4}>
+        <Table<RunRow>
+          data={rows}
+          idKey="id"
+          density="balanced"
+          hasHover
+          textOverflow="truncate"
+          columns={[
+            {
+              key: "name",
+              header: "Документ",
+              width: proportional(2),
+              renderCell: (run) => (
+                <Text weight="medium" maxLines={1}>
+                  {run.document.name}
+                </Text>
+              ),
+            },
+            {
+              key: "format",
+              header: "Формат",
+              width: pixel(96),
+              renderCell: (run) => (
+                <FormatToken
+                  format={run.document.format.toUpperCase() as DocumentFormat}
+                />
+              ),
+            },
+            {
+              key: "created_at",
+              header: "Запущен",
+              width: pixel(140),
+              renderCell: (run) => (
+                <Text color="secondary">{formatMoment(run.created_at)}</Text>
+              ),
+            },
+            {
+              key: "finished_at",
+              header: "Завершён",
+              width: pixel(140),
+              renderCell: (run) => (
+                <Text color="secondary">{formatMoment(run.finished_at)}</Text>
+              ),
+            },
+            {
+              key: "status",
+              header: "Статус",
+              width: pixel(180),
+              renderCell: (run) => <RunStatusToken status={run.status} />,
+            },
+            {
+              key: "actions",
+              header: "",
+              width: pixel(200),
+              align: "end",
+              renderCell: (run) => (
+                <HStack gap={1.5} hAlign="end">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    label="Открыть"
+                    onClick={() => navigate(`/documents/${run.id}`)}
+                  />
                   <Button
                     size="sm"
                     variant="ghost"
                     label="Детали"
-                    onClick={() =>
-                      dialog.show(
-                        <VStack gap={0}>
-                          <DialogHeader
-                            title={record.name}
-                            subtitle={record.meta}
-                            onOpenChange={dialog.hide}
-                          />
-                          <HistoryRunList record={record} />
-                        </VStack>,
-                        { width: 800 }
-                      )
-                    }
+                    onClick={() => setDetailsRunId(run.id)}
                   />
-                ),
-              },
-            ]}
-          />
-        </VStack>
-      </Section>
-      {dialog.element}
-    </>
+                </HStack>
+              ),
+            },
+          ]}
+        />
+      </VStack>
+      {detailsDialog}
+    </Section>
   );
 }

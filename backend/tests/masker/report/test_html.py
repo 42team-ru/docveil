@@ -11,6 +11,7 @@ from masker.report.html import (
     _marker_legend,
     _pii_rows,
     _review_possible,
+    _verifier_section,
 )
 
 ROOT = next(
@@ -162,6 +163,55 @@ def test_review_possible_block_renders_group_row() -> None:
 def test_review_possible_block_is_empty_but_present_without_section() -> None:
     assert "Групп уровня possible нет" in _review_possible({})
     assert "Групп уровня possible нет" in _review_possible({"review_possible": []})
+
+
+# ── верификатор на recall (Р7-2) ─────────────────────────────────────────────
+
+
+def test_verifier_section_absent_shows_did_not_run_message() -> None:
+    """Слой не включался (старый ``report.json`` без ключа, либо ``verifier``
+    не запускался в этом прогоне) — явное сообщение, а не выдуманные нули."""
+    assert "не запускался" in _verifier_section({})
+    assert "не запускался" in _verifier_section({"verifier": None})
+
+
+def test_verifier_section_renders_counts_and_r_filter() -> None:
+    report = {
+        "verifier": {
+            "windows": 4,
+            "verified": 1,
+            "unverified": 3,
+            "unverified_by_reason": {"unmatched_quote": 2, "llm_error": 1},
+            "input_chars": 42,
+            "document_chars": 1000,
+            "input_share": 0.042,
+            "r_filter": 0.5,
+        }
+    }
+    html = _verifier_section(report)
+    assert "0.500" in html
+    assert "4.2%" in html
+    assert "unmatched_quote" in html
+    assert "2" in html
+
+
+def test_verifier_section_shows_r_filter_not_measured_when_null() -> None:
+    """``r_filter`` отсутствует у production-документа без разметки — блок
+    обязан явно сказать «не измерен», а не показать 0 (0 означало бы
+    «измерен и равен нулю»)."""
+    report = {
+        "verifier": {
+            "windows": 1,
+            "verified": 1,
+            "unverified": 0,
+            "unverified_by_reason": {},
+            "input_chars": 10,
+            "document_chars": 100,
+            "input_share": 0.1,
+            "r_filter": None,
+        }
+    }
+    assert "не измерен" in _verifier_section(report)
 
 
 # ── сертификат обезличивания (план М3) ──────────────────────────────────────────

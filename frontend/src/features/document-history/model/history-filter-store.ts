@@ -1,30 +1,25 @@
 import { create } from "zustand";
 
-export type HistoryStatusFilter = "all" | "review" | "ok";
+import type { RunStatus } from "../../masking-run/api/masking-run";
 
-/** Псевдо-значение «все проекты» для выпадающего списка. */
-export const ALL_PROJECTS = "all";
+/** `all` — без фильтра; остальное — статусы прогона как их отдаёт бэкенд. */
+export type HistoryStatusFilter = "all" | RunStatus;
 
 type HistoryFilterState = {
   query: string;
-  project: string;
   status: HistoryStatusFilter;
-  /** Идентификатор раскрытой строки, либо null. */
-  expandedId: string | null;
   setQuery: (query: string) => void;
-  setProject: (project: string) => void;
   setStatus: (status: HistoryStatusFilter) => void;
-  toggleExpanded: (id: string) => void;
 };
 
+/**
+ * Фильтры журнала. Значения уходят query-параметрами в `GET /api/runs` —
+ * фильтрует база, а не клиент: журнал растёт, и грузить его целиком ради
+ * поиска по имени незачем.
+ */
 export const useHistoryFilterStore = create<HistoryFilterState>((set) => ({
   query: "",
-  project: ALL_PROJECTS,
   status: "all",
-  expandedId: "h2",
   setQuery: (query) => set({ query }),
-  setProject: (project) => set({ project }),
   setStatus: (status) => set({ status }),
-  toggleExpanded: (id) =>
-    set((state) => ({ expandedId: state.expandedId === id ? null : id })),
 }));

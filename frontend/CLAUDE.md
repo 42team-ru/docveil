@@ -25,15 +25,22 @@ yarn local       # orval против dev-бэкенда + dev-сервер
 yarn prod        # orval против prod-бэкенда + dev-сервер в mode=production
 yarn orval       # только регенерация клиента
 yarn build       # production-сборка
-yarn typecheck   # react-router typegen && tsc  ← единственная проверка в проекте
+yarn typecheck   # react-router typegen && tsc
+yarn test        # vitest run
 yarn astryx <cmd>  # CLI дизайн-системы (см. AGENTS.md)
 ```
 
-Линтера, форматтера и тестов нет. **После правок всегда прогоняй `yarn typecheck`** — это
-единственный автоматический контроль. Не добавляй ESLint/Prettier/Vitest без запроса.
+Линтера и форматтера нет. **После правок всегда прогоняй `yarn typecheck` и `yarn test`** — это
+весь автоматический контроль. Не добавляй ESLint/Prettier без запроса.
 
-`yarn typecheck` и `yarn build` требуют сгенерированный клиент — если `src/shared/api/generated`
-пуст, сначала `yarn orval` (нужен живой бэкенд, см. `.env`).
+Тесты (vitest + jsdom) покрывают две рискованные части: привязку маркеров к DOM
+(`features/document-viewer/lib`) и разбор контракта движка (`entity/pii/model`). Остальное
+проверяется только типами.
+
+`src/shared/api/generated` импортируется кодом и лежит в репозитории вместе со снимком
+схемы `src/shared/api/schemas/core.json`. `yarn orval` без переменной `ORVAL_BACKEND_ENV`
+генерирует клиент из этого снимка — живой бэкенд для `yarn typecheck`/`yarn test` не нужен.
+Снимок обновляется из FastAPI-приложения (`app.openapi()`), когда меняются эндпоинты.
 
 ## Правила работы с кодом
 
@@ -55,30 +62,46 @@ yarn astryx <cmd>  # CLI дизайн-системы (см. AGENTS.md)
 `.env` в гите нет, шаблон — `.env.example`:
 
 ```env
-VITE_BACKEND_DEV_URL=http://localhost:8080
+VITE_BACKEND_DEV_URL=http://localhost:8000
 VITE_BACKEND_PROD_URL=https://42team.ru
 ```
 
+Порт 8000 — тот же, что у `make api`, Dockerfile и docker-compose бэкенда. Пути запросов
+включают префикс `/api`, поэтому в переменной он не нужен.
+
 Выбор окружения для Orval — отдельная переменная `ORVAL_BACKEND_ENV=dev|prod`
-(флаг `--mode` в Orval не попадает, см. `orval.md`).
+(флаг `--mode` в Orval не попадает, см. `orval.md`). Без неё Orval берёт схему из
+закоммиченного снимка `src/shared/api/schemas/core.json`.
 
 ## Известные расхождения
 
-Проект в ранней стадии; это не «баги под фикс», а контекст. Не чини молча — сначала спроси.
+Это не «баги под фикс», а контекст. Не чини молча — сначала спроси.
 
-1. **`@tanstack/react-query` и `cross-env` не в `package.json`**, хотя Orval настроен на
-   `client: "react-query"`, а скрипты `local`/`prod` вызывают `cross-env`. Обе команды упадут
-   до установки зависимостей. `QueryClientProvider` в `src/app/root.tsx` тоже ещё не подключён.
-2. **`ssr: true` vs Docker.** `react-router.config.ts` включает SSR, а `Dockerfile` копирует в
-   nginx только `build/client` — статики без сервера. Нужно выбрать одно: либо `ssr: false`
-   (SPA + текущий nginx), либо node-образ с `yarn start`.
+1. **Фикстуры остались только в тестах.** `entity/pii/model/report.fixture.json` и
+   `questions.fixture.json` — дословные артефакты прогона `masker.cli`; на них проверяются
+   парсеры контракта (`schema.test.ts`, `answers.test.ts`, `review-store.test.ts`,
+   `review-edits.test.ts`). Экраны берут данные у API: `features/masking-run/api/
+   masking-run.ts` (прогон, вопросы, правки, артефакты, журнал) и
+   `features/pii-review/api/use-review-data.ts` (единая точка входа `/review` и `/report`).
+
+2. **Правки оператора применяет граф, а не клиент.** Кнопка «Утвердить документ» шлёт
+   `POST /api/runs/{id}/review`; конверт собирает `entity/pii/model/review-edits.ts`.
+   Никакой фильтрации критичных типов на клиенте нет и быть не должно — это `critical_guard`
+   на бэкенде, второе место для той же защиты сделало бы её недоказуемой.
+
 3. **Orval input.** `orval.config.ts` берёт схему с `${baseUrl}/openapi.json`, а `orval.md`
-   описывает `/v3/api-docs`. Перед генерацией проверь, что реально отдаёт бэкенд.
-4. **Алиас `~/*` в `tsconfig.json` указывает на `./app/*`** — каталога больше нет
-   (код переехал в `src/app`). Сейчас используются относительные импорты.
-5. `src/shared/ui/header/public-header.tsx` — копипаст-заглушка (экспортирует `Page`),
-   реального хедера нет. `src/features`, `src/entity`, `src/pages/auth`,
-   `src/app/routes/auth` — пустые каркасы.
+   описывает `/v3/api-docs`. FastAPI отдаёт первое; `orval.md` — наследие Java-бэкенда.
+
+4. **XLSX — расхождение снято 10.09.2026.** Движок разбирает `.xlsx` (`extract_node`),
+   CLI и API его принимают: список форматов сведён к единственному источнику
+   `masker.ingest.SUPPORTED_SUFFIXES`, раньше он был продублирован в шести местах и две
+   копии протухли. Вьюер и фикстуры уже есть. **Осталось вернуть xlsx в дропзону** —
+   сейчас формат работает во всём продукте, кроме загрузки с экрана.
+
+5. **Экраны без данных.** `features/document-processing` (прогресс агентов, трейс вызовов,
+   LLM-провайдеры) показывает фикстуры: под ним нет ни узла графа, ни таблицы в БД.
+   Кнопки экспорта отчёта (CSV/XLSX/PDF) обработчиков не имеют — тоже намеренно.
+   `/history` и скачивание документов работают через API.
 
 <!-- ASTRYX:START -->
 Astryx v0.5.2 · 163 components

@@ -32,4 +32,13 @@ def test_requisites_does_not_swallow_the_rest_of_a_section_heading() -> None:
     прямоугольник PDF (`render/pdf_render.py::MarkerDoesNotFitError`)."""
     text = "5.БАНКОВСКИЕ РЕКВИЗИТЫ И ПОДПИСИ СТОРОН Учреждение Потребитель МАОУ гимназия № 144"
     labels = find_labels(text)
-    assert labels == [(23, "и подписи")]
+    assert labels == []
+
+
+def test_requisites_does_not_capture_a_conjunction_as_a_role() -> None:
+    """И2-2: «РЕКВИЗИТЫ И ПОДПИСИ СТОРОН» — заголовок раздела, а не роль «И
+    подписи». Мусорная метка склеивала в `cluster.py` блоки заказчика и
+    исполнителя, стоящие двумя соседними абзацами реквизитов
+    (contract_pdf_02_school.pdf), в один профиль под одной случайной ролью."""
+    assert find_labels("Реквизиты и подписи сторон") == []
+    assert find_labels("Реквизиты Поставщика") == [(10, "поставщика")]

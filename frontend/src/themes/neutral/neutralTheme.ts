@@ -373,6 +373,17 @@ export const neutralTheme = defineTheme({
   },
 
   components: {
+    // Знак крупнее стандартной иконки навигации и остаётся без подложки в
+    // обеих темах: PNG уже имеет прозрачные края.
+    'nav-icon': {
+      base: {
+        backgroundColor: 'transparent',
+        width: 'var(--spacing-10)',
+        height: 'var(--spacing-10)',
+        padding: 'var(--spacing-0-5)',
+      },
+    },
+
     // =========================================================================
     // Button — primary gets white text, secondary gets a border, destructive
     // uses the OKLCH red filled treatment.

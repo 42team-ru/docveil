@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+from pathlib import Path
 
 import pytest
 
@@ -11,8 +12,19 @@ from masker.ocr.fake import FakeOCR
 from masker.ocr.tesseract import TesseractOCRProvider
 
 
-def test_default_is_tesseract_when_env_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Без переменной ``MASKER_OCR`` дефолт — ``TesseractOCRProvider``."""
+def test_default_is_tesseract_when_nothing_is_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Когда провайдера не задал никто — дефолт ``TesseractOCRProvider``.
+
+    Конфиг проекта подменяется пустым: `masker.yaml` репозитория намеренно
+    держит `fake` ради воспроизводимых ворот, и без подмены тест проверял бы
+    его, а не дефолт кода. Дефолт важен там, где YAML нет вовсе, — у
+    пользователя и в собранном бинарнике.
+    """
+    empty = tmp_path / "masker.yaml"
+    empty.write_text("application:\n  port: 8000\n", encoding="utf-8")
+    monkeypatch.setenv("MASKER_CONFIG", str(empty))
     monkeypatch.delenv("MASKER_OCR", raising=False)
     provider = select_ocr()
     assert isinstance(provider, TesseractOCRProvider)
@@ -24,6 +36,20 @@ def test_env_var_read(monkeypatch: pytest.MonkeyPatch) -> None:
     """``MASKER_OCR=fake`` явно даёт fake; регистр и пробелы нормализуются."""
     monkeypatch.setenv("MASKER_OCR", "  FAKE  ")
     assert isinstance(select_ocr(), FakeOCR)
+
+
+def test_yaml_provider_is_used_and_environment_has_priority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "masker.yaml"
+    path.write_text("ocr:\n  provider: fake\n", encoding="utf-8")
+    monkeypatch.setenv("MASKER_CONFIG", str(path))
+    monkeypatch.delenv("MASKER_OCR", raising=False)
+    assert isinstance(select_ocr(), FakeOCR)
+
+    monkeypatch.setenv("MASKER_OCR", "not-a-real-engine")
+    with pytest.raises(OCRError, match="not-a-real-engine"):
+        select_ocr()
 
 
 def test_explicit_name_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:

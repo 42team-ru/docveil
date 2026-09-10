@@ -4,7 +4,11 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { VStack } from "@astryxdesign/core/Stack";
 
 import type { PiiExtraction } from "../../../entity/pii/model/types";
-import { buildAnchorIndex } from "../lib/anchor-index";
+import {
+  buildAnchorIndex,
+  parseDocxLocator,
+  type DocxOutline,
+} from "../lib/anchor-index";
 import type { HighlightOccurrence } from "../lib/apply-highlights";
 import { fixTableCellDirection } from "../lib/fix-table-cell-direction";
 import { captureDocxSelection, type SelectionCapture } from "../lib/read-selection";
@@ -30,11 +34,27 @@ async function renderDocx(host: HTMLElement, data: ArrayBuffer): Promise<void> {
   fixTableCellDirection(host);
 }
 
+/**
+ * Разложить отрендеренный документ на то, что адресуют локаторы бэкенда:
+ * абзацы тела (`["body", N]` считает только прямые `w:p` тела, без абзацев
+ * внутри таблиц) и верхнеуровневые таблицы (`["table", t, …]` считает только
+ * их, вложенные бэкенд не разбирает вовсе).
+ */
+function outlineOf(host: HTMLElement): DocxOutline {
+  return {
+    bodyParagraphs: Array.from(host.querySelectorAll("p")).filter(
+      (paragraph) => paragraph.closest("table") === null,
+    ),
+    tables: Array.from(host.querySelectorAll("table")).filter(
+      (table) => table.parentElement?.closest("table") == null,
+    ),
+  };
+}
+
 function buildDocxIndex(host: HTMLElement, occurrences: HighlightOccurrence[]) {
-  const paragraphs = Array.from(host.querySelectorAll("p")) as HTMLElement[];
-  // occurrences здесь на деле FlatPiiOccurrence — anchor-index.ts нужен только
-  // locatorHint (номер абзаца из anchor.locator[1]), остальные поля из
-  // HighlightOccurrence он не видит благодаря структурной типизации TS.
+  // occurrences здесь на деле FlatPiiOccurrence — anchor-index.ts нужны только
+  // marker/anchor/порядок, остальные поля из HighlightOccurrence он не видит
+  // благодаря структурной типизации TS.
   const inputs = (
     occurrences as unknown as {
       id: string;
@@ -43,14 +63,22 @@ function buildDocxIndex(host: HTMLElement, occurrences: HighlightOccurrence[]) {
       segmentOrder: number;
       chunkStart: number;
     }[]
-  ).map((occurrence) => ({
-    id: occurrence.id,
-    marker: occurrence.marker,
-    locatorHint: Number(occurrence.anchor.locator[1] ?? 0),
-    segmentOrder: occurrence.segmentOrder,
-    chunkStart: occurrence.chunkStart,
-  }));
-  return buildAnchorIndex(paragraphs, inputs);
+  ).flatMap((occurrence) => {
+    const hint = parseDocxLocator(occurrence.anchor.locator);
+    // Неизвестная форма локатора — вхождение остаётся непривязанным в панели.
+    // Привязывать его наугад к нулевому абзацу хуже, чем показать not-found.
+    if (!hint) return [];
+    return [
+      {
+        id: occurrence.id,
+        marker: occurrence.marker,
+        hint,
+        segmentOrder: occurrence.segmentOrder,
+        chunkStart: occurrence.chunkStart,
+      },
+    ];
+  });
+  return buildAnchorIndex(outlineOf(host), inputs);
 }
 
 /**

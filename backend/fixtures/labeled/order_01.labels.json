@@ -1,0 +1,67 @@
+{
+  "entities": [
+    {
+      "type": "org_name",
+      "text": "Акционерное общество «Триема»",
+      "party": "supplier"
+    },
+    {
+      "type": "inn",
+      "text": "3662103003",
+      "party": "supplier"
+    },
+    {
+      "type": "kpp",
+      "text": "366201001",
+      "party": "supplier"
+    },
+    {
+      "type": "ogrn",
+      "text": "1023601546902",
+      "party": "supplier"
+    },
+    {
+      "type": "person",
+      "text": "Иванова Ивана Ивановича",
+      "party": "supplier"
+    },
+    {
+      "type": "snils",
+      "text": "112-233-445 95",
+      "party": "supplier"
+    },
+    {
+      "type": "passport",
+      "text": "45 04 № 123456",
+      "party": "supplier"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810100000000002",
+      "party": "supplier"
+    },
+    {
+      "type": "bik",
+      "text": "042007681",
+      "party": "supplier"
+    },
+    {
+      "type": "phone",
+      "text": "+7 (473) 250-10-10",
+      "party": "supplier"
+    },
+    {
+      "type": "email",
+      "text": "info@triema.example",
+      "party": "supplier"
+    },
+    {
+      "type": "address",
+      "text": "394018, г. Воронеж, ул. Кирова, д. 4, оф. 12"
+    },
+    {
+      "type": "contract_number",
+      "text": "44/2026"
+    }
+  ]
+}

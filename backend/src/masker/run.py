@@ -15,23 +15,39 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.questions import SCHEMA_VERSION as ANSWERS_SCHEMA_VERSION
+from masker.graph.review import SCHEMA_VERSION as REVIEW_SCHEMA_VERSION
 from masker.graph.state import State
+from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND, parse_highlight_background
+from masker.telemetry import RUNTIME_METRICS_NAME, runtime_metrics
 
 #: Поднимается руками при изменении состава ``State`` — защита от чтения
 #: устаревшего чекпойнта после правки кода (раздел 5 плана T1.5.1).
 RUN_SCHEMA_VERSION = 1
 
 CheckpointerFactory = Callable[[], AbstractContextManager[BaseCheckpointSaver[str]]]
+
+
+def styles_for_redact_option(style: str | None) -> tuple[str, ...]:
+    """Преобразовать значение CLI-стиля в набор рендеров графа."""
+    if style is None:
+        return ()
+    return {
+        "marker": ("marker",),
+        "blackbox": ("blackbox",),
+        "both": ("marker", "blackbox"),
+    }.get(style, ())
 
 
 class UnknownThreadError(Exception):
@@ -103,9 +119,22 @@ class RunOptions:
     styles: tuple[str, ...] = ()
     #: Рендерить ли ``preview.*``. Вне ``canonical()`` по той же причине.
     preview: bool = True
+    #: Фон читаемой маски: ``#RRGGBB`` либо ``None`` (явное ``none``).
+    #: В отличие от ``styles`` фон меняет сами артефакты и поэтому входит
+    #: в ``canonical()``/``thread_id``.
+    highlight_background: str | None = DEFAULT_HIGHLIGHT_BACKGROUND
+    #: Останавливаться ли после отчёта на правках оператора (второе
+    #: прерывание графа, ``ask_review``). Вне ``canonical()``: раунд правок
+    #: не меняет отбор PII, поэтому не обязан разводить треды.
+    review: bool = False
     #: Скомпилированные JSON-спеки пользовательских типов. Объекты с
     #: ``re.Pattern`` в State не кладём: они не сериализуются чекпойнтером.
     custom_types: tuple[dict[str, Any], ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "highlight_background", parse_highlight_background(self.highlight_background)
+        )
 
     def canonical(self) -> dict[str, Any]:
         """JSON-каноничная форма опций, влияющих на ``thread_id``."""
@@ -122,6 +151,7 @@ class RunOptions:
             "profile": self.profile,
             "unmask_critical": self.unmask_critical,
             "llm_config_id": self.llm_config_id,
+            "highlight_background": self.highlight_background,
             "custom_types": custom_types,
         }
 
@@ -164,6 +194,66 @@ def sqlite_checkpointer_factory(db_path: Path) -> CheckpointerFactory:
     return factory
 
 
+def postgres_checkpointer_factory(dsn: str) -> CheckpointerFactory:
+    """Фабрика ``PostgresSaver`` для веб-сервера: новый чекпойнтер на запрос.
+
+    ``SqliteSaver`` однопоточный и под конкурентные HTTP-запросы не годится —
+    это ровно тот «серверный чекпойнтер», о котором говорит docstring
+    ``sqlite_checkpointer_factory``. Логика узлов от подмены не меняется:
+    фабрика приходит снаружи, как и раньше (требование заказчика №6).
+
+    ``dsn`` — обычная строка psycopg (``postgresql://…``). SQLAlchemy-диалект
+    (``postgresql+asyncpg://``) сюда не годится: у saver'а свой синхронный
+    драйвер, поэтому строка нормализуется здесь, а не у вызывающего.
+
+    Таблицы чекпойнтера создаёт ``setup()`` — один раз на процесс: повторный
+    вызов на каждый запрос стоит нескольких DDL-запросов на ровном месте.
+    """
+    conn_string = _psycopg_dsn(dsn)
+
+    def factory() -> AbstractContextManager[BaseCheckpointSaver[str]]:
+        return _PostgresCheckpointerContext(conn_string)
+
+    return factory
+
+
+def _psycopg_dsn(dsn: str) -> str:
+    """``postgresql+asyncpg://…`` → ``postgresql://…``; прочее — без изменений."""
+    scheme, separator, rest = dsn.partition("://")
+    if not separator:
+        raise ValueError(f"строка подключения без схемы: {dsn!r}")
+    return f"{scheme.partition('+')[0]}://{rest}"
+
+
+#: ``thread-safe``-множество DSN, для которых ``PostgresSaver.setup()`` уже
+#: отработал в этом процессе. Ключ — DSN, а не сам saver: объект чекпойнтера
+#: создаётся заново на каждый запрос, а таблицы в базе — общие.
+_POSTGRES_SETUP_DONE: set[str] = set()
+_POSTGRES_SETUP_LOCK = Lock()
+
+
+class _PostgresCheckpointerContext(AbstractContextManager[BaseCheckpointSaver[str]]):
+    """``PostgresSaver.from_conn_string`` плюс однократный ``setup()`` на DSN."""
+
+    def __init__(self, conn_string: str) -> None:
+        self._conn_string = conn_string
+        self._inner: AbstractContextManager[PostgresSaver] | None = None
+
+    def __enter__(self) -> BaseCheckpointSaver[str]:
+        self._inner = PostgresSaver.from_conn_string(self._conn_string)
+        saver = self._inner.__enter__()
+        with _POSTGRES_SETUP_LOCK:
+            if self._conn_string not in _POSTGRES_SETUP_DONE:
+                saver.setup()
+                _POSTGRES_SETUP_DONE.add(self._conn_string)
+        return saver
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        inner, self._inner = self._inner, None
+        if inner is not None:
+            inner.__exit__(exc_type, exc, tb)  # type: ignore[arg-type]
+
+
 def _config(thread_id: str) -> RunnableConfig:
     return {"configurable": {"thread_id": thread_id}}
 
@@ -190,6 +280,7 @@ def _initial_state(
             "interactive": options.interactive,
             "styles": list(options.styles),
             "preview": options.preview,
+            "review": options.review,
         },
     }
     if answers:
@@ -205,6 +296,34 @@ def _outcome_from_invoke_result(thread_id: str, result: dict[str, Any]) -> RunOu
     if interrupts:
         return RunOutcome("waiting", thread_id, dict(interrupts[0].value), dict(result))
     return RunOutcome("done", thread_id, None, dict(result))
+
+
+def _write_runtime_metrics(outcome: RunOutcome, deps: RunDeps) -> RunOutcome:
+    """Записать недетерминированные замеры отдельным артефактом прогона."""
+    if deps.artifact_dir is None or "report" not in outcome.state:
+        return outcome
+    telemetry = outcome.state.get("telemetry")
+    if not isinstance(telemetry, dict):
+        return outcome
+    destination = deps.artifact_dir / RUNTIME_METRICS_NAME
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(runtime_metrics(telemetry), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    destination.chmod(0o600)
+    artifacts = list(outcome.state.get("artifacts", []))
+    if not any(item.get("role") == "runtime_metrics" for item in artifacts):
+        artifacts.append(
+            {
+                "role": "runtime_metrics",
+                "name": RUNTIME_METRICS_NAME,
+                "path": str(destination),
+                "redacting": False,
+            }
+        )
+        outcome.state["artifacts"] = artifacts
+    return outcome
 
 
 def start_run(
@@ -263,7 +382,7 @@ def start_run(
             result = graph.invoke(_initial_state(path, options, tid, answers), config)
         except (OSError, ValueError) as error:
             raise RunFailedError(tid, _node_hint(error), error) from error
-        return _outcome_from_invoke_result(tid, result)
+        return _write_runtime_metrics(_outcome_from_invoke_result(tid, result), deps or RunDeps())
 
 
 def resume_run(
@@ -273,12 +392,52 @@ def resume_run(
     checkpointer_factory: CheckpointerFactory,
     deps: RunDeps | None = None,
 ) -> RunOutcome:
-    """Прислать ответы на приостановленный прогон.
+    """Прислать ответы на вопросы приостановленного прогона (``ask_human``).
 
     Неизвестный ``thread_id`` не запускает новый прогон (в отличие от
     поведения самого LangGraph, см. раздел 2 плана T1.5.1): существование
     треда проверяется через ``get_state`` до вызова ``invoke``.
     """
+    # Конверт, а не голый словарь: `Command(resume={})` с пустыми ответами
+    # трактуется langgraph 1.2.11 как отсутствие значения, и узел ставится
+    # на паузу заново вместо возобновления (проверено экспериментально).
+    return _resume(
+        thread_id,
+        {"schema_version": ANSWERS_SCHEMA_VERSION, "answers": dict(answers)},
+        checkpointer_factory=checkpointer_factory,
+        deps=deps,
+    )
+
+
+def resume_review(
+    thread_id: str,
+    edits: dict[str, Any],
+    *,
+    checkpointer_factory: CheckpointerFactory,
+    deps: RunDeps | None = None,
+) -> RunOutcome:
+    """Прислать правки оператора на паузу раунда проверки (``ask_review``).
+
+    Отдельная функция, а не флаг у ``resume_run``: у двух прерываний графа
+    два разных конверта со своими версиями схемы, и подставлять конверт
+    ответов в узел правок — молча получить ``ValueError`` из недр графа.
+    """
+    return _resume(
+        thread_id,
+        {"schema_version": REVIEW_SCHEMA_VERSION, "edits": dict(edits)},
+        checkpointer_factory=checkpointer_factory,
+        deps=deps,
+    )
+
+
+def _resume(
+    thread_id: str,
+    resume_value: dict[str, Any],
+    *,
+    checkpointer_factory: CheckpointerFactory,
+    deps: RunDeps | None = None,
+) -> RunOutcome:
+    """Общее тело возобновления: проверка треда и один ``invoke``."""
     with checkpointer_factory() as saver:
         graph = compile_graph(deps or RunDeps(), saver)
         config = _config(thread_id)
@@ -290,15 +449,13 @@ def resume_run(
                 f"прогон {thread_id} уже завершён; для нового прогона используйте --fresh"
             )
 
-        # Конверт, а не голый словарь: `Command(resume={})` с пустыми ответами
-        # трактуется langgraph 1.2.11 как отсутствие значения, и узел ставится
-        # на паузу заново вместо возобновления (проверено экспериментально).
-        resume_value = {"schema_version": ANSWERS_SCHEMA_VERSION, "answers": dict(answers)}
         try:
             result = graph.invoke(Command(resume=resume_value), config)
         except (OSError, ValueError) as error:
             raise RunFailedError(thread_id, _node_hint(error), error) from error
-        return _outcome_from_invoke_result(thread_id, result)
+        return _write_runtime_metrics(
+            _outcome_from_invoke_result(thread_id, result), deps or RunDeps()
+        )
 
 
 def read_questions(
@@ -317,6 +474,32 @@ def read_questions(
         if status == "done":
             raise AlreadyFinishedError(f"прогон {thread_id} уже завершён")
         return dict(snapshot.interrupts[0].value)
+
+
+def read_run(
+    thread_id: str,
+    *,
+    checkpointer_factory: CheckpointerFactory,
+    deps: RunDeps | None = None,
+) -> RunOutcome:
+    """Прочитать состояние треда, не выполняя узлов графа.
+
+    Симметрична ``read_questions``, но отдаёт весь ``RunOutcome`` — из него
+    те же ``report_of``/``artifacts_of`` достают отчёт и артефакты. Нужна
+    вызывающему, который спрашивает «чем кончился прогон» отдельным запросом
+    (веб опрашивает статус), а не держит ``RunOutcome`` от ``start_run``.
+    """
+    with checkpointer_factory() as saver:
+        graph = compile_graph(deps or RunDeps(), saver)
+        snapshot = graph.get_state(_config(thread_id))
+        status = _thread_status(snapshot)
+        if status == "unknown":
+            raise UnknownThreadError(f"неизвестный thread_id: {thread_id!r}")
+        if status == "waiting":
+            return RunOutcome(
+                "waiting", thread_id, dict(snapshot.interrupts[0].value), dict(snapshot.values)
+            )
+        return RunOutcome("done", thread_id, None, dict(snapshot.values))
 
 
 def report_of(outcome: RunOutcome) -> dict[str, Any]:

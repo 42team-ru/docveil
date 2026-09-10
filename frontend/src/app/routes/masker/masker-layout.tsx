@@ -1,19 +1,10 @@
-import {
-  Bot,
-  FileCheck2,
-  FilePlus2,
-  History,
-  ListChecks,
-  Settings,
-  ShieldCheck,
-} from "lucide-react";
-import { Link, Outlet, useLocation } from "react-router";
+import { FilePlus2, FileText } from "lucide-react";
+import { Outlet, useLocation } from "react-router";
+import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
-import { HStack } from "@astryxdesign/core/Stack";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { Text } from "@astryxdesign/core/Text";
 
-import { usePendingGroupCount } from "../../../entity/pii/model/selectors";
+import { useAuthSession } from "../../../shared/model/use-auth-session";
+import { AccountTrigger } from "../../../features/account/ui/account-trigger";
 import { ProcessMonitor } from "../../../features/document-processing/ui/process-monitor";
 import {
   PanelShell,
@@ -23,40 +14,46 @@ import {
 /**
  * Каркас панели обезличивания: верхнее меню + область экрана.
  * Роут-модуль знает только состав меню, всю верстку держит `PanelShell`.
+ *
+ * В меню одна вкладка — «Документы»: вход в проверку и отчёт идёт только
+ * через журнал, отдельных пунктов для них больше нет.
  */
 export default function MaskerLayout() {
   const { pathname } = useLocation();
-  const pendingCount = usePendingGroupCount();
+  // Все экраны под этим каркасом ходят в закрытый API: без действующей сессии
+  // показывать их незачем — хук уводит на вход.
+  useAuthSession();
 
   const groups: PanelNavGroup[] = [
     {
       title: "Работа",
-      items: [
-        { to: "/", label: "Новая задача", icon: FilePlus2 },
-        { to: "/history", label: "История файлов", icon: History },
-      ],
-    },
-    {
-      title: "Текущая задача",
-      items: [
-        {
-          to: "/review",
-          label: "Проверка",
-          icon: ListChecks,
-          badge: pendingCount,
-        },
-        { to: "/report", label: "Отчёт", icon: FileCheck2 },
-      ],
+      items: [{ to: "/documents", label: "Документы", icon: FileText }],
     },
   ];
 
   return (
     <PanelShell
-      heading="TriemaMasker"
-      headingIcon={<Icon icon={ShieldCheck} />}
+      heading="DocVeil"
+      headingIcon={
+        <img
+          src="/logo.png"
+          alt="DocVeil"
+          className="size-full object-contain"
+        />
+      }
       groups={groups}
       currentPath={pathname}
+      navStartContent={
+        <Button
+          size="sm"
+          variant="primary"
+          label="Новый документ"
+          icon={<Icon icon={FilePlus2} size="sm" />}
+          href="/"
+        />
+      }
       navEndContent={<ProcessMonitor />}
+      accountTrigger={<AccountTrigger />}
     >
       <Outlet />
     </PanelShell>

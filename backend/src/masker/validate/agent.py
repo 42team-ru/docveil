@@ -38,11 +38,12 @@ from pathlib import Path
 from masker.detect.agent import DetectAgent
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
+from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.mask.keys import group_key
 from masker.model import ArtifactLayout, Document, Leak, MaskPlan, ValidationReport
 from masker.refs import entity_sort_key
 from masker.validate.certificate import build_certificate
-from masker.validate.parts import DocPart, docx_parts, pdf_parts
+from masker.validate.parts import DocPart, docx_parts, pdf_parts, xlsx_parts
 from masker.validate.pdf_layout import artifact_layout
 
 
@@ -62,16 +63,22 @@ def _artifact_parts(path: Path) -> tuple[str, list[DocPart]]:
         return "docx", docx_parts(path)
     if suffix == ".pdf":
         return "pdf", pdf_parts(path)
+    if suffix == ".xlsx":
+        return "xlsx", xlsx_parts(path)
     raise ValueError(f"Validate не умеет читать формат {path.suffix!r}: {path}")
 
 
 def _ingest(path: Path, fmt: str) -> Document:
-    return ingest_docx(path) if fmt == "docx" else ingest_pdf(path)
+    if fmt == "docx":
+        return ingest_docx(path)
+    if fmt == "pdf":
+        return ingest_pdf(path)
+    return ingest_xlsx(path)
 
 
 def _is_metadata_part(fmt: str, name: str) -> bool:
-    """`docProps/*` (docx) или ``"metadata"`` (наша часть PDF, `/Info` + XMP)."""
-    return name.startswith("docProps/") if fmt == "docx" else name == "metadata"
+    """Метаданные DOCX/XLSX или объединённая часть PDF ``metadata``."""
+    return name.startswith("docProps/") if fmt in ("docx", "xlsx") else name == "metadata"
 
 
 def _inside_any_marker(text: str, start: int, end: int, markers: tuple[str, ...]) -> bool:

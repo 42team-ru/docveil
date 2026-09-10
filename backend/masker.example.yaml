@@ -1,0 +1,96 @@
+# Главный конфиг triema-masker.
+#
+# Приоритет источников: переменная окружения → этот файл → значение по
+# умолчанию в коде. Поэтому в контейнере ничего править не нужно: всё
+# переопределяется окружением, а этот файл остаётся читаемой картиной
+# настроек проекта.
+#
+# Секретов здесь нет и не будет. Поля с суффиксом `_env` хранят ИМЯ
+# переменной окружения, в которой лежит секрет, а не сам секрет.
+
+application:
+  port: 8000
+
+# Слой обращения к модели. Провайдер выбирается одним полем, заменить
+# GigaChat на локальную модель можно не трогая логику узлов графа.
+#
+#   fake      — детерминированные заглушки, работает без сети (дефолт)
+#   cassette  — записанные ответы живой модели, для воспроизводимых ворот
+#   gigachat  — GigaChat (Сбер)
+#   openrouter — OpenRouter
+#
+# Профиль связывает провайдера, модель и тариф. Чтобы переключиться, меняйте
+# только profile: стоимость в отчёте останется от выбранной модели, а не от
+# предыдущей. Добавляйте профили для каждой нужной модели.
+llm:
+  profile: fake
+  timeout_seconds: 60
+  site_url: ""
+  title: triema-masker
+  cassette_directory: fixtures/llm/roles
+  profiles:
+    fake:
+      provider: fake
+      pricing: &pricing_unknown
+        prompt_per_1k: null
+        completion_per_1k: null
+        currency: RUB
+        verified_at: ""
+    cassette:
+      provider: cassette
+      pricing: *pricing_unknown
+    gigachat-max:
+      provider: gigachat
+      model: GigaChat-Max
+      api_key_env: GIGACHAT_CREDENTIALS
+      # temperature ниже 0.001 включает у GigaChat режим строгого контроля.
+      gigachat:
+        scope: GIGACHAT_API_PERS
+        temperature: 0.0001
+        ca_bundle_file: ""
+        insecure_skip_tls_verify: false
+      # Цена за 1 000 токенов. Заполните обе цены только после сверки с
+      # прайсом поставщика и обязательно укажите дату сверки.
+      pricing: *pricing_unknown
+    openrouter-glm-5-3-flash:
+      provider: openrouter
+      model: z-ai/glm-5.3-flash
+      api_key_env: OPENROUTER_API_KEY
+      openrouter:
+        temperature: 0.0
+      pricing: *pricing_unknown
+
+# Распознавание сканов. fake не ходит в сеть и не тянет веса — этого
+# достаточно для тестов и ворот.
+ocr:
+  provider: fake
+
+# Локальные веса моделей.
+models:
+  gliner_path: models/gliner
+
+# Веб-слой: нужен только API. Движок masker работает без базы и хранилища,
+# из голой консоли, поэтому отсутствие этой секции ему не мешает.
+web:
+  database:
+    host: localhost
+    port: 5432
+    name: masker
+    user: masker
+    password_env: POSTGRES_PASSWORD
+
+  minio:
+    endpoint: localhost:9000
+    access_key_env: MINIO_ACCESS_KEY
+    secret_key_env: MINIO_SECRET_KEY
+    secure: false
+    bucket: documents
+
+  # cookie_secure требует HTTPS для refresh-токена: выключать только для
+  # локальной разработки.
+  jwt:
+    secret_env: JWT_SECRET
+    algorithm: HS256
+    access_token_expire_minutes: 15
+    refresh_token_expire_days: 30
+    cookie_secure: true

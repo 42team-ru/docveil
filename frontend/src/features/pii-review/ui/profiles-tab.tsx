@@ -1,41 +1,50 @@
-import { Section } from "@astryxdesign/core/Section";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Heading, Text } from "@astryxdesign/core/Text";
-import { Token } from "@astryxdesign/core/Token";
-import { Divider } from "@astryxdesign/core/Divider";
 import { Badge } from "@astryxdesign/core/Badge";
+import { Divider } from "@astryxdesign/core/Divider";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { maskFragments } from "../../../entity/mask/model/fixtures";
+import { Section } from "@astryxdesign/core/Section";
+import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
+import { Token } from "@astryxdesign/core/Token";
 
-/** Профиль стороны договора — сгруппированные персональные данные. */
-type Profile = {
-  side: string;
-  color: "blue" | "purple" | "default";
-  fields: Array<{ type: string; value: string; marker: string }>;
+import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
+import type {
+  MaskGroupRecord,
+  PartyProfile,
+} from "../../../entity/pii/model/types";
+
+type ProfilesTabProps = {
+  profiles: PartyProfile[];
+  /** Группы плана — из них берётся маркер, вписанный в документ. */
+  groups?: MaskGroupRecord[];
 };
 
-function buildProfiles(): Profile[] {
-  const sides: Record<string, Profile> = {};
+/**
+ * Цвет стороны. Роли в документах открытые («Заказчик», «Исполнитель»,
+ * «Поставщик», …), поэтому цвет назначается по порядку профилей, а не по
+ * зашитому словарю ролей: закрытый список здесь всё равно рано или поздно
+ * встретит роль, которой в нём нет.
+ */
+const PROFILE_COLORS = ["blue", "purple", "green", "orange"] as const;
 
-  for (const f of maskFragments) {
-    const side = f.side ?? "общие";
-    if (!sides[side]) {
-      sides[side] = {
-        side,
-        color: side === "поставщик" ? "blue" : side === "покупатель" ? "purple" : "default",
-        fields: [],
-      };
-    }
-    sides[side].fields.push({ type: f.type, value: f.original, marker: f.marker });
-  }
-
-  return Object.values(sides);
+/**
+ * Маркер конкретного реквизита. Ищем в плане группу того же профиля и типа;
+ * если таких групп несколько, маркер не показываем вовсе — угадывать номер
+ * (`[ЗАКАЗЧИК-ИНН-2]`) означало бы показать оператору не то, что вписано в
+ * документ.
+ */
+function markerFor(
+  groups: MaskGroupRecord[],
+  profileId: string,
+  type: string,
+): string | null {
+  const matches = groups.filter(
+    (group) => group.profileId === profileId && group.type === type,
+  );
+  return matches.length === 1 ? matches[0].marker : null;
 }
 
-const profiles = buildProfiles();
-
-/** Вкладка «Профили» — персональные данные, сгруппированные по стороне договора. */
-export function ProfilesTab() {
+/** Вкладка «Профили» — реквизиты, сгруппированные по стороне договора. */
+export function ProfilesTab({ profiles, groups = [] }: ProfilesTabProps) {
   if (profiles.length === 0) {
     return (
       <EmptyState
@@ -48,37 +57,45 @@ export function ProfilesTab() {
 
   return (
     <VStack gap={0} isScrollable height="100%">
-      {profiles.map((profile, idx) => (
-        <Section key={profile.side} padding={4} dividers={idx > 0 ? ["top"] : []}>
+      {profiles.map((profile, index) => (
+        <Section
+          key={profile.id}
+          padding={4}
+          dividers={index > 0 ? ["top"] : []}
+        >
           <VStack gap={3}>
             <HStack gap={2} vAlign="center">
-              <Token size="sm" color={profile.color} label={profile.side} />
-              <Badge variant="neutral" label={profile.fields.length} />
+              <Token
+                size="sm"
+                color={PROFILE_COLORS[index % PROFILE_COLORS.length]}
+                label={profile.roleTitle || profile.markerLabel}
+              />
+              <Badge variant="neutral" label={profile.members.length} />
             </HStack>
 
             <VStack gap={3}>
-              {profile.fields.map((field) => (
-                <VStack key={field.marker} gap={0.5}>
-                  <HStack gap={2} vAlign="end" width="100%">
-                    <Text type="supporting" color="secondary" size="sm">
-                      {field.type}
+              {profile.members.map((member) => {
+                const marker = markerFor(groups, profile.id, member.type);
+
+                return (
+                  <VStack key={member.ref} gap={0.5}>
+                    <HStack gap={2} vAlign="end" width="100%">
+                      <Text type="supporting" color="secondary" size="sm">
+                        {piiTypeLabel(member.type)}
+                      </Text>
+                      <StackItem size="fill">
+                        <Divider />
+                      </StackItem>
+                      <Text type="code" color="secondary" size="sm">
+                        {marker ?? member.ref}
+                      </Text>
+                    </HStack>
+                    <Text type="body" weight="medium" textWrap="pretty">
+                      {member.text}
                     </Text>
-                    <div
-                      style={{
-                        flex: 1,
-                        borderBottom: "1px dotted var(--color-border-emphasized)",
-                        marginBottom: 4,
-                      }}
-                    />
-                    <Text type="code" color="secondary" size="sm">
-                      {field.marker}
-                    </Text>
-                  </HStack>
-                  <Text type="body" weight="medium" textWrap="pretty">
-                    {field.value}
-                  </Text>
-                </VStack>
-              ))}
+                  </VStack>
+                );
+              })}
             </VStack>
           </VStack>
         </Section>

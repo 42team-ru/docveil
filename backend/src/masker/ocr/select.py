@@ -1,22 +1,26 @@
-"""Выбор поставщика OCR по имени/переменной окружения.
+"""Выбор поставщика OCR: аргумент → окружение → YAML → дефолт.
 
-По аналогии с ``masker.llm``: имя провайдера — либо явное (``select_ocr
-("rapid")``), либо из ``MASKER_OCR``, либо дефолт ``tesseract``.
+По аналогии с ``masker.llm``. Порядок приоритетов, от сильного к слабому:
 
-Цепочка приоритетов при явно не заданном провайдере:
-  1. ``tesseract`` — дефолт (быстрый, лучший CER/WER на тестовом корпусе).
-  2. ``rapid`` — автоматический фоллбек, если системный tesseract не установлен.
+  1. явный аргумент ``select_ocr("tesseract")``;
+  2. переменная окружения ``MASKER_OCR``;
+  3. ``ocr.provider`` из YAML-конфига проекта;
+  4. дефолт ``tesseract`` — самый быстрый и с лучшим CER/WER на нашем корпусе.
 
-Фоллбек срабатывает **только** когда провайдер не задан ни аргументом, ни
-переменной окружения ``MASKER_OCR``. При явном ``MASKER_OCR=tesseract``
-или ``select_ocr("tesseract")`` ошибка поднимается без фоллбека — иначе
-явный выбор будет тихо проигнорирован.
+Если провайдер не был задан ни одним из первых трёх способов и дефолтный
+движок недоступен (нет системного бинаря tesseract), автоматически
+пробуется ``rapid``. Фоллбек срабатывает **только** для неявного выбора:
+при явном ``MASKER_OCR=tesseract`` ошибка поднимается как есть, иначе
+явное указание человека было бы тихо проигнорировано.
 
-``fake`` — CI-провайдер без весов и сети; ставить ``MASKER_OCR=fake`` в
-окружении ворот (gate.sh), если системный tesseract недоступен в CI.
+``fake`` — CI-провайдер без весов и сети. В воротах он берётся из
+`masker.yaml` (`ocr.provider: fake`), а не из дефолта кода: `make gate`
+обязан работать одинаково на любой машине, независимо от того, установлен
+ли там системный tesseract.
 
 Отсутствие пакета движка поднимается как :class:`OCRError` на этапе
-создания провайдера, а не при первом ``recognize``.
+создания провайдера, а не при первом ``recognize``: вызов падает до
+открытия PDF, и сразу понятно, что чинить.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 
+from masker.config import project_section
 from masker.ocr.fake import FakeOCR
 from masker.ocr.provider import OCRError, OCRProvider
 
@@ -35,28 +40,36 @@ _FALLBACK: str = "rapid"
 
 
 def select_ocr(name: str | None = None) -> OCRProvider:
-    """Вернуть провайдер OCR по имени (``name``) или ``MASKER_OCR`` или дефолту ``tesseract``.
+    """Вернуть провайдер OCR по аргументу, ``MASKER_OCR``, YAML или дефолту.
 
     Имена нормализуются к нижнему регистру; неизвестное имя — ``OCRError``
-    со списком доступных имён.
-
-    Если имя не задано ни явно, ни через ``MASKER_OCR``, и дефолтный
-    провайдер недоступен (нет системного бинаря) — автоматически
-    пробуется фоллбек ``rapid``.
+    со списком доступных, а не молчаливый откат на ``fake``: опечатка в
+    переменной окружения иначе тихо отключила бы настоящий OCR.
     """
-    use_fallback = name is None and ENV_VAR not in os.environ
-    key = (name if name is not None else os.environ.get(ENV_VAR, _DEFAULT)).strip().casefold()
+    configured_name = project_section("ocr").get("provider", _DEFAULT)
+    if not isinstance(configured_name, str):
+        raise ValueError("ocr.provider в YAML-конфиге должен быть строкой")
+
+    # Фоллбек уместен только тогда, когда провайдера не выбирал человек:
+    # ни аргументом, ни окружением, ни строкой в YAML. Иначе подмена
+    # выбранного движка на другой пройдёт незаметно.
+    explicit = name is not None or ENV_VAR in os.environ or configured_name != _DEFAULT
+    selected_name = name
+    if selected_name is None:
+        selected_name = os.environ.get(ENV_VAR, configured_name)
+    key = selected_name.strip().casefold()
+
     factory = _REGISTRY.get(key)
     if factory is None:
         available = ", ".join(sorted(_REGISTRY))
         raise OCRError(
             f"неизвестный OCR-провайдер {key!r}; доступные: {available}. "
-            f"Задать через {ENV_VAR}=<имя> или аргументом select_ocr(name=...)"
+            f"Задать через {ENV_VAR}=<имя>, ocr.provider в YAML или аргументом select_ocr(name=...)"
         )
     try:
         return factory()
     except OCRError:
-        if use_fallback and _FALLBACK and key != _FALLBACK:
+        if not explicit and _FALLBACK and key != _FALLBACK:
             fallback_factory = _REGISTRY.get(_FALLBACK)
             if fallback_factory is not None:
                 return fallback_factory()

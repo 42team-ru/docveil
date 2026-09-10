@@ -1,7 +1,7 @@
 import { UploadPage } from "../../../pages/masker/upload-page";
 
 export function meta() {
-  return [{ title: "Новая задача · Обезличивание" }];
+  return [{ title: "Новый документ · Обезличивание" }];
 }
 
 export default function UploadRoute() {

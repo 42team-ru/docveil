@@ -264,3 +264,128 @@ def test_validation_skipped_has_no_certificate_key() -> None:
     """``preview_only`` — сертификат не считался вовсе, не «прошёл вникуда»."""
     skipped = _validation_skipped("preview_only: --redact-style не задан")
     assert "certificate" not in skipped
+
+
+# --- Р7-2: секция "verifier" в report.json ------------------------------------
+
+
+def _verifier_report(*, verified: int = 1, unverified_by_reason: dict[str, int] | None = None):
+    from masker.detect.verifier import VerifierReport, Window, WindowVerdict
+
+    unverified_by_reason = unverified_by_reason or {}
+    verdicts = []
+    for index in range(verified):
+        window = Window(id=f"w{index}", segment_order=0, start=0, end=10, text="Смирнова" * 1)
+        verdicts.append(WindowVerdict(window=window, status="verified", reason=""))
+    counter = verified
+    for reason, count in unverified_by_reason.items():
+        for _ in range(count):
+            window = Window(id=f"w{counter}", segment_order=0, start=0, end=10, text=f"x{counter}")
+            verdicts.append(WindowVerdict(window=window, status="unverified", reason=reason))
+            counter += 1
+    return VerifierReport(
+        verdicts=tuple(verdicts),
+        windows=len(verdicts),
+        verified=verified,
+        unverified=sum(unverified_by_reason.values()),
+        unverified_by_reason=dict(unverified_by_reason),
+        input_chars=42,
+        document_chars=1000,
+    )
+
+
+def test_report_has_no_verifier_section_when_layer_did_not_run() -> None:
+    """Слой выключен (``verifier=None``) — секции нет вовсе, а не пустая с
+    нулями, имитирующая «проверено, ничего нет» (Р7-2)."""
+    document = ingest_docx(FIXTURES / "contract_03_ner.docx")
+    entities = DetectAgent().detect(document).entities
+
+    report = _build_report(document, entities, with_plan=False)
+
+    assert "verifier" not in report
+
+
+def test_report_verifier_section_carries_counts_and_reasons() -> None:
+    document = ingest_docx(FIXTURES / "contract_03_ner.docx")
+    entities = DetectAgent().detect(document).entities
+    index = EntityIndex(entities)
+    ref_by_entity_id = {id(entity): index.ref(entity) for entity in entities}
+    verifier_report = _verifier_report(
+        verified=1, unverified_by_reason={"unmatched_quote": 2, "llm_error": 1}
+    )
+
+    report = build_report_payload(
+        Path("input.docx"),
+        document,
+        entities,
+        [],
+        frozenset(),
+        _DOCUMENT_COVERAGE,
+        {},
+        ref_by_entity_id=ref_by_entity_id,
+        registry=EntityTypeRegistry.builtin(),
+        verifier=verifier_report,
+    )
+
+    assert report["verifier"] == {
+        "windows": 4,
+        "verified": 1,
+        "unverified": 3,
+        "unverified_by_reason": {"llm_error": 1, "unmatched_quote": 2},
+        "input_chars": 42,
+        "document_chars": 1000,
+        "input_share": 0.042,
+        "r_filter": None,
+    }
+
+
+def test_report_verifier_section_carries_r_filter_when_measured() -> None:
+    """``r_filter`` — null, пока вызывающий не измерил его по разметке
+    (``measure_filter_coverage``); production-документ разметки не имеет,
+    но канал должен пропускать значение, если оно всё же есть (например,
+    диагностика на размеченном корпусе)."""
+    document = ingest_docx(FIXTURES / "contract_03_ner.docx")
+    entities = DetectAgent().detect(document).entities
+
+    report = build_report_payload(
+        Path("input.docx"),
+        document,
+        entities,
+        [],
+        frozenset(),
+        _DOCUMENT_COVERAGE,
+        {},
+        registry=EntityTypeRegistry.builtin(),
+        verifier=_verifier_report(),
+        r_filter=0.5,
+    )
+
+    assert report["verifier"]["r_filter"] == 0.5
+
+
+def test_report_verifier_section_is_byte_identical_across_two_runs() -> None:
+    """Инвариант детерминизма: два прогона одного документа дают побайтово
+    одинаковую секцию ``verifier`` в ``report.json``."""
+    import json
+
+    document = ingest_docx(FIXTURES / "contract_03_ner.docx")
+    entities = DetectAgent().detect(document).entities
+    verifier_report = _verifier_report(verified=2, unverified_by_reason={"budget_exceeded": 1})
+
+    def _build() -> dict:
+        return build_report_payload(
+            Path("input.docx"),
+            document,
+            entities,
+            [],
+            frozenset(),
+            _DOCUMENT_COVERAGE,
+            {},
+            registry=EntityTypeRegistry.builtin(),
+            verifier=verifier_report,
+            r_filter=None,
+        )
+
+    first = json.dumps(_build()["verifier"], sort_keys=True, ensure_ascii=False)
+    second = json.dumps(_build()["verifier"], sort_keys=True, ensure_ascii=False)
+    assert first == second

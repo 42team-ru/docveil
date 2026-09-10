@@ -14,9 +14,11 @@
 9. `MASKER_LLM=fake` не роняет пайплайн (ни `verify_recall`, ни `DetectAgent`).
 10. Бюджет окон и отказ модели дают `unverified`, а не падение прогона.
 11. `r_filter` считается верно и не делится на ноль, когда пропусков нет.
+12. Р7-1: вердикты верификатора выходят наружу через `DetectionResult.verifier`
+    и через реальную проводку `deps.llm` в `make_detect_node`.
 
 Имена в фикстурах взяты так, чтобы реально иметь хотя бы один морфологический
-разбор с граммемой `Surn`/`Name`/`Patr` (`masker.detect.verifier._any_name_grammeme`)
+разбор с граммемой `Surn`/`Name`/`Patr` (`masker.detect.morph.has_name_grammeme`)
 — «Персонова»/«Особая» словарь не распознаёт как имя/фамилию ни в одном
 разборе, поэтому для сигналов используются реальные словарные фамилии/имена/
 отчества («Смирнова», «Иванов», «Пётр»).
@@ -36,8 +38,10 @@ from masker.detect.verifier import (
     Window,
     build_windows,
     measure_filter_coverage,
+    summarize_verdicts,
     verify_recall,
 )
+from masker.graph import nodes
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.llm import FakeProvider, LLMError, Message, get_provider
 from masker.model import Anchor, Document, Entity, EntityType, Segment, Source
@@ -71,15 +75,24 @@ def _entity(
 
 
 class _ScriptedProvider:
-    """Провайдер с заранее заданными ответами, считающий число вызовов."""
+    """Провайдер с заранее заданными ответами, считающий число вызовов.
+
+    ``schema`` не игнорируется молча, а запоминается по вызову (``schemas``)
+    — так тест на подключение JSON Schema (Р7-3/Р7-4, TASKS.md: «GigaChat
+    документирует JSON Schema со strict: true») проверяет, что
+    ``verify_recall`` реально передаёт схему в ``LLMProvider.complete``, а не
+    просто не падает на новом именованном параметре протокола.
+    """
 
     def __init__(self, responses: list[str]) -> None:
         self._responses = list(responses)
         self.calls = 0
+        self.schemas: list[dict[str, object] | None] = []
 
-    def complete(self, messages: list[Message]) -> str:
+    def complete(self, messages: list[Message], *, schema: dict[str, object] | None = None) -> str:
         del messages
         self.calls += 1
+        self.schemas.append(schema)
         if not self._responses:
             raise AssertionError("неожиданный дополнительный вызов LLM")
         return self._responses.pop(0)
@@ -337,15 +350,20 @@ def test_verifier_does_not_duplicate_a_span_already_in_baseline() -> None:
 
 
 def test_fake_provider_default_response_yields_unverified_not_crash() -> None:
+    """`FakeProvider()` без заготовленных ответов отвечает заглушкой без
+    ключа "windows" — с подключённой в Р7-4 строгой схемой (`_RESPONSE_SCHEMA`)
+    это ловится ещё в `FakeProvider.complete()` как несоответствие `schema`
+    (`LLMError`), а не как `malformed_json` уже на нашей стороне разбора —
+    оба исхода технические, ни один не превращается в тихое `entities: []`."""
     text = "Контактное лицо: Смирнова, распорядитель."
     document = _document(text)
-    llm = FakeProvider()  # ответ по умолчанию без ключа "windows"
+    llm = FakeProvider()  # ответ по умолчанию не соответствует _RESPONSE_SCHEMA
 
     result = verify_recall(document, [], llm)
 
     assert result.entities == ()
     assert result.verdicts
-    assert all(v.status == "unverified" and v.reason == "malformed_json" for v in result.verdicts)
+    assert all(v.status == "unverified" and v.reason == "llm_error" for v in result.verdicts)
 
 
 def test_detect_agent_with_fake_llm_does_not_raise() -> None:
@@ -370,6 +388,109 @@ def test_detect_agent_without_llm_is_unaffected() -> None:
     ]
 
 
+# --- 12: вердикты наружу (Р7-1) -------------------------------------------------
+
+
+def test_detect_agent_without_llm_has_no_verifier_report() -> None:
+    document = _document("Контактное лицо: Смирнова, распорядитель.")
+
+    result = DetectAgent().detect(document)
+
+    assert result.verifier is None
+
+
+def test_detect_agent_with_llm_reports_verdict_per_built_window() -> None:
+    """`DetectionResult.verifier` — не пустышка: вердикт на каждое окно,
+    включая `unverified` (`FakeProvider()` по умолчанию отвечает без ключа
+    "windows" — со строгой схемой (Р7-4) это `llm_error`: `FakeProvider`
+    отвергает несоответствующий `_RESPONSE_SCHEMA` ответ ещё до того, как мы
+    успеваем распарсить его сами)."""
+    text = "Директор ЗУБРИЦКАЯ подписала договор аренды помещения."
+    document = _document(text)
+    baseline = DetectAgent().detect(document).entities
+    assert baseline == []  # предпосылка: без верификатора спан не находится
+    windows = build_windows(document, baseline)
+    assert windows  # предпосылка: слабый сигнал есть и не покрыт baseline
+
+    result = DetectAgent(llm=FakeProvider()).detect(document)
+
+    assert result.verifier is not None
+    assert result.verifier.windows == len(windows)
+    assert len(result.verifier.verdicts) == result.verifier.windows
+    assert result.verifier.verified + result.verifier.unverified == result.verifier.windows
+    assert result.verifier.unverified_by_reason == {"llm_error": result.verifier.windows}
+
+
+def test_summarize_verdicts_counts_input_chars_from_dispatched_windows_only() -> None:
+    """`input_chars` — объём УНИКАЛЬНОГО текста, реально ушедшего в модель:
+    окно, срезанное бюджетом (`budget_exceeded`), в модель не уходило и не
+    должно раздувать эту цифру."""
+    texts = [f"Контактное лицо {i}: Смирнова{i}, распорядитель." for i in range(3)]
+    document = _document(*texts)
+    windows = build_windows(document, [])
+    assert len(windows) == 3
+
+    provider = _ScriptedProvider([_windows_response([{"id": windows[0].id, "entities": []}])])
+    result = verify_recall(document, [], provider, max_windows=1, batch_size=1)
+
+    report = summarize_verdicts(document, result)
+
+    assert report.windows == 3
+    assert report.verified == 1
+    assert report.unverified_by_reason == {"budget_exceeded": 2}
+    assert report.input_chars == len(windows[0].text)
+    assert report.document_chars == sum(len(text) for text in texts)
+
+
+def test_make_detect_node_wires_llm_into_verifier() -> None:
+    """Приёмка Р7-1, п.3: без ``llm=deps.llm`` в ``DetectAgent`` слой
+    верификатора в графе мёртв при любом ``MASKER_LLM`` — провайдер ни разу
+    не вызывается. Тест обязан упасть при откате проводки в
+    ``make_detect_node``."""
+    text = "Директор ЗУБРИЦКАЯ подписала договор аренды помещения."
+    state: dict[str, object] = {
+        "path": "test.docx",
+        "fmt": "docx",
+        "segments": [
+            {
+                "text": text,
+                "anchor": {"fmt": "docx", "locator": ["body", 0], "label": None},
+                "order": 0,
+            }
+        ],
+        "options": {"rules_only": False, "types": None, "interactive": False},
+    }
+    provider = FakeProvider()
+
+    state.update(nodes.make_detect_node(nodes.RunDeps(llm=provider))(state))
+
+    assert provider.calls > 0
+
+
+def test_make_detect_node_rules_only_never_calls_llm() -> None:
+    """``--rules-only`` обязан остаться офлайн даже при заданном ``deps.llm``
+    — «только регулярки/контрольные суммы» не должно тихо начать ходить
+    в сеть через верификатор."""
+    text = "Директор ЗУБРИЦКАЯ подписала договор аренды помещения."
+    state: dict[str, object] = {
+        "path": "test.docx",
+        "fmt": "docx",
+        "segments": [
+            {
+                "text": text,
+                "anchor": {"fmt": "docx", "locator": ["body", 0], "label": None},
+                "order": 0,
+            }
+        ],
+        "options": {"rules_only": True, "types": None, "interactive": False},
+    }
+    provider = FakeProvider()
+
+    state.update(nodes.make_detect_node(nodes.RunDeps(llm=provider))(state))
+
+    assert provider.calls == 0
+
+
 # --- 10: бюджет и отказ модели -------------------------------------------------
 
 
@@ -381,8 +502,10 @@ def test_llm_error_after_exhausted_retries_is_unverified_not_masked_silently() -
         def __init__(self) -> None:
             self.calls = 0
 
-        def complete(self, messages: list[Message]) -> str:
-            del messages
+        def complete(
+            self, messages: list[Message], *, schema: dict[str, object] | None = None
+        ) -> str:
+            del messages, schema
             self.calls += 1
             raise LLMError("сеть недоступна")
 
@@ -438,6 +561,54 @@ def test_measure_filter_coverage_r_filter_is_none_without_misses() -> None:
 
     assert coverage.missed_baseline == 0
     assert coverage.r_filter is None
+
+
+# --- Р7-4: строгая JSON Schema подключена к вызову модели ---------------------
+
+
+def test_verify_recall_passes_strict_schema_with_required_field() -> None:
+    """TASKS.md Р7: «GigaChat документирует JSON Schema со strict: true —
+    поле required обязательно, без него схема ничего не ограничивает».
+    Проверяем, что ``verify_recall`` реально передаёт схему в
+    ``LLMProvider.complete``, а не полагается только на промпт."""
+    text = "Контактное лицо: Смирнова, распорядитель."
+    document = _document(text)
+    windows = build_windows(document, [])
+    window_id = windows[0].id
+    provider = _ScriptedProvider([_windows_response([{"id": window_id, "entities": []}])])
+
+    verify_recall(document, [], provider)
+
+    assert provider.schemas
+    schema = provider.schemas[0]
+    assert schema is not None
+    assert schema["required"] == ["windows"]
+    assert schema["additionalProperties"] is False
+    windows_schema = schema["properties"]["windows"]["items"]
+    assert set(windows_schema["required"]) == {"id", "entities"}
+    entity_schema = windows_schema["properties"]["entities"]["items"]
+    assert set(entity_schema["required"]) == {"text", "type"}
+    assert set(entity_schema["properties"]["type"]["enum"]) == {"org_name", "person"}
+
+
+def test_fake_provider_rejects_answer_that_violates_schema() -> None:
+    """`FakeProvider` — единственный офлайн-провайдер, реально умеющий
+    проверить `schema` без сети (Р7-3): заготовленный ответ, где "type" не
+    входит в перечисленные значения, обязан провалить схему тем же путём,
+    что и сетевой сбой — `unverified`/`llm_error`, а не правдоподобный,
+    но неверный результат."""
+    text = "Контактное лицо: Смирнова, распорядитель."
+    document = _document(text)
+
+    invalid_response = _windows_response(
+        [{"id": "w0", "entities": [{"text": "Смирнова", "type": "inn"}]}]
+    )
+    llm = FakeProvider([invalid_response])
+
+    result = verify_recall(document, [], llm)
+
+    assert result.entities == ()
+    assert all(v.status == "unverified" and v.reason == "llm_error" for v in result.verdicts)
 
 
 # --- контракт Window -----------------------------------------------------------

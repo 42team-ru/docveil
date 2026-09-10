@@ -52,9 +52,15 @@ gold-сущностей 5 (71%) лежат в сегментах, где что-
 (предложение/строка таблицы против ±80/±160/±320 символов) и размера батча
 (1/4/8/16/37) не проводился — взяты фиксированные умеренные значения
 (``DEFAULT_WINDOW_CHARS``, ``DEFAULT_BATCH_SIZE``) как гипотеза, а не как
-измеренный оптимум. JSON Schema со ``strict: true`` (GigaChat v1/v2) тоже не
-подключена — контракт держится только на промпте и валидации на нашей
-стороне, как и у уже существующего ``llm_filter_detector``.
+измеренный оптимум.
+
+JSON Schema со ``strict: true`` (``_RESPONSE_SCHEMA``) подключена к каждому
+вызову ``LLMProvider.complete`` (``_call_with_retry``): контракт ответа
+теперь ограничен и на стороне API/схемы, а не только промптом и валидацией
+на нашей стороне — см. ``LLMProvider`` (``masker.llm.base``),
+``GigaChatProvider``/``OpenRouterProvider`` (кладут схему в
+``response_format``) и ``FakeProvider`` (валидирует локально через
+``jsonschema``, без сети).
 """
 
 from __future__ import annotations
@@ -65,7 +71,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from masker.detect.morph import _morph_vocab
+from masker.detect.morph import has_name_grammeme
 from masker.detect.normalize import normalize_value
 from masker.detect.orgforms import org_forms
 from masker.llm import LLMError, LLMProvider, Message
@@ -113,6 +119,45 @@ _SYSTEM_PROMPT = (
     'дан во входе (например "w3"), а не число и не позиция символа в тексте.'
 )
 
+#: JSON Schema (draft 2020-12) контракта ответа модели, TASKS.md Р7:
+#: «GigaChat документирует JSON Schema со ``strict: true`` — поле
+#: ``required`` обязательно, без него схема ничего не ограничивает».
+#: ``additionalProperties: False`` и полный список свойств в ``required``
+#: на каждом уровне — требование strict-режима (иначе GigaChat/OpenRouter
+#: отклоняют схему как «не strict», а не тихо ослабляют её). ``enum`` на
+#: ``type`` не даёт модели вернуть тип за пределами ``VERIFIER_TYPES`` уже
+#: на уровне API, до нашей собственной проверки в ``_resolve_claim``.
+_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "windows": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "entities": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string"},
+                                "type": {"type": "string", "enum": sorted(VERIFIER_TYPES)},
+                            },
+                            "required": ["text", "type"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["id", "entities"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["windows"],
+    "additionalProperties": False,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class Window:
@@ -157,36 +202,6 @@ class VerifierResult:
     verdicts: tuple[WindowVerdict, ...]
 
 
-@functools.lru_cache(maxsize=8192)
-def _any_name_grammeme(word: str) -> str | None:
-    """Есть ли у слова ХОТЯ БЫ ОДИН морфологический разбор с граммемой имени.
-
-    Отличие от `masker.detect.morph._classify_word` (Р4) принципиально, а
-    не случайно: тот смотрит только на ПЕРВЫЙ (наиболее вероятный) разбор —
-    это правильно для производственного детектора, который сам решает,
-    маскировать ли найденное, и не должен ловить омонимы вроде «Вера»/
-    «Слава»/«Надежда» (см. докстринг `morph.py`). Здесь решение не
-    принимается — только строится список мест, которые стоит ПОКАЗАТЬ
-    модели, поэтому сеть сознательно шире: слово с разбором-омонимом
-    (частый нарицательный смысл первым, фамилия/имя — вторым) — тоже повод
-    спросить модель, а не тихо промолчать. Ровно так в реальном корпусе
-    (`contract_pdf_02_school.pdf`) находится «ЗУБРИЦКАЯ» — ПЕРВЫЙ разбор
-    pymorphy2 для этого слова — прилагательное («зубрицкая», угадано по
-    окончанию), фамильный разбор идёт вторым, и `_classify_word` (Р4)
-    закономерно проходит мимо.
-    """
-    if not word or not (word[0].isalpha() and word[0].isupper()):
-        return None
-    if word.casefold() in org_forms().requisite_labels:
-        return None
-    for form in _morph_vocab()(word):
-        tag = str(getattr(form, "tag", ""))
-        for name_tag in ("Surn", "Name", "Patr"):
-            if name_tag in tag:
-                return name_tag
-    return None
-
-
 @functools.lru_cache(maxsize=1)
 def _quoted_after_org_form_pattern() -> re.Pattern[str]:
     """Название в кавычках СРАЗУ ПОСЛЕ оргформы — сигнал организации (Р5:
@@ -212,13 +227,14 @@ def find_weak_signal_spans(text: str) -> list[tuple[int, int]]:
 
     Два независимых признака: заглавное слово хотя бы с одним
     морфологическим разбором `Surn`/`Name`/`Patr` (шире, чем у
-    `MorphPersonDetector`, Р4 — см. докстринг `_any_name_grammeme`) и
+    `MorphPersonDetector`, Р4 — см. докстринг `masker.detect.morph.has_name_grammeme`,
+    той же функции, что переиспользует расширение спана влево в Р9-1) и
     название в кавычках сразу после оргформы (Р5: `_quoted_after_org_form_pattern`).
     """
     spans = [
         match.span()
         for match in _CAPITALIZED_WORD_RE.finditer(text)
-        if _any_name_grammeme(match.group()) is not None
+        if has_name_grammeme(match.group())
     ]
     spans.extend(match.span() for match in _quoted_after_org_form_pattern().finditer(text))
     return spans
@@ -325,7 +341,7 @@ def _call_with_retry(llm: LLMProvider, batch: Sequence[Window]) -> str | None:
     messages = _build_messages(batch)
     for _attempt in range(MAX_ATTEMPTS):
         try:
-            return llm.complete(messages)
+            return llm.complete(messages, schema=_RESPONSE_SCHEMA)
         except LLMError:
             continue
     return None
@@ -505,6 +521,52 @@ def verify_recall(
     entities.sort(key=lambda item: (item.segment_order, item.start, item.end, item.type))
     verdicts.sort(key=lambda item: (item.window.segment_order, item.window.start, item.window.id))
     return VerifierResult(entities=tuple(entities), verdicts=tuple(verdicts))
+
+
+@dataclass(frozen=True, slots=True)
+class VerifierReport:
+    """Сводка вердиктов верификатора — источник секции `verifier` в
+    `report.json` (Р7-2, не строится здесь). Хранится в
+    `DetectionResult.verifier`, а не сам `VerifierResult`: найденные им
+    сущности уже влиты в `DetectionResult.entities`, повторно протаскивать
+    их через отчёт незачем — отчёту нужны только счётчики и вердикты."""
+
+    #: Один вердикт на каждое построенное `Window` (включая дубли-локации
+    #: одного и того же текста — см. докстринг модуля про `_group_by_text`).
+    verdicts: tuple[WindowVerdict, ...]
+    windows: int
+    verified: int
+    unverified: int
+    #: Причина -> количество, только для `unverified` (`WindowVerdict.reason`).
+    unverified_by_reason: dict[str, int]
+    #: Суммарный объём УНИКАЛЬНОГО текста окон, реально отправленного модели
+    #: (без `budget_exceeded` — те окна `verify_recall` в модель не посылал).
+    input_chars: int
+    #: Объём документа целиком — знаменатель для доли входа (Р7-2).
+    document_chars: int
+
+
+def summarize_verdicts(document: Document, result: VerifierResult) -> VerifierReport:
+    """Свернуть `VerifierResult.verdicts` конкретного прогона в `VerifierReport`."""
+    verdicts = result.verdicts
+    verified = sum(1 for verdict in verdicts if verdict.status == "verified")
+    unverified_by_reason: dict[str, int] = {}
+    for verdict in verdicts:
+        if verdict.status == "verified":
+            continue
+        unverified_by_reason[verdict.reason] = unverified_by_reason.get(verdict.reason, 0) + 1
+    sent_texts = {
+        verdict.window.text for verdict in verdicts if verdict.reason != "budget_exceeded"
+    }
+    return VerifierReport(
+        verdicts=verdicts,
+        windows=len(verdicts),
+        verified=verified,
+        unverified=len(verdicts) - verified,
+        unverified_by_reason=unverified_by_reason,
+        input_chars=sum(len(text) for text in sent_texts),
+        document_chars=sum(len(segment.text) for segment in document.segments),
+    )
 
 
 @dataclass(frozen=True, slots=True)

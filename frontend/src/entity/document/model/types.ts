@@ -1,5 +1,15 @@
 export type DocumentFormat = "PDF" | "DOCX" | "XLSX";
 
+/**
+ * Откуда взять байты документа при запуске: новый файл из дропзоны
+ * (загружается в хранилище перед запуском) или уже загруженный объект
+ * прошлого прогона («Повторить прогон» в `run-details-dialog.tsx`) — для
+ * него запуск идёт сразу по `objectName`, без повторной загрузки.
+ */
+export type UploadSource =
+  | { kind: "file"; file: File }
+  | { kind: "existing"; objectName: string };
+
 /** Состояние документа в локальном хранилище. */
 export type DocumentStatus = "ok" | "review" | "ocr" | "run";
 
@@ -36,22 +46,4 @@ export type HistoryRecord = {
   updated: string;
   status: DocumentStatus;
   runs: RunRecord[];
-};
-
-/** Строка перечня заменённых фрагментов в отчёте. */
-export type ReportRow = {
-  id: string;
-  page: string;
-  type: string;
-  original: string;
-  marker: string;
-  side: string;
-  status: "подтв." | "низкая" | "проверить" | "ожидает";
-};
-
-/** Плитка сводной статистики отчёта. */
-export type ReportStat = {
-  label: string;
-  value: string;
-  note: string;
 };

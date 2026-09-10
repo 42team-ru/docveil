@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 from masker.graph import nodes
@@ -12,12 +13,6 @@ ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "pyproject.toml").is_file()
 )
 FIXTURE = ROOT / "fixtures" / "labeled" / "contract_01.docx"
-#: Тот же PDF, что и в ``test_render_node.py`` — реальный документ с
-#: известным узким полем, на котором лестница отступления маркера реально
-#: срабатывает (не только инжектированный фейк), а значит и легенда
-#: сокращений (план М1, правило 6) реально есть что агрегировать.
-PDF_FIXTURE = ROOT / "fixtures" / "labeled" / "contract_pdf_02_school.pdf"
-
 #: Множество ключей верхнего уровня report.json «простого пути» (``cli.py::
 #: inspect_docx``) на ``contract_01.docx --profile --types all``, плюс
 #: ``decisions`` — единственная запись, которой у простого пути нет и не
@@ -58,6 +53,7 @@ _REFERENCE_KEYS = frozenset(
         #: Р8 — «снять одним кликом»: группы уровня "possible" отдельным
         #: списком, даже пустым, если план был построен.
         "review_possible",
+        "telemetry",
     }
 )
 
@@ -103,7 +99,7 @@ def test_report_node_top_level_keys_match_reference(tmp_path: Path) -> None:
     result = nodes.make_report_node(nodes.RunDeps())(state)
 
     report = result["report"]
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     assert set(report.keys()) == _REFERENCE_KEYS
 
 
@@ -176,23 +172,13 @@ def test_report_node_notes_llm_trace_limitation_only_when_tracer_present(tmp_pat
     assert any("llm-trace" in item for item in with_tracer["limitations"])
 
 
-def test_report_node_marker_legend_aggregates_real_render_degradations(tmp_path: Path) -> None:
+def test_report_node_marker_legend_aggregates_real_render_degradations(
+    tmp_path: Path, planned_pdf_state: State
+) -> None:
     """План М1, правило 6: ``report["marker_legend"]`` не пуст на документе,
     где лестница отступления реально спускается, и каждая строка легенды
     ссылается на непустой канонический маркер из тех же деградаций."""
-    state: State = {
-        "path": str(PDF_FIXTURE),
-        "options": {
-            "rules_only": False,
-            "types": None,
-            "interactive": False,
-            "styles": ["marker"],
-            "preview": False,
-        },
-    }
-    state.update(nodes.extract_node(state))
-    state.update(nodes.make_detect_node(nodes.RunDeps())(state))
-    state.update(nodes.plan_node(state))
+    state = deepcopy(planned_pdf_state)
     state.update(nodes.make_render_node(nodes.RunDeps(artifact_dir=tmp_path))(state))
 
     result = nodes.make_report_node(nodes.RunDeps())(state)
@@ -207,3 +193,77 @@ def test_report_node_marker_legend_aggregates_real_render_degradations(tmp_path:
         assert entry["shown_label"] in degraded_shown_labels
         assert entry["canonical_label"]
         assert entry["pages"] == sorted(set(entry["pages"]))
+
+
+# --- Р7-2: сводка верификатора доезжает до report.json ------------------------
+
+
+class _EmptyVerifierProvider:
+    """Провайдер, честно отвечающий «в этих окнах ничего нет».
+
+    Пустой ответ модели — не то же самое, что выключенный слой: слой
+    отработал, окна построил, вердикты вынес. Ровно этот случай и проверяют
+    тесты ниже — секция обязана появиться, а не исчезнуть за компанию с
+    находками.
+    """
+
+    def complete(self, messages: object, *, schema: object = None) -> str:
+        return '{"windows": []}'
+
+
+def test_detect_node_puts_verifier_summary_into_state(tmp_path: Path) -> None:
+    """Без этого граф выбрасывал ``DetectionResult.verifier``, и секция
+    ``verifier`` в реальном прогоне не появлялась никогда, хотя
+    ``build_report_payload`` умел её строить."""
+    state: State = {
+        "path": str(FIXTURE),
+        "options": {
+            "rules_only": False,
+            "types": None,
+            "interactive": False,
+            "profile": False,
+            "unmask_critical": False,
+            "thread_id": "t-verifier",
+            "styles": [],
+            "preview": True,
+        },
+    }
+    state.update(nodes.extract_node(state))
+
+    result = nodes.make_detect_node(nodes.RunDeps(llm=_EmptyVerifierProvider()))(state)  # type: ignore[arg-type]
+
+    summary = result["verifier"]
+    assert isinstance(summary, dict)
+    assert set(summary) == {
+        "windows",
+        "verified",
+        "unverified",
+        "unverified_by_reason",
+        "input_chars",
+        "document_chars",
+        "input_share",
+        "r_filter",
+    }
+    # `r_filter` требует размеченного корпуса, которого у обычного документа
+    # нет: `None` — «не измерен», а не «измерен и равен нулю».
+    assert summary["r_filter"] is None
+    assert json.dumps(summary)  # State уходит в чекпойнтер — обязан быть JSON
+
+
+def test_report_node_carries_verifier_section_from_state(tmp_path: Path) -> None:
+    state = _full_state(tmp_path)
+    state["verifier"] = {"windows": 3, "verified": 1, "r_filter": None}
+
+    result = nodes.make_report_node(nodes.RunDeps())(state)
+
+    assert result["report"]["verifier"] == {"windows": 3, "verified": 1, "r_filter": None}
+
+
+def test_report_node_has_no_verifier_section_when_layer_was_off(tmp_path: Path) -> None:
+    """``rules_only`` не запускает верификатор — пустой секции с нулями быть
+    не должно: она читалась бы как «проверено, ничего не найдено»."""
+    state = _full_state(tmp_path)
+
+    result = nodes.make_report_node(nodes.RunDeps())(state)
+
+    assert "verifier" not in result["report"]

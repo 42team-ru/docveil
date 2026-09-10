@@ -2,23 +2,27 @@
 
 from __future__ import annotations
 
+import mimetypes
 from datetime import datetime
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from api.core.config import settings
 from api.core.db import get_db
 from api.core.deps import get_current_user
 from api.models.user import UserORM
 from api.schemas.auth import DeviceType, LoginRequest, RefreshRequest, TokenResponse
-from api.schemas.user import UserPublic
+from api.schemas.user import PasswordChangeRequest, UserPublic, UserSelfUpdate
 from api.services.auth_service import (
     authenticate_user,
     issue_tokens,
     revoke_refresh_token,
     rotate_refresh_token,
 )
+from api.services.file_service import download_file, upload_file
+from api.services.user_service import change_password, clear_avatar, set_avatar, update_profile
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -93,3 +97,52 @@ async def logout(
 @router.get("/me", response_model=UserPublic)
 async def me(current_user: UserORM = Depends(get_current_user)) -> UserORM:
     return current_user
+
+
+@router.patch("/me", response_model=UserPublic)
+async def update_me(
+    payload: UserSelfUpdate,
+    current_user: UserORM = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> UserORM:
+    return await update_profile(
+        session, current_user, full_name=payload.full_name, timezone=payload.timezone
+    )
+
+
+@router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_my_password(
+    payload: PasswordChangeRequest,
+    current_user: UserORM = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> None:
+    await change_password(session, current_user, payload.current_password, payload.new_password)
+
+
+@router.post("/me/avatar", response_model=UserPublic)
+async def upload_my_avatar(
+    file: UploadFile,
+    current_user: UserORM = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> UserORM:
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Нужен файл изображения")
+    object_name, _size = await upload_file(file)
+    return await set_avatar(session, current_user, object_name)
+
+
+@router.get("/me/avatar")
+async def get_my_avatar(current_user: UserORM = Depends(get_current_user)) -> Response:
+    if current_user.avatar_object_name is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Аватар не загружен")
+    content = await run_in_threadpool(download_file, current_user.avatar_object_name)
+    media_type, _ = mimetypes.guess_type(current_user.avatar_object_name)
+    return Response(content=content, media_type=media_type or "application/octet-stream")
+
+
+@router.delete("/me/avatar", response_model=UserPublic)
+async def delete_my_avatar(
+    current_user: UserORM = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> UserORM:
+    return await clear_avatar(session, current_user)

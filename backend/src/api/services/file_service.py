@@ -28,3 +28,13 @@ async def upload_file(file: UploadFile) -> tuple[str, int]:
 
     await run_in_threadpool(_put)
     return object_name, len(content)
+
+
+def download_file(object_name: str) -> bytes:
+    """Скачать произвольный объект из MinIO (аватары и т.п.)."""
+    response = minio_client.get_object(settings.minio_bucket, object_name)
+    try:
+        return bytes(response.read())
+    finally:
+        response.close()
+        response.release_conn()

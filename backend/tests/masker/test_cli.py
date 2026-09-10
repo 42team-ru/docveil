@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 from docx import Document as open_docx
 from docx.enum.text import WD_COLOR_INDEX
+from docx.oxml.ns import qn
 
 import masker.render.docx_redact as docx_redact_module
 from masker.cli import EXIT_LEAK, main
+from masker.cli_ui import CliPresenter
 from masker.ingest.docx_ingest import iter_runs
 from masker.model import CRITICAL_TYPES
 
@@ -48,7 +50,7 @@ def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
     original = open_docx(FIXTURE)
 
     assert report["preview_only"] is True
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     # 4 → 6 после T1.15: две даты в фикстуре (12.02.2026, 10.05.2018).
     assert report["entity_count"] == 6
     # chunk_count тоже растёт: даты в отдельных абзацах — новые PII-чанки.
@@ -148,8 +150,15 @@ def test_cli_returns_4_on_leak(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     в report.json ``leaked`` непуст."""
     original_redact_paragraph = docx_redact_module._redact_paragraph
 
-    def broken(paragraph: object, replacements: list[object], style: str) -> None:
-        original_redact_paragraph(paragraph, replacements[:-1], style)  # type: ignore[arg-type]
+    def broken(
+        paragraph: object,
+        replacements: list[object],
+        style: str,
+        highlight_background: str | None,
+    ) -> None:
+        original_redact_paragraph(  # type: ignore[arg-type]
+            paragraph, replacements[:-1], style, highlight_background
+        )
 
     monkeypatch.setattr(docx_redact_module, "_redact_paragraph", broken)
 
@@ -192,12 +201,47 @@ def test_cli_returns_0_when_clean(tmp_path: Path) -> None:
     assert report["validation"]["status"] == "checked"
 
 
+def test_cli_passes_highlight_background_into_graph(tmp_path: Path) -> None:
+    assert (
+        main(
+            [
+                str(FIXTURE),
+                "--out",
+                str(tmp_path),
+                "--rules-only",
+                "--redact-style",
+                "marker",
+                "--highlight-background",
+                "12ab34",
+            ]
+        )
+        == 0
+    )
+    rendered = open_docx(tmp_path / FIXTURE.stem / "masked_highlight.docx")
+    marker_run = next(
+        run
+        for paragraph in rendered.paragraphs
+        for run in iter_runs(paragraph)
+        if run.text.startswith("[")
+    )
+    shading = marker_run._r.find(f"{qn('w:rPr')}/{qn('w:shd')}")
+    assert shading is not None
+    assert shading.get(qn("w:fill")) == "12AB34"
+
+
 def test_cli_without_redact_style_reports_validation_skipped(tmp_path: Path) -> None:
     assert main([str(FIXTURE), "--out", str(tmp_path), "--types", "all"]) == 0
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
     assert report["validation"]["status"] == "skipped"
     assert report["validation"]["reason"]
     assert report["leaked"] == []
+
+
+def test_cli_rejects_invalid_highlight_background(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as error:
+        main([str(FIXTURE), "--highlight-background", "chartreuse"])
+    assert error.value.code == 2
+    assert "некорректный фон подсветки" in capsys.readouterr().err
 
 
 def test_cli_filters_entity_types(tmp_path: Path) -> None:
@@ -480,6 +524,77 @@ def test_cli_rejects_non_docx(tmp_path: Path) -> None:
         main([str(source), "--out", str(tmp_path)])
 
 
+def test_cli_dry_run_describes_operation_without_writing_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output = tmp_path / "output"
+
+    assert (
+        main(
+            [
+                str(FIXTURE),
+                "--out",
+                str(output),
+                "--types",
+                "inn,passport",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert "предпросмотр" in captured.out
+    assert "файлы не будут записаны" in captured.out
+    assert not output.exists()
+
+
+def test_cli_non_tty_progress_is_plain_text(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main([str(FIXTURE), "--out", str(tmp_path), "--rules-only"]) == 0
+
+    captured = capsys.readouterr()
+    assert "1/10: Извлечение текста" in captured.out
+    assert "10/10: Сборка отчёта" in captured.out
+    assert "\x1b" not in captured.out
+
+
+def test_cli_tty_progress_is_started_and_cleared(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("masker.cli_ui.sys.stdout.isatty", lambda: True)
+    presenter = CliPresenter(quiet=False, verbose=False)
+
+    presenter.begin(FIXTURE)
+    assert presenter._progress is not None
+    presenter.observe("extract", "started")
+    presenter.observe("extract", "completed", "разобран DOCX")
+    assert presenter.finish_progress() >= 0
+    assert presenter._progress is None
+    capsys.readouterr()
+
+
+def test_cli_quiet_suppresses_regular_dry_run_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main([str(FIXTURE), "--out", str(tmp_path), "--dry-run", "--quiet"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_cli_help_groups_options_and_examples(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit, match="0"):
+        main(["--help"])
+
+    captured = capsys.readouterr()
+    assert "Вход и результат" in captured.out
+    assert "Интерфейс" in captured.out
+    assert "Примеры:" in captured.out
+
+
 def test_report_exposes_processed_tables_and_unprocessed_metadata(tmp_path: Path) -> None:
     source_path = tmp_path / "table.docx"
     source = open_docx()
@@ -589,7 +704,7 @@ def test_decisions_block_reflects_type_keep_and_preview_excludes_it(tmp_path: Pa
 
     report_path = tmp_path / "contract_01" / "report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     phone_records = [item for item in report["entities"] if item["type"] == "phone"]
     assert phone_records
     for record in phone_records:

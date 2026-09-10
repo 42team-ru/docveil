@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from masker.graph.nodes import summary_node
+import json
+
+from masker.graph.nodes import RunDeps, make_summary_node, summary_node
 from masker.graph.serde import entity_to_dict, profiles_to_dicts
+from masker.llm import FakeProvider
 from masker.model import Anchor, Entity, EntityType, Profile, ProfileMember, Source
 
 _ANCHOR = Anchor(fmt="docx", locator=("body", 0))
@@ -45,6 +48,14 @@ def _state(**overrides) -> dict:
     return base
 
 
+def _segment(text: str) -> dict:
+    return {
+        "text": text,
+        "anchor": {"fmt": "docx", "locator": ["body", 0], "label": ""},
+        "order": 0,
+    }
+
+
 def test_summary_node_returns_contract_summary_key() -> None:
     result = summary_node(_state())
     assert "contract_summary" in result
@@ -62,21 +73,21 @@ def test_summary_node_empty_state_gives_blank_summary() -> None:
 
 def test_summary_node_picks_up_federal_law_entities() -> None:
     law = _entity(EntityType.FEDERAL_LAW, "44-ФЗ")
-    state = _state(entities=[entity_to_dict(law)])
+    state = _state(segments=[_segment(law.text)], entities=[entity_to_dict(law)])
     result = summary_node(state)
     assert result["contract_summary"]["federal_law"] == ["44-ФЗ"]
 
 
 def test_summary_node_picks_up_contract_amount() -> None:
     amount = _entity(EntityType.CONTRACT_AMOUNT, "1 000 000 руб.")
-    state = _state(entities=[entity_to_dict(amount)])
+    state = _state(segments=[_segment(amount.text)], entities=[entity_to_dict(amount)])
     result = summary_node(state)
     assert result["contract_summary"]["contract_amount"] == "1 000 000 руб."
 
 
 def test_summary_node_picks_up_delivery_period() -> None:
     period = _entity(EntityType.DELIVERY_PERIOD, "в течение 30 дней")
-    state = _state(entities=[entity_to_dict(period)])
+    state = _state(segments=[_segment(period.text)], entities=[entity_to_dict(period)])
     result = summary_node(state)
     assert result["contract_summary"]["delivery_periods"] == ["в течение 30 дней"]
 
@@ -100,6 +111,72 @@ def test_summary_node_passes_llm_calls_from_state() -> None:
     state = _state(llm_calls=3)
     result = summary_node(state)
     assert result["contract_summary"]["llm_calls"] == 3
+
+
+def test_summary_node_with_fake_provider_keeps_rules_and_does_not_call_model() -> None:
+    provider = FakeProvider()
+    result = make_summary_node(RunDeps(llm=provider))(_state())
+
+    assert result["contract_summary"]["document_kind"]["status"] == "unknown"
+    assert result["contract_summary"]["brief_summary"] is None
+    assert result["summary_llm_calls"] == 0
+    assert provider.calls == 0
+
+
+class _SummaryProvider:
+    def __init__(self, responses: list[str]) -> None:
+        self._responses = iter(responses)
+        self.calls = 0
+        self.schemas: list[dict[str, object] | None] = []
+
+    def complete(self, messages, *, schema=None) -> str:
+        del messages
+        self.calls += 1
+        self.schemas.append(schema)
+        return next(self._responses)
+
+
+def test_summary_node_non_contract_omits_contract_fields() -> None:
+    provider = _SummaryProvider(
+        [
+            json.dumps(
+                {
+                    "summary": (
+                        "Это технические условия. Они задают требования. "
+                        "Они описывают контроль качества."
+                    ),
+                    "is_contract": False,
+                    "genre": "технические условия",
+                    "confidence": 0.94,
+                }
+            )
+        ]
+    )
+    amount = _entity(EntityType.CONTRACT_AMOUNT, "1 000 000 руб.")
+    state = _state(
+        segments=[
+            {
+                "text": "ТЕХНИЧЕСКИЕ УСЛОВИЯ",
+                "anchor": {"fmt": "docx", "locator": ["body", 0], "label": ""},
+                "order": 0,
+            }
+        ],
+        entities=[entity_to_dict(amount)],
+    )
+
+    result = make_summary_node(RunDeps(llm=provider))(state)
+    card = result["contract_summary"]
+    assert card["document_kind"] == {
+        "status": "non_contract",
+        "genre": "технические условия",
+        "confidence": 0.94,
+        "source": "llm",
+    }
+    assert card["brief_summary"] is not None
+    assert card["contract_amount"] is None
+    assert card["contract_amount_fact"]["status"] == "not_found"
+    assert provider.calls == 1
+    assert provider.schemas[0] is not None
 
 
 def test_summary_node_result_ends_up_in_report(tmp_path) -> None:

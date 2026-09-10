@@ -23,10 +23,9 @@ export type HighlightResult = {
 
 export function resolvePaintState(
   decision: PiiDecisionKind,
-  viewMode: "all" | "pending" | "original",
+  viewMode: "all" | "original",
 ): PaintState {
-  if (viewMode === "original") return "redacted";
-  if (viewMode === "pending" && decision === "confirmed") return "redacted";
+  if (viewMode === "original") return "original";
   return decision;
 }
 
@@ -48,7 +47,7 @@ export function applyHighlights(
   occurrences: HighlightOccurrence[],
   getDecision: (occurrenceId: string, groupId: string) => PiiDecisionKind,
   selectedOccurrenceId: string | null,
-  viewMode: "all" | "pending" | "original",
+  viewMode: "all" | "original",
 ): HighlightResult {
   const runByOccurrenceId = new Map<string, HTMLElement>();
   const notFoundIds = new Set<string>();

@@ -6,8 +6,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-masker}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-masker}
       POSTGRES_DB: ${POSTGRES_DB:-masker}
+    # Порт наружу вынесен в переменную: 5432 часто занят другим проектом или
+    # системным postgres, и тогда `make up` падает с «port is already
+    # allocated». Внутри compose-сети адрес не меняется — сервисы ходят по
+    # имени `postgres:5432`, поэтому смена внешнего порта ничего не ломает.
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,9 +27,11 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-masker}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-masker123}
+    # 9000 — S3-совместимый API, 9001 — веб-консоль. Оба наружу по той же
+    # причине, что и у postgres.
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - miniodata:/data
     healthcheck:
@@ -50,13 +56,17 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Источники фронта, которым разрешён доступ к API (список через запятую).
+      # По умолчанию — дев-сервер Vite; прод-домен задаётся переменной.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-masker}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-masker123}
       MINIO_SECURE: "false"
       MINIO_BUCKET: ${MINIO_BUCKET:-documents}
+      APP_PORT: ${APP_PORT:-8000}
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-8000}:${APP_PORT:-8000}"
 
 volumes:
   pgdata:

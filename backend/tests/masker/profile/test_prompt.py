@@ -45,26 +45,23 @@ def _blocks_with_some_entities() -> tuple[Document, list[ContextBlock], EntityIn
     return document, blocks, EntityIndex(entities)
 
 
-def test_only_blocks_with_entities_go_into_request() -> None:
-    document, blocks, index = _blocks_with_some_entities()
+def test_full_document_segments_go_into_single_request() -> None:
+    document, _blocks, index = _blocks_with_some_entities()
 
-    messages = build_request(document, profiles=[], blocks=blocks, index=index)
+    messages = build_request(document, profiles=[], index=index)
 
-    assert len(messages) == 1
-    payload = json.loads(messages[0][1].content)
-    assert len(payload["blocks"]) == 3
-    assert {block["id"] for block in payload["blocks"]} == {"B2", "B5", "B8"}
+    assert len(messages) == 2
+    payload = json.loads(messages[1].content)
+    assert [segment["order"] for segment in payload["segments"]] == list(range(10))
 
 
 def test_request_is_byte_stable_between_builds() -> None:
-    document, blocks, index = _blocks_with_some_entities()
+    document, _blocks, index = _blocks_with_some_entities()
 
-    first = build_request(document, profiles=[], blocks=blocks, index=index)
-    second = build_request(document, profiles=[], blocks=blocks, index=index)
+    first = build_request(document, profiles=[], index=index)
+    second = build_request(document, profiles=[], index=index)
 
-    assert [message.content for batch in first for message in batch] == [
-        message.content for batch in second for message in batch
-    ]
+    assert [message.content for message in first] == [message.content for message in second]
 
 
 def test_contract_01_stays_one_batch() -> None:
@@ -74,15 +71,15 @@ def test_contract_01_stays_one_batch() -> None:
     blocks = build_context_blocks(document.segments, entities)
     profiles = cluster(document, blocks, index)
 
-    messages = build_request(document, profiles, blocks, index)
+    messages = build_request(document, profiles, index)
 
-    assert len(messages) == 1
+    assert len(messages) == 2
 
 
 def test_system_prompt_states_the_task_and_required_fields() -> None:
-    document, blocks, index = _blocks_with_some_entities()
+    document, _blocks, index = _blocks_with_some_entities()
 
-    system = build_request(document, profiles=[], blocks=blocks, index=index)[0][0]
+    system = build_request(document, profiles=[], index=index)[0]
 
     assert system.role == "system"
     # Прежняя инструкция не называла задачу и не требовала confidence, из-за чего
@@ -92,14 +89,12 @@ def test_system_prompt_states_the_task_and_required_fields() -> None:
     assert "role_title там, где он пуст" in system.content
 
 
-def test_blocks_carry_segment_orders_for_candidates() -> None:
-    document, blocks, index = _blocks_with_some_entities()
+def test_segments_carry_orders_for_document_context() -> None:
+    document, _blocks, index = _blocks_with_some_entities()
 
-    payload = json.loads(
-        build_request(document, profiles=[], blocks=blocks, index=index)[0][1].content
-    )
+    payload = json.loads(build_request(document, profiles=[], index=index)[1].content)
 
-    assert [block["segments"] for block in payload["blocks"]] == [[1], [4], [7]]
+    assert [segment["order"] for segment in payload["segments"]] == list(range(10))
 
 
 def test_profile_without_confidence_is_rejected_with_diagnostic() -> None:

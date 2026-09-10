@@ -18,13 +18,6 @@ export type ReviewGroup = {
   minConfidence: number;
 };
 
-/** Группа открытого документа в том виде, в каком её считают счётчики. */
-export type ReviewGroup = {
-  id: string;
-  /** Самая низкая уверенность среди вхождений группы. */
-  minConfidence: number;
-};
-
 type ReviewState = {
   /**
    * Группы открытого сейчас документа. Держим их здесь, потому что счётчик

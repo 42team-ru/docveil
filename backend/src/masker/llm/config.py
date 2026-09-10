@@ -24,6 +24,7 @@ class LLMConfig:
     title: str = "triema-masker"
     cassette_directory: str = ""
     openrouter_temperature: float = 0.0
+    openrouter_provider_order: tuple[str, ...] = ()
     gigachat_scope: str = "GIGACHAT_API_PERS"
     gigachat_temperature: float = 0.0001
     gigachat_ca_bundle_file: str = ""
@@ -69,6 +70,12 @@ def llm_config_from_mapping(settings: Any) -> LLMConfig:
     openrouter = _merged_mapping(settings, selected, "openrouter")
     gigachat = _merged_mapping(settings, selected, "gigachat")
     openrouter_temperature = _number(openrouter, "temperature", default=0.0)
+    raw_order = openrouter.get("provider_order") or ()
+    if isinstance(raw_order, str):
+        raw_order = [raw_order]
+    if not isinstance(raw_order, list | tuple):
+        raise ValueError("llm.openrouter.provider_order должен быть строкой или списком строк")
+    openrouter_provider_order = tuple(str(item).strip() for item in raw_order if str(item).strip())
     gigachat_scope = _required_text(gigachat, "scope", default="GIGACHAT_API_PERS")
     gigachat_temperature = _number(gigachat, "temperature", default=0.0001)
     gigachat_ca_bundle_file = _required_text(gigachat, "ca_bundle_file", default="")
@@ -89,6 +96,7 @@ def llm_config_from_mapping(settings: Any) -> LLMConfig:
         title=title,
         cassette_directory=cassette_directory,
         openrouter_temperature=openrouter_temperature,
+        openrouter_provider_order=openrouter_provider_order,
         gigachat_scope=gigachat_scope,
         gigachat_temperature=gigachat_temperature,
         gigachat_ca_bundle_file=gigachat_ca_bundle_file,

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import pathlib
+import warnings
 from typing import Any
 
 import pytest
@@ -304,6 +305,121 @@ def test_llm_axis_cell_none_axis_offline_on_real_tiny_corpus() -> None:
     assert cell.status == "ok"
     assert 0.0 <= cell.metrics["role_accuracy"] <= 1.0
     assert cell.metrics["llm_usage"]["status"] != "charged"
+
+
+# ---------------------------------------------------------------------------
+# bench_matrix: человеческий потоковый вывод без чужого шума.
+# ---------------------------------------------------------------------------
+
+
+def test_run_prints_plan_and_each_cell_when_it_finishes(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    corpus = [(pathlib.Path("doc.docx"), {"entities": []})]
+    monkeypatch.setattr(eval_module, "load_corpus", lambda: corpus)
+    monkeypatch.setattr(eval_module, "corpus_registry", lambda _corpus: object())
+    monkeypatch.setattr(
+        bm,
+        "detection_layer_cell",
+        lambda layer, _corpus, _registry: bm.CellResult(
+            name=layer,
+            status="ok",
+            metrics={
+                "precision": 1.0,
+                "recall": 1.0,
+                "critical_recall": 1.0,
+                "leaked_total": 0,
+                "custom_types": {},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        bm,
+        "gliner_layer_cell",
+        lambda: _gliner_cell_with_library_banner(),
+    )
+
+    def fake_llm(axis: str, _corpus: Any, **kwargs: Any) -> bm.CellResult:
+        layer = kwargs.get("layer_label", "ner")
+        return bm.CellResult(
+            name=f"{layer}+{axis}",
+            status="ok",
+            metrics={
+                "role_accuracy": 0.833,
+                "cluster_purity": 1.0,
+                "llm_usage": {
+                    "calls": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "message": "Потрачено 0: модель не понадобилась для этого документа.",
+                },
+            },
+        )
+
+    monkeypatch.setattr(bm, "llm_axis_cell", fake_llm)
+
+    result = bm.run(layers=("rules", "ner", "gliner"), axes=("none", "cassette"))
+    output = capsys.readouterr().out
+
+    assert result["llm"]["ner+none"]["status"] == "ok"
+    assert "ПЛАН: 6 клеток" in output
+    assert "СТОЛБЦЫ:" in output
+    assert "role_acc — точность назначения роли" in output
+    assert "purity — доля профилей" in output
+    assert "critR — полнота только по критичным типам" in output
+    assert "leaked — сколько исходных значений" in output
+    assert output.index("считаю слой детекции rules") < output.index("готово: rules")
+    assert output.index("считаю слой детекции ner") < output.index("готово: ner")
+    assert output.index("считаю слой детекции gliner") < output.index("готово: время")
+    assert "шум GLiNER2" not in output
+    assert output.index("считаю профиль/судья ner+none") < output.index("готово: ner+none")
+    assert output.index("считаю профиль/судья ner+cassette") < output.index("готово: ner+cassette")
+    assert output.index("считаю профиль/судья rules+none") < output.index("готово: rules+none")
+    assert "ВЫВОД:" in output
+
+
+def _gliner_cell_with_library_banner() -> bm.CellResult:
+    """Имитирует banner GLiNER2, который библиотека печатает мимо logging."""
+    print("шум GLiNER2")
+    return bm.CellResult(
+        name="gliner",
+        status="ok",
+        metrics={
+            "by_type": {
+                "shipment_date": {
+                    "precision": 1.0,
+                    "recall": 1.0,
+                    "f1": 1.0,
+                    "fn": 0,
+                    "fp": 0,
+                },
+                "signing_date": {
+                    "precision": 1.0,
+                    "recall": 1.0,
+                    "f1": 1.0,
+                    "fn": 0,
+                    "fp": 0,
+                },
+            }
+        },
+    )
+
+
+def test_quiet_library_noise_keeps_our_warning_visible() -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with bm._quiet_library_noise():
+            warnings.warn("product_code требует внимания", UserWarning, stacklevel=2)
+            warnings.warn_explicit(
+                "torch сообщает о будущем изменении",
+                UserWarning,
+                filename="torch_warning.py",
+                lineno=1,
+                module="torch.nn",
+            )
+
+    messages = [str(item.message) for item in caught]
+    assert messages == ["product_code требует внимания"]
 
 
 # ---------------------------------------------------------------------------

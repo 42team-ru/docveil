@@ -38,11 +38,16 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import io
 import json
+import logging
 import os
 import pathlib
 import sys
 import time
+import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -353,6 +358,20 @@ def llm_axis_cell(
             reason=str(error),
             elapsed_seconds=time.perf_counter() - t0,
         )
+    except Exception as error:
+        # Смысл матрицы в том, чтобы посчитать ВСЕ клетки за один прогон.
+        # Любая неожиданность в одной из них — чужой контракт, сеть, кривой
+        # ответ — не имеет права уносить остальные: живые прогоны стоят
+        # денег и времени, а половина таблицы бесполезна. Ошибка не
+        # проглатывается: она попадает в отчёт строкой с типом исключения.
+        # Замерено 10.09.2026: сырая httpx.ConnectError из GigaChat унесла
+        # весь прогон вместе с не начатыми клетками openrouter и ceiling.
+        return CellResult(
+            name=name,
+            status="failed",
+            reason=f"{type(error).__name__}: {error}",
+            elapsed_seconds=time.perf_counter() - t0,
+        )
     elapsed = time.perf_counter() - t0
 
     _total_calls, records = metering.delta_since(0)
@@ -371,35 +390,102 @@ def llm_axis_cell(
 # ---------------------------------------------------------------------------
 
 
-def _print_detection_table(cells: list[CellResult]) -> None:
+@contextmanager
+def _quiet_library_noise() -> Iterator[None]:
+    """Временно убрать предупреждения известных библиотек, не скрывая наши.
+
+    Фильтры ограничены модулями зависимостей. В частности, предупреждение
+    ``masker.typeconfig`` о критичном ``product_code`` остаётся видимым:
+    это не шум, а сообщение о принятом пользователем риске.
+    """
+    logger_levels: list[tuple[logging.Logger, int]] = []
+    with warnings.catch_warnings():
+        for module in ("pymorphy2", "torch", "gliner2"):
+            warnings.filterwarnings("ignore", module=rf"^{module}(?:\.|$)")
+            logger = logging.getLogger(module)
+            logger_levels.append((logger, logger.level))
+            logger.setLevel(logging.ERROR)
+        try:
+            yield
+        finally:
+            for logger, level in logger_levels:
+                logger.setLevel(level)
+
+
+def _print_column_guide() -> None:
+    print("СТОЛБЦЫ:")
+    print("  P — точность: какая доля найденного действительно размечена как сущность.")
+    print("  R — полнота: какая доля размеченных сущностей найдена.")
+    print("  critR — полнота только по критичным типам; должна быть 1.000, иначе возможна утечка.")
+    print("  leaked — сколько исходных значений осталось в итоговых артефактах; должно быть 0.")
+    print("  role_acc — точность назначения роли стороны там, где эталонную роль можно проверить.")
+    print("  purity — доля профилей, не смешавших сущности разных сторон.")
+    print("  calls/prompt/compl — вызовы LLM и возвращённые ею входные/выходные токены.")
+    print("  сек — фактическое время клетки; это ориентир, не метрика качества.")
+
+
+def _print_plan(layers: tuple[str, ...], axes: tuple[str, ...]) -> None:
+    cells: list[str] = []
+    cells.extend(f"слой {layer}" for layer in layers if layer in ("rules", "ner", "gliner"))
+    cells.extend(f"ner+{axis}" for axis in axes)
+    if "rules" in layers:
+        cells.append("rules+none")
+
+    print("=" * 88)
+    print("МАТРИЧНЫЙ БЕНЧМАРК: слои детекции × провайдеры LLM")
+    print(f"ПЛАН: {len(cells)} клеток: {', '.join(cells)}.")
+    print("Ориентиры прошлого прогона: rules ≈40 с, ner ≈50 с, gliner ≈6 с;")
+    print("каждая живая LLM-клетка — от 5 до 350 с. Самыми долгими обычно бывают живые модели.")
+    if any(axis in {"gigachat", "openrouter", "ceiling"} for axis in axes):
+        print(
+            "ВНИМАНИЕ: живые модели требуют сети и тратят деньги; "
+            "их результат — один прогон, не среднее."
+        )
+    else:
+        print("Живые модели не выбраны: этот запуск не ходит в сеть и не тратит деньги на LLM.")
+    print(
+        "Строки печатаются сразу по готовности; отсутствие новой строки означает, "
+        "что считается названная клетка."
+    )
+    print("=" * 88)
+    _print_column_guide()
+
+
+def _print_cell_start(description: str) -> None:
+    print(f"\nсчитаю {description}…", flush=True)
+
+
+def _print_detection_header() -> None:
     print("ОСЬ 1 — СЛОЙ ДЕТЕКЦИИ (fixtures/labeled, весь корпус)")
     print(f"{'слой':<10}{'P':>7}{'R':>7}{'critR':>7}{'leaked':>8}{'сек':>8}  статус/причина")
-    for cell in cells:
-        if cell.status != "ok":
-            print(
-                f"{cell.name:<10}{'—':>7}{'—':>7}{'—':>7}{'—':>8}{'—':>8}  "
-                f"{cell.status}: {cell.reason}"
-            )
-            continue
-        m = cell.metrics
+
+
+def _print_detection_result(cell: CellResult) -> None:
+    if cell.status != "ok":
         print(
-            f"{cell.name:<10}{m['precision']:>7.3f}{m['recall']:>7.3f}{m['critical_recall']:>7.3f}"
-            f"{m['leaked_total']:>8}{cell.elapsed_seconds:>8.2f}  ok"
+            f"готово: {cell.name:<10}{'—':>7}{'—':>7}{'—':>7}{'—':>8}{'—':>8}  "
+            f"{cell.status}: {cell.reason}",
+            flush=True,
         )
-        for type_id, score in m["custom_types"].items():
-            print(
-                f"    пользовательский тип {type_id:<16}"
-                f"P={score['precision']:.3f} R={score['recall']:.3f} "
-                f"(измерено на contract_09_custom.docx — один документ, не корпус)"
-            )
+        return
+    m = cell.metrics
+    print(
+        f"готово: {cell.name:<10}{m['precision']:>7.3f}{m['recall']:>7.3f}"
+        f"{m['critical_recall']:>7.3f}{m['leaked_total']:>8}{cell.elapsed_seconds:>8.2f}  ok",
+        flush=True,
+    )
+    for type_id, score in m["custom_types"].items():
+        print(
+            f"    пользовательский тип {type_id:<16}"
+            f"P={score['precision']:.3f} R={score['recall']:.3f} "
+            f"(измерено на contract_09_custom.docx — один документ, не корпус)",
+            flush=True,
+        )
 
 
 def _print_gliner_row(cell: CellResult) -> None:
-    print(
-        "\nОСЬ 1 — СЛОЙ gliner (свой корпус: fixtures/gliner/contract_10_roles_dates.docx, класс D)"
-    )
     if cell.status != "ok":
-        print(f"  {cell.status}: {cell.reason}")
+        print(f"готово: {cell.status}: {cell.reason}", flush=True)
         return
     print(
         f"{'тип':<15}{'P':>7}{'R':>7}{'F1':>7}{'FN':>5}{'FP':>5}  "
@@ -409,33 +495,38 @@ def _print_gliner_row(cell: CellResult) -> None:
         flag = "OK" if m["f1"] >= GLINER_ACCEPTANCE_F1 else "НИЖЕ ПОРОГА"
         print(
             f"{type_id:<15}{m['precision']:>7.3f}{m['recall']:>7.3f}{m['f1']:>7.3f}"
-            f"{m['fn']:>5}{m['fp']:>5}  {flag}"
+            f"{m['fn']:>5}{m['fp']:>5}  {flag}",
+            flush=True,
         )
-    print(f"время{cell.elapsed_seconds:>10.2f} с (N=1, один документ)")
+    print(f"готово: время{cell.elapsed_seconds:>10.2f} с (N=1, один документ)", flush=True)
 
 
-def _print_llm_table(cells: list[CellResult]) -> None:
+def _print_llm_header() -> None:
     print("\nОСЬ 2 — ПРОВАЙДЕР LLM (роли/профиль/судья, слой детекции — ner, если не указано иное)")
     print(
         f"{'конфигурация':<16}{'role_acc':>9}{'purity':>8}{'calls':>7}"
         f"{'prompt':>8}{'compl':>7}{'сек':>8}  статус/сообщение"
     )
-    for cell in cells:
-        if cell.status != "ok":
-            print(
-                f"{cell.name:<16}{'—':>9}{'—':>8}{'—':>7}{'—':>8}{'—':>7}{'—':>8}  "
-                f"{cell.status}: {cell.reason}"
-            )
-            continue
-        m = cell.metrics
-        usage = m["llm_usage"]
+
+
+def _print_llm_result(cell: CellResult) -> None:
+    if cell.status != "ok":
         print(
-            f"{cell.name:<16}{m['role_accuracy']:>9.3f}{m['cluster_purity']:>8.3f}"
-            f"{usage['calls']:>7}{usage['prompt_tokens']:>8}{usage['completion_tokens']:>7}"
-            f"{cell.elapsed_seconds:>8.2f}  {usage['message']}"
+            f"готово: {cell.name:<16}{'—':>9}{'—':>8}{'—':>7}{'—':>8}{'—':>7}{'—':>8}  "
+            f"{cell.status}: {cell.reason}",
+            flush=True,
         )
-        if cell.name.split("+", 1)[1] in ("gigachat", "openrouter"):
-            print("    НЕДЕТЕРМИНИРОВАНО: один прогон живой модели, не среднее (требование №4)")
+        return
+    m = cell.metrics
+    usage = m["llm_usage"]
+    print(
+        f"готово: {cell.name:<16}{m['role_accuracy']:>9.3f}{m['cluster_purity']:>8.3f}"
+        f"{usage['calls']:>7}{usage['prompt_tokens']:>8}{usage['completion_tokens']:>7}"
+        f"{cell.elapsed_seconds:>8.2f}  {usage['message']}",
+        flush=True,
+    )
+    if cell.name.split("+", 1)[1] in ("gigachat", "openrouter", "ceiling"):
+        print("    НЕДЕТЕРМИНИРОВАНО: один прогон живой модели, не среднее.", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -443,50 +534,126 @@ def _print_llm_table(cells: list[CellResult]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _print_human_summary(
+    detection_cells: list[CellResult], gliner_cell: CellResult | None, llm_cells: list[CellResult]
+) -> None:
+    """Напечатать осторожный вывод поверх чисел, не делая из одного замера рейтинг."""
+    print("\nВЫВОД:")
+    print("  Измерены две независимые вещи: поиск сущностей по корпусу и роли/профили у LLM.")
+    print(
+        "  Они не складываются в один рейтинг: хорошая роль не доказывает отсутствие утечек, "
+        "а высокий R не доказывает качество ролей."
+    )
+
+    successful_detection = [cell for cell in detection_cells if cell.status == "ok"]
+    leaked = sum(int(cell.metrics["leaked_total"]) for cell in successful_detection)
+    if successful_detection:
+        if leaked:
+            print(
+                f"  В измеренных слоях осталось утечек: {leaked}; "
+                "результат нельзя считать безопасным."
+            )
+        else:
+            print(
+                "  В измеренных слоях leaked=0: на этом корпусе валидатор "
+                "не нашёл остаточных исходных значений."
+            )
+    if gliner_cell is not None:
+        if gliner_cell.status == "ok":
+            print(
+                "  GLiNER измерен отдельно на одном документе с датами; "
+                "это проверка слоя, а не сравнение с основным корпусом."
+            )
+        else:
+            print(f"  GLiNER не измерен: {gliner_cell.reason}")
+
+    ner_cells = [cell for cell in llm_cells if cell.status == "ok" and cell.name.startswith("ner+")]
+    live_axes = {"gigachat", "openrouter", "ceiling"}
+    live_cells = [cell for cell in ner_cells if cell.name.split("+", 1)[1] in live_axes]
+    if len(ner_cells) >= 2:
+        scores = [float(cell.metrics["role_accuracy"]) for cell in ner_cells]
+        spread = max(scores) - min(scores)
+        print(
+            f"  Разброс role_acc между доступными конфигурациями: {spread:.3f} "
+            f"({spread * 100:.1f} процентного пункта)."
+        )
+        if spread < 0.01:
+            print("  Это меньше одного процентного пункта и укладывается в шум одного прогона.")
+        if live_cells:
+            print(
+                "  На 110 профилях живую конфигурацию с большим role_acc нельзя называть "
+                "победителем: это один прогон, не среднее и не тест значимости."
+            )
+        else:
+            print("  Живые модели не запускались: эти строки не говорят о том, какая из них лучше.")
+    elif ner_cells:
+        print(
+            "  Для сравнения role_acc нужна минимум ещё одна доступная конфигурация; "
+            "одна строка ничего не доказывает."
+        )
+    print(
+        "  Бенчмарк не показывает устойчивость живой модели между запусками "
+        "и не заменяет приёмочные ворота."
+    )
+
+
 def run(
     *, layers: tuple[str, ...] = DETECTION_LAYERS, axes: tuple[str, ...] = LLM_AXES
 ) -> dict[str, Any]:
     """Собрать и напечатать всю матрицу. Возвращает данные для ``--json``."""
-    print("=" * 88)
-    print("МАТРИЧНЫЙ БЕНЧМАРК (К4): слои детекции × провайдеры LLM")
-    print("НЕ ЧАСТЬ `make gate`. `gigachat`/`openrouter` тратят деньги и требуют сети —")
-    print("без ключей в окружении эти клетки помечаются пропущенными, а не падают.")
-    print("=" * 88)
+    _print_plan(layers, axes)
+    with _quiet_library_noise():
+        corpus = [
+            (path, labels)
+            for path, labels in eval_module.load_corpus()
+            if not path.stem.startswith("scan_synth_")
+        ]
+        registry = eval_module.corpus_registry(corpus)
 
-    corpus = [
-        (path, labels)
-        for path, labels in eval_module.load_corpus()
-        if not path.stem.startswith("scan_synth_")
-    ]
-    registry = eval_module.corpus_registry(corpus)
+        detection_cells: list[CellResult] = []
+        if any(layer in ("rules", "ner") for layer in layers):
+            _print_detection_header()
+        for layer in layers:
+            if layer not in ("rules", "ner"):
+                continue
+            _print_cell_start(f"слой детекции {layer}")
+            cell = detection_layer_cell(layer, corpus, registry)
+            detection_cells.append(cell)
+            _print_detection_result(cell)
 
-    detection_cells = [
-        detection_layer_cell(layer, corpus, registry)
-        for layer in layers
-        if layer in ("rules", "ner")
-    ]
-    _print_detection_table(detection_cells)
+        gliner_cell: CellResult | None = None
+        if "gliner" in layers:
+            print("\nОСЬ 1 — СЛОЙ gliner (свой корпус: fixtures/gliner, класс D)")
+            _print_cell_start("слой детекции gliner")
+            # GLiNER2 пишет баннер конфигурации прямо в stdout при загрузке
+            # весов, минуя warnings и logging. Это не сообщение masker и не
+            # результат клетки, поэтому не даём ему разорвать таблицу.
+            with redirect_stdout(io.StringIO()):
+                gliner_cell = gliner_layer_cell()
+            _print_gliner_row(gliner_cell)
 
-    gliner_cell: CellResult | None = None
-    if "gliner" in layers:
-        gliner_cell = gliner_layer_cell()
-        _print_gliner_row(gliner_cell)
-
-    llm_cells = [llm_axis_cell(axis, corpus) for axis in axes]
-    if "rules" in layers:
-        # Бесплатная (offline, `none`) точка на пересечении осей: показывает,
-        # насколько профиль/судья деградируют, когда детекция — только
-        # правила. Остальные сочетания rules×{cassette,gigachat,openrouter}
-        # и gliner×любая LLM-ось пропущены сознательно (см. run.__doc__).
-        llm_cells.append(
-            llm_axis_cell(
+        llm_cells: list[CellResult] = []
+        if axes or "rules" in layers:
+            _print_llm_header()
+        for axis in axes:
+            _print_cell_start(f"профиль/судья ner+{axis}")
+            cell = llm_axis_cell(axis, corpus)
+            llm_cells.append(cell)
+            _print_llm_result(cell)
+        if "rules" in layers:
+            # Бесплатная (offline, `none`) точка на пересечении осей: показывает,
+            # насколько профиль/судья деградируют, когда детекция — только
+            # правила. Остальные сочетания rules×{cassette,gigachat,openrouter}
+            # и gliner×любая LLM-ось пропущены сознательно (см. run.__doc__).
+            _print_cell_start("профиль/судья rules+none")
+            cell = llm_axis_cell(
                 "none",
                 corpus,
                 detect_agent_factory=lambda: DetectAgent(_rules_only_detectors()),
                 layer_label="rules",
             )
-        )
-    _print_llm_table(llm_cells)
+            llm_cells.append(cell)
+            _print_llm_result(cell)
 
     print("\nПРОПУЩЕННЫЕ СОЧЕТАНИЯ ОСЕЙ (не измерены намеренно, не по ошибке):")
     print(
@@ -506,6 +673,8 @@ def run(
         "    gliner_* пользовательский тип, поэтому слой gliner там буквально совпадает с ner —\n"
         "    отдельная строка добавила бы дублирующее число, а не новую информацию."
     )
+
+    _print_human_summary(detection_cells, gliner_cell, llm_cells)
 
     return {
         "detection": {cell.name: _cell_to_dict(cell) for cell in detection_cells},

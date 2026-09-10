@@ -8,6 +8,7 @@ LLM в ``State`` не кладётся: узлы, которым он нужен
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -55,6 +56,7 @@ from masker.graph.serde import (
 )
 from masker.graph.state import State
 from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND
+from masker.highlights import build_regions_by_ref, page_infos_for_report
 from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.ingest.xlsx_ingest import ingest_xlsx
@@ -776,6 +778,13 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         # решение заказчика) — не падение, факт для отчёта человеку: где
         # узкое поле не вместило полный маркер и чем реально закрыт текст.
         render_degradations: list[dict[str, object]] = []
+        # План feat/highlight-coords-edits: план, обогащённый геометрией
+        # ``paint_regions`` после PDF-рендера. Нужен ``_build_report_dict``
+        # для секции ``entities[].regions``. Обновляем от первого
+        # PDF-рендера (``masked_highlight`` идёт раньше ``masked_black`` в
+        # ``_ARTIFACT_ROLE_ORDER``); повторное затирание другой ролью
+        # запрещено — геометрия обеих одинакова.
+        plan_with_geometry = plan
         for role in _ARTIFACT_ROLE_ORDER:
             if role == "preview":
                 if not preview_enabled:
@@ -809,6 +818,10 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                         style=style,
                         highlight_background=highlight_background,
                     )
+                    if plan_with_geometry is plan:
+                        plan_with_geometry = dataclasses.replace(
+                            plan, replacements=outcome.replacements
+                        )
                     groups_by_id = {group.id: group for group in plan.groups}
                     # Только реальные спуски по лестнице отступления (план
                     # М1) — пустой ``fallback_reason`` означает «показан
@@ -855,7 +868,15 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     "redacting": redacting,
                 }
             )
-        return {"artifacts": artifacts, "render_degradations": render_degradations}
+        result: dict[str, object] = {
+            "artifacts": artifacts,
+            "render_degradations": render_degradations,
+        }
+        # Обновлённый план в state — только если рендер PDF действительно
+        # шёл (иначе ``plan_with_geometry is plan``, обновлять нечего).
+        if plan_with_geometry is not plan:
+            result["plan"] = plan_to_dict(plan_with_geometry)
+        return result
 
     return render_node
 
@@ -881,6 +902,29 @@ def validate_node(state: State) -> dict[str, object]:
         "validation": _validation_record(validation_report),
         "leaked": [_leak_record(leak) for leak in validation_report.leaked],
     }
+
+
+def _pick_pdf_artifact(artifacts: list[dict[str, object]]) -> Path | None:
+    """Первый попавшийся редактирующий PDF-артефакт для нормализации bbox.
+
+    План feat/highlight-coords-edits: координаты в отчёте и координаты
+    правок оператора нормализуются к размерам страниц одного и того же
+    файла. Порядок ролей фиксирован (``_ARTIFACT_ROLE_ORDER``), поэтому
+    ``masked_highlight.pdf`` встречается раньше ``masked_black.pdf`` — при
+    любом стиле рендера победит именно тот файл, что уходит фронту.
+    ``None`` — валидный ответ, если PDF-артефактов нет вовсе (docx/xlsx).
+    """
+    for item in artifacts:
+        if not item.get("redacting"):
+            continue
+        raw_path = item.get("path")
+        if not isinstance(raw_path, str):
+            continue
+        path = Path(raw_path)
+        if path.suffix.lower() != ".pdf":
+            continue
+        return path
+    return None
 
 
 def _entity_questions_summary(
@@ -1007,6 +1051,44 @@ def _build_report_dict(
         registry=registry,
     )
     report["preview_only"] = preview_only
+    # План feat/highlight-coords-edits (К1): координаты сущностей и размеры
+    # страниц PDF-артефакта для отрисовки на канвасе фронта. Артефакт —
+    # первый попавшийся PDF из ``state["artifacts"]`` с ``redacting=True``
+    # (обычно ``masked_highlight.pdf``, а если стиль ``blackbox`` — то
+    # ``masked_black.pdf``). Для docx/xlsx PDF-артефакта нет и оба поля
+    # пусты; ``pages: []`` и ``regions: []`` — валидный ответ, не выдумываем
+    # геометрию, которой не существует.
+    artifact_pdf_path = _pick_pdf_artifact(artifacts)
+    regions_by_ref = build_regions_by_ref(plan, artifact_pdf_path) if plan else {}
+    if regions_by_ref:
+        for entity_record in report.get("entities", []):
+            ref = entity_record.get("ref")
+            if isinstance(ref, str) and ref in regions_by_ref:
+                entity_record["regions"] = [
+                    {
+                        "page": bbox.page,
+                        "x0": bbox.x0,
+                        "y0": bbox.y0,
+                        "x1": bbox.x1,
+                        "y1": bbox.y1,
+                    }
+                    for bbox in regions_by_ref[ref]
+                ]
+        for chunk_record in report.get("chunks", []):
+            for pii_record in chunk_record.get("pii", []):
+                ref = pii_record.get("ref")
+                if isinstance(ref, str) and ref in regions_by_ref:
+                    pii_record["regions"] = [
+                        {
+                            "page": bbox.page,
+                            "x0": bbox.x0,
+                            "y0": bbox.y0,
+                            "x1": bbox.x1,
+                            "y1": bbox.y1,
+                        }
+                        for bbox in regions_by_ref[ref]
+                    ]
+    report["pages"] = page_infos_for_report(artifact_pdf_path)
     report["validation"] = state.get(
         "validation", _validation_skipped("preview_only: --redact-style не задан")
     )

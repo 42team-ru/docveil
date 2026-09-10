@@ -53,6 +53,7 @@ _REFERENCE_KEYS = frozenset(
         #: Р8 — «снять одним кликом»: группы уровня "possible" отдельным
         #: списком, даже пустым, если план был построен.
         "review_possible",
+        "pages",
         "telemetry",
     }
 )

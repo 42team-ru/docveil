@@ -88,6 +88,7 @@ from masker.report.payload import (
     _validation_skipped,
     build_report_payload,
     marker_legend,
+    verifier_record,
 )
 from masker.telemetry import RUNTIME_METRICS_NAME, LLMPricing, MeteringProvider, report_telemetry
 from masker.typeconfig import CustomTypeSpec, load_type_config
@@ -278,13 +279,23 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
             selected_types = resolve_requested_types(
                 tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
             )
-            entities = detector.detect(document).entities
-        return {
+            detection = detector.detect(document)
+            entities = detection.entities
+        result: dict[str, object] = {
             "entities": [entity_to_dict(entity) for entity in entities],
             # Тот же ``detector``, которым только что детектировали — второй
             # DetectAgent() поднял бы Natasha ещё раз ради двух списков строк.
             "detection_coverage": detection_coverage(selected_types, detector),
         }
+        # Р7-2: сводка верификатора доезжает до `report.json`. В ``State``
+        # кладём уже сериализованную запись, а не ``VerifierReport``:
+        # состояние графа обязано быть JSON — оно уходит в чекпойнтер и
+        # переживает перезапуск процесса. ``r_filter`` здесь не считается:
+        # он требует размеченного корпуса, которого у обычного документа
+        # нет, и остаётся `None` — «не измерен», а не «измерен и равен нулю».
+        if detection.verifier is not None:
+            result["verifier"] = verifier_record(detection.verifier)
+        return result
 
     return detect_node
 
@@ -1006,6 +1017,12 @@ def _build_report_dict(
         plan=plan,
         registry=registry,
     )
+    # Секция верификатора приезжает из ``detect_node`` тем же приёмом, что
+    # ``validation``/``leaked`` ниже: узел, который знает факт, кладёт его в
+    # состояние, а отчёт собирает готовое.
+    verifier = state.get("verifier")
+    if verifier:
+        report["verifier"] = verifier
     report["preview_only"] = preview_only
     report["validation"] = state.get(
         "validation", _validation_skipped("preview_only: --redact-style не задан")

@@ -37,6 +37,10 @@ class State(TypedDict, total=False):
     coverage: dict[str, Any]
     #: Покрытие запрошенных типов активными детекторами — раздел 4 плана T1.10.
     detection_coverage: dict[str, list[str]]
+    #: Сводка LLM-верификатора на recall (Р7), уже сериализованная в JSON
+    #: (`masker.report.payload.verifier_record`). Ключа нет вовсе, если
+    #: верификатор не запускался, — см. `detect_node`.
+    verifier: dict[str, Any]
     #: Сериализованный ``MaskPlan`` (``graph.serde.plan_to_dict``) — раздел 4 плана T1.10.
     plan: dict[str, Any]
     #: Артефакты рендера: ``{"role", "name", "path", "redacting"}`` в фиксированном

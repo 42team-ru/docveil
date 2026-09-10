@@ -52,9 +52,15 @@ gold-сущностей 5 (71%) лежат в сегментах, где что-
 (предложение/строка таблицы против ±80/±160/±320 символов) и размера батча
 (1/4/8/16/37) не проводился — взяты фиксированные умеренные значения
 (``DEFAULT_WINDOW_CHARS``, ``DEFAULT_BATCH_SIZE``) как гипотеза, а не как
-измеренный оптимум. JSON Schema со ``strict: true`` (GigaChat v1/v2) тоже не
-подключена — контракт держится только на промпте и валидации на нашей
-стороне, как и у уже существующего ``llm_filter_detector``.
+измеренный оптимум.
+
+JSON Schema со ``strict: true`` (``_RESPONSE_SCHEMA``) подключена к каждому
+вызову ``LLMProvider.complete`` (``_call_with_retry``): контракт ответа
+теперь ограничен и на стороне API/схемы, а не только промптом и валидацией
+на нашей стороне — см. ``LLMProvider`` (``masker.llm.base``),
+``GigaChatProvider``/``OpenRouterProvider`` (кладут схему в
+``response_format``) и ``FakeProvider`` (валидирует локально через
+``jsonschema``, без сети).
 """
 
 from __future__ import annotations
@@ -112,6 +118,45 @@ _SYSTEM_PROMPT = (
     'без изменений и сокращений. Поле "id" — ровно тот идентификатор окна, что '
     'дан во входе (например "w3"), а не число и не позиция символа в тексте.'
 )
+
+#: JSON Schema (draft 2020-12) контракта ответа модели, TASKS.md Р7:
+#: «GigaChat документирует JSON Schema со ``strict: true`` — поле
+#: ``required`` обязательно, без него схема ничего не ограничивает».
+#: ``additionalProperties: False`` и полный список свойств в ``required``
+#: на каждом уровне — требование strict-режима (иначе GigaChat/OpenRouter
+#: отклоняют схему как «не strict», а не тихо ослабляют её). ``enum`` на
+#: ``type`` не даёт модели вернуть тип за пределами ``VERIFIER_TYPES`` уже
+#: на уровне API, до нашей собственной проверки в ``_resolve_claim``.
+_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "windows": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "entities": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string"},
+                                "type": {"type": "string", "enum": sorted(VERIFIER_TYPES)},
+                            },
+                            "required": ["text", "type"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["id", "entities"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["windows"],
+    "additionalProperties": False,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,7 +341,7 @@ def _call_with_retry(llm: LLMProvider, batch: Sequence[Window]) -> str | None:
     messages = _build_messages(batch)
     for _attempt in range(MAX_ATTEMPTS):
         try:
-            return llm.complete(messages)
+            return llm.complete(messages, schema=_RESPONSE_SCHEMA)
         except LLMError:
             continue
     return None

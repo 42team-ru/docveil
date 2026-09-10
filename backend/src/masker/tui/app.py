@@ -26,7 +26,19 @@ from textual.widgets import (
     Static,
 )
 
-from masker.branding import PRODUCT, TAGLINE, logo_text, wordmark_text
+from masker.branding import (
+    BORDER,
+    FOLD,
+    INK,
+    PAPER,
+    PRODUCT,
+    STEEL,
+    SURFACE,
+    TAGLINE,
+    hex_colour,
+    logo_text,
+    wordmark_text,
+)
 from masker.cli_ui import _STAGES
 from masker.entity_types import EntityTypeRegistry, builtin_specs
 from masker.tui.service import (
@@ -314,32 +326,39 @@ class DocVeilApp(App[None]):
 
     TITLE = PRODUCT
     SUB_TITLE = TAGLINE
-    CSS = """
-    Screen { background: #F0F2F6; color: #203060; }
-    Header, Footer { background: #7080A0; color: #F0F2F6; }
-    .page { margin: 1 3; height: 1fr; }
-    .page-title { color: #203060; text-style: bold; margin-bottom: 1; }
-    .section-title { color: #204060; text-style: bold; margin-top: 1; }
-    .muted, #local-note { color: #5070A0; }
-    #welcome-card, #help-card {
+    # Тема тёмная по умолчанию и собрана из цветов логотипа: фон — тот же
+    # синий щита, уведённый в глубину. Светлая панель во весь экран в
+    # обычно тёмном терминале бьёт по глазам, а белый лист логотипа на
+    # тёмном фоне читается лучше, чем на светлом.
+    CSS = f"""
+    Screen {{ background: {hex_colour(INK)}; color: {hex_colour(PAPER)}; }}
+    Header, Footer {{ background: {hex_colour(SURFACE)}; color: {hex_colour(PAPER)}; }}
+    .page {{ margin: 1 3; height: 1fr; }}
+    .page-title {{ color: {hex_colour(PAPER)}; text-style: bold; margin-bottom: 1; }}
+    .section-title {{ color: {hex_colour(FOLD)}; text-style: bold; margin-top: 1; }}
+    .muted, #local-note {{ color: {hex_colour(FOLD)}; }}
+    #welcome-card, #help-card {{
         width: 62; height: auto; margin: 4; padding: 2 4;
-        background: #F0F2F6; border: tall #8090B0;
-    }
-    #welcome-card > * { width: 1fr; content-align: center middle; }
-    #logo { height: 16; }
-    #product-name { color: #203060; text-style: bold; }
-    #tagline { color: #5070A0; margin-bottom: 1; }
-    #files, SelectionList, RichLog, DataTable {
-        height: 1fr; border: round #8090B0; background: #F0F2F6;
-    }
-    #selected-file, #current-stage, #run-summary, #contract-card, #artifact-paths {
-        margin: 1 0; padding: 0 1; border-left: thick #5070A0;
-    }
-    .actions { height: auto; margin-top: 1; align: right middle; }
-    .actions Button { margin-left: 1; }
-    Button { background: #5070A0; color: #F0F2F6; }
-    Button.-primary, Button.-success { background: #203060; color: #F0F2F6; }
-    ProgressBar > .bar--bar { color: #5070A0; }
+        background: {hex_colour(SURFACE)}; border: tall {hex_colour(BORDER)};
+    }}
+    #welcome-card > * {{ width: 1fr; content-align: center middle; }}
+    #logo {{ height: 16; }}
+    #product-name {{ text-style: bold; }}
+    #tagline {{ color: {hex_colour(FOLD)}; margin-bottom: 1; }}
+    #files, SelectionList, RichLog, DataTable {{
+        height: 1fr; border: round {hex_colour(BORDER)};
+        background: {hex_colour(SURFACE)}; color: {hex_colour(PAPER)};
+    }}
+    #selected-file, #current-stage, #run-summary, #contract-card, #artifact-paths {{
+        margin: 1 0; padding: 0 1; border-left: thick {hex_colour(STEEL)};
+    }}
+    .actions {{ height: auto; margin-top: 1; align: right middle; }}
+    .actions Button {{ margin-left: 1; }}
+    Button {{ background: {hex_colour(SURFACE)}; color: {hex_colour(PAPER)}; }}
+    Button.-primary, Button.-success {{
+        background: {hex_colour(STEEL)}; color: {hex_colour(PAPER)};
+    }}
+    ProgressBar > .bar--bar {{ color: {hex_colour(STEEL)}; }}
     """
     BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
         Binding("q", "quit", "Выйти"),

@@ -19,9 +19,13 @@ from rich.style import Style
 from rich.text import Text
 
 __all__ = [
+    "BORDER",
+    "INK",
     "PRODUCT",
+    "SURFACE",
     "TAGLINE",
     "banner",
+    "hex_colour",
     "logo_lines",
     "logo_text",
     "wordmark_text",
@@ -41,6 +45,15 @@ BAR = (0x70, 0x80, 0xA0)
 NAVY = (0x20, 0x30, 0x60)
 NAVY_LIGHT = (0x20, 0x40, 0x60)
 STEEL = (0x50, 0x70, 0xA0)
+
+#: Тёмная палитра интерфейса. Выведена из цветов логотипа, а не подобрана
+#: отдельно: фон — тот же синий, что у щита, уведённый в глубину, поэтому
+#: щит на нём не выглядит наклейкой из другого продукта. Тёмная тема стоит
+#: по умолчанию, потому что терминал у большинства тёмный, и белая панель
+#: во весь экран бьёт по глазам.
+INK = (0x0F, 0x15, 0x24)
+SURFACE = (0x18, 0x20, 0x3A)
+BORDER = (0x2C, 0x3A, 0x5E)
 
 #: Пропорции взяты с оригинала (1210×1300, ширина к высоте ≈ 0.93). Символ
 #: терминала примерно вдвое выше своей ширины, а полублок даёт два пикселя
@@ -303,8 +316,12 @@ def _terminal_width(default: int = 80) -> int:
         return default
 
 
-def _hex(rgb: tuple[int, int, int]) -> str:
+def hex_colour(rgb: tuple[int, int, int]) -> str:
+    """`(0x20, 0x30, 0x60)` → `#203060` — для CSS Textual и разметки Rich."""
     return "#{:02X}{:02X}{:02X}".format(*rgb)
+
+
+_hex = hex_colour
 
 
 def logo_text() -> Text:

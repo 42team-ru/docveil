@@ -48,8 +48,13 @@ llm:
         temperature: 0.0001
         ca_bundle_file: ""
         insecure_skip_tls_verify: false
-      pricing:
-        prompt_per_1k: 1
+      # Тариф не заполнен намеренно: правило `telemetry.pricing_from_dict` —
+      # оба тарифа или ни одного, а половинчатый роняет сборку конфига ещё
+      # до первого запроса (найдено матричным бенчмарком 10.09.2026: клетка
+      # ner+gigachat помечалась пропущенной именно из-за этого). Подставлять
+      # правдоподобное число вместо проверенного проект себе запрещает —
+      # пока тариф не сверен с прайсом, стоимость просто не считается.
+      pricing: *pricing_unknown
     openrouter-glm-5-3-flash:
       provider: openrouter
       model: z-ai/glm-5.3-flash

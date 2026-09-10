@@ -21,12 +21,13 @@
 from __future__ import annotations
 
 import pathlib
+from dataclasses import dataclass
 
 import numpy as np
 import pymupdf
 
 from masker.model import Anchor, Segment
-from masker.ocr.provider import OCRProvider
+from masker.ocr.provider import OCRLine, OCRProvider
 
 #: Если площадь символьных боксов к площади страницы меньше порога,
 #: страница считается «двухслойной ловушкой» (скан + невидимый OCR-слой).
@@ -123,6 +124,47 @@ def ocr_segments_for_page(
             )
         )
     return segments
+
+
+@dataclass(frozen=True, slots=True)
+class OcrPageResult:
+    """OCR-результат одной страницы PDF: геометрия страницы + распознанные строки."""
+
+    page: int
+    width_pt: float
+    height_pt: float
+    lines: tuple[OCRLine, ...]
+
+
+def ocr_pages_from_pdf(
+    path: pathlib.Path, ocr: OCRProvider, dpi: int = _OCR_DPI
+) -> list[OcrPageResult]:
+    """Распознать все страницы PDF через OCR-провайдер и вернуть результаты постранично.
+
+    В отличие от ``ingest_pdf`` не делает роутинга «скан/текст» и не строит
+    ``Segment``-ы — используется OCR-эндпоинтом, который отдаёт сырые строки
+    с bbox/polygon в пикселях (конвертация в pt — на стороне API-схемы).
+    """
+    doc = pymupdf.open(str(path))
+    results: list[OcrPageResult] = []
+    try:
+        for page_num, page in enumerate(doc):
+            rect = page.rect
+            pix = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csRGB)
+            img_rgb = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
+            img_bgr: np.ndarray = img_rgb[:, :, ::-1].copy()
+            lines = ocr.recognize(img_bgr, dpi=dpi)
+            results.append(
+                OcrPageResult(
+                    page=page_num,
+                    width_pt=float(rect.width),
+                    height_pt=float(rect.height),
+                    lines=lines,
+                )
+            )
+    finally:
+        doc.close()
+    return results
 
 
 def _path_basename(path: str | pathlib.Path) -> str:

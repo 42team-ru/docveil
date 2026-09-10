@@ -70,9 +70,14 @@ _LLM_PROFILE_BY_AXIS: dict[str, str] = {
     "none": "fake",
     "cassette": "cassette",
     "gigachat": "gigachat-max",
-    "openrouter": "openrouter-glm-5-3-flash",
+    "openrouter": "openrouter-deepseek-flash",
+    # Ось-потолок. Нужна не для продакшена, а чтобы отличить «задача уже
+    # решена эвристикой» от «эта конкретная модель слаба»: если сильная
+    # модель даёт ту же точность ролей, что и эвристика, LLM в этой задаче
+    # не поможет никакая, и дальше её тюнить бессмысленно.
+    "ceiling": "openrouter-deepseek-pro",
 }
-LLM_AXES: tuple[str, ...] = ("none", "cassette", "gigachat", "openrouter")
+LLM_AXES: tuple[str, ...] = ("none", "cassette", "gigachat", "openrouter", "ceiling")
 DETECTION_LAYERS: tuple[str, ...] = ("rules", "ner", "gliner")
 
 GLINER_FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "gliner"

@@ -48,13 +48,47 @@ llm:
         temperature: 0.0001
         ca_bundle_file: ""
         insecure_skip_tls_verify: false
-      # Тариф не заполнен намеренно: правило `telemetry.pricing_from_dict` —
-      # оба тарифа или ни одного, а половинчатый роняет сборку конфига ещё
-      # до первого запроса (найдено матричным бенчмарком 10.09.2026: клетка
-      # ner+gigachat помечалась пропущенной именно из-за этого). Подставлять
-      # правдоподобное число вместо проверенного проект себе запрещает —
-      # пока тариф не сверен с прайсом, стоимость просто не считается.
-      pricing: *pricing_unknown
+      # Базовый тариф GigaChat, названный владельцем продукта 10.09.2026:
+      # 96 ₽ за миллион входных токенов и 289 ₽ за миллион выходных.
+      # В конфиге тариф хранится на 1000 токенов, отсюда деление на 1000.
+      # `verified_at` — дата, на которую цена сверена: тарифы меняются, и
+      # отчёт со стоимостью обязан говорить, когда её последний раз
+      # проверяли, а не выдавать старое число за текущее.
+      pricing:
+        prompt_per_1k: 0.096
+        completion_per_1k: 0.289
+        currency: RUB
+        verified_at: "2026-09-10"
+    # Дешёвый ориентир: сравнить GigaChat с моделью общего назначения.
+    # Тариф с карточки модели OpenRouter на 10.09.2026, $ за 1000 токенов.
+    openrouter-deepseek-flash:
+      provider: openrouter
+      model: deepseek/deepseek-v4.1-flash
+      api_key_env: OPENROUTER_API_KEY
+      openrouter:
+        temperature: 0.0
+      pricing:
+        prompt_per_1k: 0.00015
+        completion_per_1k: 0.0006
+        currency: USD
+        verified_at: "2026-09-10"
+
+    # Потолок качества. Нужен не для продакшена, а чтобы ответить на вопрос,
+    # ради которого затевался бенчмарк: роли уже насыщены эвристикой (0.833)
+    # или GigaChat просто слаб (0.827)? Если сильная модель тоже даёт ≈0.83 —
+    # задача насыщена, и LLM в ней не нужен никому.
+    openrouter-deepseek-pro:
+      provider: openrouter
+      model: deepseek/deepseek-v4-pro-0813
+      api_key_env: OPENROUTER_API_KEY
+      openrouter:
+        temperature: 0.0
+      pricing:
+        prompt_per_1k: 0.00058
+        completion_per_1k: 0.00174
+        currency: USD
+        verified_at: "2026-09-10"
+
     openrouter-glm-5-3-flash:
       provider: openrouter
       model: z-ai/glm-5.3-flash

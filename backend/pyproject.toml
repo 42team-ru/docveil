@@ -123,6 +123,7 @@ module = [
     "masker.ingest.scan_ingest",
     "masker.render.pdf_render",
     "masker.render.image_export",
+    "masker.highlights.page_dims",
     "masker.validate.parts",
     "masker.validate.pdf_layout",
     "masker.validate.certificate",

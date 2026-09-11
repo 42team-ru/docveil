@@ -312,9 +312,6 @@ def _execute(
         llm=llm,
         artifact_dir=artifact_dir,
         pricing=resolve_llm_config().pricing,
-        # Без провайдера скан-PDF работает как раньше, а картинка падает с
-        # понятным ValueError уже в extract_node (`ingest_image` требует OCR
-        # явно) — `select_ocr()` вызывается безусловно, как в CLI (`cli.py`).
         ocr=select_ocr(),
     )
     try:

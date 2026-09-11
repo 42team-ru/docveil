@@ -99,6 +99,54 @@ def test_different_values_call_llm_once_each() -> None:
     assert entities[0].text == "1111"
 
 
+def test_same_value_twice_in_one_segment_is_asked_separately_with_description() -> None:
+    """Одинаковые даты различаются только положением и русским описанием типа."""
+    spec = load_type_config(
+        {
+            "version": 1,
+            "types": [
+                {
+                    "id": "shipment_date",
+                    "title": "Дата отгрузки",
+                    "marker": "[ДАТА-ОТГРУЗКИ-{n}]",
+                    "detect": {
+                        "kind": "regex_llm_filter",
+                        "pattern": r"\d{2}\.\d{2}\.\d{4}",
+                        "description": "Дата фактической отгрузки товара, не подписания договора.",
+                    },
+                }
+            ],
+        }
+    )[0]
+    document = Document(
+        path="doc.docx",
+        fmt="docx",
+        segments=[_segment("Подписано 12.02.2026, отгрузка 12.02.2026.")],
+    )
+
+    class RecordingProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__([_mask(False), _mask(True)])
+            self.messages: list[object] = []
+
+        def complete(self, messages: list[object]) -> str:
+            self.messages.extend(messages)
+            return super().complete(messages)  # type: ignore[arg-type]
+
+    llm = RecordingProvider()
+    entities = LlmFilterDetector([spec], llm).detect(document)
+
+    assert llm.calls == 2
+    assert [(entity.start, entity.text) for entity in entities] == [(31, "12.02.2026")]
+    payloads = [
+        json.loads(message.content)
+        for message in llm.messages
+        if getattr(message, "role", "") == "user"
+    ]
+    assert all(payload["type_description"].startswith("Дата фактической") for payload in payloads)
+    assert payloads[0]["context"] != payloads[1]["context"]
+
+
 def test_budget_exceeded_raises_with_the_configured_number() -> None:
     count = MAX_LLM_FILTER_CALLS_PER_DOCUMENT + 1
     segments = [_segment(f"Код {1000 + i}.", order=i) for i in range(count)]

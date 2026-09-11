@@ -55,6 +55,7 @@ from typing import Any
 
 from gigachat import GigaChat
 from gigachat.exceptions import GigaChatException, ResponseError
+from httpx import HTTPError
 
 from masker.llm.base import LLMError, LLMUsage, Message
 
@@ -125,6 +126,14 @@ class GigaChatProvider:
             raise LLMError(_describe_response_error(error)) from error
         except GigaChatException as error:
             raise LLMError(f"GigaChat не смог вернуть ответ: {error}") from error
+        except HTTPError as error:
+            # Транспорт клиента (`httpx`) не обёрнут библиотекой GigaChat:
+            # обрыв связи, недоступный хост и отвергнутый сертификат летят
+            # наружу как есть. Для вызывающего это нарушение контракта
+            # `LLMProvider`, который обещает только `LLMError`, — и оно уже
+            # роняло матричный бенчмарк целиком из-за одной недоступной
+            # клетки (10.09.2026, самоподписанный корень в прокси команды).
+            raise LLMError(f"GigaChat недоступен по сети: {error}") from error
         if not completion.choices:
             raise LLMError("GigaChat вернул ответ без choices")
         choice = completion.choices[0]

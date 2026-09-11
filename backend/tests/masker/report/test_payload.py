@@ -11,6 +11,9 @@ from masker.mask import PlanAgent
 from masker.model import Certificate, CertificateCheck, ConfidenceLevel, ValidationReport
 from masker.refs import EntityIndex
 from masker.report.payload import (
+    _limitations,
+    _limitations_pdf,
+    _limitations_xlsx,
     _validation_record,
     _validation_skipped,
     build_report_payload,
@@ -19,6 +22,7 @@ from masker.report.payload import (
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "labeled"
 _DOCUMENT_COVERAGE = {"tables": {"nested_count": 0}}
+_KBK_LIMITATION = "Коды бюджетной классификации (КБК) пока не обезличиваются"
 
 
 def _build_report(document, entities, *, with_plan: bool) -> dict:
@@ -93,6 +97,17 @@ def test_review_possible_is_empty_list_without_plan() -> None:
 
     assert report["review_possible"] == []
     assert "plan" not in report
+
+
+def test_budget_classification_code_limitation_is_reported_for_every_format() -> None:
+    """Р21: отсутствие решения по КБК не должно быть скрыто от пользователя."""
+    limitations = (
+        _limitations(_DOCUMENT_COVERAGE),
+        _limitations_pdf({}),
+        _limitations_xlsx({}),
+    )
+
+    assert all(any(item.startswith(_KBK_LIMITATION) for item in items) for items in limitations)
 
 
 # ── легенда сокращений маркера (план М1, правило 6) ────────────────────────────

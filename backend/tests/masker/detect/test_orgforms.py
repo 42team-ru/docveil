@@ -2,6 +2,7 @@ from masker.detect.ner import NatashaDetector
 from masker.detect.orgforms import (
     expand_org_span,
     fix_person_initials,
+    is_formula_variable,
     is_organization_form_only,
     is_public_body,
     is_role_stopword,
@@ -33,6 +34,13 @@ def test_full_form_expanded() -> None:
 def test_abbreviation_untouched() -> None:
     text = "ООО «Вектор»"
     assert expand_org_span(text, 0, len(text)) == (0, len(text))
+
+
+def test_formula_definition_identifies_short_variable() -> None:
+    """11.09.2026: расшифровка «где: ДК — …» подтверждает переменную формулы."""
+    text = "где: ДК — срок исполнения обязательства"
+    start = text.index("ДК")
+    assert is_formula_variable(text, start, start + len("ДК"))
 
 
 def test_aktiv_not_dropped() -> None:

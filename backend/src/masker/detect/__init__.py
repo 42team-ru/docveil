@@ -30,6 +30,7 @@ def default_detectors(
     from masker.detect.contract_params import (
         ContractAmountDetector,
         DeliveryPeriodDetector,
+        MoneyDetector,
         PaymentTermsDetector,
     )
 
@@ -39,6 +40,7 @@ def default_detectors(
         AddressDetector(tagger),
         DateDetector(),
         ContractAmountDetector(),
+        MoneyDetector(),
         DeliveryPeriodDetector(),
         PaymentTermsDetector(),
         OrgFormDetector(),

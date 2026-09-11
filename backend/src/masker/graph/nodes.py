@@ -889,41 +889,30 @@ def make_summary_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
 
 def _summary_node(state: State, llm: LLMProvider | None) -> dict[str, object]:
     """Собрать части карточки и не дать полям договора попасть в не-договор."""
-    from masker.summary import ContractSummary, analyze_document, build_summary, export_summary
+    from masker.summary import build_document_card, export_summary
 
     entities = [entity_from_dict(item) for item in state.get("entities", [])]
     profiles = profiles_from_dicts(state.get("profiles", []))
     llm_calls = int(state.get("llm_calls", 0))
     document = _document(state)
-    analysis = analyze_document(document, profiles, llm)
     # generated_at фиксируется пустой строкой: отчёт должен быть детерминированным
     # (AGENTS.md: «два прогона на одном файле дают побайтово одинаковый отчёт»).
     # Временная метка сборки хранится в артефактах файловой системы, не в отчёте.
     # Пустая строка (не None) → детерминированный вывод без datetime.now().
-    summary = build_summary(
+    # Замерено 11.09.2026 на eat-654000009321.pdf: короткий путь записи
+    # кассет и граф собирали карточку разными последовательностями, из-за
+    # чего полученный пересказ мог не доехать в отчёт. Один конструктор
+    # сохраняет тип, пересказ и поля как единый контракт Д3.
+    summary = build_document_card(
+        document,
         entities,
         profiles,
-        llm_calls=llm_calls + analysis.llm_calls,
-        generated_at="",
-        document=document,
+        llm,
+        llm_calls=llm_calls,
     )
-    if analysis.kind.status == "non_contract":
-        # ``not_found`` не доказывает, что условие отсутствует. На документе
-        # другого жанра полей договора нет совсем, а не «ничего не найдено».
-        summary = ContractSummary(
-            brief_summary=analysis.brief_summary,
-            document_kind=analysis.kind,
-            generated_at="",
-            llm_calls=llm_calls + analysis.llm_calls,
-        )
-    else:
-        # Offline/fake-режим намеренно сохраняет поля правил: неизвестный
-        # жанр — техническая неопределённость, а не отрицание договора.
-        summary.brief_summary = analysis.brief_summary
-        summary.document_kind = analysis.kind
     return {
         "contract_summary": export_summary(summary, plan_from_dict(state.get("plan", {}))),
-        "summary_llm_calls": analysis.llm_calls,
+        "summary_llm_calls": summary.llm_calls - llm_calls,
     }
 
 

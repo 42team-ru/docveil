@@ -24,6 +24,7 @@ from masker.model import (
     Anchor,
     Document,
     Entity,
+    EntityType,
     MaskGroup,
     MaskPlan,
     Profile,
@@ -100,6 +101,8 @@ class PlanAgent:
             profile_id = profile_id_by_ref.get(ref, "")
             pending.append(_PendingEntity(ref, entity, profile_id, anchor))
 
+        pending = _prefer_contract_amount(pending)
+
         buckets = _bucket_by_first_occurrence(pending)
         marker_by_bucket, number_by_bucket, canonical_by_bucket = _assign_markers(
             buckets, role_label_by_profile_id, self._registry
@@ -157,6 +160,27 @@ class PlanAgent:
             skipped=tuple(skipped),
             requested_types=tuple(sorted(effective_types)),
         )
+
+
+def _prefer_contract_amount(pending: list[_PendingEntity]) -> list[_PendingEntity]:
+    """Не отдавать рендеру две замены для одной суммы.
+
+    Детекция сохраняет ``money`` и ``contract_amount`` для одного спана: это
+    позволяет выбрать любой из типов. Когда оба выбраны для маскирования,
+    маркер цены договора информативнее общего маркера суммы, поэтому в план
+    попадает он один.
+    """
+    contract_spans = {
+        (item.entity.segment_order, item.entity.start, item.entity.end)
+        for item in pending
+        if item.entity.type == EntityType.CONTRACT_AMOUNT
+    }
+    return [
+        item
+        for item in pending
+        if item.entity.type != EntityType.MONEY
+        or (item.entity.segment_order, item.entity.start, item.entity.end) not in contract_spans
+    ]
 
 
 def _profile_lookup(

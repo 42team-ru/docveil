@@ -93,6 +93,35 @@ def test_llm_names_missing_role() -> None:
     ]
 
 
+def test_power_of_attorney_number_and_ip_address_stay_without_party_profile() -> None:
+    """Документные реквизиты не должны получать произвольную роль стороны."""
+    text = "Доверенность № МЧД-42; IP-адрес: 83.171.96.195"
+    segment = Segment(text, Anchor("docx", ("body", 0)), 0)
+    entities = [
+        Entity(
+            entity_type,
+            value,
+            0,
+            text.index(value),
+            text.index(value) + len(value),
+            Source.RULE,
+            1.0,
+            value,
+        )
+        for entity_type, value in (
+            (EntityType.POWER_OF_ATTORNEY_NUMBER, "МЧД-42"),
+            (EntityType.IP_ADDRESS, "83.171.96.195"),
+        )
+    ]
+
+    result = ProfileAgent().profile(
+        Document("test.docx", "docx", [segment]), DetectionResult(entities, [])
+    )
+
+    assert result.profiles == []
+    assert result.unassigned == ["E1", "E2"]
+
+
 def result_source_is_rule_before_llm(document: Document, detection: DetectionResult) -> bool:
     baseline = ProfileAgent(None).profile(document, detection)
     profile = baseline.profiles[0]

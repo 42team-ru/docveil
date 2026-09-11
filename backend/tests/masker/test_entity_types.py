@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from masker.entity_types import EntityTypeRegistry, EntityTypeSpec, builtin_specs
+from masker.mask.labels import human_type_label, type_marker_label
 from masker.model import CRITICAL_TYPES, EntityType
 
 
@@ -17,6 +18,12 @@ def test_critical_ids_match_CRITICAL_TYPES() -> None:
     r = EntityTypeRegistry.builtin()
     expected = frozenset(t.value for t in CRITICAL_TYPES)
     assert r.critical_ids() == expected
+
+
+def test_power_of_attorney_number_is_critical_but_ip_address_is_not() -> None:
+    """Номер доверенности ищет сторону, а публичный IP не идентифицирует её сам."""
+    assert EntityType.POWER_OF_ATTORNEY_NUMBER in CRITICAL_TYPES
+    assert EntityType.IP_ADDRESS not in CRITICAL_TYPES
 
 
 def test_registry_extend_returns_new_object() -> None:
@@ -64,6 +71,16 @@ def test_builtin_specs_cover_all_entity_types() -> None:
     specs = builtin_specs()
     spec_ids = {s.id for s in specs}
     assert spec_ids == {t.value for t in EntityType}
+
+
+@pytest.mark.parametrize("entity_type", list(EntityType))
+def test_builtin_entity_type_has_registry_and_marker_labels(entity_type: EntityType) -> None:
+    """Новый встроенный тип обязан пройти весь путь до плана маскирования."""
+    registry = EntityTypeRegistry.builtin()
+
+    assert entity_type in registry
+    assert registry.spec(entity_type).marker_label == type_marker_label(entity_type)
+    assert human_type_label(entity_type)
 
 
 def test_custom_type_in_extended_registry() -> None:

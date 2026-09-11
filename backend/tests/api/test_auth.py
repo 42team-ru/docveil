@@ -234,7 +234,7 @@ def test_me_unauthorized_without_token(client):
 def test_me_unauthorized_with_garbage_token(client):
     response = client.get(
         "/api/auth/me",
-        headers={"Authorization": "Bearer not-a-real-jwt"},
+        headers={"Authorization": "Bearer not-a-real-contracts-jwt"},
     )
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED

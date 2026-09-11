@@ -1,0 +1,78 @@
+{
+  "entities": [
+    {
+      "type": "date",
+      "text": "28.07.2023",
+      "party": "contractor"
+    },
+    {
+      "type": "date",
+      "text": "20.10.2024",
+      "party": "contractor"
+    },
+    {
+      "type": "inn",
+      "text": "0 5 4 5 0 1 1 6 2 8"
+    },
+    {
+      "type": "bank_account",
+      "text": "4 0 7 0 2 8 1 0 9 6 0 3 2 0 0 1 4 4 3 4"
+    },
+    {
+      "type": "bank_account",
+      "text": "0 3 2 2 4 6 4 3 8 2 0 0 0 0 0 0 0 3 0 0"
+    },
+    {
+      "type": "bank_account",
+      "text": "3 0 1 0 1 8 1 0 9 0 7 0 2 0 0 0 0 6 1 5"
+    },
+    {
+      "type": "bank_account",
+      "text": "4 0 1 0 2 8 1 0 9 4 5 3 7 0 0 0 0 0 6 9"
+    },
+    {
+      "type": "phone",
+      "text": "8 - 9 6 3 - 4 2 2 -3 2 -3 3"
+    },
+    {
+      "type": "phone",
+      "text": "8 - 9 2 8 - 5 6 5 - 4 f - 3 1"
+    },
+    {
+      "type": "person",
+      "text": "М а г о м е д о в А б д у р а х м а н Ю н у с о в и ч"
+    },
+    {
+      "type": "email",
+      "text": "k tk -d a 2 ® .m a il.r u"
+    },
+    {
+      "type": "email",
+      "text": "k a sp iy te le k o m f® ,m a il.r u"
+    },
+    {
+      "type": "email",
+      "text": "k a s o k o lle ® ,m a il.r u"
+    },
+    {
+      "type": "bik",
+      "text": "0 4 0 7 0 2 6 1 5"
+    },
+    {
+      "type": "bik",
+      "text": "0 1 8 2 0 9 0 0 1"
+    },
+    {
+      "type": "person",
+      "text": "М а г о м е д о в Н .Г ."
+    },
+    {
+      "type": "org_name",
+      "text": "Г Б П О У Р Д я К А и С »"
+    },
+    {
+      "type": "org_name",
+      "text": "Г Б П О У Р Д « К А и С »"
+    }
+  ]
+}

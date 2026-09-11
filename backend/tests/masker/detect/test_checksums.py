@@ -51,6 +51,13 @@ def test_treasury_bik_is_valid(bik: str) -> None:
     assert is_valid_bik(bik)
 
 
+def test_operational_department_bik_is_valid() -> None:
+    """Р22, 11.09.2026: `024501901` — Операционный департамент Банка России
+    // Межрегиональное операционное УФК. Префикс `02` в правило внесён не
+    был, и этот БИК выходил открытым в `arkhschool-68-183.pdf`."""
+    assert is_valid_bik("024501901")
+
+
 def test_bik_rejects_unknown_prefix() -> None:
     # Заведомо битый вариант — префикс не 01 и не 04.
     assert not is_valid_bik("996577551")

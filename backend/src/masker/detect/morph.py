@@ -52,7 +52,8 @@ import re
 from dataclasses import dataclass
 
 from masker.detect.normalize import normalize_value
-from masker.detect.orgforms import org_forms
+from masker.detect.orgforms import is_role_token, org_forms
+from masker.detect.person_values import is_single_token_uppercase_abbreviation
 from masker.model import Document, Entity, EntityType, Segment, Source
 
 #: Граммемы OpenCorpora, которыми MorphVocab помечает имя собственное
@@ -231,7 +232,24 @@ class MorphPersonDetector:
                 cursor += 1
             start = tokens[index].start
             end = tokens[run_end].end
+            # В сертификатах ЭП фамилия часто набрана ВЕРХНИМ РЕГИСТРОМ.
+            # Первый разбор MorphVocab тогда не относит её к Surn, хотя
+            # соседние имя+отчество уже образуют надёжное ФИО. Берём ровно
+            # один предшествующий токен только при name-граммеме; это
+            # повторяет безопасную часть expand_person_left(), но не создаёт
+            # циклический импорт persons.py -> morph.py.
+            if (
+                core_count >= 2
+                and index > 0
+                and text[tokens[index - 1].end : tokens[index].start] == " "
+                and not is_role_token(tokens[index - 1].core)
+                and has_name_grammeme(tokens[index - 1].core)
+            ):
+                start = tokens[index - 1].start
             value = text[start:end]
+            if is_single_token_uppercase_abbreviation(value):
+                index = run_end + 1
+                continue
             confidence = _HIGH_CONFIDENCE if core_count >= 2 else _LOW_CONFIDENCE
             result.append(
                 Entity(

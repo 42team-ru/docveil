@@ -30,6 +30,13 @@ from masker.refs import EntityIndex, entity_sort_key
 #: Идентификатор группового вопроса про сущности вне профилей — раздел 5 плана T1.5.1.
 PROFILE_UNASSIGNED = "PROFILE-UNASSIGNED"
 
+# 11.09.2026: эти типы маскируются политикой по умолчанию без вопроса.
+# IP-адрес сам по себе не является устойчивым идентификатором человека, а
+# реестровый ключ — публичный технический идентификатор закупки. В обоих
+# случаях безопасное действие уже определено (маскировать), поэтому отдельный
+# вопрос лишь раздувает пачку и не помогает оператору принять решение.
+_SILENT_DEFAULT_TYPE_IDS = frozenset({EntityType.IP_ADDRESS, EntityType.REGISTRY_KEY})
+
 #: До скольких образцов значений и якорей показывать в карточке вопроса — раздел 8.
 SAMPLE_LIMIT = 5
 ANCHOR_LIMIT = 3
@@ -405,6 +412,14 @@ class PolicyAgent:
         for entity_type in sorted(by_type):
             items = by_type[entity_type]
             critical = self._registry.is_critical(entity_type)
+            # 11.09.2026: критичный тип маскируется молча. Без явного
+            # --unmask-critical оператор не может изменить результат, значит
+            # TYPE-вопрос был информационным шумом и нарушал правило «не
+            # спрашивать про критичное». С флагом остаётся осознанный выбор.
+            if critical and not allow_unmask_critical:
+                continue
+            if entity_type in _SILENT_DEFAULT_TYPE_IDS:
+                continue
             title = _title(entity_type, self._registry)
             questions.append(
                 PolicyQuestion(
@@ -439,6 +454,15 @@ class PolicyAgent:
         questions: list[PolicyQuestion] = []
         for profile in sorted(profiles.profiles, key=lambda item: item.id):
             entities = [member.entity for member in profile.members]
+            # 11.09.2026: профиль только с критичными реквизитами без
+            # --unmask-critical не даёт оператору никакого выбора: guard
+            # всё равно оставит каждую сущность замаскированной. Не создаём
+            # фиктивный PROFILE-вопрос; смешанный профиль остаётся в пачке,
+            # потому что его некритичную часть действительно можно оставить.
+            if not allow_unmask_critical and all(
+                self._registry.is_critical(entity.type) for entity in entities
+            ):
+                continue
             questions.append(
                 self._profile_question(
                     question_id=f"PROFILE-{profile.id}",
@@ -451,7 +475,10 @@ class PolicyAgent:
                 )
             )
         unassigned_entities = [index.entity(ref) for ref in profiles.unassigned]
-        if unassigned_entities:
+        if unassigned_entities and (
+            allow_unmask_critical
+            or any(not self._registry.is_critical(entity.type) for entity in unassigned_entities)
+        ):
             questions.append(
                 self._profile_question(
                     question_id=PROFILE_UNASSIGNED,

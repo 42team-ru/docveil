@@ -31,6 +31,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from masker.detect.normalize import normalize_value
+from masker.detect.requisites import has_complete_requisite_length
 from masker.model import Entity, EntityType
 
 #: Минимальная длина остатка после обрезки (правило 4) — однознаковый мусор
@@ -46,7 +47,15 @@ MIN_FRAGMENT_LEN = 2
 #: этого недостаточно для «неприкосновенности» — только для приоритета выше
 #: нестрогих регулярок вроде телефона (см. `FALLBACK_PRIORITY`).
 VALIDATED_TYPES: frozenset[EntityType] = frozenset(
-    {EntityType.INN, EntityType.OGRN, EntityType.SNILS, EntityType.KPP}
+    {
+        EntityType.INN,
+        EntityType.OGRN,
+        EntityType.SNILS,
+        EntityType.KPP,
+        EntityType.REGISTRY_KEY,
+        EntityType.POWER_OF_ATTORNEY_NUMBER,
+        EntityType.IP_ADDRESS,
+    }
 )
 
 #: Счёт валиден, только если его удалось проверить в паре с БИК —
@@ -56,9 +65,10 @@ VALIDATED_BANK_ACCOUNT_CONFIDENCE = 1.0
 
 #: Порядок между собой для того, что осталось невалидированным (правило 5
 #: этого модуля — не спутать с правилом 5 в докстринге модуля, которое про
-#: agent.py): более надёжный формат впереди. `bank_account` без БИК рядом
-#: (формат совпал, проверить нечем) всё равно куда надёжнее произвольной
-#: регулярки телефона — его формат самый жёсткий (ровно 20 цифр).
+#: agent.py): более надёжный формат впереди. 20-значный `bank_account` без
+#: БИК рядом (формат совпал, проверить нечем) всё равно куда надёжнее
+#: произвольной регулярки телефона. Контекстный 11-значный лицевой счёт сюда
+#: не попадает: `rules.py` выпускает его сразу с уверенностью 1.0.
 FALLBACK_PRIORITY: tuple[EntityType, ...] = (
     EntityType.BANK_ACCOUNT,
     EntityType.PASSPORT,
@@ -114,6 +124,11 @@ def _carve_against(candidate: Entity, blockers: list[Entity]) -> list[Entity]:
         local_start = start - candidate.start
         local_end = end - candidate.start
         text = candidate.text[local_start:local_end]
+        # Р13: остаток правильного кандидата после вычитания ИНН/КПП не
+        # наследует его тип. Например, «1 » от кандидата счёта внутри ИКЗ
+        # не может быть банковским счётом по определению.
+        if not has_complete_requisite_length(candidate.type, text):
+            continue
         carved.append(
             Entity(
                 type=candidate.type,

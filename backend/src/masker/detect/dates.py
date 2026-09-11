@@ -23,6 +23,7 @@ from masker.detect.dateparse import (
     parse_date,
     parse_literal,
 )
+from masker.detect.legal_references import is_normative_act_adoption_date
 from masker.detect.normalize import normalize_value
 from masker.model import Document, Entity, EntityType, Segment, Source
 
@@ -67,15 +68,16 @@ _NUMERIC_PATTERN = re.compile(
 )
 
 #: Текстовая форма: день (цифры или в кавычках) + месяц словом + год.
-#: Кавычки вокруг дня входят в спан, чтобы после маскирования не оставалось
-#: висящей `»` (план T1.15).
+#: 11.09.2026: в шапке `arkhschool-68-183.pdf` день записан как « 7 ».
+#: Пробелы внутри кавычек входят в спан, чтобы реквизит договора не остался
+#: открытым и чтобы после маскирования не висела закрывающая кавычка.
 _MONTH_ALTERNATION = (
     r"январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|"
     r"август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья]"
 )
 _TEXTUAL_PATTERN = re.compile(
     r"(?<![\w])"
-    r"(«?\d{1,2}»?)\s+"  # день (опционально в кавычках)
+    r"((?:[«\"“„]\s*)?\d{1,2}(?:\s*[»\"”])?)\s+"  # день и парные кавычки
     rf"({_MONTH_ALTERNATION})\s+"  # месяц словом
     r"(\d{4})"  # год
     r"(?!\d)",
@@ -126,7 +128,7 @@ class DateDetector:
             found.append((match.start(), match.end(), match.group(0)))
 
         for match in _TEXTUAL_PATTERN.finditer(text):
-            day_token = match.group(1).strip("«»\"'“”„")
+            day_token = match.group(1).strip().strip("«»\"'“”„").strip()
             month_num = month_number(match.group(2))
             year_token = match.group(3)
             if month_num is None:
@@ -144,6 +146,8 @@ class DateDetector:
 
         entities: list[Entity] = []
         for start, end, value in found:
+            if is_normative_act_adoption_date(text, start):
+                continue
             entity_type = self._classify(text, start, end)
             entities.append(
                 Entity(

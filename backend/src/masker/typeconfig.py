@@ -40,6 +40,8 @@ _ALLOWED_FLAG_MASK = re.IGNORECASE | re.UNICODE
 _DETECT_KINDS = frozenset(
     {"literals", "regex", "regex_llm_filter", "gliner_label", "gliner_structure"}
 )
+# Типы, про критичность которых уже предупредили в этом процессе.
+_WARNED_CRITICAL: set[str] = set()
 _MATCH_MODES = frozenset({"whole_word", "substring"})
 
 
@@ -151,7 +153,8 @@ def _build_type(item: Any, index: int) -> CustomTypeSpec:
         )
 
     critical = bool(item.get("critical", False))
-    if critical:
+    if critical and type_id not in _WARNED_CRITICAL:
+        _WARNED_CRITICAL.add(type_id)
         warnings.warn(
             f"Тип {type_id!r} объявлен критичным (critical: true): порог recall в "
             f"воротах поднимается до 1.0, пользовательская регулярка обязана его "
@@ -296,8 +299,20 @@ def _build_regex_type(
         )
     context = tuple(context_raw)
 
+    description = ""
+    if kind == "regex_llm_filter":
+        description_raw = detect.get("description", "")
+        if not isinstance(description_raw, str):
+            raise CustomTypeError(f"Тип {type_id!r}: 'detect.description' должен быть строкой")
+        # Старые конфигурации фильтра не содержали описания. Заголовок типа
+        # остаётся для них осмысленным минимумом, а новые спеки могут дать
+        # модели точное русское различение похожих кандидатов.
+        description = description_raw.strip() or spec.title
+
     compiled = _compile_safe_regex(pattern_str, ignorecase, type_id)
-    return CustomTypeSpec(spec=spec, kind=kind, pattern=compiled, context=context)
+    return CustomTypeSpec(
+        spec=spec, kind=kind, pattern=compiled, context=context, description=description
+    )
 
 
 def _compile_safe_regex(pattern_str: str, ignorecase: bool, type_id: str) -> re.Pattern[str]:

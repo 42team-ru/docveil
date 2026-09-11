@@ -1,7 +1,11 @@
 import dataclasses
+import logging
 from dataclasses import dataclass
 
+import pytest
+
 from masker.detect.agent import DetectAgent
+from masker.entity_types import EntityTypeRegistry, EntityTypeSpec
 from masker.model import Anchor, ConfidenceLevel, Document, Entity, EntityType, Segment, Source
 
 
@@ -88,6 +92,65 @@ def test_rule_entity_is_never_carved() -> None:
         dataclasses.replace(entity, level=ConfidenceLevel.CONFIRMED) for entity in first.entities
     ]
     assert DetectAgent([first, second]).detect(document).entities == expected
+
+
+def test_custom_role_replaces_overlapping_noncritical_builtin_type() -> None:
+    """Роль пользователя сохраняется вместо общего типа, не только для даты."""
+    document = _document("Сумма договора 150 000 рублей")
+    value = "150 000 рублей"
+    start = document.segments[0].text.index(value)
+    money = StubDetector(
+        "money",
+        Source.RULE,
+        100,
+        [Entity(EntityType.MONEY, value, 0, start, start + len(value), Source.RULE)],
+    )
+    role = StubDetector(
+        "custom-role",
+        Source.USER,
+        50,
+        [Entity("contract_price_role", value, 0, start, start + len(value), Source.USER)],
+    )
+    registry = EntityTypeRegistry.builtin().extend(
+        [EntityTypeSpec("contract_price_role", "Цена договора", "ЦЕНА", builtin=False)]
+    )
+
+    result = DetectAgent([money, role], registry).detect(document)
+
+    assert [(entity.type, entity.text) for entity in result.entities] == [
+        ("contract_price_role", value)
+    ]
+
+
+def test_custom_role_cannot_replace_critical_builtin_and_logs_displacement(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Уточнение роли не вправе снять маску критичного встроенного реквизита."""
+    document = _document("ИНН 3662103003")
+    value = "3662103003"
+    start = document.segments[0].text.index(value)
+    inn = StubDetector(
+        "rules",
+        Source.RULE,
+        100,
+        [Entity(EntityType.INN, value, 0, start, start + len(value), Source.RULE)],
+    )
+    role = StubDetector(
+        "custom-role",
+        Source.USER,
+        50,
+        [Entity("supplier_identifier", value, 0, start, start + len(value), Source.USER)],
+    )
+    registry = EntityTypeRegistry.builtin().extend(
+        [EntityTypeSpec("supplier_identifier", "Код поставщика", "КОД", builtin=False)]
+    )
+
+    with caplog.at_level(logging.WARNING, logger="masker.detect.agent"):
+        result = DetectAgent([inn, role], registry).detect(document)
+
+    assert [entity.type for entity in result.entities] == [EntityType.INN]
+    assert "supplier_identifier" in caplog.text
+    assert "все вытеснены" in caplog.text
 
 
 def test_detector_order_does_not_change_result() -> None:

@@ -13,7 +13,10 @@ _FEDERAL_LAW_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _ADOPTION_PREFIX_RE = re.compile(
-    rf"{_FEDERAL_LAW_RE.pattern}\s+от\s*$",
+    # После вида акта может идти его короткий юрисдикционный квалификатор
+    # («Российской Федерации», «РФ»), но дата остаётся датой принятия, только
+    # если непосредственно после него следует предлог «от».
+    rf"{_FEDERAL_LAW_RE.pattern}(?:\s+[А-ЯЁа-яё]+){{0,3}}\s+от\s*$",
     flags=re.IGNORECASE,
 )
 

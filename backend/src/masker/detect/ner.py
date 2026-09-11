@@ -7,8 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from masker.detect.normalize import normalize_value
 from masker.detect.legal_references import is_federal_law_reference
+from masker.detect.normalize import normalize_value
 from masker.detect.orgforms import (
     expand_org_span,
     fix_person_initials,

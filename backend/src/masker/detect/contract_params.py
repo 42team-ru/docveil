@@ -1,5 +1,9 @@
 """Детекторы коммерческих параметров договора: сумма и срок поставки (Фаза 1 плана).
 
+``MoneyDetector`` — находит все денежные суммы в рублях. Он использует тот же
+проверенный шаблон, что и детектор цены договора, чтобы граница суммы (включая
+сумму прописью и копейки) была одинаковой для обоих типов.
+
 ``ContractAmountDetector`` — находит денежную сумму договора: ищет числа с
 рублёвым суффиксом и проверяет, есть ли рядом (в том же или соседнем сегменте)
 ключевые слова «цена договора», «сумма договора» и т.д. Если контекст есть —
@@ -9,9 +13,9 @@
 ``DeliveryPeriodDetector`` — находит срок поставки/выполнения по regex-шаблонам
 вида «в течение 30 рабочих дней», «не позднее 5 дней с момента» и т.д.
 
-Оба детектора не пересекаются по результатам с правилами (``RuleDetector``):
-они испускают типы ``contract_amount`` и ``delivery_period``, которых в PATTERNS
-нет, поэтому в ``DetectAgent._resolve_overlaps`` конфликтов не возникает.
+Эти детекторы не пересекаются по результатам с правилами (``RuleDetector``):
+они испускают типы ``money``, ``contract_amount`` и ``delivery_period``,
+которых в PATTERNS нет.
 """
 
 from __future__ import annotations
@@ -72,6 +76,34 @@ _AMOUNT_CONTEXT_RADIUS = 500
 _AMOUNT_SEG_LOOKAROUND = 2
 
 CONFIDENCE = 0.90
+
+
+class MoneyDetector:
+    """Все денежные суммы в рублях по общему формату договоров."""
+
+    name = "money"
+    source = Source.RULE
+    priority = 84
+    types: frozenset[str] = frozenset({EntityType.MONEY})
+
+    def detect(self, document: Document) -> list[Entity]:
+        found: list[Entity] = []
+        for seg in document.segments:
+            for match in _MONEY_RE.finditer(seg.text):
+                value = match.group()
+                found.append(
+                    Entity(
+                        type=EntityType.MONEY,
+                        text=value,
+                        segment_order=seg.order,
+                        start=match.start(),
+                        end=match.end(),
+                        source=Source.RULE,
+                        confidence=CONFIDENCE,
+                        normalized=normalize_value(EntityType.MONEY, value),
+                    )
+                )
+        return found
 
 
 def _amount_context(

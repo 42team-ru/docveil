@@ -40,6 +40,9 @@ from masker.refs import EntityIndex
 _DOCUMENT_LEVEL_TYPES = frozenset(
     {
         EntityType.CONTRACT_NUMBER,
+        EntityType.CONTRACT_AMOUNT,
+        EntityType.DELIVERY_PERIOD,
+        EntityType.PAYMENT_TERMS,
         EntityType.DATE,
         EntityType.REGISTRY_KEY,
         EntityType.POWER_OF_ATTORNEY_NUMBER,
@@ -69,7 +72,9 @@ class ProfileAgent:
         """Вернуть профильный результат, не меняя ``detection``."""
         index = EntityIndex(detection.entities)
         profilable = [
-            entity for entity in detection.entities if entity.type not in _DOCUMENT_LEVEL_TYPES
+            entity
+            for entity in detection.entities
+            if entity.type not in _DOCUMENT_LEVEL_TYPES and _is_subject_member(entity)
         ]
         blocks = build_context_blocks(document.segments, profilable)
         profiles = cluster(document, blocks, index)
@@ -204,3 +209,17 @@ def _validation_reason(diagnostics: list[str], profile_id: str) -> str:
         if diagnostic.rsplit(" ", 1)[-1] == profile_id:
             return diagnostic
     return "профиль отклонён валидацией"
+
+
+def _is_subject_member(entity: Entity) -> bool:
+    """Отсеять ложное ФИО, которое не может принадлежать стороне договора."""
+    # После восстановления State из LangGraph type приходит строкой, а не
+    # экземпляром Enum; сравнение по идентичности пропускало ложные ФИО.
+    if entity.type != EntityType.PERSON:
+        return True
+    text = " ".join(entity.text.casefold().split())
+    # 12.09.2026: GLiNER пометил «Российская Федерация» и строку
+    # «Российской Федерации Организация» как person в реквизитах Ростелекома.
+    # Оба значения не являются подписантом; оставляем их в детекции для
+    # маскирования, но не позволяем приклеить к профилю Исполнителя.
+    return text != "российская федерация" and "организация" not in text

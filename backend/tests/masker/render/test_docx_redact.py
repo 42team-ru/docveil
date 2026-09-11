@@ -165,7 +165,7 @@ def test_marker_from_plan_is_written_into_docx(tmp_path: pathlib.Path) -> None:
     render_docx_redacted(src, dest, document, _plan(document, [entity], profiles=[profile]))
     doc = open_docx(str(dest))
     texts = " ".join(p.text for p in doc.paragraphs)
-    assert "[ПОСТАВЩИК-ИНН]" in texts
+    assert "[ПОСТАВЩИК-ИНН-1]" in texts
     assert "[INN]" not in texts
     assert _INN not in texts
 
@@ -182,14 +182,14 @@ def test_marker_longer_than_source_does_not_pad(tmp_path: pathlib.Path) -> None:
     profile = _profile_for("ПОСТАВЩИК", [entity], index)
     plan = _plan(document, [entity], profiles=[profile])
     marker = plan.replacements[0].marker
-    assert marker == "[ПОСТАВЩИК-ИНН]"
+    assert marker == "[ПОСТАВЩИК-ИНН-1]"
     assert len(marker) > len(_INN)
     render_docx_redacted(src, dest, document, plan)
     doc = open_docx(str(dest))
     texts = " ".join(p.text for p in doc.paragraphs)
-    assert "[ПОСТАВЩИК-ИНН]" in texts
+    assert "[ПОСТАВЩИК-ИНН-1]" in texts
     # маркер не обрезан padding'ом с отрицательной длиной
-    assert texts.count("[ПОСТАВЩИК-ИНН]") == 1
+    assert texts.count("[ПОСТАВЩИК-ИНН-1]") == 1
 
 
 def test_blackbox_style_with_role_marker_removes_original_text(tmp_path: pathlib.Path) -> None:
@@ -211,12 +211,12 @@ def test_blackbox_style_with_role_marker_removes_original_text(tmp_path: pathlib
     doc = open_docx(str(dest))
     for para in doc.paragraphs:
         for run in para.runs:
-            if "[ПОСТАВЩИК-ИНН]" in run.text:
+            if "[ПОСТАВЩИК-ИНН-1]" in run.text:
                 shd = run._r.find(f"{qn('w:rPr')}/{qn('w:shd')}")
                 assert shd is not None
                 assert shd.get(qn("w:fill")).upper() == "000000"
                 return
-    pytest.fail("маркер [ПОСТАВЩИК-ИНН] не найден среди runs")
+    pytest.fail("маркер [ПОСТАВЩИК-ИНН-1] не найден среди runs")
 
 
 def test_blackbox_marker_has_no_dot_padding(tmp_path: pathlib.Path) -> None:

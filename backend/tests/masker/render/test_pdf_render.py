@@ -19,6 +19,7 @@ from masker.model import (
     Document,
     Entity,
     EntityType,
+    MaskGroup,
     MaskPlan,
     PdfRegion,
     Profile,
@@ -30,6 +31,7 @@ from masker.refs import EntityIndex
 from masker.render.pdf_render import (
     _LINE_BREAK_RECT,
     MarkerDoesNotFitError,
+    _choose_group_rungs,
     _entity_rects,
     _label_box_candidates,
     _line_boxes,
@@ -313,15 +315,10 @@ def test_redacted_form_widget_is_deleted_when_its_planned_text_overlaps(
     assert email not in text
 
 
-def test_centered_marker_uses_vector_dots_without_polluting_text_layer(
+def test_marker_is_centered_and_fills_released_space_with_dots(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Маркер стоит в центре своей области, а точки остаются только графикой.
-
-    Возврат ``insert_textbox(... TEXT_ALIGN_LEFT)`` оставит заметно большой
-    левый зазор и уронит это сравнение координат. Если заменить векторные
-    точки строкой ``"..."``, упадёт проверка text layer.
-    """
+    """12.09.2026: маркер центрирован, а края заполнены векторными точками."""
     src = _make_pdf_with_inn(tmp_path)
     dest = tmp_path / "redacted.pdf"
     document = ingest_pdf(src)
@@ -342,8 +339,9 @@ def test_centered_marker_uses_vector_dots_without_polluting_text_layer(
         marker_box = pymupdf.Rect(marker_boxes[0])
         for char_box in marker_boxes[1:]:
             marker_box |= char_box
-        assert marker_box.x0 > region.x0 + 5.0  # не возвращаться к левому краю
-        assert abs(marker_box.x0 + marker_box.x1 - region.x0 - region.x1) < 0.2
+        assert (marker_box.x0 + marker_box.x1) / 2 == pytest.approx(
+            (region.x0 + region.x1) / 2, abs=0.02
+        )
         assert "." not in chars.text
         dot_drawings = [
             drawing
@@ -352,8 +350,7 @@ def test_centered_marker_uses_vector_dots_without_polluting_text_layer(
             and drawing["items"]
             and all(item[0] == "c" for item in drawing["items"])
         ]
-        assert any(drawing["rect"].x1 < marker_box.x0 for drawing in dot_drawings)
-        assert any(drawing["rect"].x0 > marker_box.x1 for drawing in dot_drawings)
+        assert dot_drawings
     finally:
         result.close()
 
@@ -382,7 +379,7 @@ def test_pdf_marker_from_plan(tmp_path: pathlib.Path) -> None:
     doc = pymupdf.open(str(dest))
     text = doc[0].get_text()
     doc.close()
-    assert "[Поставщик ИНН]" in text
+    assert "[Поставщик ИНН 1]" in text
     assert _INN not in text
     assert "[INN]" not in text
 
@@ -502,6 +499,20 @@ def test_blackbox_reuses_marker_redaction_base_without_marker_text(tmp_path: pat
     assert _INN not in text
     assert text.strip() == "", text
     assert outcome.markers == ()
+
+
+def test_blackbox_built_after_marker_has_no_highlight_fill(tmp_path: pathlib.Path) -> None:
+    """12.09.2026: второй стиль не наследует янтарные redaction-аннотации."""
+    src = _make_pdf_block(tmp_path, [_INN])
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    plan = _plan(document, [entity])
+
+    render_pdf_redacted(src, tmp_path / "marker.pdf", document, plan, style="marker")
+    render_pdf_redacted(src, tmp_path / "black.pdf", document, plan, style="blackbox")
+
+    assert pdf_render_module._HIGHLIGHT_FILL not in _filled_rect_colors(tmp_path / "black.pdf")
+    assert _filled_rect_colors(tmp_path / "black.pdf") == [(0.0, 0.0, 0.0)]
 
 
 def test_blackbox_never_reports_degradation(tmp_path: pathlib.Path) -> None:
@@ -803,6 +814,163 @@ def test_ladder_never_uses_a_font_below_the_readability_floor(
         assert size >= 8.0
 
 
+def test_minimal_marker_is_printed_in_tight_box_at_known_readable_size(
+    tmp_path: pathlib.Path,
+) -> None:
+    """12.09.2026: тесный PDF-спан не превращает замену в пустую подсветку.
+
+    Высота 10.4 pt меньше служебных 11.2 pt у ``insert_textbox``, но
+    достаточна для фактического 8-pt глифа последней ступени.
+    """
+    src = _make_pdf_with_inn(tmp_path)
+    doc = pymupdf.open(str(src))
+    page = doc[0]
+    font = pymupdf.Font(fontfile=_FONT)
+    try:
+        outcome = _try_ladder(page, font, pymupdf.Rect(72, 100, 92, 110.4), [("И1", "minimal")])
+        text = page.get_text()
+    finally:
+        doc.close()
+    assert outcome == ("И1", "minimal", 8.0)
+    assert "И1" in text
+
+
+def test_same_canonical_label_uses_one_visible_rung_across_plan_groups() -> None:
+    """12.09.2026: одна сторона не получает суффиксы «а/б» из-за групп значений."""
+    groups = tuple(
+        MaskGroup(
+            id=group_id,
+            key=group_id,
+            type=EntityType.PERSON,
+            marker="[ИСПОЛНИТЕЛЬ-ФИО-1]",
+            profile_id="P1",
+            role_label="ИСПОЛНИТЕЛЬ",
+            number=1,
+            refs=(f"E{index}",),
+            sample="Иванов",
+            canonical_label="[Исполнитель Представитель 1]",
+            compact_label="[Исп.П1]",
+        )
+        for index, group_id in enumerate(("G1", "G2"), start=1)
+    )
+    box = pymupdf.Rect(0, 0, 80, 20)
+    font = pymupdf.Font(fontfile=_FONT)
+    chosen = _choose_group_rungs(
+        font,
+        groups,
+        {
+            group.id: [[pdf_render_module._LabelCandidate(box, box, 0.0, 10.0)] for _ref in group.refs]
+            for group in groups
+        },
+    )
+    assert chosen["G1"] == chosen["G2"] == ("[Исп.П1]", "compact")
+
+
+def test_marker_words_stay_on_the_source_text_line(tmp_path: pathlib.Path) -> None:
+    """12.09.2026: PDF text layer не получает строку из одних меток."""
+    src = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=_FONT)
+    page.insert_text((72, 100), f"до {_INN} после", fontname="dvu", fontsize=12)
+    doc.save(src)
+    doc.close()
+    document = ingest_pdf(src)
+    original = pymupdf.open(src)
+    try:
+        original_inn = next(word for word in original[0].get_text("words") if word[4] == _INN)
+    finally:
+        original.close()
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    dest = tmp_path / "masked.pdf"
+    render_pdf_redacted(src, dest, document, _plan(document, [entity]))
+
+    result = pymupdf.open(dest)
+    try:
+        words = result[0].get_text("words")
+        marker_sizes = [
+            span["size"]
+            for block in result[0].get_text("dict")["blocks"]
+            for line in block.get("lines", [])
+            for span in line["spans"]
+            if span["text"].startswith("[")
+        ]
+    finally:
+        result.close()
+    y_by_word = {word[4]: round(word[1]) for word in words}
+    x_by_word = {word[4]: word[0] for word in words}
+    assert y_by_word["[ИНН]"] == y_by_word["до"] == y_by_word["после"]
+    marker_width = next(word[2] - word[0] for word in words if word[4] == "[ИНН]")
+    assert x_by_word["[ИНН]"] + marker_width / 2 == pytest.approx(
+        (original_inn[0] + original_inn[2]) / 2, abs=12.0
+    )
+    assert marker_sizes == [12.0]
+
+
+def test_marker_does_not_move_to_previous_label_when_its_line_is_fully_redacted(
+    tmp_path: pathlib.Path,
+) -> None:
+    """12.09.2026: пустая после удаления строка не переносит метку на label."""
+    src = _make_pdf_block(tmp_path, ["ИНН:", _INN])
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    original = pymupdf.open(src)
+    try:
+        source_y = next(word[1] for word in original[0].get_text("words") if word[4] == _INN)
+    finally:
+        original.close()
+
+    dest = tmp_path / "masked.pdf"
+    render_pdf_redacted(src, dest, document, _plan(document, [entity]))
+    result = pymupdf.open(dest)
+    try:
+        marker_y = next(word[1] for word in result[0].get_text("words") if word[4] == "[ИНН]")
+    finally:
+        result.close()
+
+    assert marker_y == pytest.approx(source_y, abs=0.1)
+
+
+def test_multiline_overlapping_profile_fragments_print_one_marker(tmp_path: pathlib.Path) -> None:
+    """12.09.2026: должность, блок и ФИО через перенос получают одну подпись."""
+    src = _make_pdf_block(
+        tmp_path,
+        ["в лице Старшего Вице-Президента", "ПАО Ростелеком Ермакова Валерия, действующего"],
+    )
+    dest = tmp_path / "redacted.pdf"
+    document = ingest_pdf(src)
+    segment = document.segments[0]
+    text = segment.text
+    title = "Старшего Вице-Президента"
+    full = "Старшего Вице-Президента ПАО Ростелеком Ермакова Валерия"
+    name = "Ермакова Валерия"
+    entities = [
+        Entity(
+            type=EntityType.PERSON,
+            text=value,
+            segment_order=segment.order,
+            start=text.index(value),
+            end=text.index(value) + len(value),
+            source=Source.NER,
+            confidence=0.9,
+            normalized=value.casefold(),
+        )
+        for value in (title, full, name)
+    ]
+    index = EntityIndex(entities)
+    profile = _profile_for("ИСПОЛНИТЕЛЬ-ФИО-1", entities, index)
+    plan = _plan(document, entities, profiles=[profile])
+    outcome = render_pdf_redacted(src, dest, document, plan)
+
+    rendered = pymupdf.open(dest)
+    try:
+        output = rendered[0].get_text()
+    finally:
+        rendered.close()
+    assert all(entity.text not in output for entity in entities)
+    assert len(outcome.markers) == 1
+
+
 def test_render_pdf_redacted_returns_degradation_report(tmp_path: pathlib.Path) -> None:
     """`render_pdf_redacted` отдаёт факт деградации в `RenderOutcome.markers`
     — «каждый спуск на ступень ниже фиксируется для отчёта»."""
@@ -858,6 +1026,7 @@ def test_multiline_entity_picks_widest_line_for_label_not_first(tmp_path: pathli
     # непустой ступени лестницы — если бы рендер настаивал на первой
     # строке, результат был бы `fallback_reason="blank"`.
     assert outcome.markers[0].shown_label != ""
+    assert outcome.markers[0].font_size == 12.0
     assert outcome.markers[0].fallback_reason == ""
 
 

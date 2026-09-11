@@ -196,6 +196,16 @@ def test_passport_context_detection() -> None:
     assert _has_passport_context("Серия и номер: 20 04 123456", 15, 25)
     assert _has_passport_context("Удостоверение личности 20 04 123456", 24, 34)
 
+
+def test_license_series_is_not_passport() -> None:
+    """12.09.2026: серия ГТ ФСТЭК не должна получать метку паспорта."""
+    text = (
+        "серия ГТ 0253 № 012719 на осуществление мероприятий, выданную "
+        "Федеральной службой по техническому и экспортному контролю "
+        "(срок лицензии – до 11 марта 2027 г.)"
+    )
+    assert not _has_passport_context(text, text.index("0253"), text.index("012719") + 6)
+
     # Накладная - не паспорт
     assert not _has_passport_context("Накладная № 3662103004 от 12.02.2026", 12, 22)
 

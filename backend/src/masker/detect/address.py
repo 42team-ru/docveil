@@ -387,7 +387,11 @@ class AddressDetector:
 
     @staticmethod
     def _is_sufficient(kinds: frozenset[str]) -> bool:
-        return "index" in kinds or (
+        # 12.09.2026: один шестизначный номер без улицы/города не доказывает
+        # адрес. Иначе порог штрафа «100000 рублей» становился `[Адрес]`.
+        # Адрес с одним индексом всё ещё принимается при явной метке «адрес»
+        # через `_has_value_label` в вызывающем коде.
+        return ("index" in kinds and len(kinds) > 1) or (
             "settlement" in kinds and ("street" in kinds or "building" in kinds)
         )
 

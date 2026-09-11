@@ -55,6 +55,11 @@ def test_full_address_with_index_is_one_span(text: str, expected: str) -> None:
     assert [(entity.text, entity.confidence) for entity in entities] == [(expected, 0.9)]
 
 
+def test_bare_penalty_amount_is_not_address() -> None:
+    """12.09.2026: сумма штрафа без адресных признаков не является индексом."""
+    assert _detect("Штраф 100000 рублей, если цена Контракта превышает 100 млн.") == []
+
+
 @pytest.mark.parametrize(
     "text, expected",
     [

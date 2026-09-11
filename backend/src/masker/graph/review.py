@@ -73,6 +73,9 @@ def parse_review_edits(raw: Any) -> dict[str, Any]:
         "decisions": _decisions(edits.get("decisions")),
         "type_overrides": _type_overrides(edits.get("type_overrides")),
         "manual": _manual(edits.get("manual")),
+        # Старые клиенты и уже сохранённые конверты завершают прогон, как
+        # раньше. Только новая ручка перегенерации передаёт ``False``.
+        "finalize": raw.get("finalize", True) is not False,
     }
 
 
@@ -94,17 +97,23 @@ def _type_overrides(raw: Any) -> dict[str, str]:
     return {str(ref): value for ref, value in raw.items() if isinstance(value, str) and value}
 
 
-def _manual(raw: Any) -> list[dict[str, str]]:
+def _manual(raw: Any) -> list[dict[str, Any]]:
     """Значения, которые движок пропустил, а оператор нашёл глазами.
 
-    Адресуется значением, а не координатой в документе: одно и то же
+    Без `region` — адресуется значением, а не координатой: одно и то же
     значение обязано получить один маркер во всём документе (инвариант
     согласованности псевдонимов), поэтому добавленное вручную ищется по
     всему тексту, а не только там, где оператор его выделил.
+
+    С `region` — оператор обвёл место на превью: адрес точный, текстовый
+    поиск не нужен и не надёжен (OCR-шум на сканах может не совпасть с тем,
+    что оператор напечатал глазами). `region` пропускается дальше как есть
+    ({"page", "x0", "y0", "x1", "y1"}, все координаты 0..1); проверка формы
+    и денормализация — за `_manual_entities` в графе, а не здесь.
     """
     if not isinstance(raw, list):
         return []
-    manual: list[dict[str, str]] = []
+    manual: list[dict[str, Any]] = []
     for item in raw:
         if not isinstance(item, dict):
             continue
@@ -114,5 +123,35 @@ def _manual(raw: Any) -> list[dict[str, str]]:
             continue
         if not isinstance(type_id, str) or not type_id:
             continue
-        manual.append({"type": type_id, "text": text})
+        entry: dict[str, Any] = {"type": type_id, "text": text}
+        region = _region(item.get("region"))
+        if region is not None:
+            entry["region"] = region
+        manual.append(entry)
     return manual
+
+
+def _region(raw: Any) -> dict[str, float | int] | None:
+    """`{page, x0, y0, x1, y1}`, все координаты 0..1, `x0<x1` и `y0<y1`.
+
+    Форма уже проверена Pydantic-схемой (`BboxRegionIn`) на входе HTTP — эта
+    проверка защищает `_manual_entities` от вызова напрямую (тесты, будущие
+    вызывающие) с произвольным словарём, а не дублирует HTTP-валидацию.
+    Некорректный `region` не роняет всю правку — молча игнорируется, и
+    значение обрабатывается как обычный текстовый поиск (то же правило
+    «непонятное отбрасывается молча», что у остального конверта).
+    """
+    if not isinstance(raw, dict):
+        return None
+    try:
+        page = int(raw["page"])
+        x0, y0, x1, y1 = (float(raw[key]) for key in ("x0", "y0", "x1", "y1"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if page < 0:
+        return None
+    if not (0.0 <= x0 <= 1.0 and 0.0 <= y0 <= 1.0 and 0.0 <= x1 <= 1.0 and 0.0 <= y1 <= 1.0):
+        return None
+    if x0 >= x1 or y0 >= y1:
+        return None
+    return {"page": page, "x0": x0, "y0": y0, "x1": x1, "y1": y1}

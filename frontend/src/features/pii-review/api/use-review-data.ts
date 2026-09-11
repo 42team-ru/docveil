@@ -1,6 +1,10 @@
 import { useMemo } from "react";
 
-import { parseAskEnvelope, parseMaskingReport } from "../../../entity/pii/model/schema";
+import {
+  KNOWN_FORMATS,
+  parseAskEnvelope,
+  parseMaskingReport,
+} from "../../../entity/pii/model/schema";
 import type {
   AskEnvelope,
   MaskingReport,
@@ -10,11 +14,26 @@ import type {
 import {
   hasRunResult,
   useArtifactObjectUrl,
+  useRunArtifacts,
   useRunQuestions,
   useRunReport,
   useRunState,
   type RunStatus,
 } from "../../masking-run/api/masking-run";
+
+/**
+ * Формат по расширению реального файла артефакта (`masked_highlight.jpg`),
+ * а не по `report.format`/`document.format` из `RunResponse`: для картинки
+ * первое — внутренний формат движка (`"pdf"`, картинка живёт как
+ * одностраничный PDF внутри графа), второе — суффикс исходного файла из
+ * MinIO. Ни то, ни другое не гарантирует, какие байты фронт реально
+ * получит — а именно они решают, каким вьюером открывать документ.
+ */
+function formatFromArtifactName(name: string | undefined): PiiDocFormat | null {
+  if (!name) return null;
+  const suffix = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
+  return (KNOWN_FORMATS as string[]).includes(suffix) ? (suffix as PiiDocFormat) : null;
+}
 
 export type ReviewedDocument = {
   name: string;
@@ -33,6 +52,7 @@ export type ReviewData = {
   /** Прогон, открытый на рабочем столе документа (`/documents/:runId`); `null` — не выбран. */
   runId: string | null;
   status: RunStatus | null;
+  artifactRevision: number;
   extraction: PiiExtraction;
   document: ReviewedDocument;
   /**
@@ -77,8 +97,10 @@ export function useReviewData(runId: string | null): ReviewData {
 
   const questions = useRunQuestions(runId, status === "awaiting_answers");
   const report = useRunReport(runId, hasResult);
-  const fileUrl = useArtifactObjectUrl(runId, "masked_highlight", hasResult);
-  const originalFileUrl = useArtifactObjectUrl(runId, "preview", hasResult);
+  const artifacts = useRunArtifacts(runId, hasResult);
+  const artifactRevision = runState.data?.artifact_revision ?? 0;
+  const fileUrl = useArtifactObjectUrl(runId, "masked_highlight", hasResult, artifactRevision);
+  const originalFileUrl = useArtifactObjectUrl(runId, "preview", hasResult, artifactRevision);
 
   const parsedReport = useMemo(
     () => (report.data === undefined ? null : parseMaskingReport(report.data)),
@@ -89,11 +111,18 @@ export function useReviewData(runId: string | null): ReviewData {
     [questions.data, status],
   );
 
+  const artifactFormat = formatFromArtifactName(
+    artifacts.data?.find((item) => item.role === "masked_highlight")?.name ??
+      artifacts.data?.find((item) => item.role === "preview")?.name,
+  );
+
   const document: ReviewedDocument = {
     name: parsedReport?.input ?? runState.data?.document.name ?? "",
-    format: (parsedReport?.format ??
-      runState.data?.document.format ??
-      "docx") as PiiDocFormat,
+    format:
+      artifactFormat ??
+      ((parsedReport?.format ??
+        runState.data?.document.format ??
+        "docx") as PiiDocFormat),
     fileUrl: fileUrl ?? "",
     originalFileUrl: originalFileUrl ?? "",
   };
@@ -101,6 +130,7 @@ export function useReviewData(runId: string | null): ReviewData {
   return {
     runId,
     status,
+    artifactRevision,
     extraction: parsedReport?.extraction ?? EMPTY_EXTRACTION,
     document,
     report: parsedReport,

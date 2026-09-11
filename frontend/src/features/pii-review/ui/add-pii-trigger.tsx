@@ -10,7 +10,7 @@ import { AddPiiDialog } from "./add-pii-dialog";
 
 type AddPiiTriggerProps = {
   capture: SelectionCapture | null;
-  onAdd: (type: PiiType) => void;
+  onAdd: (input: { type: PiiType; text: string }) => void;
   onDismiss: () => void;
 };
 
@@ -59,9 +59,9 @@ export function AddPiiTrigger({ capture, onAdd, onDismiss }: AddPiiTriggerProps)
       <AddPiiDialog
         isOpen={isDialogOpen}
         capture={capture}
-        onAdd={(type) => {
+        onAdd={(input) => {
           setIsDialogOpen(false);
-          onAdd(type);
+          onAdd(input);
         }}
         onOpenChange={(open) => {
           setIsDialogOpen(open);

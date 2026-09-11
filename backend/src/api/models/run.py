@@ -48,5 +48,7 @@ class RunORM(Base):
     error: Mapped[str | None] = mapped_column(String, nullable=True)
     #: Префикс артефактов в MinIO (`runs/{run_id}/`); пуст, пока рендер не прошёл.
     artifact_prefix: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: Номер последнего целиком опубликованного комплекта артефактов.
+    artifact_revision: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(_TIMESTAMP, nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(_TIMESTAMP, nullable=True)

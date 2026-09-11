@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { flattenPiiOccurrences } from "../../../entity/pii/model/flatten";
-import { useReviewStore } from "../../../entity/pii/model/review-store";
+import { appliedGroupDecision, useReviewStore } from "../../../entity/pii/model/review-store";
 import type { PiiExtraction } from "../../../entity/pii/model/types";
 import { applyHighlights, type HighlightOccurrence, type ResolvedRun } from "./apply-highlights";
 import { subscribeHighlightSync } from "./highlight-sync";
@@ -80,8 +80,10 @@ export function useDocumentRender({
 
         const occurrences = flattenPiiOccurrences(extraction);
         const index = buildIndex(host, occurrences);
+        // До перегенерации открытый файл остаётся последней опубликованной
+        // версией: черновик не имеет права перекрашивать его как готовый.
         const getDecision = (_occurrenceId: string, groupId: string) =>
-          useReviewStore.getState().groupDecisions[groupId] ?? "pending";
+          appliedGroupDecision(useReviewStore.getState(), groupId);
 
         const { runByOccurrenceId, notFoundIds } = applyHighlights(
           index,

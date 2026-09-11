@@ -20,7 +20,6 @@ function isInsideOverlay(target: EventTarget | null): boolean {
  */
 export function useReviewHotkeys(
   orderedOccurrenceIds: string[],
-  groupIdByOccurrenceId: Map<string, string>,
 ): void {
   useEffect(() => {
     function handler(event: KeyboardEvent) {
@@ -44,16 +43,9 @@ export function useReviewHotkeys(
         return;
       }
 
-      if (event.key === "a" || event.key === "r") {
-        if (!state.selectedOccurrenceId) return;
-        const groupId = groupIdByOccurrenceId.get(state.selectedOccurrenceId);
-        if (!groupId) return;
-        if (event.key === "a") state.confirmGroup(groupId);
-        else state.rejectGroup(groupId);
-      }
     }
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [orderedOccurrenceIds, groupIdByOccurrenceId]);
+  }, [orderedOccurrenceIds]);
 }

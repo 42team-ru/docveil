@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import { FileClock, SearchX } from "lucide-react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { Icon } from "@astryxdesign/core/Icon";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { Section } from "@astryxdesign/core/Section";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
@@ -94,22 +96,26 @@ export function HistoryTable({
 
   if (rows.length === 0) {
     return (
-      <Section padding={0}>
-        {hasActiveFilters ? (
-          <EmptyState
-            title="Ничего не найдено"
-            description="Ни один прогон не подходит под выбранные фильтры."
-            actions={<Button size="sm" variant="secondary" label="Сбросить фильтры" onClick={onResetFilters} />}
-          />
-        ) : (
-          <EmptyState
-            title="Здесь пока нет прогонов"
-            description="Загрузите первый документ, чтобы начать обработку."
-            actions={<Button size="sm" variant="primary" label="Новый документ" onClick={() => navigate("/")} />}
-          />
-        )}
-        {detailsDialog}
-      </Section>
+      <VStack height="100%" hAlign="center" vAlign="center">
+        <Section width="100%" padding={0}>
+          {hasActiveFilters ? (
+            <EmptyState
+              icon={<Icon icon={SearchX} size="lg" color="secondary" />}
+              title="Ничего не найдено"
+              description="Ни один прогон не подходит под выбранные фильтры."
+              actions={<Button size="sm" variant="secondary" label="Сбросить фильтры" onClick={onResetFilters} />}
+            />
+          ) : (
+            <EmptyState
+              icon={<Icon icon={FileClock} size="lg" color="secondary" />}
+              title="Здесь пока нет прогонов"
+              description="Загрузите первый документ, чтобы начать обработку."
+              actions={<Button size="sm" variant="primary" label="Новый документ" onClick={() => navigate("/")} />}
+            />
+          )}
+          {detailsDialog}
+        </Section>
+      </VStack>
     );
   }
 

@@ -42,6 +42,7 @@ type ReviewPanelProps = {
   runId: string | null;
   totalCount: number;
   notFoundIds: Set<string>;
+  isEditingDisabled?: boolean;
 };
 
 /**
@@ -55,6 +56,7 @@ export function ReviewPanel({
   runId,
   totalCount,
   notFoundIds,
+  isEditingDisabled = false,
 }: ReviewPanelProps) {
   const [selectedTab, setTab] = useState<string | null>(null);
   const questionCount = ask?.questions.filter((question) => question.kind !== "type").length ?? 0;
@@ -97,7 +99,11 @@ export function ReviewPanel({
         content={
           <LayoutContent padding={0} label="Содержимое вкладки">
             {tab === "list" ? (
-              <PiiListTab extraction={extraction} notFoundIds={notFoundIds} />
+              <PiiListTab
+                extraction={extraction}
+                notFoundIds={notFoundIds}
+                isEditingDisabled={isEditingDisabled}
+              />
             ) : null}
             {tab === "profiles" ? (
               <ProfilesTab

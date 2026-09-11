@@ -23,8 +23,8 @@ type DocumentToolbarProps = {
   onViewModeChange: (mode: DocumentViewMode) => void;
 };
 
-/** Полоса над листом документа: имя файла, режим показа и горячие клавиши —
- * j/k/a/r теперь реально перехватываются `use-review-hotkeys.ts`. Кнопка
+/** Полоса над листом документа: имя файла, режим показа и горячие клавиши
+ * j/k. Кнопка
  * «Добавить как ПДн» больше не здесь — она всплывает рядом с выделением
  * (`add-pii-trigger.tsx`), а не в фиксированной полосе тулбара. */
 export function DocumentToolbar({
@@ -65,14 +65,6 @@ export function DocumentToolbar({
             <Kbd keys="j" />
             <Kbd keys="k" />
             <Text type="supporting">навигация</Text>
-          </HStack>
-          <HStack gap={1} vAlign="center">
-            <Kbd keys="a" />
-            <Text type="supporting">подтвердить</Text>
-          </HStack>
-          <HStack gap={1} vAlign="center">
-            <Kbd keys="r" />
-            <Text type="supporting">вернуть</Text>
           </HStack>
         </HStack>
       }

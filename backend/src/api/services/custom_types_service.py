@@ -24,6 +24,7 @@ from api.schemas.custom_types import (
     CompileResponse,
     CustomTypeSpecIn,
     FailedTypeOut,
+    FailReason,
     PreviewMatchOut,
     PreviewOut,
     PreviewSegmentOut,

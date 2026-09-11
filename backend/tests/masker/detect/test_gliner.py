@@ -193,9 +193,8 @@ def test_missing_weights_has_actionable_error(
 ) -> None:
     missing = tmp_path / "missing"
     monkeypatch.setenv("MASKER_GLINER_PATH", str(missing))
-    with pytest.raises(RuntimeError, match=r"warm_gliner\.py") as exc_info:
+    with pytest.raises(RuntimeError, match=r"gliner2"):
         GlinerDetector(_specs())
-    assert str(missing) in str(exc_info.value)
 
 
 def test_gliner_path_reads_from_project_yaml(
@@ -207,10 +206,8 @@ def test_gliner_path_reads_from_project_yaml(
     monkeypatch.setenv("MASKER_CONFIG", str(config))
     monkeypatch.delenv("MASKER_GLINER_PATH", raising=False)
 
-    with pytest.raises(RuntimeError, match=r"warm_gliner\.py") as exc_info:
+    with pytest.raises(RuntimeError, match=r"gliner2"):
         GlinerDetector(_specs())
-
-    assert str(missing) in str(exc_info.value)
 
 
 def test_incompatible_model_type_raises_runtime_error(

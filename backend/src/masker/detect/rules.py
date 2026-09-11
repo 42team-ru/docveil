@@ -60,23 +60,59 @@ _R = r"(?![\d\w])"
 _NOT_IN_DIGIT_RUN_L = r"(?<!\d)"
 _NOT_IN_DIGIT_RUN_R = r"(?!\d)"
 
-#: Лицевой счёт — 11 цифр, поэтому его нельзя искать общей регуляркой:
+#: Лицевой счёт — 11 разрядов, поэтому его нельзя искать общей регуляркой:
 #: по такой же длине совпадают СНИЛС, ОКТМО и множество служебных кодов.
-#: Берём только значение, которое непосредственно следует за меткой
-#: «л/с», «л/сч», «лицевой счёт» либо «лицевого счёта».
+#: Берём только значение после метки «л/с», «л/сч», «лицевой счёт» либо
+#: «лицевого счёта». В казначейских выписках между меткой и значением бывает
+#: уточнение вроде «на сайте федерального казначейства», а один разряд может
+#: быть буквой (например, ``03061А74190``), поэтому разрешаем ограниченный
+#: текстовый мост и одиннадцать буквенно-цифровых знаков.
 _PERSONAL_ACCOUNT_RE = re.compile(
     r"(?:\bл\s*/\s*сч?\b|\bлицев(?:ой|ого)\s+сч[её]т(?:а)?\b)"
-    r"\s*[:№]?\s*(?P<value>\d{11})(?![\d\w])",
+    r"(?:(?![.;:\n])[\s\w/-]){0,80}?[:№]?\s*"
+    r"(?P<value>[0-9A-Za-zА-Яа-яЁё]{11})(?![\d\w])",
     re.IGNORECASE,
+)
+
+#: Десять цифр без разделителей двусмысленны: это и телефон, и ИНН
+#: организации. Принимаем их как телефон только с явным текстовым контекстом
+#: либо в строке таблицы, чья колонка названа «Перечень абонентских номеров».
+#: Так правило описывает формат и структуру документа, а не отдельный номер.
+_PHONE_CONTEXT_RE = re.compile(
+    r"(?:контактн\w*\s+телефон\w*|"
+    r"номер\w*\s+контактн\w*\s+телефон\w*|"
+    r"перечень\s+абонентск\w*\s+номер\w*)",
+    re.IGNORECASE,
+)
+_PHONE_TABLE_HEADER_RE = re.compile(
+    r"перечень\s+абонентск\w*\s+номер\w*", re.IGNORECASE
+)
+_PHONE_TEN_DIGIT_RE = re.compile(rf"{_L}(?P<value>\d{{10}}){_R}")
+_PHONE_TABLE_ROW_RE = re.compile(
+    rf"^\s*\d+\s+(?P<value>\d{{10}})(?=\s+(?:шт\.?|ед\.?))", re.IGNORECASE
 )
 
 #: ИКЗ был 29-значным в раннем формате и стал 36-значным в текущем.
 #: Между разрядами в PDF нередко стоят пробелы, поэтому диапазон ищется по
 #: метке и числу разрядов, а не по одному конкретному способу группировки.
+#: В договорах встречается как полное название, так и сокращение «ИКЗ».
 _IKZ_RE = re.compile(
-    r"идентификационн\w*\s+код\s+закупк\w*\s*:\s*"
+    r"(?:\bикз\b|идентификационн\w*\s+код\s+закупк\w*)\s*[:№]?\s*"
     r"(?P<value>\d(?:[\s-]?\d){28,35})(?![\d\w])",
     re.IGNORECASE,
+)
+#: Стандартизированный номер лицензии из государственного реестра.
+#: Сочетание кириллической «Л», трёх блоков фиксированной длины и косой
+#: черты не пересекается с номером договора или суммой, поэтому отдельная
+#: текстовая метка «лицензия» ему не нужна.
+_LICENSE_RE = re.compile(
+    rf"{_L}(?P<value>Л\d{{3}}-\d{{5}}-\d{{2}}/\d{{8}}){_R}", re.IGNORECASE
+)
+#: ОКПО — всего восемь цифр и не имеет контрольной суммы. Принимаем его
+#: только после точной метки классификатора: голые восьмизначные значения
+#: в договорах бывают суммами, количествами и внутренними номерами.
+_OKPO_RE = re.compile(
+    r"\bокпо\b\s*[:№]?\s*(?P<value>\d{8})(?![\d\w])", re.IGNORECASE
 )
 _IKZ_EMBEDDED_REQUISITES = frozenset(
     {
@@ -125,7 +161,7 @@ PATTERNS: dict[EntityType, re.Pattern[str]] = {
     # (план T2.2.1, Р2/Р3). Разделитель допускает и точку: «8.473.250.30.30».
     EntityType.PHONE: re.compile(
         rf"{_NOT_IN_DIGIT_RUN_L}"
-        rf"(?:(?:\+7|8){_DIGIT_SEP_DOT}\(?\d{{3,4}}\)?|\(\d{{3,4}}\))"
+        rf"(?:(?:\+7|[78]){_DIGIT_SEP_DOT}\(?\d{{3,4}}\)?|\(\d{{3,4}}\))"
         rf"{_DIGIT_SEP_DOT}\d{{2,3}}{_DIGIT_SEP_DOT}\d{{2}}{_DIGIT_SEP_DOT}\d{{2}}"
         rf"{_NOT_IN_DIGIT_RUN_R}"
     ),
@@ -323,7 +359,7 @@ def _account_validated(raw: str, seg: Segment, biks: dict[int, list[str]]) -> bo
 
 
 def _personal_account_hits(seg: Segment) -> list[Entity]:
-    """Вернуть 11-значные лицевые счета с обязательной соседней меткой."""
+    """Вернуть 11-разрядные лицевые счета с обязательной соседней меткой."""
     return [
         Entity(
             type=EntityType.BANK_ACCOUNT,
@@ -341,6 +377,34 @@ def _personal_account_hits(seg: Segment) -> list[Entity]:
     ]
 
 
+def _contextual_phone_hits(segments: list[Segment]) -> list[Entity]:
+    """Вернуть десятизначные телефоны только из явно телефонного контекста."""
+    has_phone_table = any(_PHONE_TABLE_HEADER_RE.search(segment.text) for segment in segments)
+    hits: list[Entity] = []
+    for segment in segments:
+        if _PHONE_CONTEXT_RE.search(segment.text):
+            matches = _PHONE_TEN_DIGIT_RE.finditer(segment.text)
+        elif has_phone_table:
+            matches = _PHONE_TABLE_ROW_RE.finditer(segment.text)
+        else:
+            continue
+        for match in matches:
+            value = match.group("value")
+            hits.append(
+                Entity(
+                    type=EntityType.PHONE,
+                    text=value,
+                    segment_order=segment.order,
+                    start=match.start("value"),
+                    end=match.end("value"),
+                    source=Source.RULE,
+                    confidence=0.9,
+                    normalized=normalize_value(EntityType.PHONE, value),
+                )
+            )
+    return hits
+
+
 def _ikz_ranges(text: str) -> list[tuple[int, int]]:
     """Диапазоны ИКЗ, внутри которых реквизиты не ищутся по частям."""
     return [(match.start("value"), match.end("value")) for match in _IKZ_RE.finditer(text)]
@@ -348,6 +412,33 @@ def _ikz_ranges(text: str) -> list[tuple[int, int]]:
 
 def _overlaps_ikz(start: int, end: int, ikz_ranges: list[tuple[int, int]]) -> bool:
     return any(ikz_start < end and start < ikz_end for ikz_start, ikz_end in ikz_ranges)
+
+
+def _registry_key_hits(seg: Segment) -> list[Entity]:
+    """Найти значения, по которым сторону можно открыть в публичном реестре.
+
+    ОКПО опирается на явную метку, а ИКЗ и современный номер лицензии имеют
+    достаточно строгий собственный формат. Во всех случаях в сущность входит
+    только значение, не заголовок поля: так замена не оставляет хвост ИКЗ и
+    не уничтожает поясняющий текст документа.
+    """
+    hits: list[Entity] = []
+    for pattern in (_IKZ_RE, _LICENSE_RE, _OKPO_RE):
+        for match in pattern.finditer(seg.text):
+            value = match.group("value")
+            hits.append(
+                Entity(
+                    type=EntityType.REGISTRY_KEY,
+                    text=value,
+                    segment_order=seg.order,
+                    start=match.start("value"),
+                    end=match.end("value"),
+                    source=Source.RULE,
+                    confidence=1.0,
+                    normalized=normalize_value(EntityType.REGISTRY_KEY, value),
+                )
+            )
+    return hits
 
 
 def _accept(etype: EntityType, raw: str, seg: Segment, biks: dict[int, list[str]]) -> bool:
@@ -381,9 +472,14 @@ def _confidence(etype: EntityType, raw: str, seg: Segment, biks: dict[int, list[
 def detect_by_rules(segments: list[Segment]) -> list[Entity]:
     """Найти все сущности, у которых есть надёжное формальное правило."""
     biks = find_biks(segments)
+    contextual_phones = _contextual_phone_hits(segments)
+    phone_ranges: dict[int, set[tuple[int, int]]] = {}
+    for phone in contextual_phones:
+        phone_ranges.setdefault(phone.segment_order, set()).add((phone.start, phone.end))
     raw_hits: list[Entity] = []
     for seg in segments:
         ikz_ranges = _ikz_ranges(seg.text)
+        raw_hits.extend(_registry_key_hits(seg))
         for etype, pattern in PATTERNS.items():
             for m in pattern.finditer(seg.text):
                 # Номер договора живёт в группе 1 — сущность не включает
@@ -396,10 +492,16 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                 else:
                     value = m.group()
                     start, end = m.start(), m.end()
-                # ИКЗ — самостоятельный служебный код, а не контейнер для
-                # банковского счёта, ИНН или КПП. Его не маскируем и не
-                # дробим: в старом 29-значном формате иначе после overlap
-                # оставался ложный фрагмент счёта «1 ».
+                # В явном телефонном поле десять цифр — телефон, даже если
+                # случайно проходят контрольную сумму ИНН. Контекст здесь
+                # сильнее совпадения длины и сохраняет правильный тип в
+                # отчёте и маркере.
+                if etype is EntityType.INN and (start, end) in phone_ranges.get(seg.order, set()):
+                    continue
+                # ИКЗ — самостоятельный реестровый ключ, а не контейнер
+                # для банковского счёта, ИНН или КПП. Его маскирует
+                # `_registry_key_hits` целиком; здесь не даём реквизитам
+                # раздробить его на части и оставить поисковый хвост.
                 if etype in _IKZ_EMBEDDED_REQUISITES and _overlaps_ikz(start, end, ikz_ranges):
                     continue
                 # HTTP-ссылки нередко заканчиваются точкой конца предложения,
@@ -441,6 +543,7 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                     )
                 )
         raw_hits.extend(_personal_account_hits(seg))
+    raw_hits.extend(contextual_phones)
     return resolve_overlaps(raw_hits)
 
 
@@ -450,7 +553,7 @@ class RuleDetector:
     name = "rules"
     source = Source.RULE
     priority = 100
-    types: frozenset[str] = frozenset(PATTERNS)
+    types: frozenset[str] = frozenset((*PATTERNS, EntityType.REGISTRY_KEY))
 
     def detect(self, document: Document) -> list[Entity]:
         """Найти формальные сущности с checksum-валидацией."""

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from masker.detect.normalize import normalize_value
+from masker.detect.legal_references import is_federal_law_reference
 from masker.detect.orgforms import (
     expand_org_span,
     fix_person_initials,
@@ -165,6 +166,10 @@ class NatashaDetector:
                     or (
                         entity_type is EntityType.ORG_NAME
                         and (
+                            # Ссылка на федеральный закон — обозначение
+                            # нормативного акта, не название организации.
+                            is_federal_law_reference(value)
+                            or
                             is_organization_form_only(value)
                             or is_partial_org_form(value)
                             # орг. форма (ООО, МАОУ…) — достаточное свидетельство того,

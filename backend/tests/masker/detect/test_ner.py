@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import pytest
+
 from masker.detect.ner import NatashaDetector, NerSpan
 from masker.model import Anchor, Document, EntityType, Segment
 
@@ -83,6 +85,31 @@ def test_public_body_is_dropped() -> None:
     tagger = FakeTagger({text: [NerSpan(0, len(text), "ORG")]})
 
     assert NatashaDetector(tagger).detect(document) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "Федерального закона",
+        "В соответствии с Федеральным законом",
+    ),
+)
+def test_federal_law_reference_is_not_organization(text: str) -> None:
+    """Р19: название нормативного акта не является стороной договора."""
+    document = _document(text)
+    tagger = FakeTagger({text: [NerSpan(0, len(text), "ORG")]})
+
+    assert NatashaDetector(tagger).detect(document) == []
+
+
+def test_organization_name_without_law_reference_is_still_detected() -> None:
+    text = "АО «Триема»"
+    document = _document(text)
+    tagger = FakeTagger({text: [NerSpan(0, len(text), "ORG")]})
+
+    assert [(entity.type, entity.text) for entity in NatashaDetector(tagger).detect(document)] == [
+        (EntityType.ORG_NAME, text)
+    ]
 
 
 def test_single_token_org_without_evidence_is_dropped() -> None:

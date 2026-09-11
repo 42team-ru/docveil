@@ -23,6 +23,7 @@ from masker.detect.dateparse import (
     parse_date,
     parse_literal,
 )
+from masker.detect.legal_references import is_federal_law_adoption_date
 from masker.detect.normalize import normalize_value
 from masker.model import Document, Entity, EntityType, Segment, Source
 
@@ -144,6 +145,8 @@ class DateDetector:
 
         entities: list[Entity] = []
         for start, end, value in found:
+            if is_federal_law_adoption_date(text, start):
+                continue
             entity_type = self._classify(text, start, end)
             entities.append(
                 Entity(

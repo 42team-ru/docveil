@@ -17,6 +17,7 @@ from masker.detect.orgforms import (
     is_role_stopword,
     shrink_span,
 )
+from masker.detect.person_frequency import drop_frequent_common_noun_persons
 from masker.detect.requisite_blocks import find_requisite_block_candidates
 from masker.detect.requisites import drop_incomplete_requisites
 from masker.detect.result import DetectionResult, build_pii_chunks
@@ -366,6 +367,10 @@ class DetectAgent:
         # Этот общий барьер покрывает любой текущий или будущий детектор до
         # профилирования и планирования масок.
         entities = drop_incomplete_requisites(entities)
+        # Р15: повторяющаяся роль стороны может прийти и от NER, и от
+        # структурного блока реквизитов. Фильтруем объединённый результат,
+        # чтобы один источник не мог обойти общий частотный барьер.
+        entities = drop_frequent_common_noun_persons(entities)
         # Уровень уверенности (Р8) — последний шаг, после того как состав
         # принятых сущностей окончательно определён: `_count_signals` читает
         # ещё не разрешённые `found`, а `sweep`-находки уже сами по себе

@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"{name:28} {_fmt(data['critical_recall']):>7} {_fmt(data['recall']):>7} "
             f"{data['leaked_total']:>7} {_fmt(data['seconds']):>7}  "
-            f"{data['succeeded']}/{data['documents']}"
+            f"{data['processed']}/{data['documents']}"
         )
 
     if len(runs) > 1:

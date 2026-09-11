@@ -1589,6 +1589,19 @@ def _label_box_candidates(
         top_limit, bottom_limit = _free_extension_vertical(
             post_line_boxes, own_line, erase_rect.x0, label_x1, other_erase_rects
         )
+        # 11.09.2026: соседняя замена — не свободное место для отступа
+        # подписи. Средина полосы пересечения строк безопасна для удаления
+        # исходных глифов, но оставляла 0.46--0.55 pt, в которые заходил
+        # маркер следующего поля (БИК/счёт/КПП в школьном договоре). Для
+        # двух масок нужна строгая граница самого erase-региона: иначе
+        # подсветка одной маски накрывает живые глифы маркера другой.
+        for other in other_erase_rects:
+            if other.x1 <= erase_rect.x0 + _GEOMETRY_EPS or other.x0 >= label_x1 - (_GEOMETRY_EPS):
+                continue
+            if other.y1 <= erase_rect.y0 + _GEOMETRY_EPS:
+                top_limit = max(top_limit, other.y1)
+            elif other.y0 >= erase_rect.y1 - _GEOMETRY_EPS:
+                bottom_limit = min(bottom_limit, other.y0)
         # Желаемый отступ на воздух под глифы — не безусловный, а зажатый
         # доказанно свободной вертикальной границей (план М5): без соседа
         # рядом отступ остаётся тем же, что и раньше (``-1``/``+2``).

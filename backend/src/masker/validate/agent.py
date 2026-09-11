@@ -1,12 +1,13 @@
 """ValidateAgent — независимая проверка обезличенных артефактов на утечки (T1.8, шаг 9).
 
-Три прохода в порядке `raw` → `metadata` → `detector`. `raw`/`metadata` —
-один и тот же побайтовый/текстовый поиск значений плана по всем частям
-контейнера; отличается только `kind` итоговой находки, в зависимости от
-того, метаданная это часть (`docProps/*`, PDF `metadata`) или нет. Проходы
-независимы: рендер, который пропустил одну замену, обязан попасть и в
-`raw` (строка ещё лежит в тексте), и в `detector` (повторная детекция найдёт
-её снова) — то есть в `leaked` дважды, двумя разными механизмами.
+Три прохода в порядке `raw` → `metadata` → `detector`. `raw`/`metadata`
+ищут значения плана в частях контейнера; для PDF со входным файлом `raw`
+сверяет количество конкретных вхождений на странице, чтобы публичная
+одноимённая дата на другой странице не выглядела утечкой. `metadata`
+проверяется целиком. Проходы независимы: рендер, который пропустил одну
+замену, обязан попасть и в `raw` (строка ещё лежит на её странице), и в
+`detector` (повторная детекция найдёт её снова) — то есть в `leaked` двумя
+разными механизмами.
 
 Побайтового поиска недостаточно самого по себе: Word режет значение по
 run'ам (`ИНН 36` + `62103003`), и в `word/document.xml` исходная строка
@@ -40,7 +41,7 @@ from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.mask.keys import group_key
-from masker.model import ArtifactLayout, Document, Leak, MaskPlan, ValidationReport
+from masker.model import ArtifactLayout, Document, Leak, MaskPlan, Replacement, ValidationReport
 from masker.refs import entity_sort_key
 from masker.validate.certificate import build_certificate
 from masker.validate.parts import DocPart, docx_parts, pdf_parts, xlsx_parts
@@ -176,10 +177,12 @@ class ValidateAgent:
         for artifact in artifacts:
             fmt, parts = _artifact_parts(artifact)
             checked_parts.extend(f"{artifact.name}:{part.name}" for part in parts)
-            leaked.extend(self._search_values(artifact, fmt, parts, plan))
+            leaked.extend(self._search_values(artifact, fmt, parts, plan, source=source))
 
             document = _ingest(artifact, fmt)
-            hard, soft = self._search_detector(artifact, document, group_id_by_key, markers)
+            hard, soft = self._search_detector(
+                artifact, document, group_id_by_key, markers, plan=plan, source=source
+            )
             leaked.extend(hard)
             residual.extend(soft)
 
@@ -207,8 +210,17 @@ class ValidateAgent:
         )
 
     def _search_values(
-        self, artifact: Path, fmt: str, parts: list[DocPart], plan: MaskPlan
+        self,
+        artifact: Path,
+        fmt: str,
+        parts: list[DocPart],
+        plan: MaskPlan,
+        *,
+        source: Path | None,
     ) -> list[Leak]:
+        if fmt == "pdf" and source is not None and source.suffix.lower() == ".pdf":
+            return self._search_pdf_values_by_occurrence(artifact, parts, plan, source)
+
         found: list[Leak] = []
         for part in parts:
             kind = "metadata" if _is_metadata_part(fmt, part.name) else "raw"
@@ -250,15 +262,103 @@ class ValidateAgent:
                     )
         return found
 
+    def _search_pdf_values_by_occurrence(
+        self, artifact: Path, parts: list[DocPart], plan: MaskPlan, source: Path
+    ) -> list[Leak]:
+        """Проверить PDF по конкретным вхождениям, а не по литералу во всём файле.
+
+        11.09.2026: Р26 исключает даты принятия нормативных актов. Если тот
+        же литерал есть и в маскируемой дате на другой странице, глобальный
+        ``value in PDF`` объявлял публичную ссылку утечкой. Для страниц
+        сравниваем число вхождений до/после и ожидаем ровно число замен,
+        запланированных на этой странице; metadata по-прежнему проверяется
+        побайтово во всём объёме.
+        """
+        source_by_part = {part.name: part for part in pdf_parts(source)}
+        found: list[Leak] = []
+        for part in parts:
+            kind = "metadata" if _is_metadata_part("pdf", part.name) else "raw"
+            if kind == "metadata":
+                # Метаданные не имеют координат страницы: там любое значение
+                # из плана остаётся утечкой независимо от публичных омонимов.
+                for replacement in plan.replacements:
+                    value = replacement.entity.text
+                    if value and (value.encode("utf-8") in part.raw or value in part.text):
+                        found.append(
+                            Leak(
+                                kind=kind,
+                                artifact=artifact.name,
+                                part=part.name,
+                                entity_type=replacement.entity.type,
+                                value=value,
+                                ref=replacement.ref,
+                                group_id=replacement.group_id,
+                                detail="исходная строка найдена в метаданных",
+                            )
+                        )
+                continue
+
+            source_part = source_by_part.get(part.name)
+            if source_part is None:
+                continue
+            page_replacements = [
+                replacement
+                for replacement in plan.replacements
+                if replacement.anchor.fmt == "pdf"
+                and int(replacement.anchor.locator[1]) + 1 == int(part.name.removeprefix("page "))
+            ]
+            by_value: dict[str, list[Replacement]] = {}
+            for replacement in page_replacements:
+                by_value.setdefault(replacement.entity.text, []).append(replacement)
+            for value, replacements in by_value.items():
+                if not value:
+                    continue
+                expected_remaining = max(0, source_part.text.count(value) - len(replacements))
+                actual_remaining = part.text.count(value)
+                extra = actual_remaining - expected_remaining
+                for replacement in replacements[: max(0, extra)]:
+                    found.append(
+                        Leak(
+                            kind=kind,
+                            artifact=artifact.name,
+                            part=part.name,
+                            entity_type=replacement.entity.type,
+                            value=value,
+                            ref=replacement.ref,
+                            group_id=replacement.group_id,
+                            detail="запланированное вхождение осталось на странице PDF",
+                        )
+                    )
+        return found
+
     def _search_detector(
         self,
         artifact: Path,
         document: Document,
         group_id_by_key: dict[str, str],
         markers: tuple[str, ...],
+        *,
+        plan: MaskPlan,
+        source: Path | None,
     ) -> tuple[list[Leak], list[Leak]]:
         entities = self._detector.detect(document).entities
         ordered = sorted(entities, key=entity_sort_key)
+
+        source_pages = (
+            {part.name: part.text for part in pdf_parts(source)}
+            if source is not None and source.suffix.lower() == ".pdf"
+            else {}
+        )
+        artifact_pages = (
+            {part.name: part.text for part in pdf_parts(artifact)} if source_pages else {}
+        )
+        planned_pdf_counts: dict[tuple[str, str], int] = {}
+        for replacement in plan.replacements:
+            locator = replacement.anchor.locator
+            if replacement.anchor.fmt != "pdf" or not locator or locator[0] != "page":
+                continue
+            key = (f"page {int(locator[1]) + 1}", replacement.entity.text)
+            planned_pdf_counts[key] = planned_pdf_counts.get(key, 0) + 1
 
         hard: list[Leak] = []
         soft: list[Leak] = []
@@ -268,6 +368,32 @@ class ValidateAgent:
                 continue
             matched_group_id = group_id_by_key.get(group_key(entity))
             if matched_group_id is not None:
+                # 11.09.2026: повторная детекция не должна превращать
+                # публичное одноимённое вхождение на другой странице в
+                # «утечку». Текстовый проход выше уже доказывает удаление
+                # каждого запланированного экземпляра на его странице.
+                locator = segment.anchor.locator
+                part_name = (
+                    f"page {int(locator[1]) + 1}"
+                    if segment.anchor.fmt == "pdf" and locator and locator[0] == "page"
+                    else ""
+                )
+                planned_count = planned_pdf_counts.get((part_name, entity.text), 0)
+                if part_name:
+                    source_count = source_pages.get(part_name, "").count(entity.text)
+                    artifact_count = artifact_pages.get(part_name, "").count(entity.text)
+                    if artifact_count <= max(0, source_count - planned_count):
+                        soft.append(
+                            Leak(
+                                kind="detector",
+                                artifact=artifact.name,
+                                part=segment.anchor.label or str(entity.segment_order),
+                                entity_type=entity.type,
+                                value=entity.text,
+                                detail="одноимённое незапланированное вхождение PDF",
+                            )
+                        )
+                        continue
                 hard.append(
                     Leak(
                         kind="detector",

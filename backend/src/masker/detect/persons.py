@@ -64,21 +64,18 @@ _SIGNATORY_SIGNATURE = re.compile(
 def _has_identifying_position_tail(value: str) -> bool:
     """Проверить, что должность называет сторону, а не только функцию."""
     folded = value.casefold()
-    return (
-        "российской федерац" in folded
-        or any(
-            marker in folded
-            for marker in (
-                " пао",
-                " ооо",
-                " ао ",
-                "гбпоу",
-                "фгбоу",
-                "маоу",
-                "мбоу",
-                "министерств",
-                "администраци",
-            )
+    return "российской федерац" in folded or any(
+        marker in folded
+        for marker in (
+            " пао",
+            " ооо",
+            " ао ",
+            "гбпоу",
+            "фгбоу",
+            "маоу",
+            "мбоу",
+            "министерств",
+            "администраци",
         )
     )
 

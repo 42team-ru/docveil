@@ -17,6 +17,7 @@ from masker.detect.orgforms import (
     is_landmark_place,
     is_organization_form_only,
     is_partial_org_form,
+    is_product_brand_context,
     is_public_body,
     is_regulatory_code,
     is_role_phrase,
@@ -149,9 +150,8 @@ class NatashaDetector:
                     bounds = expand_person_left(segment.text, *bounds)
                 start, end = bounds
                 value = segment.text[start:end]
-                if (
-                    entity_type is EntityType.PERSON
-                    and is_single_token_uppercase_abbreviation(value)
+                if entity_type is EntityType.PERSON and is_single_token_uppercase_abbreviation(
+                    value
                 ):
                     continue
                 org_evidence = entity_type is EntityType.ORG_NAME and has_organization_evidence(
@@ -171,8 +171,7 @@ class NatashaDetector:
                             # Ссылка на федеральный закон — обозначение
                             # нормативного акта, не название организации.
                             is_federal_law_reference(value)
-                            or
-                            is_organization_form_only(value)
+                            or is_organization_form_only(value)
                             or is_partial_org_form(value)
                             # орг. форма (ООО, МАОУ…) — достаточное свидетельство того,
                             # что это организация, а не госорган: не фильтруем.
@@ -181,6 +180,7 @@ class NatashaDetector:
                             or is_role_phrase(value)
                             or is_unqualified_short_uppercase_abbreviation(value)
                             or is_formula_variable(segment.text, start, end)
+                            or is_product_brand_context(segment.text, start)
                             or (not has_organization_evidence(value) and len(value.split()) == 1)
                         )
                     )

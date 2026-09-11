@@ -1676,6 +1676,33 @@ def test_label_box_candidates_never_extends_into_another_replacements_erase_rect
     )
 
 
+def test_label_box_candidates_do_not_share_vertical_margin_with_another_mask() -> None:
+    """11.09.2026: две соседние маски не могут накрывать маркеры друг друга.
+
+    Середина полосы пересечения строк достаточна для redaction, но оставляет
+    часть erase-региона соседа доступной для подписи. Здесь верхняя граница
+    своей строки пересекается с нижней границей уже удалённого поля: подпись
+    обязана начаться не раньше конца соседней маски.
+    """
+    text = "XW"
+    chars = PageChars(
+        text=text,
+        boxes=(
+            pymupdf.Rect(0.0, 0.0, 10.0, 10.0),
+            pymupdf.Rect(0.0, 9.0, 10.0, 21.0),
+        ),
+        line_ids=(0, 1),
+    )
+    pre_line_boxes = _line_boxes(chars)
+    post_line_boxes = _line_boxes(chars, skip_space=True)
+    own = pymupdf.Rect(0.0, 10.0, 10.0, 20.0)
+    other = pymupdf.Rect(0.0, 0.0, 10.0, 10.0)
+
+    candidates = _label_box_candidates(chars, pre_line_boxes, post_line_boxes, [(1, own)], [other])
+
+    assert candidates[0][1].y0 >= other.y1 - 0.01
+
+
 def test_label_box_candidates_uses_post_redaction_chars_not_pre() -> None:
     """Сердце плана М6-1: свободная граница ищется по ``post_chars``
     (аргумент функции), а ``pre_line_boxes`` не подмешивает в поиск соседей

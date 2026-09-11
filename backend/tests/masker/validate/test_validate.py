@@ -125,6 +125,42 @@ def test_broken_render_is_caught(tmp_path: pathlib.Path, monkeypatch: pytest.Mon
     assert any(leak.kind == "detector" for leak in report.leaked)
 
 
+def test_pdf_validation_distinguishes_planned_occurrence_from_public_same_date(
+    tmp_path: pathlib.Path,
+) -> None:
+    """11.09.2026: Р26-исключение не является утечкой одноимённой даты."""
+    source = tmp_path / "same-date.pdf"
+    doc = pymupdf.open()
+    for text in ("Federal law from 06.04.2011 No. 63", "Contract from 06.04.2011"):
+        page = doc.new_page()
+        page.insert_text((72, 72), text, fontsize=12)
+    doc.save(source)
+    doc.close()
+
+    document = ingest_pdf(source)
+    segment = next(segment for segment in document.segments if "Contract" in segment.text)
+    value = "06.04.2011"
+    entity = Entity(
+        type=EntityType.DATE,
+        text=value,
+        segment_order=segment.order,
+        start=segment.text.index(value),
+        end=segment.text.index(value) + len(value),
+        source=Source.RULE,
+        confidence=1.0,
+        normalized=value,
+    )
+    plan = PlanAgent().plan(document, [entity])
+    artifact = tmp_path / "masked.pdf"
+    render_pdf_redacted(source, artifact, document, plan, style="marker")
+
+    clean = ValidateAgent().validate(plan, [artifact], source=source)
+    broken = ValidateAgent().validate(plan, [source], source=source)
+
+    assert clean.leaked == ()
+    assert broken.leaked and broken.leaked[0].value == value
+
+
 def test_xlsx_render_is_checked_for_leaks_and_gets_certificate(tmp_path: pathlib.Path) -> None:
     """XLSX проходит те же validate/certificate-ворота, что DOCX и PDF."""
     source = FIXTURES / "order_01.xlsx"

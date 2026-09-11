@@ -29,8 +29,9 @@ Natasha спан, а не его отсутствие; см. диагности�
 ответственностью» не нашлась бы на этой строке вовсе, и остался бы только
 двухсловный `Ограниченной Ответственностью`, потеряв «Общество с».
 
-Приоритет 60 — ниже `RuleDetector` (100) и `AddressDetector` (90, чтобы
-`ул. Банникова` осталась адресом), выше `NatashaDetector` (50): обрывочный
+Приоритет 91 — ниже `RuleDetector` (100), но выше `AddressDetector` (90):
+полное название с ОПФ надёжнее ложного адресного фрагмента вроде «с
+Ограниченной Ответственностью». Выше `NatashaDetector` (50): обрывочный
 ORG-спан модели на этой же строке вырезается существующим
 `DetectAgent._carve`, а не спорит с этим детектором за перекрытие.
 
@@ -209,7 +210,7 @@ class OrgFormDetector:
 
     name = "org_form"
     source = Source.RULE
-    priority = 60
+    priority = 91
     types: frozenset[str] = frozenset({EntityType.ORG_NAME})
 
     def detect(self, document: Document) -> list[Entity]:

@@ -123,6 +123,9 @@ def build_graph(deps: RunDeps) -> StateGraph[State]:
     # только из def-функции с конкретной сигнатурой (проверено минимальным
     # воспроизведением на langgraph 1.2.11): без игнора аргумент разрешается
     # в _Node[Never]. Реальная сигнатура узла типизирована в nodes.py.
+    # Код ошибки сменился с `call-overload` на `arg-type` после обновления
+    # langgraph (11.09.2026): перегрузки `add_node` схлопнулись в одну
+    # сигнатуру, и mypy сообщает о несовпадении аргумента, а не вызова.
     graph.add_node("profile", _instrument("profile", make_profile_node(deps), deps))  # type: ignore[call-overload]
     graph.add_node("judge", _instrument("judge", make_judge_node(deps), deps))  # type: ignore[call-overload]
     graph.add_node("policy", _instrument("policy", policy_node, deps))  # type: ignore[call-overload]

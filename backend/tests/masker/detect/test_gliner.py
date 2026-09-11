@@ -91,3 +91,40 @@ def test_gliner_path_reads_from_project_yaml(
         GlinerDetector(_specs())
 
     assert str(missing) in str(exc_info.value)
+
+
+def test_incompatible_model_type_raises_runtime_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """gliner2>=2.0.0 на старых весах типа 'extractor' молча даёт пустой список.
+    Детектор обязан упасть с RuntimeError, а не вернуть пустой результат.
+    """
+    import sys
+    import types
+    import warnings
+
+    model_dir = tmp_path / "fake_model"
+    model_dir.mkdir()
+    monkeypatch.setenv("MASKER_GLINER_PATH", str(model_dir))
+
+    def bad_from_pretrained(path: str) -> Any:
+        warnings.warn(
+            "You are using a model of type `extractor` to instantiate a model of type ``",
+            UserWarning,
+            stacklevel=2,
+        )
+        return object()
+
+    class FakeAutoExtractor:
+        from_pretrained = staticmethod(bad_from_pretrained)
+
+    fake_gliner2 = types.ModuleType("gliner2")
+    fake_gliner2.AutoExtractor = FakeAutoExtractor  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "gliner2", fake_gliner2)
+
+    fake_torch = types.ModuleType("torch")
+    fake_torch.set_num_threads = lambda n: None  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    with pytest.raises(RuntimeError, match="несовместима"):
+        GlinerDetector(_specs())

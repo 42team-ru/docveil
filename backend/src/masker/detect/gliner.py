@@ -38,11 +38,33 @@ class GlinerDetector:
                 f"Локальные веса GLiNER2 не найдены: {model_path}. "
                 "Запустите `.venv/bin/python scripts/warm_gliner.py`."
             )
+        import warnings
+
         import torch
         from gliner2 import AutoExtractor
 
         torch.set_num_threads(1)
-        self._model = AutoExtractor.from_pretrained(str(model_path))
+        # Перехватываем предупреждение transformers об несовместимом типе модели
+        # ("You are using a model of type `extractor` to instantiate a model of
+        # type ``"): в gliner2>=2.0.0 старые веса молча дают пустой результат.
+        # Лучше упасть явно, чем работать и ничего не находить.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "error",
+                message="You are using a model of type",
+                category=UserWarning,
+            )
+            try:
+                self._model = AutoExtractor.from_pretrained(str(model_path))
+            except Exception as exc:
+                if "You are using a model of type" in str(exc):
+                    raise RuntimeError(
+                        f"Модель GLiNER2 в {model_path} несовместима с установленной "
+                        f"версией gliner2: {exc}\n"
+                        "Обновите веса: `.venv/bin/python scripts/warm_gliner.py`, "
+                        "или понизьте gliner2 до <2.0.0."
+                    ) from exc
+                raise
         underlying = getattr(self._model, "model", self._model)
         if hasattr(underlying, "eval"):
             underlying.eval()

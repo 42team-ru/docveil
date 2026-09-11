@@ -588,7 +588,7 @@ def test_verify_recall_passes_strict_schema_with_required_field() -> None:
     assert set(windows_schema["required"]) == {"id", "entities"}
     entity_schema = windows_schema["properties"]["entities"]["items"]
     assert set(entity_schema["required"]) == {"text", "type"}
-    assert set(entity_schema["properties"]["type"]["enum"]) == {"org_name", "person"}
+    assert set(entity_schema["properties"]["type"]["enum"]) == {"org_name", "person", "address"}
 
 
 def test_fake_provider_rejects_answer_that_violates_schema() -> None:
@@ -629,6 +629,39 @@ def test_window_ids_are_stable_strings_not_positions() -> None:
 
 def test_default_window_chars_is_positive() -> None:
     assert DEFAULT_WINDOW_CHARS > 0
+
+
+# --- адрес: слабый сигнал и тип address ----------------------------------------
+
+
+def test_address_type_claim_produces_address_entity() -> None:
+    """Адресный обрывок (почтовый индекс) порождает окно, а ответ модели с
+    type="address" добавляет сущность EntityType.ADDRESS в результат."""
+    text = "Юридический адрес: 129090, г. Москва, ул. Большая Спасская, д. 25."
+    document = _document(text)
+
+    # Слабый сигнал — почтовый индекс и/или «г.»/«ул.» — должен породить окно.
+    windows = build_windows(document, [])
+    assert windows, "адресный обрывок должен породить хотя бы одно окно"
+    window_id = windows[0].id
+    full_address = "129090, г. Москва, ул. Большая Спасская, д. 25"
+
+    provider = _ScriptedProvider(
+        [
+            _windows_response(
+                [{"id": window_id, "entities": [{"text": full_address, "type": "address"}]}]
+            )
+        ]
+    )
+
+    result = verify_recall(document, [], provider)
+
+    assert len(result.entities) == 1
+    entity = result.entities[0]
+    assert entity.type == EntityType.ADDRESS
+    assert entity.text == full_address
+    assert entity.source == Source.LLM
+    assert text[entity.start : entity.end] == full_address
 
 
 # --- e2e: настоящий GigaChat ---------------------------------------------------

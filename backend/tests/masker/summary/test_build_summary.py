@@ -398,6 +398,45 @@ def test_fact_quote_has_limit_and_keeps_value_in_long_sentence() -> None:
     assert len(quote) <= 360
 
 
+def test_every_card_fact_quote_has_the_same_length_limit() -> None:
+    """Лимит цитаты одинаков для правил, профиля и длинного условия оплаты."""
+    filler = "длинный фрагмент " * 50
+    customer = _entity(EntityType.ORG_NAME, filler + "заказчик")
+    supplier = _entity(EntityType.ORG_NAME, filler + "исполнитель")
+    payment = _entity(
+        EntityType.PAYMENT_TERMS,
+        "Оплата " + filler + "в течение 10 рабочих дней с даты приёмки",
+    )
+    entities = [
+        customer,
+        supplier,
+        payment,
+        _entity(EntityType.FEDERAL_LAW, "Федерального закона № 44-ФЗ " + filler),
+        _entity(EntityType.CONTRACT_AMOUNT, "1 000 рублей " + filler),
+        _entity(EntityType.DELIVERY_PERIOD, "поставка " + filler),
+        _entity(EntityType.CONTRACT_NUMBER, "№ 42 " + filler),
+    ]
+    summary = build_summary(
+        entities,
+        [_profile("Заказчик", customer), _profile("Исполнитель", supplier)],
+        generated_at="",
+    )
+    assert summary.federal_law_facts
+    assert summary.payment_facts
+    assert summary.delivery_facts
+    facts = [
+        summary.customer_fact,
+        summary.supplier_fact,
+        summary.contract_amount_fact,
+        summary.contract_number_fact,
+        *summary.federal_law_facts,
+        *summary.payment_facts,
+        *summary.delivery_facts,
+    ]
+
+    assert all(fact.source_quote is not None and len(fact.source_quote) <= 360 for fact in facts)
+
+
 def test_payment_fact_keeps_stage_fields_and_not_found_is_not_procurement_regime() -> None:
     text = "Условия оплаты: 100% постоплата в течение 90 календарных дней после подписания акта."
     entity = Entity(
@@ -463,6 +502,57 @@ def test_summary_recovers_payment_from_character_spaced_pdf_text() -> None:
         "в течение 5 банковских дней с момента получения счёта"
     )
     assert summary.payment_facts[0].source_quote == summary.payment_terms
+
+
+def test_payment_card_discards_financing_and_keeps_payment_deadline() -> None:
+    """Источник денег не выдаётся за самостоятельное условие оплаты."""
+    funding = _entity(
+        EntityType.PAYMENT_TERMS,
+        "Оплата услуг осуществляется за счет средств федерального бюджета по КБК.",
+    )
+    deadline = _entity(
+        EntityType.PAYMENT_TERMS,
+        "Оплата производится в течение 10 рабочих дней с даты подписания документа о приемке.",
+    )
+
+    summary = build_summary([funding, deadline], [], generated_at="")
+
+    assert summary.payment_terms == deadline.text
+    assert [fact.value for fact in summary.payment_facts] == [deadline.text]
+
+
+def test_payment_card_discards_broken_pdf_word_order() -> None:
+    """Число после единицы измерения — признак сломанного текстового слоя PDF."""
+    broken = _entity(
+        EntityType.PAYMENT_TERMS,
+        "Оплата производится ежемесячно, не позднее   рабочих дней с даты 10 (десяти) "
+        "подписания документа о приемке.",
+    )
+    fallback = _entity(
+        EntityType.PAYMENT_TERMS,
+        "Оплата должна быть произведена в течение 10 рабочих дней с момента выставления счета.",
+    )
+
+    summary = build_summary([broken, fallback], [], generated_at="")
+
+    assert summary.payment_terms == fallback.text
+    assert [fact.value for fact in summary.payment_facts] == [fallback.text]
+
+
+def test_payment_card_keeps_advance_and_final_settlement() -> None:
+    """Аванс и окончательный платёж — разные полезные этапы расчёта."""
+    advance = _entity(
+        EntityType.PAYMENT_TERMS,
+        "Аванс в размере 90 процентов перечисляется после подписания контракта.",
+    )
+    final = _entity(
+        EntityType.PAYMENT_TERMS,
+        "Окончательный расчёт производится в течение 10 рабочих дней с даты приёмки.",
+    )
+
+    summary = build_summary([advance, final], [], generated_at="")
+
+    assert {fact.value for fact in summary.payment_facts} == {advance.text, final.text}
 
 
 def test_export_summary_masks_values_quotes_and_manual_mask_from_plan() -> None:

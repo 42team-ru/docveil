@@ -35,7 +35,8 @@ _AMOUNT_KEYWORDS = (
 _MONEY_RE = re.compile(r"\d[\d\s\u00a0]*(?:[.,]\d{1,2})?\s*(?:рублей|рубл[её]й|руб\.?|₽)", re.I)
 _PERCENT_RE = re.compile(r"\d+(?:[.,]\d+)?\s*%")
 _DAYS_RE = re.compile(
-    r"(?P<days>\d+)\s*(?P<kind>банковских|рабочих|календарных)?\s*"
+    r"(?P<days>\d+)(?:\s*\([^)]{1,40}\))?\s*"
+    r"(?P<kind>банковских|рабочих|календарных)?\s*"
     r"(?:дн[её]й|дня|суток)",
     re.I,
 )
@@ -556,8 +557,9 @@ def _event(text: str) -> str | None:
 def _payment_fact(
     entity: Entity, anchors: dict[int, Anchor], segments: dict[int, str]
 ) -> PaymentFact:
-    value = _payment_value(entity)
-    quote = value if value != entity.text else _source_quote(entity, segments)
+    raw_value = _payment_value(entity)
+    value = _payment_excerpt(raw_value)
+    quote = value if raw_value != entity.text else _payment_excerpt(_source_quote(entity, segments))
     days, day_kind = _day_fields(quote)
     percentage_match = _PERCENT_RE.search(quote)
     amount_match = _MONEY_RE.search(quote)
@@ -593,6 +595,22 @@ def _payment_value(entity: Entity) -> str:
         "авансовый платёж после подписания заказа: "
         f"в течение {advance.group('days')} банковских дней с момента получения счёта"
     )
+
+
+def _payment_excerpt(text: str) -> str:
+    """Оставить в длинном условии оплаты его срок или этап расчёта."""
+    if len(text) <= _MAX_SOURCE_QUOTE:
+        return text
+    lowered = text.casefold()
+    markers = (*_PAYMENT_STAGE_MARKERS, *_PAYMENT_DEADLINE_MARKERS)
+    positions = [lowered.find(marker) for marker in markers if lowered.find(marker) >= 0]
+    if not positions:
+        return _quote_around_value(text, 0, 0)
+    start = min(positions)
+    # Решение 11.09.2026: длинное правило обычно начинается с технического
+    # оборота «Заказчик перечисляет». Окно вокруг срока или аванса показывает
+    # оператору условие, а не страницу договора.
+    return _quote_around_value(text, start, start + 1)
 
 
 def _summary_payment_candidates(entities: list[Entity], document: Document | None) -> list[Entity]:
@@ -665,19 +683,44 @@ def _summary_payment_candidates(entities: list[Entity], document: Document | Non
 
 
 def _ordered_payment_candidates(candidates: list[Entity]) -> list[Entity]:
-    """Поставить полноценный срок оплаты раньше общей фразы о расчётах."""
-    # Решение 11.09.2026: плоское поле `payment_terms` совместимо со старым
-    # отчётом и берёт первый факт. Приоритет срока/этапа не даёт строке о
-    # финансировании заслонить реальное условие оплаты.
-    markers = ("аванс", "единовременно", "постоплата", "в течение", "не позднее")
-    return sorted(
-        candidates,
-        key=lambda item: (
-            -sum(marker in _payment_value(item).casefold() for marker in markers),
-            item.segment_order,
-            item.start,
-        ),
-    )
+    """Оставить до трёх пригодных для человека условий оплаты."""
+    rated = [
+        (item, score)
+        for item in candidates
+        if (score := _payment_candidate_score(_payment_value(item))) is not None
+    ]
+    # Решение 11.09.2026: карточка нужна для быстрого анализа, поэтому
+    # финансирование, способ оплаты без срока и повреждённый PDF-фрагмент не
+    # конкурируют с настоящими этапами расчёта. Аванс и окончательный платёж
+    # не склеиваем: это разные обязательства сторон.
+    return [
+        item
+        for item, _ in sorted(
+            rated,
+            key=lambda pair: (-pair[1], pair[0].segment_order, pair[0].start),
+        )[:_MAX_PAYMENT_FACTS]
+    ]
+
+
+def _payment_candidate_score(text: str) -> int | None:
+    """Оценить, содержит ли фрагмент самостоятельное условие расчёта."""
+    lowered = text.casefold()
+    if _BROKEN_PAYMENT_FRAGMENT_RE.search(text):
+        return None
+    has_days = _DAYS_RE.search(text) is not None
+    has_stage = any(marker in lowered for marker in _PAYMENT_STAGE_MARKERS)
+    has_deadline = any(marker in lowered for marker in _PAYMENT_DEADLINE_MARKERS)
+    # Решение 11.09.2026: факультативная декабрьская предоплата не заменяет
+    # основной порядок расчёта и только раздувает карточку.
+    if "при необходимости" in lowered or re.search(r"\bможет\s+производ", lowered):
+        return None
+    if any(marker in lowered for marker in _PAYMENT_FINANCING_MARKERS) and not (
+        has_days or has_stage
+    ):
+        return None
+    if not has_days and not has_stage:
+        return None
+    return 4 * int(has_days) + 3 * int(has_stage) + int(has_deadline)
 
 
 def _delivery_fact(

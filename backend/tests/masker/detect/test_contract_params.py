@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import pytest
 
+from masker.detect import DetectAgent, default_detectors
 from masker.detect.contract_params import (
     ContractAmountDetector,
     DeliveryPeriodDetector,
+    MoneyDetector,
     PaymentTermsDetector,
 )
 from masker.detect.rules import RuleDetector
@@ -34,6 +36,11 @@ def _detect_rules(text: str) -> list[tuple[str, str]]:
 
 def _detect_amount(text: str) -> list[str]:
     entities = ContractAmountDetector().detect(_doc(text))
+    return [e.text for e in entities]
+
+
+def _detect_money(text: str) -> list[str]:
+    entities = MoneyDetector().detect(_doc(text))
     return [e.text for e in entities]
 
 
@@ -81,6 +88,41 @@ def test_federal_law_not_triggered_by_contract_number_44_2026() -> None:
 # ---------------------------------------------------------------------------
 # contract_amount
 # ---------------------------------------------------------------------------
+
+
+def test_money_detects_number_words_and_kopecks_as_one_span() -> None:
+    """Общий детектор не оставляет видимыми пропись или копейки."""
+    text = (
+        "Цена 2 432 170 (два миллиона четыреста тридцать две тысячи сто "
+        "семьдесят) рублей 00 копеек; НДС 371 008 рублей 98 копеек."
+    )
+
+    assert _detect_money(text) == [
+        "2 432 170 (два миллиона четыреста тридцать две тысячи сто семьдесят) рублей 00 копеек",
+        "371 008 рублей 98 копеек",
+    ]
+
+
+def test_money_detects_decimal_and_ruble_symbol() -> None:
+    assert _detect_money("К оплате: 1 500,50 руб.; штраф — 250 ₽.") == [
+        "1 500,50 руб.",
+        "250 ₽",
+    ]
+
+
+def test_default_detection_keeps_money_and_contract_amount_for_same_span() -> None:
+    """Общий тип не подменяет более конкретную цену договора."""
+    document = _doc("Цена договора составляет 1 500 рублей.")
+
+    entities = DetectAgent(default_detectors()).detect(document).entities
+
+    assert [(entity.type, entity.text) for entity in entities if entity.type in {
+        EntityType.MONEY,
+        EntityType.CONTRACT_AMOUNT,
+    }] == [
+        (EntityType.CONTRACT_AMOUNT, "1 500 рублей"),
+        (EntityType.MONEY, "1 500 рублей"),
+    ]
 
 
 def test_contract_amount_detected_with_context() -> None:

@@ -119,6 +119,38 @@ def test_two_runs_produce_identical_plan() -> None:
     assert len(plan_forward.groups) == 2
 
 
+def test_contract_amount_preferred_over_money_for_same_selected_span() -> None:
+    """Два классификатора одной суммы не создают две замены в рендере."""
+    document = _document(1)
+    amount = "1 500 рублей"
+    entities = [
+        _entity(EntityType.MONEY, amount),
+        _entity(EntityType.CONTRACT_AMOUNT, amount),
+    ]
+
+    plan = PlanAgent().plan(document, entities)
+
+    assert [(replacement.entity.type, replacement.marker) for replacement in plan.replacements] == [
+        (EntityType.CONTRACT_AMOUNT, "[СУММА-ДОГОВОРА]"),
+    ]
+
+
+def test_money_remains_selectable_without_contract_amount() -> None:
+    """Выбор общего типа не теряет сумму, классифицированную как цену договора."""
+    document = _document(1)
+    amount = "1 500 рублей"
+    entities = [
+        _entity(EntityType.MONEY, amount),
+        _entity(EntityType.CONTRACT_AMOUNT, amount),
+    ]
+
+    plan = PlanAgent().plan(document, entities, requested_types=frozenset({EntityType.MONEY}))
+
+    assert [(replacement.entity.type, replacement.marker) for replacement in plan.replacements] == [
+        (EntityType.MONEY, "[СУММА]"),
+    ]
+
+
 def test_entity_without_profile_gets_marker_without_role() -> None:
     entities = [
         _entity(EntityType.DATE, "01.01.2024", segment_order=0),

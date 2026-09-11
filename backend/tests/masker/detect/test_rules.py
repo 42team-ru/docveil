@@ -672,6 +672,50 @@ def test_registry_key_detector_masks_license_number_by_its_format() -> None:
     ]
 
 
+def test_registry_key_detector_masks_fsb_license_number_with_license_context() -> None:
+    """Р21: старый номер ФСБ — ключ реестра лишь возле признака лицензии."""
+    segment = Segment(
+        text=(
+            "Лицензия Л051-00105-78/00560548 "
+            "(78/78/1346/Н/Н) от 29 октября 2021 г. на осуществление разработки"
+        ),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    keys = [
+        entity.text
+        for entity in detect_by_rules([segment])
+        if entity.type is EntityType.REGISTRY_KEY
+    ]
+
+    assert keys == ["Л051-00105-78/00560548", "78/78/1346/Н/Н"]
+
+
+def test_registry_key_detector_masks_short_fsb_license_by_registration_context() -> None:
+    """Старая трёхчастная запись тоже не должна оставаться открытой."""
+    segment = Segment(
+        text="Регистрационный номер лицензии: 78/1346/Н, выдан для защиты информации.",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert [(entity.type, entity.text) for entity in detect_by_rules([segment])] == [
+        (EntityType.REGISTRY_KEY, "78/1346/Н")
+    ]
+
+
+def test_registry_key_detector_does_not_treat_bare_fsb_shaped_code_as_license() -> None:
+    """Похожий служебный код без признака лицензии не является реестровым ключом."""
+    segment = Segment(
+        text="Внутренний шифр поставки: 78/78/1346/Н/Н.",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert not any(entity.type is EntityType.REGISTRY_KEY for entity in detect_by_rules([segment]))
+
+
 def test_registry_key_detector_masks_okpo_only_after_its_label() -> None:
     """ОКПО — восемь цифр только с явной меткой классификатора."""
     segment = Segment(

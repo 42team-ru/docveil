@@ -40,6 +40,23 @@ def _overlaps(first: Entity, second: Entity) -> bool:
     )
 
 
+def _is_money_contract_amount_pair(first: Entity, second: Entity) -> bool:
+    """Один и тот же спан может быть и общей суммой, и ценой договора.
+
+    Это не конфликт конкурирующих детекторов: ``contract_amount`` — более
+    конкретная классификация ``money``. Обе записи нужны, чтобы пользователь
+    мог выбрать либо все суммы, либо только цену договора. Рендер получает
+    только одну замену: ``PlanAgent`` предпочитает конкретный тип, когда
+    выбраны оба.
+    """
+    return (
+        {first.type, second.type} == {EntityType.MONEY, EntityType.CONTRACT_AMOUNT}
+        and first.segment_order == second.segment_order
+        and first.start == second.start
+        and first.end == second.end
+    )
+
+
 class DetectAgent:
     """Объединяет детекторы, проверяет их контракт и строит общие чанки."""
 
@@ -109,6 +126,9 @@ class DetectAgent:
         for _detector, entity in ordered:
             overlaps = [existing for existing in accepted if _overlaps(entity, existing)]
             if not overlaps:
+                accepted.append(entity)
+                continue
+            if all(_is_money_contract_amount_pair(entity, existing) for existing in overlaps):
                 accepted.append(entity)
                 continue
             if entity.source is Source.RULE:

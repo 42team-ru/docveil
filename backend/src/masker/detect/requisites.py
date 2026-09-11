@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection
 
 from masker.model import Entity, EntityType
@@ -26,6 +27,8 @@ _DIGIT_LENGTHS: dict[EntityType, frozenset[int]] = {
 #: цифры, а все знаки самого значения без межразрядных пробелов.
 _KPP_LENGTH = 9
 
+_BANK_ACCOUNT_RE = re.compile(r"(?:\d{20}|[0-9A-Za-zА-Яа-яЁё]{11})$")
+
 
 def has_complete_requisite_length(entity_type: str, value: str) -> bool:
     """Соответствует ли длина значения нормативной длине его типа.
@@ -37,6 +40,11 @@ def has_complete_requisite_length(entity_type: str, value: str) -> bool:
         etype = EntityType(entity_type)
     except ValueError:
         return True
+    if etype is EntityType.BANK_ACCOUNT:
+        # Расчётный/корреспондентский счёт всегда числовой и содержит 20
+        # разрядов. Лицевой счёт состоит из 11 знаков; в казначейских
+        # форматах один из них может быть буквой.
+        return bool(_BANK_ACCOUNT_RE.fullmatch(value.replace(" ", "").replace("-", "")))
     if etype is EntityType.KPP:
         return len(value.replace(" ", "")) == _KPP_LENGTH
     lengths = _DIGIT_LENGTHS.get(etype)

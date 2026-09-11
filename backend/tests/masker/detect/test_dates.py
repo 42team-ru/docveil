@@ -53,6 +53,7 @@ def test_trailing_year_word_is_not_in_span() -> None:
     (
         "В соответствии с Федеральным законом от 27 июля 2006 года № 149-ФЗ.",
         "Требованиям Федерального закона от 06.04.2011 № 63-ФЗ соответствуют.",
+        "Федеральный закон Российской Федерации от 27 июля 2006г. № 149-ФЗ.",
     ),
 )
 def test_adoption_date_in_federal_law_reference_is_not_pii(text: str) -> None:
@@ -60,11 +61,17 @@ def test_adoption_date_in_federal_law_reference_is_not_pii(text: str) -> None:
     assert _detect(text) == []
 
 
-def test_contract_date_after_federal_law_reference_is_still_detected() -> None:
-    """Иммунитет даты ограничен непосредственно ссылкой на закон."""
-    text = "Федеральным законом установлено правило. Договор подписан 14.10.2025."
-
-    assert _detect(text) == [(EntityType.DATE.value, "14.10.2025")]
+@pytest.mark.parametrize(
+    ("text", "value"),
+    (
+        ("Федеральным законом установлено правило. Договор подписан 14.10.2025.", "14.10.2025"),
+        ("Срок поставки товара: 15.11.2025.", "15.11.2025"),
+        ("Оплата производится не позднее 16.12.2025.", "16.12.2025"),
+    ),
+)
+def test_contract_dates_are_still_detected(text: str, value: str) -> None:
+    """Иммунитет касается только даты непосредственно после ссылки на закон."""
+    assert _detect(text) == [(EntityType.DATE.value, value)]
 
 
 def test_two_digit_year_is_not_detected() -> None:

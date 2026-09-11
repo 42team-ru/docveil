@@ -36,6 +36,47 @@ def test_bank_account_found_with_valid_checksum() -> None:
     assert accounts[0].confidence == 1.0
 
 
+def test_personal_account_found_only_with_account_context() -> None:
+    """Р14: одиннадцатизначный л/сч — счёт только после его метки."""
+    contexts = (
+        "л/с 39062000144",
+        "л/сч 39062000144",
+        "лицевой счёт 39062000144",
+        "лицевого счёта: 39062000144",
+    )
+
+    for text in contexts:
+        segment = Segment(
+            text=text,
+            anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+            order=0,
+        )
+
+        accounts = [
+            entity
+            for entity in detect_by_rules([segment])
+            if entity.type is EntityType.BANK_ACCOUNT
+        ]
+
+        assert [(entity.text, entity.confidence) for entity in accounts] == [("39062000144", 1.0)]
+
+
+def test_eleven_digit_numbers_without_personal_account_context_are_not_accounts() -> None:
+    """Р14: ОКТМО, СНИЛС и голый код не становятся лицевыми счетами."""
+    segment = Segment(
+        text="ОКТМО 65701000001; СНИЛС 112-233-445 95; код 39062000144",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    entities = detect_by_rules([segment])
+
+    assert not any(entity.type is EntityType.BANK_ACCOUNT for entity in entities)
+    assert [(entity.type, entity.text) for entity in entities] == [
+        (EntityType.SNILS, "112-233-445 95"),
+    ]
+
+
 def test_invalid_inn_not_detected_as_passport() -> None:
     """Дефект 2: ИНН с битой контрольной цифрой не должен опознаваться как паспорт."""
     segments = [
@@ -527,3 +568,60 @@ def test_phone_does_not_trigger_inside_longer_digit_run() -> None:
         ),
     ]
     assert not any(e.type is EntityType.PHONE for e in detect_by_rules(segments))
+
+
+# ---------------------------------------------------------------------------
+# Р13 — ИКЗ не является контейнером для вложенных реквизитов.
+# ---------------------------------------------------------------------------
+
+
+def test_ikz_is_excluded_from_requisite_rules() -> None:
+    """Старый 29-значный ИКЗ с группировкой не дробится на счёт, ИНН и КПП.
+
+    Без исключения `bank_account` сначала совпадает с двадцатью цифрами,
+    а затем после пересечения с вложенными ИНН/КПП превращается в «1 ».
+    """
+    segment = Segment(
+        text="Идентификационный код закупки: 24 1 7710474375 770301001 0038 001",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    entities = detect_by_rules([segment])
+
+    requisites = {
+        EntityType.BANK_ACCOUNT,
+        EntityType.INN,
+        EntityType.OGRN,
+        EntityType.SNILS,
+        EntityType.KPP,
+        EntityType.BIK,
+    }
+    assert not any(entity.type in requisites for entity in entities)
+
+
+def test_current_36_digit_ikz_is_also_excluded_from_requisite_rules() -> None:
+    """Текущий слитный ИКЗ не отдаёт вложенный ИНН/КПП как отдельные PII."""
+    segment = Segment(
+        text=(
+            "Идентификационный код закупки: "
+            "182519150124451900100100070016110244"
+        ),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    entities = detect_by_rules([segment])
+
+    assert not any(
+        entity.type
+        in {
+            EntityType.BANK_ACCOUNT,
+            EntityType.INN,
+            EntityType.OGRN,
+            EntityType.SNILS,
+            EntityType.KPP,
+            EntityType.BIK,
+        }
+        for entity in entities
+    )

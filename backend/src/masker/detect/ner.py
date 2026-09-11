@@ -22,6 +22,7 @@ from masker.detect.orgforms import (
     is_role_token,
     shrink_span,
 )
+from masker.detect.person_values import is_single_token_uppercase_abbreviation
 from masker.detect.persons import (
     drop_role_prefix,
     expand_person_left,
@@ -145,6 +146,11 @@ class NatashaDetector:
                     bounds = expand_person_left(segment.text, *bounds)
                 start, end = bounds
                 value = segment.text[start:end]
+                if (
+                    entity_type is EntityType.PERSON
+                    and is_single_token_uppercase_abbreviation(value)
+                ):
+                    continue
                 org_evidence = entity_type is EntityType.ORG_NAME and has_organization_evidence(
                     value
                 )

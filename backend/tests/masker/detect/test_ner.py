@@ -56,6 +56,16 @@ def test_role_word_is_dropped() -> None:
     assert NatashaDetector(tagger).detect(document) == []
 
 
+def test_single_uppercase_abbreviation_is_not_person() -> None:
+    """Р13: даже триггер должности не превращает «МИК» в фамилию."""
+    text = "Директор МИК"
+    document = _document(text)
+    start = text.index("МИК")
+    tagger = FakeTagger({text: [NerSpan(start, start + len("МИК"), "PER")]})
+
+    assert NatashaDetector(tagger).detect(document) == []
+
+
 def test_overlong_model_span_is_shrunk() -> None:
     text = 'ООО "Ромашка" (ОКПО 12345678'
     document = _document(text)

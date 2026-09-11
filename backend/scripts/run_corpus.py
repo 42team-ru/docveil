@@ -192,24 +192,39 @@ def run_corpus(
                         source = pathlib.Path(artifact)
                         if source.is_file():
                             shutil.copy2(source, target / source.name)
-                mark = "утечек " + str(len(leaked)) if leaked else "чисто"
-                print(f"{len(found):4} замен, {mark}, {elapsed:.1f} с")
+                if leaked:
+                    # План обещает удалить каждую replacement. Если
+                    # ValidateAgent всё ещё читает её в артефакте, это не
+                    # «успешный документ с замечанием», а провал прогона:
+                    # иначе corpus-run печатает утечку, но завершается 0 и
+                    # позволяет передать наружу небезопасный PDF.
+                    record["status"] = "leaked"
+                    print(f"{len(found):4} замен, УТЕЧЕК {len(leaked)}, {elapsed:.1f} с")
+                else:
+                    print(f"{len(found):4} замен, чисто, {elapsed:.1f} с")
         except Exception as error:
             record |= {"status": "failed", "error": f"{type(error).__name__}: {error}"}
             print(f"ОШИБКА {type(error).__name__}: {error}")
         per_document.append(record)
 
-    ok = [r for r in per_document if r.get("status") == "ok"]
-    graded = [r for r in ok if r.get("recall") is not None]
-    crit_graded = [r for r in ok if r.get("critical_recall") is not None]
+    # Документ с утечкой обработан (метрики по нему посчитаны), но провален.
+    # Считать метрики только по чистым — значит показывать красивые числа по
+    # выжившим и прятать остальное: сводка докладывала «утечек 0» при
+    # шестистах на корпусе, потому что у чистых документов их и нет.
+    processed = [r for r in per_document if r.get("status") in {"ok", "leaked"}]
+    leaked_docs = [r for r in per_document if r.get("status") == "leaked"]
+    graded = [r for r in processed if r.get("recall") is not None]
+    crit_graded = [r for r in processed if r.get("critical_recall") is not None]
     summary = {
         "configuration": {"layer": layer, "llm_profile": llm_profile},
         "corpus": str(corpus),
         "finished_at": stamp,
         "documents": len(documents),
-        "succeeded": len(ok),
-        "failed": len(documents) - len(ok),
-        "leaked_total": sum(r.get("leaked", 0) for r in ok),
+        "processed": len(processed),
+        "clean": len(processed) - len(leaked_docs),
+        "with_leaks": len(leaked_docs),
+        "failed": len(documents) - len(processed),
+        "leaked_total": sum(r.get("leaked", 0) for r in processed),
         "recall": (
             sum(r["matched_gold"] for r in graded) / sum(r["gold_entities"] for r in graded)
             if graded and sum(r["gold_entities"] for r in graded)
@@ -229,7 +244,12 @@ def run_corpus(
     )
 
     print(f"\n{'=' * 60}")
-    print(f"документов обработано: {summary['succeeded']} из {summary['documents']}")
+    print(f"документов обработано: {summary['processed']} из {summary['documents']}")
+    print(f"  без утечек:           {summary['clean']}")
+    if summary["with_leaks"]:
+        print(f"  с утечками:           {summary['with_leaks']}  ← прогон провален")
+    if summary["failed"]:
+        print(f"  не обработано:        {summary['failed']}")
     if summary["critical_recall"] is not None:
         print(f"recall критичных типов: {summary['critical_recall']:.3f}")
     if summary["recall"] is not None:
@@ -279,9 +299,9 @@ def main(argv: list[str] | None = None) -> int:
         out_root=args.out,
         keep_artifacts=not args.no_artifacts,
     )
-    # Ненулевой код только на сбоях прогона: утечки печатаются, но решение
-    # по ним принимает человек, а не скрипт.
-    return 1 if summary["failed"] else 0
+    # Утечка — такой же провал, как исключение рендера: план уже обещал
+    # убрать это значение, а валидатор доказал обратное.
+    return 1 if summary["failed"] or summary["with_leaks"] else 0
 
 
 if __name__ == "__main__":

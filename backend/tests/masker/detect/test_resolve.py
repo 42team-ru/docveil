@@ -92,6 +92,21 @@ def test_rule4_short_remainder_is_dropped_not_kept_as_junk() -> None:
     assert not any(e.type == EntityType.CONTRACT_NUMBER for e in result)
 
 
+def test_rule4_drops_incomplete_bank_account_fragment() -> None:
+    """Р13: остаток «1 » от 20-значного кандидата — не банковский счёт."""
+    text = "1 7710474375 770301001"
+    account = _entity(EntityType.BANK_ACCOUNT, text, start=0, confidence=0.75)
+    inn = _entity(EntityType.INN, "7710474375", start=text.index("7710474375"))
+    kpp = _entity(EntityType.KPP, "770301001", start=text.index("770301001"))
+
+    result = resolve_overlaps([account, inn, kpp])
+
+    assert [(entity.type, entity.text) for entity in result] == [
+        (EntityType.INN, "7710474375"),
+        (EntityType.KPP, "770301001"),
+    ]
+
+
 def test_rule5_resolved_rule_layer_still_gets_carved_by_agent() -> None:
     """Правило 5 — не здесь (см. `DetectAgent._carve`), но результат этого
     модуля должен оставаться пригодным входом для него: модельный спан,

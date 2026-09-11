@@ -54,6 +54,16 @@ def test_standalone_name_gets_lower_confidence() -> None:
     assert 0 < matches[0].confidence < 0.7
 
 
+def test_single_uppercase_abbreviation_is_not_person(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Р13: словарный разбор не должен выпускать аббревиатуру «МИК»."""
+    monkeypatch.setattr(
+        "masker.detect.morph._classify_word",
+        lambda word: "Name" if word == "МИК" else None,
+    )
+
+    assert _persons_via_detector("МИК") == []
+
+
 # ---------------------------------------------------------------------------
 # Р4, кейс 2 и 3 — уже чинятся в orgforms.py (fix_person_initials/
 # shrink_span), но пайплайн целиком обязан отдавать полный кейс.

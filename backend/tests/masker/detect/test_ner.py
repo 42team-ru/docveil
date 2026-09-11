@@ -147,3 +147,24 @@ def test_org_with_form_or_quotes_survives() -> None:
         (EntityType.ORG_NAME, "Общество с ограниченной ответственностью «Вектор»"),
         (EntityType.ORG_NAME, "ООО «Мойдодыр»"),
     ]
+
+
+def test_formula_variable_with_multiplication_sign_is_not_organization() -> None:
+    """11.09.2026: ``ДК `` в формуле пени не должен стать названием организации."""
+    text = "ДП К = 100% ДК "
+    document = _document(text)
+    start = text.index("ДК")
+    tagger = FakeTagger({text: [NerSpan(start, len(text), "ORG")]})
+
+    assert NatashaDetector(tagger).detect(document) == []
+
+
+def test_short_quoted_organization_name_survives() -> None:
+    """Парные кавычки остаются достаточным признаком короткого названия."""
+    text = "«ДОУ»"
+    document = _document(text)
+    tagger = FakeTagger({text: [NerSpan(0, len(text), "ORG")]})
+
+    assert [(entity.type, entity.text) for entity in NatashaDetector(tagger).detect(document)] == [
+        (EntityType.ORG_NAME, "«ДОУ»"),
+    ]

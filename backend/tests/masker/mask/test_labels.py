@@ -23,19 +23,21 @@ def test_every_entity_type_has_marker_label() -> None:
 
 
 def test_marker_labels_are_upper_case_cyrillic_without_spaces() -> None:
-    """Пробел, точка или латиница в метке ломают читаемость `[A-B-C]`."""
+    """Пробел, точка или произвольная латиница в метке ломают читаемость."""
     for label in MARKER_TYPE_LABELS.values():
         assert label == label.upper()
         assert " " not in label
         assert "." not in label
         # Допускаем дефис внутри метки для составных меток («СУММА-ДОГОВОРА»),
         # но не в начале/конце — иначе маркер «[-ИНН]» или «[ИНН-]» сломан.
-        assert re.fullmatch(r"[А-ЯЁ][А-ЯЁ-]*[А-ЯЁ]|[А-ЯЁ]", label), label
+        assert re.fullmatch(r"(?:IP-)?(?:[А-ЯЁ][А-ЯЁ-]*[А-ЯЁ]|[А-ЯЁ])", label), label
 
 
 def test_type_marker_label_matches_dict() -> None:
     assert type_marker_label(EntityType.INN) == "ИНН"
     assert type_marker_label(EntityType.ORG_NAME) == "ОРГАНИЗАЦИЯ"
+    assert type_marker_label(EntityType.POWER_OF_ATTORNEY_NUMBER) == "НОМЕР-ДОВЕРЕННОСТИ"
+    assert type_marker_label(EntityType.IP_ADDRESS) == "IP-АДРЕС"
 
 
 @pytest.mark.parametrize(
@@ -117,10 +119,14 @@ def test_human_type_labels_are_not_screaming_caps() -> None:
     """Настоящие аббревиатуры (ИНН, КПП...) капсом — это нормально; составные
     названия — обычным регистром, не капсом с дефисами, как в `MARKER_TYPE_LABELS`."""
     for label in HUMAN_TYPE_LABELS.values():
-        assert "-" not in label
+        assert "-" not in label or label == "IP-адрес"
         # Не вся строка в капсе — либо это одно слово-аббревиатура без строчных
         # букв вовсе (ИНН), либо обычное предложение с одной заглавной буквы.
-        assert label.isupper() or (label[0].isupper() and label[1:] == label[1:].lower())
+        assert (
+            label.isupper()
+            or label == "IP-адрес"
+            or (label[0].isupper() and label[1:] == label[1:].lower())
+        )
 
 
 def test_human_type_label_matches_dict() -> None:
@@ -128,6 +134,8 @@ def test_human_type_label_matches_dict() -> None:
     assert human_type_label(EntityType.ORG_NAME) == "Организация"
     assert human_type_label(EntityType.CONTRACT_NUMBER) == "Номер договора"
     assert human_type_label(EntityType.DATE) == "Дата договора"
+    assert human_type_label(EntityType.POWER_OF_ATTORNEY_NUMBER) == "Номер доверенности"
+    assert human_type_label(EntityType.IP_ADDRESS) == "IP-адрес"
 
 
 @pytest.mark.parametrize(

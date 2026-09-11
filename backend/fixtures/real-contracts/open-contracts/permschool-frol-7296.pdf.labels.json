@@ -338,15 +338,7 @@
     },
     {
       "type": "date",
-      "text": "02.02.2026"
-    },
-    {
-      "type": "date",
       "text": "«02» февраля 2026"
-    },
-    {
-      "type": "date",
-      "text": "18 июля 2011"
     },
     {
       "type": "date",
@@ -446,26 +438,6 @@
     },
     {
       "type": "date",
-      "text": "29 декабря 2012"
-    },
-    {
-      "type": "date",
-      "text": "30 марта 1999"
-    },
-    {
-      "type": "date",
-      "text": "02 января 2000"
-    },
-    {
-      "type": "date",
-      "text": "17 июля 1999"
-    },
-    {
-      "type": "date",
-      "text": "21 декабря 1994"
-    },
-    {
-      "type": "date",
       "text": "09 сентября 1996"
     },
     {
@@ -510,46 +482,10 @@
     },
     {
       "type": "date",
-      "text": "18 февраля 2022"
-    },
-    {
-      "type": "date",
-      "text": "09 декабря 2014"
-    },
-    {
-      "type": "date",
-      "text": "6 декабря 2021"
-    },
-    {
-      "type": "date",
       "text": "11 марта 2012"
     },
     {
       "type": "date",
-      "text": "28.01.2021"
-    },
-    {
-      "type": "date",
-      "text": "31 декабря 2020"
-    },
-    {
-      "type": "date",
-      "text": "29 июня 2000"
-    },
-    {
-      "type": "date",
-      "text": "30 декабря 2022"
-    },
-    {
-      "type": "date",
-      "text": "2 июля 2020"
-    },
-    {
-      "type": "date",
-      "text": "14 августа 2020"
-    },
-    {
-      "type": "date",
       "text": "2.4.3590"
     },
     {
@@ -563,10 +499,6 @@
     {
       "type": "date",
       "text": "2.4.3590"
-    },
-    {
-      "type": "date",
-      "text": "29 июня 2000"
     },
     {
       "type": "date",
@@ -635,38 +567,6 @@
     {
       "type": "money",
       "text": "139,73 рублей"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 223-фз"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 223-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 223-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 273-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 52-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 29-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 178-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 68-ФЗ"
     },
     {
       "type": "org_name",

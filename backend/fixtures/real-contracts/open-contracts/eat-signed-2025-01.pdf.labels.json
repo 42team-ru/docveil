@@ -54,15 +54,7 @@
     },
     {
       "type": "date",
-      "text": "5 апреля 2013"
-    },
-    {
-      "type": "date",
       "text": "29.07.2025"
-    },
-    {
-      "type": "date",
-      "text": "30 августа 2017"
     },
     {
       "type": "date",
@@ -123,10 +115,6 @@
     {
       "type": "money",
       "text": "1000 (Одна тысяча) рублей"
-    },
-    {
-      "type": "federal_law",
-      "text": "№44-ФЗ"
     },
     {
       "type": "org_name",

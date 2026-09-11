@@ -1,48 +1,259 @@
 {
   "entities": [
-    {"type": "contract_number", "text": "071/23/89", "party": null},
-    {"type": "date", "text": "«31» августа 2023_год", "party": null},
-    {"type": "inn", "text": "7710474375", "party": "customer"},
-    {"type": "kpp", "text": "770301001", "party": "customer"},
-    {"type": "ogrn", "text": "1047702026701", "party": "customer"},
-    {"type": "org_name", "text": "Министерство цифрового развития, связи и массовых коммуникаций Российской Федерации", "party": "customer"},
-    {"type": "address", "text": "123112, Российская Федерация, г. Москва, Пресненская наб., д.10, стр.2", "party": "customer"},
-    {"type": "bank_name", "text": "ОПЕРАЦИОННЫЙ ДЕПАРТАМЕНТ БАНКА РОССИИ", "party": "customer"},
-    {"type": "bik", "text": "024501901", "party": "customer"},
-    {"type": "bank_account", "text": "40102810045370000002", "party": "customer"},
-    {"type": "bank_account", "text": "03211643000000019500", "party": "customer"},
-    {"type": "phone", "text": "+7 (495) 771-80-00", "party": "customer"},
-    {"type": "email", "text": "office@digital.gov.ru", "party": "customer"},
-    {"type": "inn", "text": "7707049388", "party": "contractor"},
-    {"type": "kpp", "text": "784201001", "party": "contractor"},
-    {"type": "ogrn", "text": "1027700198767", "party": "contractor"},
-    {"type": "org_name", "text": "Публичное акционерное общество «Ростелеком»", "party": "contractor"},
-    {"type": "address", "text": "191167, Российская Федерация, г. Санкт- Петербург, вн. тер. г. Муниципальный округ Смольнинское, наб. Синопская, д. 14, литера А.", "party": "contractor"},
-    {"type": "address", "text": "Российская Федерация, 115172, г. Москва, ул. Гончарная, д. 30 стр.1", "party": "contractor"},
-    {"type": "address", "text": "Российская Федерация, 115172, г. Москва, ул. Гончарная, д. 30", "party": "contractor"},
-    {"type": "phone", "text": "+7 (499) 999-82-83", "party": "contractor"},
-    {"type": "phone", "text": "+7 (499) 999-82-22", "party": "contractor"},
-    {"type": "bank_name", "text": "ПАО Сбербанк", "party": "contractor"},
-    {"type": "bik", "text": "0044525225", "party": "contractor"},
-    {"type": "bank_account", "text": "30101810400000000225", "party": "contractor"},
-    {"type": "bank_account", "text": "40702810038180132605", "party": "contractor"},
-    {"type": "email", "text": "rostelecom@rt.ru", "party": "contractor"},
-    {"type": "money", "text": "2 372 512 458 (Два миллиарда триста семьдесят два миллиона пятьсот двенадцать тысяч четыреста пятьдесят восемь) рублей 00 копеек", "party": null},
-    {"type": "money", "text": "395 418 743 (Триста девяносто пять миллионов четыреста восемнадцать тысяч семьсот сорок три) рубля 00 копеек", "party": null},
-    {"type": "money", "text": "1 249 490 368 (Один миллиард двести сорок девять миллионов четыреста девяносто тысяч триста шестьдесят восемь) рублей 00 копеек", "party": null},
-    {"type": "money", "text": "1 123 022 090 (Один миллиард сто двадцать три миллиона двадцать две тысячи девяносто) рублей 00 копеек", "party": null},
-    {"type": "contract_amount", "text": "2 372 512 458 (Два миллиарда триста семьдесят два миллиона пятьсот двенадцать тысяч четыреста пятьдесят восемь) рублей 00 копеек", "party": null},
-    {"type": "payment_terms", "text": "в течение 7 (Семи) рабочих дней", "party": null},
-    {"type": "delivery_period", "text": "с 1 сентября по 31 декабря 2023 года включительно", "party": null},
-    {"type": "federal_law", "text": "Федерального закона от 5 апреля 2013 г. № 44-ФЗ", "party": null},
-    {"type": "federal_law", "text": "Федеральным законом от 27 июля 2006 г. № 152-ФЗ", "party": null},
-    {"type": "date", "text": "30 апреля 2024 г.", "party": null},
-    {"type": "date", "text": "1 сентября", "party": null},
-    {"type": "date", "text": "31 декабря 2023 года", "party": null},
-    {"type": "date", "text": "5 августа 2021 г.", "party": null},
-    {"type": "date", "text": "27.03.2023", "party": null},
-    {"type": "date", "text": "19.06.2024", "party": null},
-    {"type": "person", "text": "Д.М. Ким", "party": "customer"},
-    {"type": "person", "text": "В.В. Ермаков", "party": "contractor"}
+    {
+      "type": "contract_number",
+      "text": "071/23/89",
+      "party": null
+    },
+    {
+      "type": "date",
+      "text": "«31» августа 2023_год",
+      "party": null
+    },
+    {
+      "type": "inn",
+      "text": "7710474375",
+      "party": "customer"
+    },
+    {
+      "type": "kpp",
+      "text": "770301001",
+      "party": "customer"
+    },
+    {
+      "type": "ogrn",
+      "text": "1047702026701",
+      "party": "customer"
+    },
+    {
+      "type": "org_name",
+      "text": "Министерство цифрового развития, связи и массовых коммуникаций Российской Федерации",
+      "party": "customer"
+    },
+    {
+      "type": "address",
+      "text": "123112, Российская Федерация, г. Москва, Пресненская наб., д.10, стр.2",
+      "party": "customer"
+    },
+    {
+      "type": "bank_name",
+      "text": "ОПЕРАЦИОННЫЙ ДЕПАРТАМЕНТ БАНКА РОССИИ",
+      "party": "customer"
+    },
+    {
+      "type": "bik",
+      "text": "024501901",
+      "party": "customer"
+    },
+    {
+      "type": "bank_account",
+      "text": "40102810045370000002",
+      "party": "customer"
+    },
+    {
+      "type": "bank_account",
+      "text": "03211643000000019500",
+      "party": "customer"
+    },
+    {
+      "type": "phone",
+      "text": "+7 (495) 771-80-00",
+      "party": "customer"
+    },
+    {
+      "type": "email",
+      "text": "office@digital.gov.ru",
+      "party": "customer"
+    },
+    {
+      "type": "inn",
+      "text": "7707049388",
+      "party": "contractor"
+    },
+    {
+      "type": "kpp",
+      "text": "784201001",
+      "party": "contractor"
+    },
+    {
+      "type": "ogrn",
+      "text": "1027700198767",
+      "party": "contractor"
+    },
+    {
+      "type": "org_name",
+      "text": "Публичное акционерное общество «Ростелеком»",
+      "party": "contractor"
+    },
+    {
+      "type": "address",
+      "text": "191167, Российская Федерация, г. Санкт- Петербург, вн. тер. г. Муниципальный округ Смольнинское, наб. Синопская, д. 14, литера А.",
+      "party": "contractor"
+    },
+    {
+      "type": "address",
+      "text": "Российская Федерация, 115172, г. Москва, ул. Гончарная, д. 30 стр.1",
+      "party": "contractor"
+    },
+    {
+      "type": "address",
+      "text": "Российская Федерация, 115172, г. Москва, ул. Гончарная, д. 30",
+      "party": "contractor"
+    },
+    {
+      "type": "phone",
+      "text": "+7 (499) 999-82-83",
+      "party": "contractor"
+    },
+    {
+      "type": "phone",
+      "text": "+7 (499) 999-82-22",
+      "party": "contractor"
+    },
+    {
+      "type": "bank_name",
+      "text": "ПАО Сбербанк",
+      "party": "contractor"
+    },
+    {
+      "type": "bik",
+      "text": "0044525225",
+      "party": "contractor"
+    },
+    {
+      "type": "bank_account",
+      "text": "30101810400000000225",
+      "party": "contractor"
+    },
+    {
+      "type": "bank_account",
+      "text": "40702810038180132605",
+      "party": "contractor"
+    },
+    {
+      "type": "email",
+      "text": "rostelecom@rt.ru",
+      "party": "contractor"
+    },
+    {
+      "type": "money",
+      "text": "2 372 512 458 (Два миллиарда триста семьдесят два миллиона пятьсот двенадцать тысяч четыреста пятьдесят восемь) рублей 00 копеек",
+      "party": null
+    },
+    {
+      "type": "money",
+      "text": "395 418 743 (Триста девяносто пять миллионов четыреста восемнадцать тысяч семьсот сорок три) рубля 00 копеек",
+      "party": null
+    },
+    {
+      "type": "money",
+      "text": "1 249 490 368 (Один миллиард двести сорок девять миллионов четыреста девяносто тысяч триста шестьдесят восемь) рублей 00 копеек",
+      "party": null
+    },
+    {
+      "type": "money",
+      "text": "1 123 022 090 (Один миллиард сто двадцать три миллиона двадцать две тысячи девяносто) рублей 00 копеек",
+      "party": null
+    },
+    {
+      "type": "contract_amount",
+      "text": "2 372 512 458 (Два миллиарда триста семьдесят два миллиона пятьсот двенадцать тысяч четыреста пятьдесят восемь) рублей 00 копеек",
+      "party": null
+    },
+    {
+      "type": "payment_terms",
+      "text": "в течение 7 (Семи) рабочих дней",
+      "party": null
+    },
+    {
+      "type": "delivery_period",
+      "text": "с 1 сентября по 31 декабря 2023 года включительно",
+      "party": null
+    },
+    {
+      "type": "date",
+      "text": "30 апреля 2024 г.",
+      "party": null
+    },
+    {
+      "type": "date",
+      "text": "1 сентября",
+      "party": null
+    },
+    {
+      "type": "date",
+      "text": "31 декабря 2023 года",
+      "party": null
+    },
+    {
+      "type": "date",
+      "text": "5 августа 2021 г.",
+      "party": null
+    },
+    {
+      "type": "date",
+      "text": "27.03.2023",
+      "party": null
+    },
+    {
+      "type": "date",
+      "text": "19.06.2024",
+      "party": null
+    },
+    {
+      "type": "person",
+      "text": "Д.М. Ким",
+      "party": "customer"
+    },
+    {
+      "type": "person",
+      "text": "В.В. Ермаков",
+      "party": "contractor"
+    },
+    {
+      "type": "registry_key",
+      "text": "071 0410 23 2 D2 07200 244",
+      "party": null
+    },
+    {
+      "type": "registry_key",
+      "text": "45380000000",
+      "party": null
+    },
+    {
+      "type": "registry_key",
+      "text": "40298000000",
+      "party": null
+    },
+    {
+      "type": "registry_key",
+      "text": "17514186",
+      "party": null
+    },
+    {
+      "type": "power_of_attorney_number",
+      "text": "51",
+      "party": "customer"
+    },
+    {
+      "type": "person",
+      "text": "заместителя Министра цифрового развития, связи и массовых коммуникаций Российской Федерации",
+      "party": "customer"
+    },
+    {
+      "type": "person",
+      "text": "Старшего Вице-Президента по работе с корпоративным и государственным сегментами ПАО «Ростелеком»",
+      "party": "contractor"
+    },
+    {
+      "type": "person",
+      "text": "Заместитель Министра цифрового развития, связи и массовых коммуникаций Российской Федерации",
+      "party": "customer"
+    },
+    {
+      "type": "person",
+      "text": "Старший Вице-Президент по работе с корпоративным и государственным сегментами ПАО «Ростелеком»",
+      "party": "contractor"
+    }
   ]
 }

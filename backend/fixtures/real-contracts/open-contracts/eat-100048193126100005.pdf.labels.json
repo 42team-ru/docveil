@@ -54,15 +54,7 @@
     },
     {
       "type": "date",
-      "text": "05.04.2013"
-    },
-    {
-      "type": "date",
       "text": "31.12.2026"
-    },
-    {
-      "type": "date",
-      "text": "05.04.2013"
     },
     {
       "type": "date",
@@ -87,14 +79,6 @@
     {
       "type": "money",
       "text": "600 000 руб."
-    },
-    {
-      "type": "federal_law",
-      "text": "№44-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 44-ФЗ"
     },
     {
       "type": "person",

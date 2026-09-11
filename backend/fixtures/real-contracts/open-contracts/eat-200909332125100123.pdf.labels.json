@@ -42,10 +42,6 @@
     },
     {
       "type": "date",
-      "text": "05.04.2013"
-    },
-    {
-      "type": "date",
       "text": "30.09.2025"
     },
     {
@@ -75,10 +71,6 @@
     {
       "type": "money",
       "text": "600 000 руб."
-    },
-    {
-      "type": "federal_law",
-      "text": "№44-ФЗ"
     },
     {
       "type": "org_name",

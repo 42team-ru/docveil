@@ -42,6 +42,11 @@ def test_org_form_abbreviation_maou() -> None:
     assert [e.text for e in entities_genitive] == ["МАОУ гимназии № 144"]
 
 
+def test_gbpou_form_keeps_short_quoted_name() -> None:
+    """11.09.2026: ОПФ ГБПОУ подтверждает короткое название «КАиС»."""
+    assert [e.text for e in _detect("ГБПОУ РД «КАиС»")] == ["ГБПОУ РД «КАиС»"]
+
+
 def test_org_form_double_space_from_pdf_layout_is_matched() -> None:
     """Двойной пробел внутри многословной формы (артефакт вёрстки PDF) не
     должен потерять «Общество с» — план T2.2.2, шаг 6, докстринг модуля."""

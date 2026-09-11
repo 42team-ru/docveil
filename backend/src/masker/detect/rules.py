@@ -13,6 +13,7 @@ precision почти единица достаётся бесплатно, оф�
 
 from __future__ import annotations
 
+from ipaddress import AddressValueError, IPv4Address
 import re
 
 from masker.detect.checksums import (
@@ -130,6 +131,54 @@ _FSB_LICENSE_CONTEXT_WINDOW = 160
 #: только после точной метки классификатора: голые восьмизначные значения
 #: в договорах бывают суммами, количествами и внутренними номерами.
 _OKPO_RE = re.compile(r"\bокпо\b\s*[:№]?\s*(?P<value>\d{8})(?![\d\w])", re.IGNORECASE)
+#: КБК — 20 разрядов с закреплённым разбиением. Поле позволяет найти
+#: заказчика и программу закупки, поэтому маскируется полностью, а не
+#: только ведомственный префикс (Р22, 11.09.2026, `arkhschool-68-183.pdf`).
+_KBK_RE = re.compile(
+    r"\bкбк\b\s*[:№]?\s*"
+    r"(?P<value>(?:[0-9A-Za-zА-Яа-яЁё]{3}\s+[0-9A-Za-zА-Яа-яЁё]{4}\s+"
+    r"[0-9A-Za-zА-Яа-яЁё]{2}\s+[0-9A-Za-zА-Яа-яЁё]\s+"
+    r"[0-9A-Za-zА-Яа-яЁё]{2}\s+[0-9A-Za-zА-Яа-яЁё]{5}\s+"
+    r"[0-9A-Za-zА-Яа-яЁё]{3})|[0-9A-Za-zА-Яа-яЁё]{20})(?![\d\w])",
+    re.IGNORECASE,
+)
+#: ОКТМО и ОКАТО раскрывают территорию стороны, но ОКОГУ и ОКВЭД — лишь
+#: справочные классификаторы. Поэтому в правило внесены только первые два
+#: и исключительно после их собственной метки (Р22, 11.09.2026,
+#: `arkhschool-68-183.pdf`).
+_TERRITORIAL_CODE_RE = re.compile(
+    r"\b(?:октмо|окато)\b\s*[:№]?\s*(?P<value>\d{8}|\d{11})(?![\d\w])",
+    re.IGNORECASE,
+)
+#: БИК из PDF может содержать лишний ноль или два склеенных значения.
+#: После метки маскируем весь непрерывный числовой хвост, иначе из
+#: `0044525225` оставался бы хотя бы один поисковый ключ (Р22, 11.09.2026,
+#: `bashkirschool-usak-kichu2-4149.pdf`).
+_LABELED_BIK_RE = re.compile(
+    r"\bбик(?:\s+тофк)?\b\s*[:№]?\s*(?P<value>\d+)(?!\d)", re.IGNORECASE
+)
+#: Номер доверенности — самостоятельный ключ реестра полномочий. Метка
+#: обязательна: `№ 109` без неё может быть номером пункта или приложения;
+#: запись с косыми чертами покрывает доверенность Ростелекома
+#: `01/29/533/23` (Р22, 11.09.2026, `arkhschool-68-183.pdf`).
+_POWER_OF_ATTORNEY_RE = re.compile(
+    # Между меткой и номером стоит дата: «доверенности от 20 июля 2022 г.
+    # № 01/29/533/23». Точка в «г.» есть всегда, поэтому запрещать точку
+    # целиком нельзя — иначе номер не находится вовсе. Запрещён только
+    # конец предложения (точка перед заглавной буквой), чтобы метка не
+    # притянула номер из соседней фразы.
+    r"\bдоверенност\w*\b(?:(?!\.\s+[А-ЯЁ])(?![;\n])[^\n]){0,60}?"
+    r"№\s*(?P<value>[0-9A-Za-zА-Яа-яЁё]+(?:[/-][0-9A-Za-zА-Яа-яЁё]+)*)(?![\d\w])",
+    re.IGNORECASE,
+)
+#: IP без контекста похож на версию ПО. Метка исключает номера пунктов,
+#: а проверка октетов ниже оставляет только публичный адрес абонента
+#: (Р22, 11.09.2026, `eat-100034721124100074.pdf`).
+_IP_ADDRESS_RE = re.compile(
+    r"(?:\bip\s*[-–—]?\s*адрес\w*\b|\bip\b)\s*[:№]?\s*"
+    r"(?P<value>\d{1,3}(?:\.\d{1,3}){3})(?![\d.])",
+    re.IGNORECASE,
+)
 _IKZ_EMBEDDED_REQUISITES = frozenset(
     {
         EntityType.BANK_ACCOUNT,
@@ -151,16 +200,6 @@ PATTERNS: dict[EntityType, re.Pattern[str]] = {
     # форма записи, встречается наравне с дефисом (план T2.2.1, Р3).
     EntityType.SNILS: re.compile(rf"{_L}{_d_dot(11)}{_R}"),
     EntityType.BANK_ACCOUNT: re.compile(rf"{_L}{_d(20)}{_R}"),
-    # БИК — только слитно, без межцифровых разделителей. У БИК нет
-    # контрольной суммы (план T2.2.1, Д8), проверка чисто форматная:
-    # первые два разряда 01/04. Допуск пробелов между цифрами делал из
-    # соседних чисел таблицы валидный БИК: строка «…695,04␣␣␣2 950 568,96…»
-    # после схлопывания пробелов (Р1) даёт «04 2 950 568» — девять цифр,
-    # начинающихся с 04. Реальный БИК в документах всегда пишется слитно
-    # (все пять образцов размеченного корпуса — 042007681, 016577551,
-    # 046577904 и т. д.), поэтому допуск разделителей стоил precision и
-    # ничего не давал recall.
-    EntityType.BIK: re.compile(rf"{_L}\d{{9}}{_R}"),
     EntityType.KPP: re.compile(rf"{_L}\d{{4}}[\dA-Z]{{2}}\d{{3}}{_R}"),
     # Серия — два блока по две цифры (сросшихся или разделённых пробелом/
     # дефисом); между серией и номером кроме обычного разделителя может
@@ -201,20 +240,27 @@ VALIDATORS = {
     EntityType.INN: is_valid_inn,
     EntityType.OGRN: is_valid_ogrn,
     EntityType.SNILS: is_valid_snils,
-    EntityType.BIK: is_valid_bik,
     EntityType.KPP: is_valid_kpp,
 }
 
 
 def find_biks(segments: list[Segment]) -> dict[int, list[str]]:
-    """БИК по сегментам — нужен, чтобы проверить счёт."""
+    """БИК по сегментам — нужен, чтобы проверить счёт.
+
+    Для хвоста с лишней цифрой рассматриваем все девятизначные окна:
+    сам хвост всё равно маскируется целиком, но контрольную сумму счёта
+    можно сверить с вложенным настоящим БИК.
+    """
     found: dict[int, list[str]] = {}
     for seg in segments:
-        hits = [
-            m.group()
-            for m in PATTERNS[EntityType.BIK].finditer(seg.text)
-            if is_valid_bik(m.group())
-        ]
+        hits = []
+        for match in _LABELED_BIK_RE.finditer(seg.text):
+            tail = match.group("value")
+            hits.extend(
+                tail[offset : offset + 9]
+                for offset in range(len(tail) - 8)
+                if is_valid_bik(tail[offset : offset + 9])
+            )
         if hits:
             found[seg.order] = hits
     return found
@@ -421,6 +467,66 @@ def _contextual_phone_hits(segments: list[Segment]) -> list[Entity]:
     return hits
 
 
+def _labeled_bik_hits(seg: Segment) -> list[Entity]:
+    """Вернуть БИК как весь числовой хвост после его метки."""
+    return [
+        Entity(
+            type=EntityType.BIK,
+            text=match.group("value"),
+            segment_order=seg.order,
+            start=match.start("value"),
+            end=match.end("value"),
+            source=Source.RULE,
+            confidence=1.0,
+            normalized=normalize_value(EntityType.BIK, match.group("value")),
+        )
+        for match in _LABELED_BIK_RE.finditer(seg.text)
+    ]
+
+
+def _power_of_attorney_hits(seg: Segment) -> list[Entity]:
+    """Вернуть номера доверенностей только с контекстной меткой."""
+    return [
+        Entity(
+            type=EntityType.POWER_OF_ATTORNEY_NUMBER,
+            text=match.group("value"),
+            segment_order=seg.order,
+            start=match.start("value"),
+            end=match.end("value"),
+            source=Source.RULE,
+            confidence=1.0,
+            normalized=normalize_value(EntityType.POWER_OF_ATTORNEY_NUMBER, match.group("value")),
+        )
+        for match in _POWER_OF_ATTORNEY_RE.finditer(seg.text)
+    ]
+
+
+def _is_public_ipv4(value: str) -> bool:
+    """Проверить, что IPv4 действительно глобально маршрутизируется."""
+    try:
+        return IPv4Address(value).is_global
+    except AddressValueError:
+        return False
+
+
+def _ip_address_hits(seg: Segment) -> list[Entity]:
+    """Вернуть публичные IPv4, записанные после метки IP-адреса."""
+    return [
+        Entity(
+            type=EntityType.IP_ADDRESS,
+            text=match.group("value"),
+            segment_order=seg.order,
+            start=match.start("value"),
+            end=match.end("value"),
+            source=Source.RULE,
+            confidence=1.0,
+            normalized=normalize_value(EntityType.IP_ADDRESS, match.group("value")),
+        )
+        for match in _IP_ADDRESS_RE.finditer(seg.text)
+        if _is_public_ipv4(match.group("value"))
+    ]
+
+
 def _ikz_ranges(text: str) -> list[tuple[int, int]]:
     """Диапазоны ИКЗ, внутри которых реквизиты не ищутся по частям."""
     return [(match.start("value"), match.end("value")) for match in _IKZ_RE.finditer(text)]
@@ -453,7 +559,7 @@ def _registry_key_hits(seg: Segment) -> list[Entity]:
     не уничтожает поясняющий текст документа.
     """
     hits: list[Entity] = []
-    for pattern in (_IKZ_RE, _LICENSE_RE, _OKPO_RE, _FSB_LICENSE_RE):
+    for pattern in (_IKZ_RE, _LICENSE_RE, _OKPO_RE, _KBK_RE, _TERRITORIAL_CODE_RE, _FSB_LICENSE_RE):
         for match in pattern.finditer(seg.text):
             value = match.group("value")
             if pattern is _FSB_LICENSE_RE and not _has_fsb_license_context(
@@ -514,6 +620,9 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
     for seg in segments:
         ikz_ranges = _ikz_ranges(seg.text)
         raw_hits.extend(_registry_key_hits(seg))
+        raw_hits.extend(_labeled_bik_hits(seg))
+        raw_hits.extend(_power_of_attorney_hits(seg))
+        raw_hits.extend(_ip_address_hits(seg))
         for etype, pattern in PATTERNS.items():
             for m in pattern.finditer(seg.text):
                 # Номер договора живёт в группе 1 — сущность не включает
@@ -587,7 +696,9 @@ class RuleDetector:
     name = "rules"
     source = Source.RULE
     priority = 100
-    types: frozenset[str] = frozenset((*PATTERNS, EntityType.REGISTRY_KEY))
+    types: frozenset[str] = frozenset(
+        (*PATTERNS, EntityType.REGISTRY_KEY, EntityType.BIK, EntityType.POWER_OF_ATTORNEY_NUMBER, EntityType.IP_ADDRESS)
+    )
 
     def detect(self, document: Document) -> list[Entity]:
         """Найти формальные сущности с checksum-валидацией."""

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 MIN_YEAR = 1900
@@ -90,12 +91,12 @@ def parse_literal(text: str) -> date | None:
     * ``dd/mm/yyyy`` — `12/02/2025`
     * ``yyyy-mm-dd`` — `2025-02-12`
     * день + месяц словом + год — `10 марта 2025`
-    * день в кавычках — `«12» февраля 2025` (кавычки уже сняты вызывающим)
+    * день в кавычках — `«12» февраля 2025` или `« 12 » февраля 2025`
 
     Двузначные годы и «в марте 2025» не поддерживаются осознанно (план
     T1.15, раздел «Форматы»).
     """
-    stripped = text.strip().strip("«»\"'“”„")
+    stripped = text.strip()
     if not stripped:
         return None
 
@@ -114,19 +115,24 @@ def parse_literal(text: str) -> date | None:
         if len(parts) == 3 and len(parts[0]) == 4:
             return _parse_ints(parts, day_idx=2, month_idx=1, year_idx=0)
 
-    #: Текстовая форма: день + слово-месяц + год. Разделители внутри —
-    #: пробелы; лишние пробелы игнорируем.
-    tokens = stripped.split()
-    if len(tokens) == 3:
-        month = month_number(tokens[1])
+    #: 11.09.2026: дата в шапке договора бывает набрана как « 7 » февраля
+    #: 2024. Разбираем пробелы в кавычках здесь же, чтобы один ISO-ключ
+    #: сохранял согласованность с обычной записью «7 февраля 2024».
+    textual = re.fullmatch(
+        r"(?:[«\"“„]\s*)?(\d{1,2})(?:\s*[»\"”])?\s+([^\s]+)\s+(\d{4})",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    if textual is not None:
+        month = month_number(textual.group(2))
         if month is None:
             return None
-        try:
-            day = int(tokens[0].strip("«»\"'“”„"))
-            year = int(tokens[2])
-        except ValueError:
-            return None
-        return parse_date(day, month, year)
+        return _parse_ints(
+            [textual.group(1), str(month), textual.group(3)],
+            day_idx=0,
+            month_idx=1,
+            year_idx=2,
+        )
 
     return None
 

@@ -78,6 +78,26 @@ _AMOUNT_SEG_LOOKAROUND = 2
 CONFIDENCE = 0.90
 
 
+# 11.09.2026: в `arkhschool-68-183.pdf` и `eat-654000009321.pdf` условные
+# ставки ПП РФ №1042 маскировались частично. Условие «если цена …» отличает
+# справочную шкалу от следующей утвердительной суммы «и составляет …».
+def _is_reference_penalty_rate(text: str, start: int, end: int) -> bool:
+    """Отличить типовую ставку штрафа от суммы конкретного контракта.
+
+    В ПП РФ №1042 ставка (в том числе фиксированные 1 000, 5 000 и т. п.
+    рублей) всегда входит в условие «если цена Контракта …». Сумма, которую
+    надо скрыть, формулируется отдельно: «и составляет 12 345 рублей».
+    Поэтому смотрим только от суммы до конца её пункта: предыдущая ставка не
+    получает иммунитет из-за условия следующего пункта.
+    """
+    clause_end = min(
+        (boundary for boundary in (text.find(";", end), text.find(".", end)) if boundary >= 0),
+        default=len(text),
+    )
+    clause = text[start:clause_end].casefold()
+    return "если" in clause and "цена" in clause
+
+
 class MoneyDetector:
     """Все денежные суммы в рублях по общему формату договоров."""
 
@@ -90,6 +110,8 @@ class MoneyDetector:
         found: list[Entity] = []
         for seg in document.segments:
             for match in _MONEY_RE.finditer(seg.text):
+                if _is_reference_penalty_rate(seg.text, match.start(), match.end()):
+                    continue
                 value = match.group()
                 found.append(
                     Entity(
@@ -139,6 +161,8 @@ class ContractAmountDetector:
         found: list[Entity] = []
         for seg in segments_sorted:
             for m in _MONEY_RE.finditer(seg.text):
+                if _is_reference_penalty_rate(seg.text, m.start(), m.end()):
+                    continue
                 context = _amount_context(segments_sorted, seg.order, m.start(), m.end())
                 if not _has_amount_context(context):
                     continue

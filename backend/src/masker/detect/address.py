@@ -54,8 +54,15 @@ def address_markers() -> AddressMarkers:
 
 _CHUNK_RE: Final = re.compile(r"[^,;]+")
 _TRIM_CHARS: Final = " \t\u00a0.,;:"
-_HARD_BOUNDARY_RE: Final = re.compile(r'[();"«»\n]')
-_NUMBER_VALUE_RE: Final = re.compile(r"\s*(\d[\w-]*)")
+# Скобки не разрывают реквизит: в PDF после названия организации в скобках
+# сразу идёт «Юридический адрес» (11.09.2026, eat-654000009321.pdf).
+# Кавычки оставлены границей: за ними часто начинается номер договора.
+_HARD_BOUNDARY_RE: Final = re.compile(r'[;"«»]')
+# Точка после коротких «д»/«стр» может не войти в маркер из-за lookahead,
+# поэтому принимается и перед значением (11.09.2026, arkhschool-68-183.pdf:
+# «д.10, стр.2»). Иначе дом и строение выпадали из единого спана.
+_NUMBER_VALUE_RE: Final = re.compile(r"\s*\.?\s*(\d[\w-]*)")
+_LETTER_VALUE_RE: Final = re.compile(r"\s*([А-ЯЁ])\b", re.IGNORECASE)
 _NAME_VALUE_RE: Final = re.compile(r"\s+([А-ЯЁ][\w-]*(?:\s+[А-ЯЁ][\w-]*)*)")
 # Маркер, с которого продолжается адрес, разорванный границей абзаца одной
 # ячейки: «309512, ..., г. Старый Оскол,» + «мкр. Жукова, д. 20, кв. 15».
@@ -69,6 +76,7 @@ class _Chunk:
     kinds: frozenset[str]
     value_start: int
     is_stop: bool
+    stops_after: bool
     has_hard_boundary: bool
 
 
@@ -87,7 +95,7 @@ def _marker_start(
     match = pattern.search(text)
     if match is None:
         return None
-    suffix = text[match.end() :].lstrip()
+    suffix = text[match.end() :].lstrip(" \t.")
     if requires_name and (not suffix or not suffix[0].isupper()):
         return None
     if requires_number and (not suffix or not suffix[0].isdigit()):
@@ -128,6 +136,28 @@ class AddressDetector:
         match = _HARD_BOUNDARY_RE.search(value)
         return match.start() if match is not None else len(value)
 
+    @classmethod
+    def _address_limit(cls, value: str) -> int:
+        """Вернуть допустимую границу поиска внутри чанка адреса."""
+        limit = cls._hard_boundary(value)
+        # Кавычки до явной метки адреса принадлежат названию организации,
+        # а не разделяют реквизиты. Это позволяет начать после них с
+        # индекса (11.09.2026, eat-654000009321.pdf); голые числа после
+        # кавычки по-прежнему отсекаются прежней защитой выше.
+        return len(value) if "адрес" in value.casefold()[limit:] else limit
+
+    def _stop_positions(self, value: str) -> list[int]:
+        """Вернуть позиции самостоятельных реквизитов, а не частей слов."""
+        positions: list[int] = []
+        for label in self._stop_labels:
+            pattern = (
+                r"(?<!\w)тел(?:\.|ефон\b)"
+                if label == "тел"
+                else rf"(?<!\w){re.escape(label)}(?!\w)"
+            )
+            positions.extend(match.start() for match in re.finditer(pattern, value, re.IGNORECASE))
+        return positions
+
     @staticmethod
     def _number_end(value: str, start: int, limit: int) -> int | None:
         match = _NUMBER_VALUE_RE.match(value, start)
@@ -136,11 +166,35 @@ class AddressDetector:
         return match.end(1)
 
     @staticmethod
+    def _building_end(value: str, start: int, limit: int, marker: str) -> int | None:
+        """Вернуть номер дома либо букву литеры после её маркера."""
+        number_end = AddressDetector._number_end(value, start, limit)
+        if number_end is not None:
+            return number_end
+        # Литера бывает самостоятельным адресным компонентом («Литера А»),
+        # а не только суффиксом номера. Это зафиксировано 11.09.2026 на
+        # eat-654000009321.pdf: требование цифры оставляло «А» открытой.
+        if marker.casefold().startswith(("лит", "литера")):
+            match = _LETTER_VALUE_RE.match(value, start)
+            if match is not None and match.end(1) <= limit:
+                return match.end(1)
+        return None
+
+    @staticmethod
     def _name_end(value: str, start: int, limit: int) -> int | None:
         match = _NAME_VALUE_RE.match(value, start)
         if match is None:
             return None
         return min(match.end(1), limit)
+
+    @staticmethod
+    def _postfix_street_start(value: str, pattern: re.Pattern[str], limit: int) -> int | None:
+        """Найти улицу с маркером после названия: «Пресненская наб.»."""
+        marker = pattern.search(value)
+        if marker is None or marker.start() >= limit:
+            return None
+        prefix = value[: marker.start()].strip()
+        return 0 if re.search(r"[А-ЯЁа-яё]", prefix) is not None else None
 
     def _component_end(
         self,
@@ -151,7 +205,7 @@ class AddressDetector:
         previous_kinds: frozenset[str],
     ) -> int:
         """Вернуть конец последнего значения компонента, не всего чанка."""
-        limit = self._hard_boundary(value)
+        limit = self._address_limit(value)
         ends: list[int] = []
         if index is not None and index.end() <= limit:
             ends.append(index.end())
@@ -165,9 +219,14 @@ class AddressDetector:
                 if name_end is not None:
                     ends.append(name_end)
         for kind, pattern in (("building", self._building), ("premises", self._premises)):
-            marker = pattern.search(value)
-            if marker is not None and kind in kinds:
-                number_end = self._number_end(value, marker.end(), limit)
+            for marker in pattern.finditer(value):
+                if kind not in kinds:
+                    continue
+                number_end = (
+                    self._building_end(value, marker.end(), limit, marker.group())
+                    if kind == "building"
+                    else self._number_end(value, marker.end(), limit)
+                )
                 if number_end is not None:
                     ends.append(number_end)
         if "building" in kinds and "street" in previous_kinds:
@@ -184,9 +243,9 @@ class AddressDetector:
             if start == end:
                 continue
             value = text[start:end]
-            is_stop = any(label in value.casefold() for label in self._stop_labels) or bool(
-                re.search(r"\d{6}", value)
-            )
+            folded = value.casefold()
+            first_stop = min(self._stop_positions(value), default=None)
+            has_index_like = bool(re.search(r"\d{6}", value))
             # Ничего после «жёсткой» границы (кавычка, скобка, перенос строки)
             # не считается маркером адреса вовсе — иначе `value_start` может
             # уйти за маркер, найденный только там (например, случайное
@@ -194,12 +253,10 @@ class AddressDetector:
             # открывающей кавычки), а `_component_end` его туда не пустит:
             # получился бы `end < start` и падение в `DetectAgent._validate`
             # (найдено на реальном PDF-блоке после шага 8 плана T2.2.1).
-            limit = self._hard_boundary(value)
+            limit = self._address_limit(value)
             index = self._index.search(value)
             if index is not None and index.end() > limit:
                 index = None
-            if index is not None:
-                is_stop = False
             region_start = _marker_start(value, self._region)
             if region_start is not None and region_start >= limit:
                 region_start = None
@@ -207,9 +264,22 @@ class AddressDetector:
             if settlement_start is not None and settlement_start >= limit:
                 settlement_start = None
             street_start = _marker_start(value, self._street, requires_name=True)
+            if street_start is None:
+                street_start = self._postfix_street_start(value, self._street, limit)
             if street_start is not None and street_start >= limit:
                 street_start = None
             building_start = _marker_start(value, self._building, requires_number=True)
+            if building_start is None:
+                building_marker = self._building.search(value)
+                if (
+                    building_marker is not None
+                    and building_marker.start() < limit
+                    and self._building_end(
+                        value, building_marker.end(), limit, building_marker.group()
+                    )
+                    is not None
+                ):
+                    building_start = building_marker.start()
             if building_start is not None and building_start >= limit:
                 building_start = None
             premises_start = _marker_start(value, self._premises, requires_number=True)
@@ -227,6 +297,52 @@ class AddressDetector:
                 )
                 if marker_start is not None
             )
+            # Метка ИНН или банка может оказаться в том же текстовом чанке,
+            # что и «д. 14 Литера А». В таком случае чанк нужен, а его конец
+            # уже точно режет `_component_end` (11.09.2026,
+            # eat-654000009321.pdf); останавливаемся только до следующего
+            # самостоятельного реквизита.
+            address_start = folded.find("адрес")
+            marker_starts = tuple(
+                marker_start
+                for marker_start in (
+                    index.start() if index is not None else None,
+                    region_start,
+                    settlement_start,
+                    street_start,
+                    building_start,
+                    premises_start,
+                )
+                if marker_start is not None
+            )
+            # В PDF один сегмент иногда склеивает название учреждения с его
+            # реквизитами: «Республики Башкортостан ... юридический адрес:
+            # 450008». Маркер региона из названия не открывает адрес. Если
+            # после метки «адрес» есть свой адресный компонент, именно он
+            # задаёт начало нового реквизита; иначе метка остаётся стопом для
+            # предыдущего адреса.
+            address_label = re.search(r"адрес\s*:", folded)
+            markers_after_address = (
+                tuple(start for start in marker_starts if start >= address_label.end())
+                if address_label is not None
+                and region_start is not None
+                and region_start < address_label.start()
+                else ()
+            )
+            first_marker = min(markers_after_address or marker_starts, default=None)
+            is_stop = (has_index_like and not kinds) or (
+                first_stop is not None and (first_marker is None or first_stop < first_marker)
+            ) or (address_start >= 0 and first_marker is None)
+            stop_offsets = [
+                offset
+                for offset in (first_stop, address_start)
+                if first_marker is not None and offset is not None and offset > first_marker
+            ]
+            stop_after = min(stop_offsets, default=None)
+            stops_after = stop_after is not None
+            # Следующая метка адреса открывает новый реквизит, а не продолжает
+            # предыдущий: без этого в arkhschool-68-183.pdf 11.09.2026 после
+            # «д. 30 стр.1» захватывался «Почтовый адрес» из соседней колонки.
             if not kinds and "street" in previous_kinds and re.match(r"\d", value):
                 kinds = frozenset({"building"})
                 building_start = 0
@@ -243,7 +359,7 @@ class AddressDetector:
             ]
             value_start = start + (min(starts) if starts else 0)
             value_end = start + self._component_end(
-                value,
+                value[:stop_after] if stop_after is not None else value,
                 index=index,
                 kinds=kinds,
                 previous_kinds=previous_kinds,
@@ -260,7 +376,8 @@ class AddressDetector:
                     kinds=kinds,
                     value_start=value_start,
                     is_stop=is_stop,
-                    has_hard_boundary=self._hard_boundary(value) < len(value),
+                    stops_after=stops_after,
+                    has_hard_boundary=self._address_limit(value) < len(value),
                 )
             )
             previous_kinds = kinds
@@ -359,16 +476,37 @@ class AddressDetector:
                     continue
                 kinds = set(first.kinds)
                 end_index = index
+                # Адресный компонент может не иметь собственного маркера:
+                # «Российская Федерация» и «вн.тер. г. муниципальный округ».
+                # Между ними разрешаем переносы строк (11.09.2026,
+                # arkhschool-68-183.pdf и eat-654000009321.pdf), но обрываем
+                # сборку на реквизите из соседней колонки таблицы.
                 while (
                     end_index + 1 < len(chunks)
                     and not chunks[end_index].has_hard_boundary
+                    and not chunks[end_index].stops_after
                     and not chunks[end_index + 1].is_stop
-                    and chunks[end_index + 1].kinds
+                    and not (
+                        "index" in chunks[end_index + 1].kinds
+                        and "index" in kinds
+                        and not chunks[end_index + 1].stops_after
+                    )
                 ):
                     end_index += 1
                     kinds.update(chunks[end_index].kinds)
                 is_sufficient = self._is_sufficient(frozenset(kinds))
-                start, end = _trim_bounds(segment.text, first.value_start, chunks[end_index].end)
+                # Немаркированные куски нужны только как мост между
+                # компонентами адреса. Их нельзя включать в конец: после
+                # «стр.2» в arkhschool-68-183.pdf 11.09.2026 извлечение PDF
+                # склеивает левую колонку с «Межрегиональное УФК» справа.
+                last_component_index = next(
+                    position
+                    for position in range(end_index, index - 1, -1)
+                    if chunks[position].kinds
+                )
+                start, end = _trim_bounds(
+                    segment.text, first.value_start, chunks[last_component_index].end
+                )
                 if is_sufficient or self._has_value_label(document, segment_index, start):
                     value = segment.text[start:end]
                     found.append(

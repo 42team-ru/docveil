@@ -47,6 +47,8 @@ def builtin_specs() -> list[EntityTypeSpec]:
         EntityType.SITE: ("Сайт", "САЙТ"),
         EntityType.FEDERAL_LAW: ("Федеральный закон", "ФЗ"),
         EntityType.REGISTRY_KEY: ("Реестровый ключ", "РЕЕСТРОВЫЙ-КЛЮЧ"),
+        EntityType.POWER_OF_ATTORNEY_NUMBER: ("Номер доверенности", "НОМЕР-ДОВЕРЕННОСТИ"),
+        EntityType.IP_ADDRESS: ("IP-адрес", "IP-АДРЕС"),
         EntityType.CONTRACT_AMOUNT: ("Сумма договора", "СУММА-ДОГОВОРА"),
         EntityType.DELIVERY_PERIOD: ("Срок поставки", "СРОК-ПОСТАВКИ"),
         EntityType.PAYMENT_TERMS: ("Условия оплаты", "УСЛОВИЯ-ОПЛАТЫ"),

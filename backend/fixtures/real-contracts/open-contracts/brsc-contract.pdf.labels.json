@@ -82,10 +82,6 @@
     },
     {
       "type": "date",
-      "text": "5 апреля 2013"
-    },
-    {
-      "type": "date",
       "text": "25 ноября 2016"
     },
     {
@@ -94,95 +90,11 @@
     },
     {
       "type": "date",
-      "text": "25 ноября 2013"
-    },
-    {
-      "type": "date",
       "text": "31 декабря 2016"
     },
     {
       "type": "date",
-      "text": "29 декабря 2012"
-    },
-    {
-      "type": "date",
-      "text": "27 июля 2006"
-    },
-    {
-      "type": "date",
-      "text": "27 июля 2006"
-    },
-    {
-      "type": "date",
-      "text": "27 июля 2010"
-    },
-    {
-      "type": "date",
-      "text": "8 июня 2011"
-    },
-    {
-      "type": "date",
-      "text": "8 сентября 2010"
-    },
-    {
-      "type": "date",
-      "text": "10 июля 2013"
-    },
-    {
-      "type": "date",
-      "text": "14 сентября 2012"
-    },
-    {
-      "type": "date",
-      "text": "25 октября 2014"
-    },
-    {
-      "type": "date",
-      "text": "14 февраля 2015"
-    },
-    {
-      "type": "date",
-      "text": "25 апреля 2011"
-    },
-    {
-      "type": "date",
-      "text": "17 декабря 2009"
-    },
-    {
-      "type": "date",
-      "text": "25 декабря 2013"
-    },
-    {
-      "type": "date",
       "text": "08 июля 2015"
-    },
-    {
-      "type": "date",
-      "text": "27 июля 2006"
-    },
-    {
-      "type": "date",
-      "text": "27 июля 2006"
-    },
-    {
-      "type": "date",
-      "text": "18 февраля 2013"
-    },
-    {
-      "type": "date",
-      "text": "11 февраля 2013"
-    },
-    {
-      "type": "date",
-      "text": "10 июля 2014"
-    },
-    {
-      "type": "date",
-      "text": "10 июля 2013"
-    },
-    {
-      "type": "date",
-      "text": "28.12.2013"
     },
     {
       "type": "date",
@@ -215,38 +127,6 @@
     {
       "type": "money",
       "text": "243 217 рублей 00 копеек"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 44-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 273-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 149-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 152-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 210-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 149-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 152-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "Федеральным законом от 28.12.2013 № 443-ФЗ"
     },
     {
       "type": "org_name",

@@ -111,6 +111,10 @@ def normalize_value(entity_type: EntityType | str, text: str) -> str:
         return re.sub(r"[\s-]", "", text)
     if entity is EntityType.REGISTRY_KEY:
         return re.sub(r"[\s-]", "", text).casefold()
+    if entity is EntityType.POWER_OF_ATTORNEY_NUMBER:
+        return re.sub(r"\s+", "", text).casefold()
+    if entity is EntityType.IP_ADDRESS:
+        return text.strip()
     if entity in {EntityType.EMAIL, EntityType.SITE}:
         return text.casefold()
     if entity is EntityType.ORG_NAME:

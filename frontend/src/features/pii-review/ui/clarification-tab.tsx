@@ -118,8 +118,9 @@ export function ClarificationTab({ ask, runId }: ClarificationTabProps) {
   const answers = useReviewStore((state) => state.questionAnswers);
   const answerQuestion = useReviewStore((state) => state.answerQuestion);
   const submit = useSubmitAnswers(runId);
+  const questions = ask?.questions.filter((question) => question.kind !== "type") ?? [];
 
-  if (!ask || ask.questions.length === 0) {
+  if (!ask || questions.length === 0) {
     return (
       <VStack height="100%" hAlign="center" vAlign="center">
         <EmptyState
@@ -132,17 +133,17 @@ export function ClarificationTab({ ask, runId }: ClarificationTabProps) {
     );
   }
 
-  const answered = ask.questions.filter(
+  const answered = questions.filter(
     (question) => answers[question.id] !== undefined,
   ).length;
-  const unanswered = unansweredQuestions(ask.questions, answers).length;
+  const unanswered = unansweredQuestions(questions, answers).length;
 
   return (
     <VStack gap={0} isScrollable height="100%">
       <Section padding={4}>
         <VStack gap={2}>
           <Text type="supporting" weight="medium">
-            {`Отвечено ${answered} из ${ask.questions.length}`}
+            {`Отвечено ${answered} из ${questions.length}`}
           </Text>
           <Text type="supporting" color="secondary" textWrap="pretty">
             Неотвеченный вопрос движок решает сам — по умолчанию «маскировать».
@@ -150,7 +151,7 @@ export function ClarificationTab({ ask, runId }: ClarificationTabProps) {
         </VStack>
       </Section>
 
-      {ask.questions.map((question) => (
+      {questions.map((question) => (
         <QuestionItem
           key={question.id}
           question={question}
@@ -168,7 +169,7 @@ export function ClarificationTab({ ask, runId }: ClarificationTabProps) {
             isDisabled={runId === null || submit.isPending}
             isLoading={submit.isPending}
             onClick={() =>
-              submit.mutate(buildAnswerEnvelope(ask.questions, answers))
+              submit.mutate(buildAnswerEnvelope(ask.questions, answers, ask.schemaVersion))
             }
           />
           {unanswered > 0 ? (

@@ -85,8 +85,8 @@ export function useReviewData(runId: string | null): ReviewData {
     [report.data],
   );
   const parsedAsk = useMemo(
-    () => (questions.data === undefined ? null : parseAskEnvelope(questions.data)),
-    [questions.data],
+    () => (status !== "awaiting_answers" || questions.data === undefined ? null : parseAskEnvelope(questions.data)),
+    [questions.data, status],
   );
 
   const document: ReviewedDocument = {
@@ -106,7 +106,9 @@ export function useReviewData(runId: string | null): ReviewData {
     report: parsedReport,
     ask: parsedAsk,
     isLoading: runState.isLoading || report.isLoading || questions.isLoading,
-    error: errorTextOf(runState.error) ?? runState.data?.error ?? null,
+    error: errorTextOf(runState.error) ?? runState.data?.error
+      ?? (status === "awaiting_answers" ? errorTextOf(questions.error) : null)
+      ?? (hasResult ? errorTextOf(report.error) : null),
   };
 }
 

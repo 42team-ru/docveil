@@ -1,31 +1,24 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Play } from "lucide-react";
 import { useToast } from "@astryxdesign/core/Toast";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import {
   Layout,
   LayoutContent,
-  LayoutFooter,
   LayoutHeader,
   LayoutPanel,
 } from "@astryxdesign/core/Layout";
 import { Icon } from "@astryxdesign/core/Icon";
-import { List, ListItem } from "@astryxdesign/core/List";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 
 import { useUploadQueueStore } from "../../entity/document/model/upload-queue-store";
-import { piiTypeOptions } from "../../entity/pii/model/pii-type-dict";
 import { useRuleProfileStore } from "../../entity/rule-profile/model/rule-profile-store";
 import { RecentDocuments } from "../../features/document-history/ui/recent-documents";
 import { useStartRun } from "../../features/masking-run/api/masking-run";
-import {
-  MASK_STYLE_OPTIONS,
-  MaskStylePicker,
-} from "../../features/document-upload/ui/mask-style-picker";
+import { MaskStylePicker } from "../../features/document-upload/ui/mask-style-picker";
 import { UploadDropzone } from "../../features/document-upload/ui/upload-dropzone";
 import { UploadQueue } from "../../features/document-upload/ui/upload-queue";
 import { pluralRu } from "../../shared/lib/plural-ru";
@@ -33,8 +26,6 @@ import { ScreenLayout } from "../../shared/ui/screen-layout/screen-layout";
 
 /** Ширина правой колонки настроек — структурный размер региона. */
 const SETTINGS_WIDTH = 380;
-
-const REGISTRY_TYPE_COUNT = piiTypeOptions().length;
 
 /** Шаг 1: что обезличиваем и по каким правилам. */
 export function UploadPage() {
@@ -48,18 +39,18 @@ export function UploadPage() {
   const clearQueue = useUploadQueueStore((state) => state.clear);
 
   const maskStyle = useRuleProfileStore((state) => state.maskStyle);
-  const maskStyleName =
-    MASK_STYLE_OPTIONS.find((option) => option.id === maskStyle)?.name ?? maskStyle;
 
   const startRun = useStartRun();
   // Кандидаты на (повторную) отправку: всё, что ещё не заведено прогоном —
   // включая уже упавшие файлы, их можно отправить повторно тем же кликом.
-  const submittable = items.filter((item) => item.state !== "started");
+  const submittable = items.filter((item) => item.state === "pending" || item.state === "failed");
   // «Готово» в шапке очереди — только по-настоящему свободные от ошибки
   // файлы, а не всё, что уйдёт по кнопке (которая retry-ит и упавшие).
   const readyCount = items.filter((item) => item.state === "pending").length;
 
-  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [isSubmitting, setIsStarting] = useState(false);
+  const isStarting = isSubmitting || items.some((item) => item.state === "starting");
+  const startingRef = useRef(false);
 
   /**
    * Один прогон на документ: движок принимает файл, а не пачку. Файлы
@@ -67,18 +58,26 @@ export function UploadPage() {
    * порядком в очереди, а первый открылся на проверку.
    */
   async function handleStart() {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    setIsStarting(true);
     let firstRunId: string | null = null;
     let failedCount = 0;
 
+    for (const item of submittable) markStarting(item.id);
     for (const item of submittable) {
-      markStarting(item.id);
       try {
         const run = await startRun.mutateAsync({
           source: item.source,
           maskStyle,
         });
         markStarted(item.id, run.id);
-        firstRunId ??= run.id;
+        if (firstRunId === null) {
+          firstRunId = run.id;
+          void navigate(`/documents/${run.id}`, {
+            state: { uploadIds: submittable.map((upload) => upload.id), chooseUpload: submittable.length > 1 },
+          });
+        }
       } catch (error) {
         failedCount += 1;
         markFailed(
@@ -87,6 +86,9 @@ export function UploadPage() {
         );
       }
     }
+
+    startingRef.current = false;
+    setIsStarting(false);
 
     if (firstRunId === null) {
       showToast({
@@ -104,7 +106,6 @@ export function UploadPage() {
         type: "error",
       });
     }
-    navigate(`/documents/${firstRunId}`);
   }
 
   return (
@@ -142,7 +143,7 @@ export function UploadPage() {
                       size="sm"
                       variant="ghost"
                       label="Очистить"
-                      isDisabled={startRun.isPending}
+                      isDisabled={isStarting}
                       onClick={clearQueue}
                     />
                   ) : null}
@@ -166,9 +167,11 @@ export function UploadPage() {
                           ? "Обезличить документ"
                           : `Обезличить ${submittable.length} ${pluralRu(submittable.length, ["документ", "документа", "документов"])}`
                       }
-                      isDisabled={submittable.length === 0 || startRun.isPending}
-                      isLoading={startRun.isPending}
-                      onClick={() => setIsConfirmOpen(true)}
+                      isDisabled={
+                        submittable.length === 0 || isStarting
+                      }
+                      isLoading={isStarting}
+                      onClick={() => void handleStart()}
                     />
                   </VStack>
                 </VStack>
@@ -201,60 +204,6 @@ export function UploadPage() {
         }
       />
 
-      <Dialog isOpen={isConfirmOpen} onOpenChange={setIsConfirmOpen} purpose="form" width={480}>
-        <Layout
-          header={
-            <DialogHeader
-              title="Запустить обезличивание?"
-              subtitle="Действие нельзя отменить после запуска — проверьте список перед подтверждением."
-              onOpenChange={setIsConfirmOpen}
-            />
-          }
-          content={
-            <LayoutContent>
-              <VStack gap={4}>
-                <VStack gap={2}>
-                  <Text type="label" weight="medium">
-                    {`${submittable.length} ${pluralRu(submittable.length, ["файл", "файла", "файлов"])} на обезличивание`}
-                  </Text>
-                  <List hasDividers density="compact">
-                    {submittable.map((item) => (
-                      <ListItem key={item.id} label={item.name} />
-                    ))}
-                  </List>
-                </VStack>
-                <VStack gap={1}>
-                  <Text color="secondary" size="sm">
-                    {`Стиль маски: «${maskStyleName}». Маскируются все ${REGISTRY_TYPE_COUNT} ${pluralRu(REGISTRY_TYPE_COUNT, ["тип", "типа", "типов"])} персональных данных из реестра движка.`}
-                  </Text>
-                  <Text color="secondary" size="sm">
-                    Перед тем как документ станет финальным, каждый найденный
-                    фрагмент можно проверить и отменить на экране проверки —
-                    запуск сразу не завершает обработку.
-                  </Text>
-                </VStack>
-              </VStack>
-            </LayoutContent>
-          }
-          footer={
-            <LayoutFooter hasDivider>
-              <HStack gap={2} hAlign="end" width="100%">
-                <Button variant="ghost" label="Отмена" onClick={() => setIsConfirmOpen(false)} />
-                <Button
-                  variant="primary"
-                  label="Запустить"
-                  icon={<Icon icon={Play} size="sm" />}
-                  isLoading={startRun.isPending}
-                  onClick={() => {
-                    setIsConfirmOpen(false);
-                    void handleStart();
-                  }}
-                />
-              </HStack>
-            </LayoutFooter>
-          }
-        />
-      </Dialog>
     </ScreenLayout>
   );
 }

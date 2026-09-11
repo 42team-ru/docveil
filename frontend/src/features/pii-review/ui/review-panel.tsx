@@ -56,8 +56,9 @@ export function ReviewPanel({
   totalCount,
   notFoundIds,
 }: ReviewPanelProps) {
-  const [tab, setTab] = useState("list");
-  const questionCount = ask?.questions.length ?? 0;
+  const [selectedTab, setTab] = useState<string | null>(null);
+  const questionCount = ask?.questions.filter((question) => question.kind !== "type").length ?? 0;
+  const tab = selectedTab ?? (questionCount > 0 ? "ask" : "list");
 
   return (
     <LayoutPanel

@@ -61,6 +61,9 @@ export function AccountIdentity({ user }: AccountIdentityProps) {
       </VStack>
 
       <VStack gap={2} className="min-w-0">
+        <Text type="large" weight="semibold" maxLines={1}>
+          {user.full_name}
+        </Text>
         <HStack gap={1.5} vAlign="center">
           <Text weight="medium" maxLines={1}>
             {user.email}

@@ -100,6 +100,55 @@ export interface AskEnvelopeOut {
   questions: QuestionOut[];
 }
 
+/**
+ * Прямоугольник, который оператор обвёл на превью, координаты 0..1.
+ *
+ * Нормализованы по размерам страницы того же PDF-артефакта, что и
+ * `EntityRecordOut.regions` в отчёте (`masker.highlights`) — один и тот же
+ * масштаб в обе стороны.
+ */
+export interface BboxRegionIn {
+  /** @minimum 0 */
+  page: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  x0: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  y0: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  x1: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  y1: number;
+}
+
+/**
+ * Одна прямоугольная область сущности на странице PDF-артефакта.
+ *
+ * Координаты нормализованы 0..1 по размерам страницы готового
+ * ``masked_highlight.pdf`` (не исходного документа) — фронт умножит на
+ * физический размер canvas в любом zoom без пересчёта. Одна сущность на
+ * одной странице — один регион; сущность, попавшая на две страницы
+ * (перенос), даёт две записи с разными ``page``.
+ */
+export interface BboxRegionOut {
+  page: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
 export interface BodyUploadApiFilesUploadPost {
   file: Blob;
 }
@@ -175,6 +224,7 @@ export interface PiiEntryOut {
   decision?: Action | null;
   decided_by?: string | null;
   reason?: string | null;
+  regions?: BboxRegionOut[];
   chunk_start: number;
   chunk_end: number;
 }
@@ -576,6 +626,7 @@ export interface EntityRecordOut {
   decision?: Action | null;
   decided_by?: string | null;
   reason?: string | null;
+  regions?: BboxRegionOut[];
 }
 
 export interface FileUploadResponse {
@@ -643,10 +694,16 @@ export interface LoginRequest {
 
 /**
  * Значение, которое движок пропустил, а оператор нашёл глазами.
+ *
+ * `region` — опциональный якорь по координате: место, где оператор обвёл
+ * значение на превью. Без него сервер ищет `text` по всему документу (как
+ * раньше); с ним — адресуется именно указанное место, без текстового
+ * поиска, что переживает и OCR-шум на сканах.
  */
 export interface ManualEntityIn {
   type: string;
   text: string;
+  region?: BboxRegionIn | null;
 }
 
 /**
@@ -696,6 +753,52 @@ export interface MaskPlanOut {
   requested_types: string[];
   groups: PlanGroupOut[];
   skipped: MaskPlanSkippedOut;
+}
+
+/**
+ * Запрос OCR-извлечения: объект MinIO с PDF-документом.
+ */
+export interface OcrExtractRequest {
+  object_name: string;
+}
+
+/**
+ * Одна распознанная строка с геометрией в pt страницы.
+ */
+export interface OcrLineOut {
+  text: string;
+  bbox: number[];
+  polygon: number[][];
+  confidence: number;
+  order: number;
+}
+
+/**
+ * OCR-результат одной страницы.
+ */
+export interface OcrPageOut {
+  page: number;
+  width_pt: number;
+  height_pt: number;
+  dpi: number;
+  lines: OcrLineOut[];
+}
+
+/**
+ * OCR-результат всего документа: провайдер + постраничные строки.
+ */
+export interface OcrExtractResponse {
+  provider: string;
+  pages: OcrPageOut[];
+}
+
+/**
+ * Размеры одной страницы готового PDF-артефакта в pt — ``report.pages[]``.
+ */
+export interface PageInfoOut {
+  page: number;
+  width_pt: number;
+  height_pt: number;
 }
 
 /**
@@ -774,6 +877,29 @@ export interface RefreshRequest {
   refresh_token?: string | null;
 }
 
+export type ReviewEditsDecisions = {[key: string]: 'mask' | 'keep'};
+
+export type ReviewEditsTypeOverrides = {[key: string]: string};
+
+/**
+ * Правки оператора: решения по ссылкам, смена типа, добавленные значения.
+ */
+export interface ReviewEdits {
+  decisions?: ReviewEditsDecisions;
+  type_overrides?: ReviewEditsTypeOverrides;
+  manual?: ManualEntityIn[];
+}
+
+/**
+ * Черновые правки и версия результата, на котором их сделал оператор.
+ */
+export interface RegenerateRequest {
+  schema_version?: 1;
+  edits?: ReviewEdits;
+  /** @minimum 0 */
+  expected_revision: number;
+}
+
 export type ReportOutDocumentCoverage = { [key: string]: unknown };
 
 export type ReportOutLeakedItem = { [key: string]: unknown };
@@ -847,19 +973,7 @@ export interface ReportOut {
   marker_legend: MarkerLegendItemOut[];
   layout: LayoutOut[];
   certificate?: CertificateOut | null;
-}
-
-export type ReviewEditsDecisions = {[key: string]: 'mask' | 'keep'};
-
-export type ReviewEditsTypeOverrides = {[key: string]: string};
-
-/**
- * Правки оператора: решения по ссылкам, смена типа, добавленные значения.
- */
-export interface ReviewEdits {
-  decisions?: ReviewEditsDecisions;
-  type_overrides?: ReviewEditsTypeOverrides;
-  manual?: ManualEntityIn[];
+  pages?: PageInfoOut[];
 }
 
 /**
@@ -899,6 +1013,14 @@ export const RunCreateRequestMaskStyle = {
 
 export type RunCreateRequestCustomTypesItem = { [key: string]: unknown };
 
+export type RunCreateRequestImageOutputFormat = typeof RunCreateRequestImageOutputFormat[keyof typeof RunCreateRequestImageOutputFormat];
+
+
+export const RunCreateRequestImageOutputFormat = {
+  original: 'original',
+  pdf: 'pdf',
+} as const;
+
 /**
  * Запуск прогона по уже загруженному в MinIO файлу (`/api/files/upload`).
  */
@@ -911,6 +1033,7 @@ export interface RunCreateRequest {
   unmask_critical?: boolean;
   review?: boolean;
   custom_types?: RunCreateRequestCustomTypesItem[];
+  image_output_format?: RunCreateRequestImageOutputFormat;
 }
 
 /**
@@ -974,6 +1097,7 @@ export interface RunResponse {
   document: RunDocument;
   node_hint?: string | null;
   error?: string | null;
+  artifact_revision?: number;
   created_at: string;
   finished_at?: string | null;
 }

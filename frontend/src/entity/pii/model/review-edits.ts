@@ -6,6 +6,15 @@ import type {
   PiiType,
 } from "./types";
 
+/** Регион правки в форме `BboxRegionIn` бэкенда — snake_case, уходит как есть. */
+type ReviewEditsRegion = {
+  page: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+};
+
 /** Правки оператора в форме, которую разбирает `masker.graph.review`. */
 export type ReviewEdits = {
   /** `{ref: "mask"|"keep"}` — решение по конкретной ссылке отчёта. */
@@ -13,11 +22,12 @@ export type ReviewEdits = {
   /** `{ref: type_id}` — поправленный тип; маркер пересоберёт движок. */
   type_overrides: Record<string, string>;
   /** Значения, которые движок пропустил, а оператор нашёл глазами. */
-  manual: { type: string; text: string }[];
+  manual: { type: string; text: string; region?: ReviewEditsRegion }[];
 };
 
 type ReviewState = {
   groupDecisions: Record<string, PiiDecisionKind>;
+  occurrenceDecisions: Record<string, PiiDecisionKind>;
   typeOverrides: Record<string, PiiType>;
   occurrenceTypeOverrides: Record<string, PiiType>;
   manualOccurrences: ManualPiiOccurrence[];
@@ -57,6 +67,10 @@ export function buildReviewEdits(
     if (decision === "confirmed") decisions[occurrence.ref] = "mask";
     if (decision === "rejected") decisions[occurrence.ref] = "keep";
 
+    const ownDecision = state.occurrenceDecisions[occurrence.id];
+    if (ownDecision === "confirmed") decisions[occurrence.ref] = "mask";
+    if (ownDecision === "rejected") decisions[occurrence.ref] = "keep";
+
     const groupType = state.typeOverrides[occurrence.groupId];
     if (groupType) typeOverrides[occurrence.ref] = groupType;
 
@@ -70,6 +84,7 @@ export function buildReviewEdits(
     manual: state.manualOccurrences.map((item) => ({
       type: item.type,
       text: item.text,
+      ...(item.region ? { region: item.region } : {}),
     })),
   };
 }

@@ -29,6 +29,7 @@ import type {
   AskEnvelopeOut,
   HTTPValidationError,
   ListRunsApiRunsGetParams,
+  RegenerateRequest,
   ReportOut,
   ReviewEnvelopeOut,
   ReviewRequest,
@@ -854,7 +855,107 @@ export function useGetReviewPayloadApiRunsRunIdReviewGet<TData = Awaited<ReturnT
 
 
 
-export type getReportApiRunsRunIdReportGetResponse200 = {
+export type postRegenerateApiRunsRunIdRegeneratePostResponse202 = {
+  data: RunResponse
+  status: 202
+}
+
+export type postRegenerateApiRunsRunIdRegeneratePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type postRegenerateApiRunsRunIdRegeneratePostResponseSuccess = (postRegenerateApiRunsRunIdRegeneratePostResponse202) & {
+  headers: Headers;
+};
+export type postRegenerateApiRunsRunIdRegeneratePostResponseError = (postRegenerateApiRunsRunIdRegeneratePostResponse422) & {
+  headers: Headers;
+};
+
+export type postRegenerateApiRunsRunIdRegeneratePostResponse = (postRegenerateApiRunsRunIdRegeneratePostResponseSuccess | postRegenerateApiRunsRunIdRegeneratePostResponseError)
+
+export const getPostRegenerateApiRunsRunIdRegeneratePostUrl = (runId: string,) => {
+
+
+
+
+  return `/runs/${runId}/regenerate`
+}
+
+/**
+ * Применить черновые правки и снова остановиться на проверке.
+ * @summary Post Regenerate
+ */
+export const postRegenerateApiRunsRunIdRegeneratePost = async (runId: string,
+    regenerateRequest: RegenerateRequest, options?: Parameters<typeof authMutator>[1]): Promise<postRegenerateApiRunsRunIdRegeneratePostResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return authMutator<postRegenerateApiRunsRunIdRegeneratePostResponse>(getPostRegenerateApiRunsRunIdRegeneratePostUrl(runId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(regenerateRequest)
+  }
+);}
+
+
+
+
+
+export const getPostRegenerateApiRunsRunIdRegeneratePostMutationKey = () => ['postRegenerateApiRunsRunIdRegeneratePost'] as const;
+
+export const getPostRegenerateApiRunsRunIdRegeneratePostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postRegenerateApiRunsRunIdRegeneratePost>>, TError,PostRegenerateApiRunsRunIdRegeneratePostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof postRegenerateApiRunsRunIdRegeneratePost>>, TError,PostRegenerateApiRunsRunIdRegeneratePostMutationVariables, TContext> => {
+
+const mutationKey = getPostRegenerateApiRunsRunIdRegeneratePostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postRegenerateApiRunsRunIdRegeneratePost>>, PostRegenerateApiRunsRunIdRegeneratePostMutationVariables> = (props) => {
+          const {runId,data} = props ?? {};
+
+          return  postRegenerateApiRunsRunIdRegeneratePost(runId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostRegenerateApiRunsRunIdRegeneratePostMutationResult = NonNullable<Awaited<ReturnType<typeof postRegenerateApiRunsRunIdRegeneratePost>>>
+    export type PostRegenerateApiRunsRunIdRegeneratePostMutationBody = RegenerateRequest
+    export type PostRegenerateApiRunsRunIdRegeneratePostMutationError = ErrorType<HTTPValidationError>
+    export type PostRegenerateApiRunsRunIdRegeneratePostMutationVariables = {runId: string;data: RegenerateRequest}
+
+    /**
+ * @summary Post Regenerate
+ */
+export const usePostRegenerateApiRunsRunIdRegeneratePost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postRegenerateApiRunsRunIdRegeneratePost>>, TError,PostRegenerateApiRunsRunIdRegeneratePostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postRegenerateApiRunsRunIdRegeneratePost>>,
+        TError,
+        PostRegenerateApiRunsRunIdRegeneratePostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPostRegenerateApiRunsRunIdRegeneratePostMutationOptions(options), queryClient);
+    }
+    export type getReportApiRunsRunIdReportGetResponse200 = {
   data: ReportOut
   status: 200
 }

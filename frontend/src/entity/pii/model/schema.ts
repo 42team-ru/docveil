@@ -18,6 +18,8 @@ import type {
   PiiDocFormat,
   PiiExtraction,
   PiiOccurrence,
+  PiiPage,
+  PiiRegion,
   PiiSource,
   PiiType,
   PolicyQuestion,
@@ -37,10 +39,19 @@ const rawAnchorSchema = z.object({
   locator: z.array(z.union([z.string(), z.number()])),
 });
 
+const rawRegionSchema = z.object({
+  page: z.number(),
+  x0: z.number(),
+  y0: z.number(),
+  x1: z.number(),
+  y1: z.number(),
+});
+
 const rawPiiSchema = z.object({
   ref: z.string(),
   group_id: z.string(),
   marker: z.string(),
+  decision: z.string().optional().nullable(),
   type: z.string(),
   text: z.string(),
   normalized: z.string(),
@@ -51,6 +62,9 @@ const rawPiiSchema = z.object({
   chunk_start: z.number(),
   chunk_end: z.number(),
   anchor: rawAnchorSchema,
+  //: Пусто для docx/xlsx (нет PDF-артефакта) — не у всех прогонов есть план
+  //: замен на момент разбора (`chunks[].pii[]` строится и до плана).
+  regions: z.array(rawRegionSchema).optional(),
 });
 
 const rawChunkSchema = z.object({
@@ -66,7 +80,18 @@ const rawExtractionSchema = z.object({
   chunks: z.array(rawChunkSchema),
 });
 
-const KNOWN_FORMATS: PiiDocFormat[] = ["docx", "pdf", "xlsx"];
+/** Экспортирован для `use-review-data.ts` — формат по расширению реального
+ * артефакта проверяется тем же списком, что и разбор отчёта. */
+export const KNOWN_FORMATS: PiiDocFormat[] = [
+  "docx",
+  "pdf",
+  "xlsx",
+  "jpg",
+  "jpeg",
+  "png",
+  "tif",
+  "tiff",
+];
 const KNOWN_SOURCES: PiiSource[] = ["rule", "ner", "llm", "user", "block"];
 const KNOWN_LEVELS: ConfidenceLevel[] = ["confirmed", "probable", "possible"];
 
@@ -105,6 +130,18 @@ function toType(value: string): PiiType {
   return value as PiiType;
 }
 
+function toRegions(
+  regions: z.infer<typeof rawRegionSchema>[] | undefined,
+): PiiRegion[] {
+  return (regions ?? []).map((region) => ({
+    page: region.page,
+    x0: region.x0,
+    y0: region.y0,
+    x1: region.x1,
+    y1: region.y1,
+  }));
+}
+
 /**
  * Парсит и нормализует ответ бэкенда в структуру, которой пользуется остальной
  * код (camelCase, типизированные enum-подобные поля). Бросает ZodError с
@@ -127,6 +164,10 @@ export function parsePiiExtraction(payload: unknown): PiiExtraction {
         ref: pii.ref,
         groupId: pii.group_id,
         marker: pii.marker,
+        action:
+          pii.decision === "mask" || pii.decision === "keep"
+            ? pii.decision
+            : null,
         type: toType(pii.type),
         text: pii.text,
         normalized: pii.normalized,
@@ -136,6 +177,7 @@ export function parsePiiExtraction(payload: unknown): PiiExtraction {
         segmentOrder: pii.segment_order,
         chunkStart: pii.chunk_start,
         chunkEnd: pii.chunk_end,
+        regions: toRegions(pii.regions),
       }),
     ),
   }));
@@ -310,15 +352,20 @@ const rawReportSchema = z.object({
   document_coverage: z.record(z.string(), z.unknown()),
   limitations: z.array(z.string()),
   // Секции ниже движок кладёт не всегда: `plan` появляется только когда план
-  // построен, `profile_judge` — при `--profile`, `decisions`/`validation` —
-  // после соответствующих узлов графа.
-  plan: rawPlanSchema.optional(),
+  // построен, `profile_judge` — при `--profile` (PDF его не строит вовсе,
+  // `run_service._run_options`), `decisions`/`validation` — после
+  // соответствующих узлов графа. На бэкенде это `X | None = None`
+  // (`api/schemas/report.py`) — Pydantic сериализует такое как JSON `null`,
+  // ключ не пропускает, поэтому `.optional()` одного не хватает: `null`
+  // — валидный, а не только отсутствующий ключ.
+  plan: rawPlanSchema.nullable().optional(),
   profile_judge: z
     .object({ profiles: z.array(rawProfileSchema) })
     .loose()
+    .nullable()
     .optional(),
-  contract_summary: rawContractSummarySchema.optional(),
-  decisions: rawDecisionsSchema.optional(),
+  contract_summary: rawContractSummarySchema.nullable().optional(),
+  decisions: rawDecisionsSchema.nullable().optional(),
   validation: rawValidationSchema.optional(),
   //: Р8, «снять одним кликом» — группы уровня `possible`; движок кладёт
   //: пустой массив, даже когда плана нет вовсе.
@@ -326,6 +373,17 @@ const rawReportSchema = z.object({
   marker_legend: z.array(rawMarkerLegendItemSchema).optional(),
   //: Дубль `validation.certificate` на верхнем уровне report.json (план М3).
   certificate: rawCertificateSchema.nullable().optional(),
+  //: Размеры страниц PDF-артефакта (план feat/highlight-coords-edits, К1) —
+  //: пусто для docx/xlsx, движок кладёт `[]`, а не опускает ключ вовсе.
+  pages: z
+    .array(
+      z.object({
+        page: z.number(),
+        width_pt: z.number(),
+        height_pt: z.number(),
+      }),
+    )
+    .optional(),
 });
 
 function toMode(value: string): ReportDecisions["mode"] {
@@ -380,6 +438,7 @@ export function parseMaskingReport(payload: ReportOut): MaskingReport {
   const raw = rawReportSchema.parse(payload);
   const profileJudge = raw.profile_judge as
     | { profiles: z.infer<typeof rawProfileSchema>[] }
+    | null
     | undefined;
 
   return {
@@ -487,6 +546,13 @@ export function parseMaskingReport(payload: ReportOut): MaskingReport {
     },
     limitations: raw.limitations,
     documentCoverage: raw.document_coverage,
+    pages: (raw.pages ?? []).map(
+      (page): PiiPage => ({
+        page: page.page,
+        widthPt: page.width_pt,
+        heightPt: page.height_pt,
+      }),
+    ),
   };
 }
 

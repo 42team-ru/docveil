@@ -16,6 +16,10 @@ export type ReviewGroup = {
   id: string;
   /** Самая низкая уверенность среди вхождений группы. */
   minConfidence: number;
+  /** Решение, уже отражённое в опубликованном файле. */
+  appliedDecision: Exclude<PiiDecisionKind, "pending">;
+  /** Решения по отдельным вхождениям, если группа маскируется не целиком. */
+  appliedOccurrenceDecisions?: Record<string, Exclude<PiiDecisionKind, "pending">>;
 };
 
 type ReviewState = {
@@ -27,10 +31,16 @@ type ReviewState = {
    * показывали чужие числа.
    */
   documentGroups: ReviewGroup[];
-  /** Решение по группе — единственный источник состояния «подтв./откл.»: без
-   * границ фрагмента отвязать одно вхождение от группы больше нечем, поэтому
-   * решение всегда групповое. */
+  /** Ключ `(runId, artifactRevision)` последней опубликованной версии. */
+  documentKey: string | null;
+  /** Правки относительно опубликованной версии. Отсутствие ключа означает,
+   * что в файле уже отображается применённое сервером решение. */
   groupDecisions: Record<string, PiiDecisionKind>;
+  appliedGroupDecisions: Record<string, Exclude<PiiDecisionKind, "pending">>;
+  /** Черновые решения по одному вхождению; сильнее решения всей группы. */
+  occurrenceDecisions: Record<string, PiiDecisionKind>;
+  /** Решения отдельных вхождений, уже попавшие в опубликованный файл. */
+  appliedOccurrenceDecisions: Record<string, Exclude<PiiDecisionKind, "pending">>;
   /** Переопределение типа на всю группу. */
   typeOverrides: Record<string, PiiType>;
   /** Переопределение типа для одного вхождения — «применить только здесь». */
@@ -45,13 +55,16 @@ type ReviewState = {
    */
   questionAnswers: Record<string, AnswerOption>;
 
-  /** Сменить проверяемый документ: сбрасывает решения вместе с группами. */
-  setDocumentGroups: (groups: ReviewGroup[]) => void;
+  /** Сменить опубликованную версию документа и сбросить только её черновик. */
+  setDocumentGroups: (documentKey: string, groups: ReviewGroup[]) => void;
   select: (occurrenceId: string) => void;
   setViewMode: (mode: DocumentViewMode) => void;
   confirmGroup: (groupId: string) => void;
   rejectGroup: (groupId: string) => void;
+  confirmOccurrence: (occurrenceId: string, groupId: string) => void;
+  rejectOccurrence: (occurrenceId: string, groupId: string) => void;
   confirmAllGroups: (groupIds: string[]) => void;
+  hasUnappliedChanges: () => boolean;
   setGroupType: (groupId: string, type: PiiType) => void;
   setOccurrenceType: (occurrenceId: string, type: PiiType) => void;
   addManual: (occurrence: ManualPiiOccurrence) => void;
@@ -70,7 +83,11 @@ type ReviewState = {
 export const useReviewStore = create<ReviewState>()(
   subscribeWithSelector((set, get) => ({
     documentGroups: [],
+    documentKey: null,
     groupDecisions: {},
+    appliedGroupDecisions: {},
+    occurrenceDecisions: {},
+    appliedOccurrenceDecisions: {},
     typeOverrides: {},
     occurrenceTypeOverrides: {},
     selectedOccurrenceId: null,
@@ -78,18 +95,23 @@ export const useReviewStore = create<ReviewState>()(
     viewMode: "all",
     questionAnswers: {},
 
-    setDocumentGroups: (groups) => {
-      // Тот же набор групп — тот же документ: молча выходим, иначе каждый
-      // повторный рендер экрана стирал бы решения оператора.
-      const current = get().documentGroups;
-      const same =
-        current.length === groups.length &&
-        current.every((group, index) => group.id === groups[index].id);
-      if (same) return;
+    setDocumentGroups: (documentKey, groups) => {
+      // Повторный рендер той же версии не должен стереть черновик. Список
+      // групп недостаточен: две версии могут содержать одинаковые ID.
+      if (get().documentKey === documentKey) return;
 
       set({
         documentGroups: groups,
+        documentKey,
         groupDecisions: {},
+        appliedGroupDecisions: Object.fromEntries(
+          groups.map((group) => [group.id, group.appliedDecision]),
+        ),
+        occurrenceDecisions: {},
+        appliedOccurrenceDecisions: Object.assign(
+          {},
+          ...groups.map((group) => group.appliedOccurrenceDecisions ?? {}),
+        ),
         typeOverrides: {},
         occurrenceTypeOverrides: {},
         selectedOccurrenceId: null,
@@ -101,23 +123,27 @@ export const useReviewStore = create<ReviewState>()(
     select: (occurrenceId) => set({ selectedOccurrenceId: occurrenceId }),
     setViewMode: (mode) => set({ viewMode: mode }),
 
-    confirmGroup: (groupId) =>
-      set((state) => ({
-        groupDecisions: { ...state.groupDecisions, [groupId]: "confirmed" },
-      })),
+    confirmGroup: (groupId) => setGroupDecision(set, get, groupId, "confirmed"),
 
-    rejectGroup: (groupId) =>
-      set((state) => ({
-        groupDecisions: { ...state.groupDecisions, [groupId]: "rejected" },
-      })),
+    rejectGroup: (groupId) => setGroupDecision(set, get, groupId, "rejected"),
+
+    confirmOccurrence: (occurrenceId, groupId) =>
+      setOccurrenceDecision(set, get, occurrenceId, groupId, "confirmed"),
+
+    rejectOccurrence: (occurrenceId, groupId) =>
+      setOccurrenceDecision(set, get, occurrenceId, groupId, "rejected"),
 
     confirmAllGroups: (groupIds) =>
-      set((state) => ({
-        groupDecisions: {
-          ...state.groupDecisions,
-          ...Object.fromEntries(groupIds.map((id) => [id, "confirmed" as const])),
-        },
-      })),
+      groupIds.forEach((groupId) => setGroupDecision(set, get, groupId, "confirmed")),
+
+    hasUnappliedChanges: () => {
+      const state = get();
+      return Object.keys(state.groupDecisions).length > 0
+        || Object.keys(state.occurrenceDecisions).length > 0
+        || Object.keys(state.typeOverrides).length > 0
+        || Object.keys(state.occurrenceTypeOverrides).length > 0
+        || state.manualOccurrences.length > 0;
+    },
 
     setGroupType: (groupId, type) =>
       set((state) => ({
@@ -152,7 +178,82 @@ export const useReviewStore = create<ReviewState>()(
 );
 
 export const useGroupDecision = (groupId: string): PiiDecisionKind =>
-  useReviewStore((state) => state.groupDecisions[groupId] ?? "pending");
+  useReviewStore((state) => effectiveGroupDecision(state, groupId));
+
+/** Текущее намерение для строки списка: черновик сильнее опубликованного. */
+export function effectiveGroupDecision(
+  state: Pick<ReviewState, "groupDecisions" | "appliedGroupDecisions">,
+  groupId: string,
+): Exclude<PiiDecisionKind, "pending"> {
+  const draft = state.groupDecisions[groupId];
+  return (draft === "confirmed" || draft === "rejected" ? draft : undefined)
+    ?? state.appliedGroupDecisions[groupId]
+    ?? "confirmed";
+}
+
+/** Текущее решение для одного вхождения: его черновик сильнее группового. */
+export function effectiveOccurrenceDecision(
+  state: Pick<
+    ReviewState,
+    | "groupDecisions"
+    | "appliedGroupDecisions"
+    | "occurrenceDecisions"
+    | "appliedOccurrenceDecisions"
+  >,
+  occurrenceId: string,
+  groupId: string,
+): Exclude<PiiDecisionKind, "pending"> {
+  const own = state.occurrenceDecisions[occurrenceId];
+  if (own === "confirmed" || own === "rejected") return own;
+  const group = effectiveGroupDecision(state, groupId);
+  if (state.groupDecisions[groupId] !== undefined) return group;
+  return state.appliedOccurrenceDecisions[occurrenceId] ?? group;
+}
+
+/** Решение, которое действительно есть в открытых байтах документа. */
+export function appliedGroupDecision(
+  state: Pick<ReviewState, "appliedGroupDecisions">,
+  groupId: string,
+): Exclude<PiiDecisionKind, "pending"> {
+  return state.appliedGroupDecisions[groupId] ?? "confirmed";
+}
+
+function setGroupDecision(
+  set: (partial: Partial<ReviewState> | ((state: ReviewState) => Partial<ReviewState>)) => void,
+  get: () => ReviewState,
+  groupId: string,
+  decision: Exclude<PiiDecisionKind, "pending">,
+): void {
+  const applied = appliedGroupDecision(get(), groupId);
+  set((state) => {
+    const next = { ...state.groupDecisions };
+    if (decision === applied) delete next[groupId];
+    else next[groupId] = decision;
+    return { groupDecisions: next };
+  });
+}
+
+function setOccurrenceDecision(
+  set: (partial: Partial<ReviewState> | ((state: ReviewState) => Partial<ReviewState>)) => void,
+  get: () => ReviewState,
+  occurrenceId: string,
+  groupId: string,
+  decision: Exclude<PiiDecisionKind, "pending">,
+): void {
+  const state = get();
+  const applied = state.appliedOccurrenceDecisions[occurrenceId]
+    ?? appliedGroupDecision(state, groupId);
+  const groupDraft = state.groupDecisions[groupId];
+  set((current) => {
+    const next = { ...current.occurrenceDecisions };
+    if (decision === groupDraft || (groupDraft === undefined && decision === applied)) {
+      delete next[occurrenceId];
+    } else {
+      next[occurrenceId] = decision;
+    }
+    return { occurrenceDecisions: next };
+  });
+}
 
 export const useEffectiveType = (
   occurrenceId: string,

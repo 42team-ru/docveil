@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Text } from "@astryxdesign/core/Text";
-import { VStack } from "@astryxdesign/core/Stack";
+import { StackItem, VStack } from "@astryxdesign/core/Stack";
 
 import { HistoryFilters } from "../../features/document-history/ui/history-filters";
 import { HistoryTable } from "../../features/document-history/ui/history-table";
@@ -54,16 +54,18 @@ export function DocumentsPage() {
         ) : undefined
       }
     >
-      <VStack gap={4}>
+      <VStack gap={4} height="100%">
         <HistoryFilters />
-        <HistoryTable
-          runs={runs}
-          page={page}
-          pageSize={PAGE_SIZE}
-          onPageChange={setPage}
-          hasActiveFilters={hasActiveFilters}
-          onResetFilters={resetFilters}
-        />
+        <StackItem size="fill">
+          <HistoryTable
+            runs={runs}
+            page={page}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            hasActiveFilters={hasActiveFilters}
+            onResetFilters={resetFilters}
+          />
+        </StackItem>
       </VStack>
     </ScreenLayout>
   );

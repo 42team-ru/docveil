@@ -13,6 +13,7 @@ import {
   getRunApiRunsRunIdGet,
   listRunsApiRunsGet,
   postAnswersApiRunsRunIdAnswersPost,
+  postRegenerateApiRunsRunIdRegeneratePost,
   postReviewApiRunsRunIdReviewPost,
 } from "../../../shared/api/generated/core/runs/runs";
 import type {
@@ -20,6 +21,7 @@ import type {
   ArtifactOut,
   AskEnvelopeOut,
   ReviewEdits,
+  RegenerateRequest,
   ListRunsApiRunsGetParams,
   ReportOut,
   RunListResponse,
@@ -241,6 +243,42 @@ export function useSubmitReview(runId: string | null) {
   });
 }
 
+/**
+ * Применяет черновые правки, но оставляет прогон на следующей паузе проверки.
+ * Файл продолжает обновлять `useRunState`: 202 означает только, что сервер
+ * принял работу, а не что новый артефакт уже готов.
+ */
+export function useRegenerateReview(runId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ edits, expectedRevision }: {
+      edits: ReviewEdits;
+      expectedRevision: number;
+    }): Promise<RunResponse> => {
+      const response = await postRegenerateApiRunsRunIdRegeneratePost(
+        runId as string,
+        {
+          schema_version: 1,
+          edits,
+          expected_revision: expectedRevision,
+        } as RegenerateRequest,
+      );
+      if (response.status !== 202) {
+        throw new Error("Не удалось запустить перегенерацию");
+      }
+      return response.data;
+    },
+    onSuccess: () => {
+      if (runId === null) return;
+      void queryClient.invalidateQueries({ queryKey: runKeys.detail(runId) });
+      void queryClient.invalidateQueries({ queryKey: runKeys.report(runId) });
+      void queryClient.invalidateQueries({ queryKey: runKeys.artifacts(runId) });
+      void queryClient.invalidateQueries({ queryKey: runKeys.all });
+    },
+  });
+}
+
 /** Журнал обработок текущего пользователя. */
 export function useRunList(params?: ListRunsApiRunsGetParams) {
   return useQuery({
@@ -288,7 +326,12 @@ export async function downloadArtifact(
  * авторизованным клиентом в память и отдаётся вьюеру как `blob:`-ссылка;
  * ссылка живёт ровно столько, сколько открыт документ.
  */
-export function useArtifactObjectUrl(runId: string | null, role: string, enabled: boolean) {
+export function useArtifactObjectUrl(
+  runId: string | null,
+  role: string,
+  enabled: boolean,
+  artifactRevision: number,
+) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -315,7 +358,7 @@ export function useArtifactObjectUrl(runId: string | null, role: string, enabled
       cancelled = true;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [runId, role, enabled]);
+  }, [runId, role, enabled, artifactRevision]);
 
   return objectUrl;
 }

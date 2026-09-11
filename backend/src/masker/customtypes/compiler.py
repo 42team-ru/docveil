@@ -104,6 +104,8 @@ class CannotCompileOutcome:
     """Компилятор не может свести запрос ни к одному executor'у."""
 
     reason: str
+    #: Машиночитаемый код — маппится в `FailReason` слоем сервиса API.
+    code: str = "cannot_compile"
     kind: Literal["cannot_compile"] = "cannot_compile"
 
 
@@ -240,7 +242,8 @@ def _call_llm_once(
         return outcome
 
     return CannotCompileOutcome(
-        reason=f"не удалось получить корректный ответ модели после одного ретрая: {error}"
+        reason=f"не удалось получить корректный ответ модели после одного ретрая: {error}",
+        code="cannot_compile",
     )
 
 
@@ -277,14 +280,15 @@ def compile_type(
     try:
         outcome = _call_llm_once(llm, description, active_executors, builtin_types, feedback)
     except LLMError as error:
-        return CannotCompileOutcome(reason=f"LLM недоступна: {error}")
+        return CannotCompileOutcome(reason=f"LLM недоступна: {error}", code="llm_unavailable")
 
     if isinstance(outcome, AskOutcome) and round_index >= MAX_ASK_ROUNDS:
         outcome = CannotCompileOutcome(
             reason=(
                 f"не удалось уточнить тип за {MAX_ASK_ROUNDS} раунда(ов), "
                 f"последний вопрос: {outcome.question}"
-            )
+            ),
+            code="ask_rounds_exhausted",
         )
 
     if use_cache and isinstance(outcome, (UseBuiltinOutcome, CompileOutcome)):

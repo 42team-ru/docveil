@@ -100,6 +100,33 @@ def test_operator_keep_removes_mask_for_non_critical_type(tmp_path: Path) -> Non
     assert _actions(done.state)[ref] == Action.KEEP.value
 
 
+def test_regeneration_returns_to_review_and_can_restore_mask(tmp_path: Path) -> None:
+    """Один тред принимает несколько явных раундов до финального утверждения."""
+    paused = _reach_review(tmp_path)
+    ref = _phone_ref(paused)
+
+    regenerated = resume_review(
+        paused.thread_id,
+        _envelope(decisions={ref: "keep"}),
+        finalize=False,
+        checkpointer_factory=_factory(tmp_path),
+        deps=_deps(tmp_path),
+    )
+
+    assert regenerated.status == "waiting"
+    assert _actions(regenerated.state)[ref] == Action.KEEP.value
+
+    finished = resume_review(
+        regenerated.thread_id,
+        _envelope(decisions={ref: "mask"}),
+        checkpointer_factory=_factory(tmp_path),
+        deps=_deps(tmp_path),
+    )
+
+    assert finished.status == "done"
+    assert _actions(finished.state)[ref] == Action.MASK.value
+
+
 def test_operator_cannot_unmask_critical_type_without_permission(tmp_path: Path) -> None:
     """Двойной барьер держится и во втором раунде: ИНН молча не снимается."""
     paused = _reach_review(tmp_path)

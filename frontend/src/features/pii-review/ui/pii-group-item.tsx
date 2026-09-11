@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronRight, X } from "lucide-react";
+import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Item } from "@astryxdesign/core/Item";
@@ -9,6 +10,9 @@ import { Text } from "@astryxdesign/core/Text";
 import type { FlatPiiOccurrence } from "../../../entity/pii/model/flatten";
 import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
 import type { PiiDecisionKind, PiiType } from "../../../entity/pii/model/types";
+import {
+  effectiveOccurrenceDecision,
+} from "../../../entity/pii/model/review-store";
 import { PiiOccurrenceItem } from "../../../entity/pii/ui/pii-occurrence-item";
 import { GroupTypeMenu, OccurrenceTypeMenu } from "./pii-type-menu";
 
@@ -17,14 +21,23 @@ type PiiGroupItemProps = {
   /** Все вхождения одной сущности — общий маркер и тип, разные абзацы. */
   occurrences: FlatPiiOccurrence[];
   decision: PiiDecisionKind;
+  groupDecisions: Record<string, PiiDecisionKind>;
+  occurrenceDecisions: Record<string, PiiDecisionKind>;
+  appliedGroupDecisions: Record<string, Exclude<PiiDecisionKind, "pending">>;
+  appliedOccurrenceDecisions: Record<string, Exclude<PiiDecisionKind, "pending">>;
   selectedOccurrenceId: string | null;
   notFoundIds: Set<string>;
   onSelect: (occurrenceId: string) => void;
   onConfirm: (groupId: string) => void;
   onReject: (groupId: string) => void;
+  onConfirmOccurrence: (occurrenceId: string, groupId: string) => void;
+  onRejectOccurrence: (occurrenceId: string, groupId: string) => void;
   onSetGroupType: (groupId: string, type: PiiType) => void;
   onSetOccurrenceType: (occurrenceId: string, type: PiiType) => void;
+  isEditingDisabled?: boolean;
 };
+
+const CRITICAL_TYPES = new Set(["inn", "passport", "bank_account", "ogrn", "snils"]);
 
 /**
  * Группа — сущность, встречающаяся в документе один или несколько раз.
@@ -44,13 +57,20 @@ export function PiiGroupItem({
   groupId,
   occurrences,
   decision,
+  groupDecisions,
+  occurrenceDecisions,
+  appliedGroupDecisions,
+  appliedOccurrenceDecisions,
   selectedOccurrenceId,
   notFoundIds,
   onSelect,
   onConfirm,
   onReject,
+  onConfirmOccurrence,
+  onRejectOccurrence,
   onSetGroupType,
   onSetOccurrenceType,
+  isEditingDisabled = false,
 }: PiiGroupItemProps) {
   const containsSelected = occurrences.some((o) => o.id === selectedOccurrenceId);
   const [isOpen, setIsOpen] = useState(containsSelected);
@@ -76,7 +96,7 @@ export function PiiGroupItem({
         }
         label={
           <HStack gap={2} vAlign="center" wrap="wrap">
-            <Text weight="medium">{first.marker}</Text>
+            <Text weight="medium">{first.marker || first.originalText}</Text>
             <Text type="supporting" color="secondary">
               {piiTypeLabel(first.type)}
             </Text>
@@ -93,36 +113,43 @@ export function PiiGroupItem({
               currentType={first.type}
               onSelect={(type) => onSetGroupType(groupId, type)}
             />
-            <IconButton
-              size="sm"
-              variant={decision === "confirmed" ? "ghost" : "primary"}
-              icon={<Icon icon={Check} size="sm" />}
-              label="Подтвердить группу"
-              isDisabled={decision === "confirmed"}
-              onClick={(e) => {
-                e.stopPropagation();
-                onConfirm(groupId);
-              }}
-            />
-            <IconButton
-              size="sm"
-              variant="ghost"
-              icon={<Icon icon={Undo2} size="sm" />}
-              label="Вернуть группу"
-              isDisabled={decision === "pending"}
-              onClick={(e) => {
-                e.stopPropagation();
-                onReject(groupId);
-              }}
-            />
+            {decision === "rejected" ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                label="Вернуть"
+                isDisabled={isEditingDisabled}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onConfirm(groupId);
+                }}
+              />
+            ) : (
+              <IconButton
+                size="sm"
+                variant="ghost"
+                icon={<Icon icon={X} size="sm" />}
+                label="Убрать маскирование"
+                tooltip={
+                  CRITICAL_TYPES.has(first.type)
+                    ? "Критичные реквизиты нельзя раскрыть без явного разрешения прогона"
+                    : "Убрать маскирование"
+                }
+                isDisabled={isEditingDisabled || CRITICAL_TYPES.has(first.type)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onReject(groupId);
+                }}
+              />
+            )}
           </HStack>
         }
       />
 
       {isOpen ? (
-        <VStack gap={0} as="ul" paddingInlineStart={6}>
+        <VStack gap={1} as="ul" paddingInlineStart={6}>
           {occurrences.map((occurrence) => (
-            <HStack key={occurrence.id} gap={0} vAlign="center">
+            <HStack key={occurrence.id} gap={0} vAlign="center" paddingInlineEnd={2}>
               <StackItem size="fill">
                 <PiiOccurrenceItem
                   occurrence={occurrence}
@@ -135,6 +162,38 @@ export function PiiGroupItem({
                 currentType={occurrence.type}
                 onSelectOnlyThis={(type) => onSetOccurrenceType(occurrence.id, type)}
               />
+              {effectiveOccurrenceDecision(
+                {
+                  groupDecisions,
+                  appliedGroupDecisions,
+                  occurrenceDecisions,
+                  appliedOccurrenceDecisions,
+                },
+                occurrence.id,
+                groupId,
+              ) === "rejected" ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  label="Вернуть"
+                  isDisabled={isEditingDisabled}
+                  onClick={() => onConfirmOccurrence(occurrence.id, groupId)}
+                />
+              ) : (
+                <IconButton
+                  size="sm"
+                  variant="ghost"
+                  icon={<Icon icon={X} size="sm" />}
+                  label={`Убрать маскирование «${occurrence.originalText}»`}
+                  tooltip={
+                    CRITICAL_TYPES.has(occurrence.type)
+                      ? "Критичные реквизиты нельзя раскрыть без явного разрешения прогона"
+                      : "Убрать маскирование только в этом месте"
+                  }
+                  isDisabled={isEditingDisabled || CRITICAL_TYPES.has(occurrence.type)}
+                  onClick={() => onRejectOccurrence(occurrence.id, groupId)}
+                />
+              )}
             </HStack>
           ))}
         </VStack>

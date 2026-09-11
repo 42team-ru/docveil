@@ -16,9 +16,10 @@ schema_version», задел на будущее хранение пресето
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 #: Версия формата одной пользовательской спеки. Поднимается руками при
 #: несовместимой смене состава полей — старый клиент получит 422, а не
@@ -145,6 +146,22 @@ class CompiledTypeOut(BaseModel):
     preview: PreviewOut | None = None
 
 
+class FailReason(str, Enum):
+    """Машиночитаемый код причины отказа компилятора."""
+
+    empty_description = "empty_description"
+    too_short = "too_short"
+    too_long = "too_long"
+    llm_unavailable = "llm_unavailable"
+    invalid_regex = "invalid_regex"
+    redos_pattern = "redos_pattern"
+    regex_too_long = "regex_too_long"
+    empty_match = "empty_match"
+    cannot_compile = "cannot_compile"
+    ask_rounds_exhausted = "ask_rounds_exhausted"
+    preview_error = "preview_error"
+
+
 class FailedTypeOut(BaseModel):
     """Элемент `CompileRequest.descriptions`, который компилятор не осилил
     (после ретрая на невалидном JSON/регулярке или после `MAX_ASK_ROUNDS`)."""
@@ -152,6 +169,7 @@ class FailedTypeOut(BaseModel):
     index: int
     description: str
     reason: str
+    code: FailReason = FailReason.cannot_compile
 
 
 class CompileQuestionOut(BaseModel):
@@ -176,6 +194,26 @@ class CompileRequest(BaseModel):
 
     object_name: str = Field(min_length=1)
     descriptions: list[str] = Field(min_length=1)
+
+    @field_validator("descriptions", mode="before")
+    @classmethod
+    def _validate_descriptions(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        cleaned = []
+        for item in value:
+            if not isinstance(item, str):
+                cleaned.append(item)
+                continue
+            text = item.strip()
+            if not text:
+                raise ValueError("описание не может быть пустым или состоять только из пробелов")
+            if len(text) < 8:
+                raise ValueError(f"описание слишком короткое ({len(text)} символов), минимум 8")
+            if len(text) > 1000:
+                raise ValueError(f"описание слишком длинное ({len(text)} символов), максимум 1000")
+            cleaned.append(text)
+        return cleaned
 
 
 class CompileResponse(BaseModel):

@@ -1,5 +1,21 @@
-/** Формат документа, из которого извлечены ПДн. */
-export type PiiDocFormat = "docx" | "pdf" | "xlsx";
+/**
+ * Формат документа, из которого извлечены ПДн.
+ *
+ * Картиночные форматы (`jpg`/`jpeg`/`png`/`tif`/`tiff`) — сканы, которые
+ * движок разбирает через OCR (`masker.ingest.SUPPORTED_SUFFIXES`); внутри
+ * графа документ живёт как одностраничный PDF, поэтому `report.format` для
+ * них всегда `"pdf"` — этот тип описывает формат исходного/артефактного
+ * файла, а не внутреннее представление движка.
+ */
+export type PiiDocFormat =
+  | "docx"
+  | "pdf"
+  | "xlsx"
+  | "jpg"
+  | "jpeg"
+  | "png"
+  | "tif"
+  | "tiff";
 
 /**
  * Категория данных, которую распознаёт движок.
@@ -80,11 +96,37 @@ export type PiiAnchor = {
   /**
    * Путь до узла документа. Формы задаёт ingest бэкенда:
    * docx — `["body", N]` либо `["table", tbl, row, cell, para]`,
-   * pdf — `["page", N, charStart, charEnd]`,
-   * xlsx — `["sheet", имя, row, col]`.
+   * xlsx — `["sheet", имя, row, col]`,
+   * pdf (текстовый слой) — `["page", N, charStart, charEnd]`,
+   * pdf (скан/картинка, OCR-сегмент) — `["page", N, "ocr", x0, y0, x1, y1]`,
+   * pdf (bbox-правка оператора) — `["page", N, "user", x0, y0, x1, y1]`
+   * (координаты в pt×100 — `masker.ingest.scan_ingest`/`masker.graph.nodes`).
    * Разбирают его резолверы привязки, не эта модель.
    */
   locator: (string | number)[];
+};
+
+/**
+ * Прямоугольная область сущности на странице готового PDF-артефакта,
+ * координаты нормализованы 0..1 (`masker.highlights`, план
+ * feat/highlight-coords-edits). Работает и для картинки: `render/
+ * image_export.py::pdf_to_image` рендерит страницу целиком без полей и
+ * обрезки, значит те же координаты ложатся на итоговый JPEG/PNG один в один.
+ */
+export type PiiRegion = {
+  /** 0-based. */
+  page: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+};
+
+/** Размеры одной страницы готового артефакта в pt — `report.pages[]`. */
+export type PiiPage = {
+  page: number;
+  widthPt: number;
+  heightPt: number;
 };
 
 /** Одно найденное вхождение ПДн внутри чанка. */
@@ -95,6 +137,8 @@ export type PiiOccurrence = {
   groupId: string;
   /** Маркер, уже вписанный в маскированный документ, напр. "[ФИО-1]". */
   marker: string;
+  /** Решение, уже применённое в опубликованном результате. */
+  action: EntityAction | null;
   type: PiiType;
   /**
    * Исходный текст ПДн до маскирования. В промаскированном docx его больше нет —
@@ -110,6 +154,12 @@ export type PiiOccurrence = {
   /** Смещения в пределах chunk.text — только для отчётности, не для поиска в DOM. */
   chunkStart: number;
   chunkEnd: number;
+  /**
+   * Bbox-координаты на странице готового артефакта — пусто для docx/xlsx
+   * (там нет PDF-рендера) и для форматов без плана замен. Одна сущность на
+   * одной странице — один регион; перенос через страницу даёт две записи.
+   */
+  regions: PiiRegion[];
 };
 
 /** Абзац (или иной узел) документа с одним или несколькими вхождениями ПДн. */
@@ -138,12 +188,19 @@ export type OperatorDecision = {
 };
 
 /** Вхождение, добавленное оператором вручную поверх выделения в документе. */
+/**
+ * Ровно одно из `anchor`/`region` заполнено — по тому, как оператор указал
+ * место: выделением текста (docx/xlsx) или рамкой на превью (pdf/картинка).
+ * С `region` сервер не ищет текст на странице — на сканах OCR может
+ * распознать не то, что видит человек (`ManualEntityIn.region` бэкенда).
+ */
 export type ManualPiiOccurrence = {
   id: string;
   type: PiiType;
-  /** Текст, который оператор выделил в документе. */
+  /** Текст значения: цитата выделения либо то, что оператор напечатал сам. */
   text: string;
-  anchor: PiiAnchor;
+  anchor?: PiiAnchor;
+  region?: PiiRegion;
 };
 
 /* ------------------------------------------------------------------ *
@@ -362,6 +419,12 @@ export type MaskingReport = {
    * форматов.
    */
   documentCoverage: Record<string, unknown>;
+  /**
+   * Размеры страниц готового PDF-артефакта — пусто для docx/xlsx. Вьюер
+   * сопоставляет `page` здесь с `page` в `PiiOccurrence.regions`, больше
+   * никакого маппинга ему не нужно.
+   */
+  pages: PiiPage[];
 };
 
 /* ------------------------------------------------------------------ *

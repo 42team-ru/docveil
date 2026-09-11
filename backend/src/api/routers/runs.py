@@ -27,6 +27,7 @@ from api.schemas.report import AskEnvelopeOut, ReportOut, ReviewEnvelopeOut
 from api.schemas.run import (
     AnswersRequest,
     ArtifactOut,
+    RegenerateRequest,
     ReviewRequest,
     RunCreateRequest,
     RunDocument,
@@ -45,7 +46,13 @@ router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(get_curr
 #: и не покажет документ во вьюере.
 _MEDIA_TYPES = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
 }
 
 
@@ -65,6 +72,7 @@ def _run_response(run: RunORM) -> RunResponse:
         document=_run_document(run),
         node_hint=run.node_hint,
         error=run.error,
+        artifact_revision=run.artifact_revision,
         created_at=run.created_at,
         finished_at=run.finished_at,
     )
@@ -211,10 +219,54 @@ async def post_review(
             f"прогон {run_id} в состоянии {run.status!r}, правки сейчас не принимаются",
         )
 
+    # Резервируем тред до фоновой задачи: второй клик не должен получить ту
+    # же паузу LangGraph и применить правки параллельно.
+    run.status = "running"
+    run.error = None
+    await session.commit()
     background.add_task(
         run_service.resume_with_review,
         run.id,
         request.edits.model_dump(mode="json"),
+        llm=llm,
+        checkpointer_factory=checkpointer_factory,
+    )
+    return _run_response(run)
+
+
+@router.post(
+    "/{run_id}/regenerate",
+    response_model=RunResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def post_regenerate(
+    run_id: uuid.UUID,
+    request: RegenerateRequest,
+    background: BackgroundTasks,
+    user: UserORM = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+    llm: LLMProvider = Depends(run_service.get_llm_provider),
+    checkpointer_factory: CheckpointerFactory = Depends(run_service.get_run_checkpointer_factory),
+) -> RunResponse:
+    """Применить черновые правки и снова остановиться на проверке."""
+    run = await _require_run(session, user, run_id)
+    if run.status != "awaiting_review":
+        raise HTTPException(status.HTTP_409_CONFLICT, "прогон сейчас не ждёт правок")
+    if request.expected_revision != run.artifact_revision:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "документ уже изменён в другой вкладке; обновите страницу",
+        )
+
+    next_revision = run.artifact_revision + 1
+    run.status = "running"
+    run.error = None
+    await session.commit()
+    background.add_task(
+        run_service.regenerate_review,
+        run.id,
+        request.edits.model_dump(mode="json"),
+        next_revision,
         llm=llm,
         checkpointer_factory=checkpointer_factory,
     )
@@ -290,7 +342,7 @@ async def download_artifact(
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"у прогона {run_id} нет артефакта {role!r}")
 
     name = names[role]
-    payload = await run_in_threadpool(run_service.artifact_bytes, run.id, name)
+    payload = await run_in_threadpool(run_service.artifact_bytes, run.id, name, run.artifact_prefix)
     suffix = name[name.rfind(".") :] if "." in name else ""
     return Response(
         content=payload,

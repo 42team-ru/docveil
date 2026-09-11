@@ -420,6 +420,7 @@ def resume_review(
     thread_id: str,
     edits: dict[str, Any],
     *,
+    finalize: bool = True,
     checkpointer_factory: CheckpointerFactory,
     deps: RunDeps | None = None,
 ) -> RunOutcome:
@@ -431,7 +432,11 @@ def resume_review(
     """
     return _resume(
         thread_id,
-        {"schema_version": REVIEW_SCHEMA_VERSION, "edits": dict(edits)},
+        {
+            "schema_version": REVIEW_SCHEMA_VERSION,
+            "edits": dict(edits),
+            "finalize": finalize,
+        },
         checkpointer_factory=checkpointer_factory,
         deps=deps,
     )

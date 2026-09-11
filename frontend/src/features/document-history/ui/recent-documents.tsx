@@ -1,7 +1,9 @@
 import { useNavigate } from "react-router";
+import { Files } from "lucide-react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { Icon } from "@astryxdesign/core/Icon";
 import { Section } from "@astryxdesign/core/Section";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -58,6 +60,7 @@ export function RecentDocuments() {
     return (
       <Section padding={0}>
         <EmptyState
+          icon={<Icon icon={Files} size="lg" color="secondary" />}
           title="Здесь появятся последние документы"
           description="Загрузите первый файл, чтобы начать обработку."
         />

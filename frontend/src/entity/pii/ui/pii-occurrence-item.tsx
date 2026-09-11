@@ -53,21 +53,23 @@ export function PiiOccurrenceItem({
     }
   }, [isSelected]);
 
-  const rowStyle: CSSProperties = {
-    borderInlineStart: isSelected
-      ? "3px solid var(--color-border-blue)"
-      : "3px solid transparent",
-    backgroundColor: isSelected ? "var(--color-background-muted)" : "transparent",
+  const itemStyle: CSSProperties = {
+    backgroundColor: "var(--color-background-muted)",
+    border: isSelected
+      ? "1px solid var(--color-border-blue)"
+      : "1px solid transparent",
+    borderRadius: "var(--radius-element)",
     transition: "background-color 0.15s ease-out, border-color 0.15s ease-out",
   };
 
   return (
-    <VStack gap={0} as="li" ref={rowRef} style={rowStyle}>
+    <VStack gap={0} as="li" ref={rowRef}>
       <Item
         density="compact"
         align="start"
         isSelected={false}
         onClick={() => onSelect(occurrence.id)}
+        style={itemStyle}
         label={
           <HStack gap={2} vAlign="center">
             <Text type="supporting">{occurrence.anchor.label}</Text>

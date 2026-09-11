@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
-import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -15,41 +14,42 @@ import {
 
 import { flattenPiiOccurrences, groupOccurrences } from "../../../entity/pii/model/flatten";
 import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
-import {
-  useLowConfidenceGroupCount,
-  usePendingGroupCount,
-} from "../../../entity/pii/model/selectors";
-import { useReviewStore } from "../../../entity/pii/model/review-store";
+import { useLowConfidenceGroupCount } from "../../../entity/pii/model/selectors";
+import { effectiveGroupDecision, useReviewStore } from "../../../entity/pii/model/review-store";
 import type { PiiExtraction } from "../../../entity/pii/model/types";
 import { PiiGroupItem } from "./pii-group-item";
 
-type Filter = "all" | "pending" | "low";
+type Filter = "all" | "excluded" | "low";
 
 const LOW_CONFIDENCE = 0.6;
 
 type PiiListTabProps = {
   extraction: PiiExtraction;
   notFoundIds: Set<string>;
+  isEditingDisabled?: boolean;
 };
 
 /** Вкладка «Замены»: список групп ПДн с фильтром по состоянию проверки. */
-export function PiiListTab({ extraction, notFoundIds }: PiiListTabProps) {
-  const [filter, setFilter] = useState<Filter>("pending");
+export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false }: PiiListTabProps) {
+  const [filter, setFilter] = useState<Filter>("all");
 
   const groupDecisions = useReviewStore((state) => state.groupDecisions);
+  const appliedGroupDecisions = useReviewStore((state) => state.appliedGroupDecisions);
+  const occurrenceDecisions = useReviewStore((state) => state.occurrenceDecisions);
+  const appliedOccurrenceDecisions = useReviewStore((state) => state.appliedOccurrenceDecisions);
   const typeOverrides = useReviewStore((state) => state.typeOverrides);
   const occurrenceTypeOverrides = useReviewStore((state) => state.occurrenceTypeOverrides);
   const selectedOccurrenceId = useReviewStore((state) => state.selectedOccurrenceId);
   const select = useReviewStore((state) => state.select);
   const confirmGroup = useReviewStore((state) => state.confirmGroup);
   const rejectGroup = useReviewStore((state) => state.rejectGroup);
+  const confirmOccurrence = useReviewStore((state) => state.confirmOccurrence);
+  const rejectOccurrence = useReviewStore((state) => state.rejectOccurrence);
   const setGroupType = useReviewStore((state) => state.setGroupType);
   const setOccurrenceType = useReviewStore((state) => state.setOccurrenceType);
-  const confirmAllGroups = useReviewStore((state) => state.confirmAllGroups);
   const manualOccurrences = useReviewStore((state) => state.manualOccurrences);
   const removeManual = useReviewStore((state) => state.removeManual);
 
-  const pendingCount = usePendingGroupCount();
   const lowCount = useLowConfidenceGroupCount();
 
   const groups = groupOccurrences(flattenPiiOccurrences(extraction));
@@ -61,18 +61,21 @@ export function PiiListTab({ extraction, notFoundIds }: PiiListTabProps) {
         ...o,
         type: occurrenceTypeOverrides[o.id] ?? typeOverrides[groupId] ?? o.type,
       })),
-      decision: groupDecisions[groupId] ?? "pending",
+      decision: effectiveGroupDecision({
+        groupDecisions,
+        appliedGroupDecisions,
+      }, groupId),
       minConfidence: Math.min(...occurrences.map((o) => o.confidence)),
     }))
     .filter((group) => {
-      if (filter === "pending") return group.decision !== "confirmed";
+      if (filter === "excluded") return group.decision === "rejected";
       if (filter === "low") return group.minConfidence < LOW_CONFIDENCE;
       return true;
     });
 
   return (
     <VStack gap={0} height="100%">
-      <HStack gap={2} vAlign="center" padding={3} hAlign="between" wrap="wrap">
+      <HStack gap={2} vAlign="center" padding={3} wrap="wrap">
         <SegmentedControl
           size="sm"
           label="Фильтр замен"
@@ -80,16 +83,9 @@ export function PiiListTab({ extraction, notFoundIds }: PiiListTabProps) {
           onChange={(value) => setFilter(value as Filter)}
         >
           <SegmentedControlItem value="all" label="Все" />
-          <SegmentedControlItem value="pending" label={`Ожидают ${pendingCount}`} />
+          <SegmentedControlItem value="excluded" label="Исключённые" />
           <SegmentedControlItem value="low" label={`Низкая ${lowCount}`} />
         </SegmentedControl>
-        <Button
-          size="sm"
-          variant="ghost"
-          label="Подтвердить все"
-          isDisabled={pendingCount === 0}
-          onClick={() => confirmAllGroups([...groups.keys()])}
-        />
       </HStack>
 
       {manualOccurrences.length > 0 ? (
@@ -104,13 +100,17 @@ export function PiiListTab({ extraction, notFoundIds }: PiiListTabProps) {
                 <Text textWrap="pretty">{occurrence.text}</Text>
                 <StackItem size="fill" />
                 <Text type="supporting" color="secondary" size="sm">
-                  {occurrence.anchor.label}
+                  {occurrence.anchor?.label ??
+                    (occurrence.region
+                      ? `стр. ${occurrence.region.page + 1}, рамка на превью`
+                      : "")}
                 </Text>
                 <IconButton
                   size="sm"
                   variant="ghost"
                   label={`Убрать «${occurrence.text}»`}
                   icon={<Icon icon={Trash2} size="sm" />}
+                  isDisabled={isEditingDisabled}
                   onClick={() => removeManual(occurrence.id)}
                 />
               </HStack>
@@ -137,13 +137,20 @@ export function PiiListTab({ extraction, notFoundIds }: PiiListTabProps) {
               groupId={group.groupId}
               occurrences={group.occurrences}
               decision={group.decision}
+              groupDecisions={groupDecisions}
+              occurrenceDecisions={occurrenceDecisions}
+              appliedGroupDecisions={appliedGroupDecisions}
+              appliedOccurrenceDecisions={appliedOccurrenceDecisions}
               selectedOccurrenceId={selectedOccurrenceId}
               notFoundIds={notFoundIds}
               onSelect={select}
               onConfirm={confirmGroup}
               onReject={rejectGroup}
+              onConfirmOccurrence={confirmOccurrence}
+              onRejectOccurrence={rejectOccurrence}
               onSetGroupType={setGroupType}
               onSetOccurrenceType={setOccurrenceType}
+              isEditingDisabled={isEditingDisabled}
             />
           ))}
         </VStack>

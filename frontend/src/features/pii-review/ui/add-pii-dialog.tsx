@@ -9,6 +9,7 @@ import {
 import { Selector } from "@astryxdesign/core/Selector";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
 
 import { piiTypeOptions } from "../../../entity/pii/model/pii-type-dict";
 import type { PiiType } from "../../../entity/pii/model/types";
@@ -17,15 +18,21 @@ import type { SelectionCapture } from "../../document-viewer/lib/read-selection"
 type AddPiiDialogProps = {
   isOpen: boolean;
   capture: SelectionCapture | null;
-  onAdd: (type: PiiType) => void;
+  onAdd: (input: { type: PiiType; text: string }) => void;
   onOpenChange: (isOpen: boolean) => void;
 };
 
 /**
- * Диалог добавления пропущенного ПДн: цитата выделенного текста и выбор типа
- * из того же справочника, что и остальная проверка (`piiTypeOptions()`).
- * Поиск в `Selector` — иначе ~21 тип пришлось бы листать плоским списком, как
- * в прежнем `AddPiiPopover`.
+ * Диалог добавления пропущенного ПДн: выбор типа из того же справочника, что
+ * и остальная проверка (`piiTypeOptions()`). Поиск в `Selector` — иначе ~21
+ * тип пришлось бы листать плоским списком, как в прежнем `AddPiiPopover`.
+ *
+ * Текст значения — по виду выделения: у `kind: "text"` (docx/xlsx) это
+ * цитата из документа, только для показа; у `kind: "region"` (pdf/картинка,
+ * рамка на превью) текстового слоя под рамкой может не быть вовсе (скан),
+ * поэтому оператор печатает значение сам — бэкенд требует `text` вместе с
+ * `region` (`ManualEntityIn.region`, инвариант «текст этот, находится ровно
+ * здесь»).
  */
 export function AddPiiDialog({
   isOpen,
@@ -34,13 +41,23 @@ export function AddPiiDialog({
   onOpenChange,
 }: AddPiiDialogProps) {
   const [type, setType] = useState<PiiType | null>(null);
+  const [manualText, setManualText] = useState("");
+
+  const isRegion = capture?.kind === "region";
+  const text = isRegion ? manualText.trim() : (capture?.text ?? "");
+  const canSubmit = type !== null && text.length > 0;
+
+  function reset() {
+    setType(null);
+    setManualText("");
+  }
 
   return (
     <Dialog
       isOpen={isOpen}
       onOpenChange={(open) => {
         onOpenChange(open);
-        if (!open) setType(null);
+        if (!open) reset();
       }}
       purpose="form"
       width={380}
@@ -55,9 +72,19 @@ export function AddPiiDialog({
         content={
           <LayoutContent>
             <VStack gap={4}>
-              <Text weight="medium" maxLines={3}>
-                «{capture?.text ?? ""}»
-              </Text>
+              {isRegion ? (
+                <TextInput
+                  label="Значение"
+                  type="text"
+                  placeholder="Что здесь написано"
+                  value={manualText}
+                  onChange={setManualText}
+                />
+              ) : (
+                <Text weight="medium" maxLines={3}>
+                  «{capture?.text ?? ""}»
+                </Text>
+              )}
               <Selector
                 label="Тип"
                 hasSearch
@@ -84,11 +111,11 @@ export function AddPiiDialog({
               <Button
                 variant="primary"
                 label="Добавить"
-                isDisabled={type === null}
+                isDisabled={!canSubmit}
                 onClick={() => {
-                  if (type === null) return;
-                  onAdd(type);
-                  setType(null);
+                  if (type === null || text.length === 0) return;
+                  onAdd({ type, text });
+                  reset();
                 }}
               />
             </HStack>

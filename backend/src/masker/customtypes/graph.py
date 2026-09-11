@@ -185,6 +185,7 @@ def _apply_outcome(item: dict[str, Any], outcome: CompilerOutcome) -> None:
     else:
         item["status"] = "failed"
         item["reason"] = outcome.reason
+        item["code"] = outcome.code
 
 
 def make_compile_node(deps: CompileDeps) -> Callable[[CompileState], dict[str, object]]:

@@ -60,6 +60,7 @@ __all__ = [
     "list_artifacts",
     "list_runs",
     "read_outcome",
+    "regenerate_review",
     "resume_with_answers",
     "resume_with_review",
     "run_report",
@@ -211,13 +212,15 @@ def list_artifacts(
     return artifacts_of(read_outcome(thread_id, checkpointer_factory=checkpointer_factory))
 
 
-def artifact_prefix_of(run_id: uuid.UUID) -> str:
-    return f"runs/{run_id}/"
+def artifact_prefix_of(run_id: uuid.UUID, revision: int = 0) -> str:
+    """Префикс одного атомарно опубликованного комплекта файлов."""
+    return f"runs/{run_id}/revisions/{revision}/"
 
 
-def artifact_bytes(run_id: uuid.UUID, name: str) -> bytes:
+def artifact_bytes(run_id: uuid.UUID, name: str, artifact_prefix: str | None = None) -> bytes:
     """Скачать артефакт прогона из MinIO."""
-    response = minio_client.get_object(settings.minio_bucket, f"{artifact_prefix_of(run_id)}{name}")
+    prefix = artifact_prefix or artifact_prefix_of(run_id)
+    response = minio_client.get_object(settings.minio_bucket, f"{prefix}{name}")
     try:
         return bytes(response.read())
     finally:
@@ -252,9 +255,9 @@ def _ensure_document(run_id: uuid.UUID, object_name: str) -> Path:
     return document
 
 
-def _upload_artifacts(run_id: uuid.UUID, artifacts: list[dict[str, Any]]) -> str:
-    """Выгрузить файлы рендера в MinIO под `runs/{run_id}/` и вернуть префикс."""
-    prefix = artifact_prefix_of(run_id)
+def _upload_artifacts(run_id: uuid.UUID, artifacts: list[dict[str, Any]], revision: int) -> str:
+    """Выгрузить полный комплект в новый версионный префикс и вернуть его."""
+    prefix = artifact_prefix_of(run_id, revision)
     for artifact in artifacts:
         path = Path(str(artifact["path"]))
         minio_client.fput_object(settings.minio_bucket, f"{prefix}{path.name}", str(path))
@@ -293,6 +296,8 @@ def _execute(
     options: RunOptions | None,
     answers: dict[str, str] | None,
     edits: dict[str, Any] | None,
+    finalize_review: bool,
+    artifact_revision: int,
     llm: LLMProvider,
     checkpointer_factory: CheckpointerFactory,
 ) -> tuple[str, str | None, str | None, str | None]:
@@ -322,6 +327,7 @@ def _execute(
             outcome = resume_review(
                 thread_id,
                 edits,
+                finalize=finalize_review,
                 checkpointer_factory=checkpointer_factory,
                 deps=deps,
             )
@@ -336,7 +342,7 @@ def _execute(
         return "failed", error.node_hint, str(error), None
 
     artifacts = artifacts_of(outcome)
-    prefix = _upload_artifacts(run_id, artifacts) if artifacts else None
+    prefix = _upload_artifacts(run_id, artifacts, artifact_revision) if artifacts else None
     return _status_of(outcome), None, None, prefix
 
 
@@ -345,6 +351,8 @@ async def execute_run(
     *,
     answers: dict[str, str] | None = None,
     edits: dict[str, Any] | None = None,
+    finalize_review: bool = True,
+    artifact_revision: int | None = None,
     llm: LLMProvider,
     checkpointer_factory: CheckpointerFactory,
 ) -> None:
@@ -357,8 +365,11 @@ async def execute_run(
         run = await session.scalar(select(RunORM).where(RunORM.id == run_id))
         if run is None:
             return
-        run.status = "running"
-        await session.commit()
+        # Роуты возобновления резервируют статус до постановки фоновой
+        # задачи. Для первого запуска это делает сама задача.
+        if run.status != "running":
+            run.status = "running"
+            await session.commit()
 
         try:
             # Опции нужны только старту: возобновление (ответы или правки)
@@ -377,6 +388,10 @@ async def execute_run(
                 options=options,
                 answers=answers,
                 edits=edits,
+                finalize_review=finalize_review,
+                artifact_revision=(
+                    run.artifact_revision if artifact_revision is None else artifact_revision
+                ),
                 llm=llm,
                 checkpointer_factory=checkpointer_factory,
             )
@@ -395,6 +410,9 @@ async def execute_run(
         run.error = error_text
         if prefix is not None:
             run.artifact_prefix = prefix
+            run.artifact_revision = (
+                artifact_revision if artifact_revision is not None else run.artifact_revision
+            )
         run.finished_at = None if status in _WAITING_STATUSES else datetime.now(UTC)
         await session.commit()
 
@@ -418,4 +436,29 @@ async def resume_with_review(
     checkpointer_factory: CheckpointerFactory,
 ) -> None:
     """Применить правки оператора: тот же граф, второй круг plan → … → report."""
-    await execute_run(run_id, edits=edits, llm=llm, checkpointer_factory=checkpointer_factory)
+    await execute_run(
+        run_id,
+        edits=edits,
+        finalize_review=True,
+        llm=llm,
+        checkpointer_factory=checkpointer_factory,
+    )
+
+
+async def regenerate_review(
+    run_id: uuid.UUID,
+    edits: dict[str, Any],
+    artifact_revision: int,
+    *,
+    llm: LLMProvider,
+    checkpointer_factory: CheckpointerFactory,
+) -> None:
+    """Пересобрать результат и вернуться на следующую паузу проверки."""
+    await execute_run(
+        run_id,
+        edits=edits,
+        finalize_review=False,
+        artifact_revision=artifact_revision,
+        llm=llm,
+        checkpointer_factory=checkpointer_factory,
+    )

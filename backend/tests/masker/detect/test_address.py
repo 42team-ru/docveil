@@ -479,3 +479,28 @@ def test_number_after_decimal_point_is_not_a_postal_index() -> None:
     """
     text = "Договор № 2025.334807 на оказание услуг по организации питания"
     assert _detect(text) == []
+
+
+def test_index_and_region_without_street_are_not_sufficient() -> None:
+    """Обрывки типа «обл., 184600» и «Мурманская обл., 184209» не создают сущность.
+
+    Индекс без населённого пункта/улицы — неполный адрес. Маскировать стоит
+    только когда чётко виден город/улица/дом (или явная метка «Адрес:»).
+    """
+    for fragment in ("184600", "обл., 184600", "Мурманская обл., 184209"):
+        assert _detect(fragment) == [], f"fragment {fragment!r} не должен быть адресом"
+
+
+def test_full_street_form_suppresses_person_inside_address() -> None:
+    """«улица Зои Космодемьянской, 12» → 0 персон; «Зои» — часть топонима."""
+    from masker.detect.ner import NatashaDetector
+
+    text = "улица Зои Космодемьянской, д. 12"
+    document = Document(
+        path="test.docx",
+        fmt="docx",
+        segments=[Segment(text=text, anchor=Anchor("docx", ("body", 0)), order=0)],
+    )
+    entities = DetectAgent([AddressDetector(), NatashaDetector()]).detect(document).entities
+    person_entities = [e for e in entities if e.type.value == "person"]
+    assert person_entities == [], f"Зои не должна быть персоной: {person_entities}"

@@ -352,6 +352,32 @@ def test_llm_error_becomes_cannot_compile_not_exception() -> None:
     assert "недоступна" in outcome.reason
 
 
+def test_llm_error_sets_llm_unavailable_code() -> None:
+    class BrokenProvider:
+        def complete(self, messages: list[Message]) -> str:
+            from masker.llm import LLMError
+
+            raise LLMError("timeout")
+
+    outcome = compile_type("замажь даты договора", llm=BrokenProvider(), registry=REGISTRY)
+    assert isinstance(outcome, CannotCompileOutcome)
+    assert outcome.code == "llm_unavailable"
+
+
+def test_ask_rounds_exhausted_sets_correct_code() -> None:
+    llm = FakeProvider([_ask("Уточните тип?", [], "дата")])
+    outcome = compile_type("замажь дату", llm=llm, registry=REGISTRY, round_index=MAX_ASK_ROUNDS)
+    assert isinstance(outcome, CannotCompileOutcome)
+    assert outcome.code == "ask_rounds_exhausted"
+
+
+def test_cannot_compile_outcome_carries_cannot_compile_code() -> None:
+    llm = FakeProvider([_cannot("слишком общее")])
+    outcome = compile_type("замажь всё подозрительное", llm=llm, registry=REGISTRY)
+    assert isinstance(outcome, CannotCompileOutcome)
+    assert outcome.code == "cannot_compile"
+
+
 @pytest.mark.e2e
 def test_e2e_shipment_dates_compile_to_regex_or_gliner_structure() -> None:
     """Живой провайдер: «замажь даты отгрузки» → compile с ожидаемым kind."""

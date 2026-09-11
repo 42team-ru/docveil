@@ -43,13 +43,16 @@ export function UploadPage() {
   const startRun = useStartRun();
   // Кандидаты на (повторную) отправку: всё, что ещё не заведено прогоном —
   // включая уже упавшие файлы, их можно отправить повторно тем же кликом.
-  const submittable = items.filter((item) => item.state === "pending" || item.state === "failed");
+  const submittable = items.filter(
+    (item) => item.state === "pending" || item.state === "failed",
+  );
   // «Готово» в шапке очереди — только по-настоящему свободные от ошибки
   // файлы, а не всё, что уйдёт по кнопке (которая retry-ит и упавшие).
   const readyCount = items.filter((item) => item.state === "pending").length;
 
   const [isSubmitting, setIsStarting] = useState(false);
-  const isStarting = isSubmitting || items.some((item) => item.state === "starting");
+  const isStarting =
+    isSubmitting || items.some((item) => item.state === "starting");
   const startingRef = useRef(false);
 
   /**
@@ -75,7 +78,10 @@ export function UploadPage() {
         if (firstRunId === null) {
           firstRunId = run.id;
           void navigate(`/documents/${run.id}`, {
-            state: { uploadIds: submittable.map((upload) => upload.id), chooseUpload: submittable.length > 1 },
+            state: {
+              uploadIds: submittable.map((upload) => upload.id),
+              chooseUpload: submittable.length > 1,
+            },
           });
         }
       } catch (error) {
@@ -167,9 +173,7 @@ export function UploadPage() {
                           ? "Обезличить документ"
                           : `Обезличить ${submittable.length} ${pluralRu(submittable.length, ["документ", "документа", "документов"])}`
                       }
-                      isDisabled={
-                        submittable.length === 0 || isStarting
-                      }
+                      isDisabled={submittable.length === 0 || isStarting}
                       isLoading={isStarting}
                       onClick={() => void handleStart()}
                     />
@@ -203,7 +207,6 @@ export function UploadPage() {
           </LayoutContent>
         }
       />
-
     </ScreenLayout>
   );
 }

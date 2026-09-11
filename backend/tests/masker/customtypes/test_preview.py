@@ -136,6 +136,34 @@ def test_preview_window_is_bounded_around_match_not_whole_segment() -> None:
     assert segment.text[match.start : match.end] == "01.02.2026"
 
 
+def test_preview_regex_llm_filter_shows_regex_candidates() -> None:
+    """regex_llm_filter preview не падает с ValueError и возвращает кандидатов регулярки."""
+    spec = load_type_config(
+        {
+            "version": 1,
+            "types": [
+                {
+                    "id": "payment_order",
+                    "title": "Номер платёжного поручения",
+                    "marker": "[ПЛАТ-{n}]",
+                    "detect": {
+                        "kind": "regex_llm_filter",
+                        "pattern": r"\d{3,6}",
+                        "ignorecase": False,
+                    },
+                }
+            ],
+        }
+    )[0]
+    document = _document(
+        "Платёжное поручение № 12345 от 01.01.2026.",
+        "Без номеров здесь.",
+    )
+    result = preview(spec, document)
+    assert result.total_matches >= 1
+    assert result.segments[0].matches
+
+
 def test_preview_dispatches_gliner_kind_via_injected_model() -> None:
     """Диспетчер preview.py умеет и gliner_*-исполнители (модель подставляется явно)."""
 

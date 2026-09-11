@@ -50,14 +50,49 @@ failed: self-signed certificate in certificate chain`. Правильное ре
 
 from __future__ import annotations
 
+import ssl as _ssl_module
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 from gigachat import GigaChat
+from gigachat.client import _get_auth_kwargs, _get_kwargs
 from gigachat.exceptions import GigaChatException, ResponseError
 from httpx import HTTPError
 
 from masker.llm.base import LLMError, LLMUsage, Message
+
+
+# Python 3.14 + самоподписанные корни (Минцифры): ssl.create_default_context(cafile=path)
+# не доверяет сертификатам, которые находятся только в cafile и не включены в системное
+# хранилище. Рабочий обходной путь — create_default_context() + load_verify_locations().
+# _build_ssl_context() создаёт такой контекст; _inject_ssl_context() вшивает его в
+# ленивые httpx.Client-ы gigachat до первого сетевого вызова.
+def _build_ssl_context(ca_bundle_file: str) -> _ssl_module.SSLContext:
+    # create_default_context(cafile=path) не работает с самоподписанными корнями
+    # в Python 3.14 — использует only системные CA как якорь доверия, а cafile
+    # идёт только как промежуточные. load_verify_locations() добавляет сертификат
+    # в trusted store явно, что и нужно для Минцифры.
+    ctx = _ssl_module.create_default_context()
+    ctx.load_verify_locations(cafile=ca_bundle_file)
+    return ctx
+
+
+def _inject_ssl_context(gc: GigaChat, ssl_ctx: _ssl_module.SSLContext) -> None:
+    """Подменить httpx-клиенты внутри gigachat на экземпляры с нашим SSLContext.
+
+    gigachat создаёт httpx.Client лениво — через @property _client и _auth_client.
+    Устанавливаем _client_instance/_auth_client_instance напрямую ДО первого вызова,
+    чтобы gigachat не создал их сам через deprecated verify=<str>.
+    """
+    api_kw = _get_kwargs(gc._settings)
+    api_kw["verify"] = ssl_ctx
+    gc._client_instance = httpx.Client(**api_kw)
+
+    auth_kw = _get_auth_kwargs(gc._settings)
+    auth_kw["verify"] = ssl_ctx
+    gc._auth_client_instance = httpx.Client(**auth_kw)
+
 
 DEFAULT_SCOPE = "GIGACHAT_API_PERS"
 
@@ -149,16 +184,19 @@ class GigaChatProvider:
 
     def _get_client(self) -> GigaChat:
         if self._client is None:
-            self._client = GigaChat(
+            gc = GigaChat(
                 credentials=self.credentials,
                 scope=self.scope,
                 model=self.model,
                 timeout=self.timeout_seconds,
                 verify_ssl_certs=self.verify_ssl_certs,
-                ca_bundle_file=self.ca_bundle_file,
+                ca_bundle_file=None,
                 max_retries=self.max_retries,
                 retry_backoff_factor=self.retry_backoff_factor,
             )
+            if self.ca_bundle_file:
+                _inject_ssl_context(gc, _build_ssl_context(self.ca_bundle_file))
+            self._client = gc
         return self._client
 
 

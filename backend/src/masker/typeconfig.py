@@ -38,8 +38,11 @@ _ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
 _BUILTIN_IDS = frozenset(t.value for t in EntityType)
 _ALLOWED_FLAG_MASK = re.IGNORECASE | re.UNICODE
 _DETECT_KINDS = frozenset(
-    {"literals", "regex", "regex_llm_filter", "gliner_label", "gliner_structure"}
+    {"literals", "regex", "regex_context", "regex_llm_filter", "gliner_label", "gliner_structure"}
 )
+# LLM иногда возвращает имя executor'а («regex_context»), а не фактический
+# kind из спецификации («regex»). Нормализуем до допустимого runtime-вида.
+_DETECT_KIND_ALIASES: dict[str, str] = {"regex_context": "regex"}
 # Типы, про критичность которых уже предупредили в этом процессе.
 _WARNED_CRITICAL: set[str] = set()
 _MATCH_MODES = frozenset({"whole_word", "substring"})
@@ -166,9 +169,10 @@ def _build_type(item: Any, index: int) -> CustomTypeSpec:
     if not isinstance(detect, dict):
         raise CustomTypeError(f"Тип {type_id!r}: поле 'detect' должно быть словарём")
 
-    kind = detect.get("kind")
-    if kind not in _DETECT_KINDS:
-        raise CustomTypeError(f"Тип {type_id!r}: неизвестный 'detect.kind' {kind!r}")
+    raw_kind = detect.get("kind")
+    if raw_kind not in _DETECT_KINDS:
+        raise CustomTypeError(f"Тип {type_id!r}: неизвестный 'detect.kind' {raw_kind!r}")
+    kind: str = _DETECT_KIND_ALIASES.get(raw_kind, raw_kind)  # type: ignore[arg-type]
 
     spec = EntityTypeSpec(
         id=type_id,

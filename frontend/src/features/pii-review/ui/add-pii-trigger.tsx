@@ -47,8 +47,7 @@ export function AddPiiTrigger({ capture, onAdd, onDismiss }: AddPiiTriggerProps)
         <div style={{ position: "fixed", top, left, zIndex: 30 }}>
           <Button
             size="sm"
-            variant="secondary"
-            className="bg-inverted text-on-dark"
+            variant="primary"
             label="Добавить как ПДн"
             icon={<Icon icon={Plus} size="sm" />}
             onClick={() => setIsDialogOpen(true)}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
@@ -12,14 +12,19 @@ import {
   SegmentedControlItem,
 } from "@astryxdesign/core/SegmentedControl";
 
-import { flattenPiiOccurrences, groupOccurrences } from "../../../entity/pii/model/flatten";
+import {
+  flattenPiiOccurrences,
+  groupOccurrences,
+  manualFallbackId,
+  type FlatPiiOccurrence,
+} from "../../../entity/pii/model/flatten";
 import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
 import { useLowConfidenceGroupCount } from "../../../entity/pii/model/selectors";
 import { effectiveGroupDecision, useReviewStore } from "../../../entity/pii/model/review-store";
 import type { PiiExtraction } from "../../../entity/pii/model/types";
 import { PiiGroupItem } from "./pii-group-item";
 
-type Filter = "all" | "excluded" | "low";
+type Filter = "all" | "excluded" | "low" | "notFound";
 
 const LOW_CONFIDENCE = 0.6;
 
@@ -49,12 +54,35 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
   const setOccurrenceType = useReviewStore((state) => state.setOccurrenceType);
   const manualOccurrences = useReviewStore((state) => state.manualOccurrences);
   const removeManual = useReviewStore((state) => state.removeManual);
+  const addManual = useReviewStore((state) => state.addManual);
 
   const lowCount = useLowConfidenceGroupCount();
+  const manualOccurrenceIds = new Set(manualOccurrences.map((o) => o.id));
+
+  // Непривязанное вхождение уже существует на бэке (тип и текст известны) —
+  // в отличие от настоящей ручной пометки, тип у него выбирать не нужно.
+  //
+  // `ManualEntityIn` бэкенда не принимает locator вообще — только
+  // `type`/`text`/опциональный `region` (`shared/api/generated/.../
+  // triemaMaskerAPI.schemas.ts`). Для bbox-форматов (pdf/скан) у вхождения
+  // уже есть точные координаты — их и шлём, тогда сервер не ищет текст на
+  // странице (`ManualPiiOccurrence`, комментарий в entity/pii/model/types.ts).
+  // Для docx/xlsx `regions` пуст и точной привязки в принципе нет: сервер
+  // ищет `text` вслепую, и найдёт ли он именно то вхождение — вне контроля
+  // фронта.
+  function handleAddFallbackManual(occurrence: FlatPiiOccurrence) {
+    const region = occurrence.regions[0];
+    addManual({
+      id: manualFallbackId(occurrence.id),
+      type: occurrence.type,
+      text: occurrence.originalText,
+      ...(region ? { region } : { anchor: occurrence.anchor }),
+    });
+  }
 
   const groups = groupOccurrences(flattenPiiOccurrences(extraction));
 
-  const visibleGroups = [...groups.entries()]
+  const allGroups = [...groups.entries()]
     .map(([groupId, occurrences]) => ({
       groupId,
       occurrences: occurrences.map((o) => ({
@@ -66,12 +94,24 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
         appliedGroupDecisions,
       }, groupId),
       minConfidence: Math.min(...occurrences.map((o) => o.confidence)),
-    }))
-    .filter((group) => {
-      if (filter === "excluded") return group.decision === "rejected";
-      if (filter === "low") return group.minConfidence < LOW_CONFIDENCE;
-      return true;
-    });
+      hasNotFound: occurrences.some((o) => notFoundIds.has(o.id)),
+    }));
+
+  const notFoundCount = allGroups.filter((group) => group.hasNotFound).length;
+
+  // Пункт фильтра существует, только пока есть что показывать — если
+  // непривязанные вхождения исчезли (перегенерация починила якоря), а
+  // фильтр остался на них, в SegmentedControl не на что указывать значением.
+  useEffect(() => {
+    if (filter === "notFound" && notFoundCount === 0) setFilter("all");
+  }, [filter, notFoundCount]);
+
+  const visibleGroups = allGroups.filter((group) => {
+    if (filter === "excluded") return group.decision === "rejected";
+    if (filter === "low") return group.minConfidence < LOW_CONFIDENCE;
+    if (filter === "notFound") return group.hasNotFound;
+    return true;
+  });
 
   return (
     <VStack gap={0} height="100%">
@@ -85,6 +125,9 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
           <SegmentedControlItem value="all" label="Все" />
           <SegmentedControlItem value="excluded" label="Исключённые" />
           <SegmentedControlItem value="low" label={`Низкая ${lowCount}`} />
+          {notFoundCount > 0 ? (
+            <SegmentedControlItem value="notFound" label={`Замазано без подсветки ${notFoundCount}`} />
+          ) : null}
         </SegmentedControl>
       </HStack>
 
@@ -143,6 +186,7 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
               appliedOccurrenceDecisions={appliedOccurrenceDecisions}
               selectedOccurrenceId={selectedOccurrenceId}
               notFoundIds={notFoundIds}
+              manualOccurrenceIds={manualOccurrenceIds}
               onSelect={select}
               onConfirm={confirmGroup}
               onReject={rejectGroup}
@@ -150,6 +194,7 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
               onRejectOccurrence={rejectOccurrence}
               onSetGroupType={setGroupType}
               onSetOccurrenceType={setOccurrenceType}
+              onAddFallbackManual={handleAddFallbackManual}
               isEditingDisabled={isEditingDisabled}
             />
           ))}

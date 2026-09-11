@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
+import { Spinner } from "@astryxdesign/core/Spinner";
 import { VStack } from "@astryxdesign/core/Stack";
 
 import type {
@@ -10,7 +11,6 @@ import type {
 } from "../../../entity/pii/model/types";
 import type { SelectionCapture } from "../lib/read-selection";
 import { UnsupportedFormat } from "./unsupported-format";
-import { RunSearch } from "./run-search";
 
 // docx-preview, exceljs и pdfjs-dist тянут больше 1 МБ в бандл каждый (см.
 // вывод `yarn build`) — динамический импорт, чтобы открывающий один формат
@@ -61,14 +61,12 @@ export function DocumentViewer({
   if (!fileUrl) {
     return (
       <VStack hAlign="center" vAlign="center" padding={6} height="100%">
-        <VStack gap={4} hAlign="center">
-          <EmptyState
-            isCompact
-            title="Документ не выбран"
-            description="Найдите файл и выберите его для проверки."
-          />
-          <RunSearch />
-        </VStack>
+        <EmptyState
+          isCompact
+          icon={<Spinner size="lg" />}
+          title="Документ загружается"
+          description="Подождите: готовим файл для проверки."
+        />
       </VStack>
     );
   }

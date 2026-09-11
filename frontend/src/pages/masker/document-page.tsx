@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { CheckCircle2, Download, FileBarChart2, ListChecks, Sheet } from "lucide-react";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
@@ -24,6 +25,7 @@ import {
   downloadArtifact,
   hasRunResult,
   isRunPending,
+  runKeys,
   useRegenerateReview,
   useSubmitReview,
 } from "../../features/masking-run/api/masking-run";
@@ -144,6 +146,7 @@ export function DocumentPage() {
   const submitReview = useSubmitReview(runId);
   const regenerateReview = useRegenerateReview(runId);
   const isRegenerating = regenerationRevision !== null;
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (
@@ -154,8 +157,17 @@ export function DocumentPage() {
     ) {
       setRegenerationRevision(null);
       showToast({ body: "Файл перегенерирован с вашими изменениями", type: "info" });
+      // `useRegenerateReview` инвалидирует отчёт сразу на 202 — граф тогда
+      // только встал в очередь, новых замен в отчёте ещё нет. Настоящий
+      // отчёт готов только теперь, когда прогон вернулся на `awaiting_review`
+      // с нужной ревизией — без повторной инвалидации здесь панель «Замены»
+      // остаётся на старом списке до перезагрузки страницы.
+      if (runId !== null) {
+        void queryClient.invalidateQueries({ queryKey: runKeys.report(runId) });
+        void queryClient.invalidateQueries({ queryKey: runKeys.artifacts(runId) });
+      }
     }
-  }, [artifactRevision, regenerationRevision, reviewedDocument.fileUrl, showToast, status]);
+  }, [artifactRevision, queryClient, regenerationRevision, reviewedDocument.fileUrl, runId, showToast, status]);
 
   /**
    * Утверждение документа. Правки уходят вторым прерыванием в граф, и

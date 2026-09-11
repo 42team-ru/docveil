@@ -43,6 +43,15 @@ export type FlatPiiOccurrence = {
   regions: PiiRegion[];
 };
 
+/**
+ * Id ручной записи, заведённой из непривязанного вхождения (`notFoundIds`
+ * панели проверки) — детерминирован от id вхождения, чтобы повторный клик по
+ * «Добавить» не плодил дубликаты, а находил уже созданную запись.
+ */
+export function manualFallbackId(occurrenceId: string): string {
+  return `manual-from-${occurrenceId}`;
+}
+
 /** В JSON бэкенда нет своего id вхождения — синтезируем детерминированно. */
 export function occurrenceId(
   chunkId: string,

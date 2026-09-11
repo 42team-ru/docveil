@@ -3,6 +3,7 @@ import { Item } from "@astryxdesign/core/Item";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
+import { Tooltip } from "@astryxdesign/core/Tooltip";
 
 import type { FlatPiiOccurrence } from "../model/flatten";
 import { piiTypeLabel } from "../model/pii-type-dict";
@@ -75,7 +76,14 @@ export function PiiOccurrenceItem({
             <Text type="supporting">{occurrence.anchor.label}</Text>
             <ConfidenceMark value={occurrence.confidence} />
             <StackItem size="fill" />
-            {isUnanchored ? <Token size="sm" color="red" label="не найдено" /> : null}
+            {isUnanchored ? (
+              <Tooltip
+                content="Уже замаскировано в документе — сам маркер найти и подсветить не удалось, но на файл это не влияет."
+                placement="above"
+              >
+                <Token size="sm" color="green" label="Замазано" />
+              </Tooltip>
+            ) : null}
           </HStack>
         }
         description={

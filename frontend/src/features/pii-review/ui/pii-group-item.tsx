@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Item } from "@astryxdesign/core/Item";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { Token } from "@astryxdesign/core/Token";
+import { Tooltip } from "@astryxdesign/core/Tooltip";
 
-import type { FlatPiiOccurrence } from "../../../entity/pii/model/flatten";
+import { manualFallbackId, type FlatPiiOccurrence } from "../../../entity/pii/model/flatten";
 import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
 import type { PiiDecisionKind, PiiType } from "../../../entity/pii/model/types";
 import {
@@ -27,6 +29,8 @@ type PiiGroupItemProps = {
   appliedOccurrenceDecisions: Record<string, Exclude<PiiDecisionKind, "pending">>;
   selectedOccurrenceId: string | null;
   notFoundIds: Set<string>;
+  /** Id ручных записей — узнать, заведён ли уже фолбэк для вхождения. */
+  manualOccurrenceIds: Set<string>;
   onSelect: (occurrenceId: string) => void;
   onConfirm: (groupId: string) => void;
   onReject: (groupId: string) => void;
@@ -34,6 +38,8 @@ type PiiGroupItemProps = {
   onRejectOccurrence: (occurrenceId: string, groupId: string) => void;
   onSetGroupType: (groupId: string, type: PiiType) => void;
   onSetOccurrenceType: (occurrenceId: string, type: PiiType) => void;
+  /** Завести ручную запись по непривязанному вхождению — тип уже известен. */
+  onAddFallbackManual: (occurrence: FlatPiiOccurrence) => void;
   isEditingDisabled?: boolean;
 };
 
@@ -63,6 +69,7 @@ export function PiiGroupItem({
   appliedOccurrenceDecisions,
   selectedOccurrenceId,
   notFoundIds,
+  manualOccurrenceIds,
   onSelect,
   onConfirm,
   onReject,
@@ -70,11 +77,14 @@ export function PiiGroupItem({
   onRejectOccurrence,
   onSetGroupType,
   onSetOccurrenceType,
+  onAddFallbackManual,
   isEditingDisabled = false,
 }: PiiGroupItemProps) {
   const containsSelected = occurrences.some((o) => o.id === selectedOccurrenceId);
   const [isOpen, setIsOpen] = useState(containsSelected);
   const first = occurrences[0];
+  const isExcluded = decision === "rejected";
+  const notFoundCount = occurrences.filter((o) => notFoundIds.has(o.id)).length;
 
   // Клик по метке в документе выбирает вхождение в сторе — группа, где оно
   // лежит, должна раскрыться сама, даже если оператор её не трогал. Группу,
@@ -96,7 +106,13 @@ export function PiiGroupItem({
         }
         label={
           <HStack gap={2} vAlign="center" wrap="wrap">
-            <Text weight="medium">{first.marker || first.originalText}</Text>
+            <Text
+              weight="medium"
+              color={isExcluded ? "secondary" : undefined}
+              hasStrikethrough={isExcluded}
+            >
+              {first.marker || first.originalText}
+            </Text>
             <Text type="supporting" color="secondary">
               {piiTypeLabel(first.type)}
             </Text>
@@ -104,6 +120,26 @@ export function PiiGroupItem({
               <Text type="supporting" color="secondary">
                 × {occurrences.length}
               </Text>
+            ) : null}
+            {isExcluded ? (
+              <Tooltip
+                content="Маскирование снято: сущность останется видимой в готовом документе."
+                placement="above"
+              >
+                <Token size="sm" color="gray" label="Не замазано" />
+              </Tooltip>
+            ) : null}
+            {notFoundCount > 0 ? (
+              <Tooltip
+                content={
+                  notFoundCount === occurrences.length
+                    ? "Уже замаскировано в документе — сам маркер найти и подсветить не удалось, но на файл это не влияет."
+                    : `Замазано без подсветки: ${notFoundCount} из ${occurrences.length} вхождений.`
+                }
+                placement="above"
+              >
+                <Token size="sm" color="green" label="Замазано" />
+              </Tooltip>
             ) : null}
           </HStack>
         }
@@ -148,54 +184,67 @@ export function PiiGroupItem({
 
       {isOpen ? (
         <VStack gap={1} as="ul" paddingInlineStart={6}>
-          {occurrences.map((occurrence) => (
-            <HStack key={occurrence.id} gap={0} vAlign="center" paddingInlineEnd={2}>
-              <StackItem size="fill">
-                <PiiOccurrenceItem
-                  occurrence={occurrence}
-                  isSelected={occurrence.id === selectedOccurrenceId}
-                  isUnanchored={notFoundIds.has(occurrence.id)}
-                  onSelect={onSelect}
+          {occurrences.map((occurrence) => {
+            const isNotFound = notFoundIds.has(occurrence.id);
+            return (
+              <HStack key={occurrence.id} gap={0} vAlign="center" paddingInlineEnd={2}>
+                <StackItem size="fill">
+                  <PiiOccurrenceItem
+                    occurrence={occurrence}
+                    isSelected={occurrence.id === selectedOccurrenceId}
+                    isUnanchored={isNotFound}
+                    onSelect={onSelect}
+                  />
+                </StackItem>
+                <OccurrenceTypeMenu
+                  currentType={occurrence.type}
+                  onSelectOnlyThis={(type) => onSetOccurrenceType(occurrence.id, type)}
                 />
-              </StackItem>
-              <OccurrenceTypeMenu
-                currentType={occurrence.type}
-                onSelectOnlyThis={(type) => onSetOccurrenceType(occurrence.id, type)}
-              />
-              {effectiveOccurrenceDecision(
-                {
-                  groupDecisions,
-                  appliedGroupDecisions,
-                  occurrenceDecisions,
-                  appliedOccurrenceDecisions,
-                },
-                occurrence.id,
-                groupId,
-              ) === "rejected" ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  label="Вернуть"
-                  isDisabled={isEditingDisabled}
-                  onClick={() => onConfirmOccurrence(occurrence.id, groupId)}
-                />
-              ) : (
-                <IconButton
-                  size="sm"
-                  variant="ghost"
-                  icon={<Icon icon={X} size="sm" />}
-                  label={`Убрать маскирование «${occurrence.originalText}»`}
-                  tooltip={
-                    CRITICAL_TYPES.has(occurrence.type)
-                      ? "Критичные реквизиты нельзя раскрыть без явного разрешения прогона"
-                      : "Убрать маскирование только в этом месте"
-                  }
-                  isDisabled={isEditingDisabled || CRITICAL_TYPES.has(occurrence.type)}
-                  onClick={() => onRejectOccurrence(occurrence.id, groupId)}
-                />
-              )}
-            </HStack>
-          ))}
+                {effectiveOccurrenceDecision(
+                  {
+                    groupDecisions,
+                    appliedGroupDecisions,
+                    occurrenceDecisions,
+                    appliedOccurrenceDecisions,
+                  },
+                  occurrence.id,
+                  groupId,
+                ) === "rejected" ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    label="Вернуть"
+                    isDisabled={isEditingDisabled}
+                    onClick={() => onConfirmOccurrence(occurrence.id, groupId)}
+                  />
+                ) : isNotFound && !manualOccurrenceIds.has(manualFallbackId(occurrence.id)) ? (
+                  <IconButton
+                    size="sm"
+                    variant="ghost"
+                    icon={<Icon icon={Plus} size="sm" />}
+                    label={`Добавить «${occurrence.originalText}»`}
+                    tooltip="Добавить отдельной записью: тип и текст уже известны, подставим их сами"
+                    isDisabled={isEditingDisabled}
+                    onClick={() => onAddFallbackManual(occurrence)}
+                  />
+                ) : isNotFound ? null : (
+                  <IconButton
+                    size="sm"
+                    variant="ghost"
+                    icon={<Icon icon={X} size="sm" />}
+                    label={`Убрать маскирование «${occurrence.originalText}»`}
+                    tooltip={
+                      CRITICAL_TYPES.has(occurrence.type)
+                        ? "Критичные реквизиты нельзя раскрыть без явного разрешения прогона"
+                        : "Убрать маскирование только в этом месте"
+                    }
+                    isDisabled={isEditingDisabled || CRITICAL_TYPES.has(occurrence.type)}
+                    onClick={() => onRejectOccurrence(occurrence.id, groupId)}
+                  />
+                )}
+              </HStack>
+            );
+          })}
         </VStack>
       ) : null}
     </VStack>

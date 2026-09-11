@@ -29,6 +29,7 @@ from api.schemas.run import RunCreateRequest
 from masker.graph.nodes import RunDeps
 from masker.ingest import SUPPORTED_SUFFIXES as ENGINE_SUFFIXES
 from masker.llm import LLMProvider, get_provider, resolve_llm_config
+from masker.ocr.select import select_ocr
 from masker.run import (
     AlreadyFinishedError,
     CheckpointerFactory,
@@ -306,6 +307,7 @@ def _execute(
         llm=llm,
         artifact_dir=artifact_dir,
         pricing=resolve_llm_config().pricing,
+        ocr=select_ocr(),
     )
     try:
         if options is not None:

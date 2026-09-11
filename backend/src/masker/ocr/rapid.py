@@ -56,7 +56,7 @@ class RapidOCRProvider:
         if image.ndim != 3 or image.shape[2] != 3:
             raise OCRError(f"ожидается изображение (H, W, 3) uint8, получено shape={image.shape}")
         model = self._get_model()
-        result, _ = model(image)
+        result, _ = model(image, return_word_box=True)
         if result is None:
             return ()
         return _parse_results(result)
@@ -109,11 +109,56 @@ def _load_rapid_model() -> Any:
         raise OCRError(f"не удалось инициализировать RapidOCR: {exc}") from exc
 
 
+def _word_xbounds_from_chars(
+    char_bboxes: list[Any], char_texts: list[str]
+) -> list[tuple[float, float]] | None:
+    """Сгруппировать посимвольные боксы в слова; вернуть (x0_px, x1_px) на слово.
+
+    RapidOCR с ``return_word_box=True`` отдаёт один бокс на символ (включая
+    пробелы). Группируем последовательные непробельные символы в слова и
+    берём охватывающий bbox по оси X — этого достаточно для точного
+    маскирования по слову.
+    """
+    words: list[tuple[float, float]] = []
+    curr_x0: float | None = None
+    curr_x1: float | None = None
+
+    for ch, box in zip(char_texts, char_bboxes):
+        if not isinstance(box, (list, tuple)) or len(box) < 2:
+            continue
+        pts = np.asarray(box, dtype=float)
+        bx0 = float(pts[:, 0].min())
+        bx1 = float(pts[:, 0].max())
+
+        if str(ch).strip() == "":
+            if curr_x0 is not None:
+                words.append((curr_x0, curr_x1))  # type: ignore[arg-type]
+                curr_x0 = curr_x1 = None
+        else:
+            curr_x0 = bx0 if curr_x0 is None else min(curr_x0, bx0)
+            curr_x1 = bx1 if curr_x1 is None else max(curr_x1, bx1)
+
+    if curr_x0 is not None:
+        words.append((curr_x0, curr_x1))  # type: ignore[arg-type]
+
+    return words if words else None
+
+
 def _parse_results(result: list[Any]) -> tuple[OCRLine, ...]:
-    """Преобразовать список ``(polygon_4pts, text, score)`` в ``tuple[OCRLine, ...]``."""
+    """Преобразовать вывод RapidOCR (с return_word_box=True) в OCRLine.
+
+    Каждый элемент result: [polygon, text, score, char_bboxes, char_texts, char_scores].
+    Посимвольные боксы группируются в слова и сохраняются в extra["word_xbounds"]
+    как список (x0_px, x1_px) в порядке слов строки.
+    """
     lines: list[OCRLine] = []
     for item in result:
-        polygon_raw, text, score = item
+        polygon_raw = item[0]
+        text = str(item[1])
+        score = float(item[2])
+        char_bboxes = item[3] if len(item) > 3 else None
+        char_texts: list[str] = list(item[4]) if len(item) > 4 else []
+
         pts = np.asarray(polygon_raw, dtype=float)  # (4, 2)
         x0 = float(pts[:, 0].min())
         y0 = float(pts[:, 1].min())
@@ -130,13 +175,23 @@ def _parse_results(result: list[Any]) -> tuple[OCRLine, ...]:
             (float(pts[2, 0]), float(pts[2, 1])),
             (float(pts[3, 0]), float(pts[3, 1])),
         )
+
+        word_xbounds: list[tuple[float, float]] | None = None
+        if char_bboxes and char_texts:
+            word_xbounds = _word_xbounds_from_chars(char_bboxes, char_texts)
+
+        extra: dict[str, object] = {}
+        if word_xbounds is not None:
+            extra["word_xbounds"] = word_xbounds
+
         lines.append(
             OCRLine(
-                text=str(text),
+                text=text,
                 bbox=(x0, y0, x1, y1),
                 polygon=polygon,
-                confidence=float(score),
+                confidence=score,
                 order=len(lines),
+                extra=extra,
             )
         )
     return tuple(lines)

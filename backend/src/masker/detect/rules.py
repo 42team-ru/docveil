@@ -6,8 +6,9 @@ precision почти единица достаётся бесплатно, оф�
 Регулярка на десять цифр срабатывает на каждом номере накладной;
 регулярка с проверкой контрольной суммы — практически никогда.
 
-Счёт проверяется только в паре с БИК: у него нет самостоятельной
-контрольной суммы. БИК ищется в том же сегменте или в соседних.
+Расчётный и корреспондентский счёт проверяются только в паре с БИК: у них
+нет самостоятельной контрольной суммы. Лицевой счёт из 11 цифр принимается
+только после его явной метки.
 """
 
 from __future__ import annotations
@@ -58,6 +59,35 @@ _R = r"(?![\d\w])"
 #: цифр из середины двадцатизначного счёта.
 _NOT_IN_DIGIT_RUN_L = r"(?<!\d)"
 _NOT_IN_DIGIT_RUN_R = r"(?!\d)"
+
+#: Лицевой счёт — 11 цифр, поэтому его нельзя искать общей регуляркой:
+#: по такой же длине совпадают СНИЛС, ОКТМО и множество служебных кодов.
+#: Берём только значение, которое непосредственно следует за меткой
+#: «л/с», «л/сч», «лицевой счёт» либо «лицевого счёта».
+_PERSONAL_ACCOUNT_RE = re.compile(
+    r"(?:\bл\s*/\s*сч?\b|\bлицев(?:ой|ого)\s+сч[её]т(?:а)?\b)"
+    r"\s*[:№]?\s*(?P<value>\d{11})(?![\d\w])",
+    re.IGNORECASE,
+)
+
+#: ИКЗ был 29-значным в раннем формате и стал 36-значным в текущем.
+#: Между разрядами в PDF нередко стоят пробелы, поэтому диапазон ищется по
+#: метке и числу разрядов, а не по одному конкретному способу группировки.
+_IKZ_RE = re.compile(
+    r"идентификационн\w*\s+код\s+закупк\w*\s*:\s*"
+    r"(?P<value>\d(?:[\s-]?\d){28,35})(?![\d\w])",
+    re.IGNORECASE,
+)
+_IKZ_EMBEDDED_REQUISITES = frozenset(
+    {
+        EntityType.BANK_ACCOUNT,
+        EntityType.INN,
+        EntityType.OGRN,
+        EntityType.SNILS,
+        EntityType.KPP,
+        EntityType.BIK,
+    }
+)
 
 PATTERNS: dict[EntityType, re.Pattern[str]] = {
     # ИНН не использует _d() — межцифровые пробелы дают ложные срабатывания
@@ -292,6 +322,34 @@ def _account_validated(raw: str, seg: Segment, biks: dict[int, list[str]]) -> bo
     return any(is_valid_account(raw, b) for b in near)
 
 
+def _personal_account_hits(seg: Segment) -> list[Entity]:
+    """Вернуть 11-значные лицевые счета с обязательной соседней меткой."""
+    return [
+        Entity(
+            type=EntityType.BANK_ACCOUNT,
+            text=match.group("value"),
+            segment_order=seg.order,
+            start=match.start("value"),
+            end=match.end("value"),
+            source=Source.RULE,
+            # Контекстная метка — формальная проверка для счёта, у которого
+            # нет контрольной суммы и нельзя применить проверку БИК.
+            confidence=1.0,
+            normalized=normalize_value(EntityType.BANK_ACCOUNT, match.group("value")),
+        )
+        for match in _PERSONAL_ACCOUNT_RE.finditer(seg.text)
+    ]
+
+
+def _ikz_ranges(text: str) -> list[tuple[int, int]]:
+    """Диапазоны ИКЗ, внутри которых реквизиты не ищутся по частям."""
+    return [(match.start("value"), match.end("value")) for match in _IKZ_RE.finditer(text)]
+
+
+def _overlaps_ikz(start: int, end: int, ikz_ranges: list[tuple[int, int]]) -> bool:
+    return any(ikz_start < end and start < ikz_end for ikz_start, ikz_end in ikz_ranges)
+
+
 def _accept(etype: EntityType, raw: str, seg: Segment, biks: dict[int, list[str]]) -> bool:
     """Проходит ли кандидат проверку своего типа."""
     if etype is EntityType.BANK_ACCOUNT:
@@ -325,6 +383,7 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
     biks = find_biks(segments)
     raw_hits: list[Entity] = []
     for seg in segments:
+        ikz_ranges = _ikz_ranges(seg.text)
         for etype, pattern in PATTERNS.items():
             for m in pattern.finditer(seg.text):
                 # Номер договора живёт в группе 1 — сущность не включает
@@ -337,6 +396,12 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                 else:
                     value = m.group()
                     start, end = m.start(), m.end()
+                # ИКЗ — самостоятельный служебный код, а не контейнер для
+                # банковского счёта, ИНН или КПП. Его не маскируем и не
+                # дробим: в старом 29-значном формате иначе после overlap
+                # оставался ложный фрагмент счёта «1 ».
+                if etype in _IKZ_EMBEDDED_REQUISITES and _overlaps_ikz(start, end, ikz_ranges):
+                    continue
                 # HTTP-ссылки нередко заканчиваются точкой конца предложения,
                 # которая не является частью URL.
                 if etype is EntityType.SITE and value.startswith("http"):
@@ -375,6 +440,7 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                         normalized=normalize_value(etype, _sanitize_for_checksum(etype, value)),
                     )
                 )
+        raw_hits.extend(_personal_account_hits(seg))
     return resolve_overlaps(raw_hits)
 
 

@@ -84,6 +84,11 @@
       "party": "customer"
     },
     {
+      "type": "bank_account",
+      "text": "39062000144",
+      "party": "customer"
+    },
+    {
       "type": "phone",
       "text": "+7(343)360-62-27",
       "party": "customer"

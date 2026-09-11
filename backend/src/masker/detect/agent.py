@@ -18,6 +18,7 @@ from masker.detect.orgforms import (
     shrink_span,
 )
 from masker.detect.requisite_blocks import find_requisite_block_candidates
+from masker.detect.requisites import drop_incomplete_requisites
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.detect.sweep import sweep
 from masker.entity_types import EntityTypeRegistry
@@ -361,6 +362,10 @@ class DetectAgent:
                 [*entities, *verifier_result.entities],
                 key=lambda item: (item.segment_order, item.start, item.end, item.type),
             )
+        # Р13: формальная длина — свойство реквизита, а не только регулярки.
+        # Этот общий барьер покрывает любой текущий или будущий детектор до
+        # профилирования и планирования масок.
+        entities = drop_incomplete_requisites(entities)
         # Уровень уверенности (Р8) — последний шаг, после того как состав
         # принятых сущностей окончательно определён: `_count_signals` читает
         # ещё не разрешённые `found`, а `sweep`-находки уже сами по себе

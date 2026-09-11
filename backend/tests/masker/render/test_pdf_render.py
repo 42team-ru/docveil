@@ -76,6 +76,32 @@ def _make_pdf_with_inn(tmp_path: pathlib.Path, pages: int = 1) -> pathlib.Path:
     return path
 
 
+def _make_pdf_with_pii_widget(tmp_path: pathlib.Path) -> pathlib.Path:
+    """PDF со сложной формой: текст PII живёт в appearance виджета.
+
+    ``apply_redactions`` не редактирует appearance stream поля формы, хотя
+    ``page.get_text`` и ``search_for`` этот текст видят. Такое же устройство
+    у виджета электронной подписи в реальном договоре из М14.
+    """
+    path = tmp_path / "form-layout.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Contract details", fontsize=12)
+    page.insert_text((72, 104), "Signer certificate:", fontsize=10)
+    page.insert_text((72, 136), "Signature is in the form field at right", fontsize=10)
+    widget = pymupdf.Widget()
+    widget.field_name = "signer_certificate"
+    widget.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+    widget.field_value = "Ivanova  Tatyana  Petrovna; email=signer@example.test"
+    widget.rect = pymupdf.Rect(280, 88, 550, 150)
+    widget.text_font = "helv"
+    widget.text_fontsize = 9
+    page.add_widget(widget)
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
 def _filled_rect_colors(path: pathlib.Path) -> list[tuple[float, float, float]]:
     """Цвета фактически нарисованных заполненных прямоугольников PDF."""
     doc = pymupdf.open(path)
@@ -245,6 +271,46 @@ def test_redacted_marker_appears_in_text(tmp_path: pathlib.Path) -> None:
     text = doc[0].get_text()
     doc.close()
     assert "[ИНН]" in text
+
+
+@pytest.mark.parametrize("style", ("marker", "blackbox"))
+def test_redacted_form_widget_is_deleted_when_its_planned_text_overlaps(
+    tmp_path: pathlib.Path, style: str
+) -> None:
+    """М14: каждая замена из виджета формы должна физически исчезнуть.
+
+    До удаления виджета этот тест оставляет обе строки в text layer: PyMuPDF
+    применяет прямоугольники к content stream страницы, но не к appearance
+    stream виджета. Проверка через ValidateAgent доказывает не наличие
+    заливки, а отсутствие каждого исходного значения в готовом артефакте.
+    """
+    src = _make_pdf_with_pii_widget(tmp_path)
+    dest = tmp_path / f"redacted-{style}.pdf"
+    document = ingest_pdf(src)
+    person = "Ivanova  Tatyana  Petrovna"
+    email = "signer@example.test"
+    plan = _plan(
+        document,
+        [
+            _entity_for_doc(document, person, EntityType.PERSON),
+            _entity_for_doc(document, email, EntityType.EMAIL),
+        ],
+    )
+
+    outcome = render_pdf_redacted(src, dest, document, plan, style=style)
+
+    assert {replacement.ref for replacement in outcome.replacements} == {
+        replacement.ref for replacement in plan.replacements
+    }
+    assert ValidateAgent().validate(plan, [dest], source=src).leaked == ()
+    doc = pymupdf.open(dest)
+    try:
+        assert list(doc[0].widgets() or ()) == []
+        text = doc[0].get_text()
+    finally:
+        doc.close()
+    assert person not in text
+    assert email not in text
 
 
 def test_centered_marker_uses_vector_dots_without_polluting_text_layer(

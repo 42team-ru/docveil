@@ -53,6 +53,7 @@ from dataclasses import dataclass
 
 from masker.detect.normalize import normalize_value
 from masker.detect.orgforms import org_forms
+from masker.detect.person_values import is_single_token_uppercase_abbreviation
 from masker.model import Document, Entity, EntityType, Segment, Source
 
 #: Граммемы OpenCorpora, которыми MorphVocab помечает имя собственное
@@ -232,6 +233,9 @@ class MorphPersonDetector:
             start = tokens[index].start
             end = tokens[run_end].end
             value = text[start:end]
+            if is_single_token_uppercase_abbreviation(value):
+                index = run_end + 1
+                continue
             confidence = _HIGH_CONFIDENCE if core_count >= 2 else _LOW_CONFIDENCE
             result.append(
                 Entity(

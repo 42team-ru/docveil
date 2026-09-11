@@ -442,37 +442,28 @@ def test_gigachat_provider_defaults_ca_bundle_file_to_none() -> None:
 
 
 def test_gigachat_forwards_ca_bundle_file_to_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Р9: путь к доверенному корневому сертификату (Минцифры) используется при создании клиента.
+    """Р9: путь к доверенному корневому сертификату (Минцифры) доходит до `gigachat.GigaChat`.
 
-    Старое поведение: путь передавался в `GigaChat(ca_bundle_file=...)` и gigachat
-    открывал файл при первом TLS-запросе.
-
-    Новое поведение (Python 3.14 + самоподписанные корни Минцифры): мы строим
-    `ssl.SSLContext` сами через `_build_ssl_context(path)` и вшиваем его в
-    httpx-клиенты gigachat через `_inject_ssl_context` ДО первого вызова.
-    `GigaChat.__init__` получает `ca_bundle_file=None`, чтобы не мешал нашему контексту.
+    Без этого параметра запрос падает на машинах без сертификатов Минцифры
+    в системном хранилище: `SSL: CERTIFICATE_VERIFY_FAILED`. Проверяем, что
+    провайдер прокидывает `ca_bundle_file` в клиент, не проверяя реальную сеть.
     """
-    import ssl as ssl_module
+    captured: dict[str, object] = {}
 
-    sentinel_ctx = ssl_module.SSLContext(ssl_module.PROTOCOL_TLS_CLIENT)
-    build_calls: list[str] = []
-    inject_calls: list[tuple[object, ssl_module.SSLContext]] = []
+    class _SpyGigaChat:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
 
-    monkeypatch.setattr(
-        "masker.llm.gigachat._build_ssl_context",
-        lambda path: (build_calls.append(path), sentinel_ctx)[1],
-    )
-    monkeypatch.setattr(
-        "masker.llm.gigachat._inject_ssl_context",
-        lambda gc, ctx: inject_calls.append((gc, ctx)),
-    )
+        def chat(self, payload: object) -> None:  # pragma: no cover - не должен вызываться
+            raise AssertionError("chat не должен вызываться в этом тесте")
+
+    monkeypatch.setattr("masker.llm.gigachat.GigaChat", _SpyGigaChat)
 
     provider = _provider(ca_bundle_file="/etc/ssl/certs/russian_trusted_root_ca.cer")
     provider._get_client()
 
-    assert build_calls == ["/etc/ssl/certs/russian_trusted_root_ca.cer"]
-    assert len(inject_calls) == 1
-    assert inject_calls[0][1] is sentinel_ctx
+    assert captured["ca_bundle_file"] == "/etc/ssl/certs/russian_trusted_root_ca.cer"
+    assert captured["verify_ssl_certs"] is True
 
 
 def test_get_provider_reads_gigachat_ca_bundle_file_from_environment(

@@ -98,7 +98,7 @@ MAX_ATTEMPTS = 2
 
 #: Типы, которые верификатор имеет право предлагать — открытый класс, тот же,
 #: что участвует в `ConfidenceLevel.POSSIBLE` (`masker.detect.confidence`).
-VERIFIER_TYPES: frozenset[str] = frozenset({EntityType.PERSON, EntityType.ORG_NAME})
+VERIFIER_TYPES: frozenset[str] = frozenset({EntityType.PERSON, EntityType.ORG_NAME, EntityType.ADDRESS})
 
 #: Уверенность найденной верификатором сущности — как решение модели по
 #: контексту, а не точный формат/чек-сумма (тот же порядок величины, что у
@@ -107,10 +107,21 @@ VERIFIER_CONFIDENCE = 0.6
 
 _CAPITALIZED_WORD_RE = re.compile(r"[А-ЯЁ][а-яё]+|[А-ЯЁ]{2,}")
 
+#: Шестизначное число — потенциальный почтовый индекс (слабый адресный сигнал).
+_POSTAL_INDEX_RE = re.compile(r"\b\d{6}\b")
+
+#: Адресные слова-маркеры без следующей конкретики — обрывок адреса.
+_ADDRESS_FRAGMENT_RE = re.compile(
+    r"\b(?:обл\.?|г\.?|ул\.?|пр-т)\b", re.IGNORECASE
+)
+
 _SYSTEM_PROMPT = (
     "Тебе показан пронумерованный список окон текста договора. В каждом окне может "
-    'быть персональное имя человека (тип "person") или название организации (тип '
-    '"org_name"), не помеченные разметкой. Верни ровно один JSON-объект без '
+    'быть персональное имя человека (тип "person"), название организации (тип '
+    '"org_name") или почтовый адрес (тип "address"), не помеченные разметкой. '
+    'Полный адрес включает почтовый индекс (6 цифр), регион или город, улицу или '
+    'переулок и номер дома; части адреса могут быть разделены запятыми и переносами '
+    'строк. Цитируй весь адрес целиком, не обрывок. Верни ровно один JSON-объект без '
     'пояснений вида {"windows": [{"id": "w0", "entities": [{"text": "Иванов Пётр '
     'Сергеевич", "type": "person"}]}, {"id": "w1", "entities": []}]}. Обязательно '
     "верни запись для КАЖДОГО окна из входного списка, даже если в нём ничего нет "
@@ -223,13 +234,17 @@ def _quoted_after_org_form_pattern() -> re.Pattern[str]:
 
 
 def find_weak_signal_spans(text: str) -> list[tuple[int, int]]:
-    """Найти в тексте сегмента места со слабым сигналом person/org_name.
+    """Найти в тексте сегмента места со слабым сигналом person/org_name/address.
 
-    Два независимых признака: заглавное слово хотя бы с одним
-    морфологическим разбором `Surn`/`Name`/`Patr` (шире, чем у
-    `MorphPersonDetector`, Р4 — см. докстринг `masker.detect.morph.has_name_grammeme`,
-    той же функции, что переиспользует расширение спана влево в Р9-1) и
-    название в кавычках сразу после оргформы (Р5: `_quoted_after_org_form_pattern`).
+    Три независимых признака:
+    - заглавное слово хотя бы с одним морфологическим разбором `Surn`/`Name`/`Patr`
+      (шире, чем у `MorphPersonDetector`, Р4 — см. докстринг
+      `masker.detect.morph.has_name_grammeme`, той же функции, что переиспользует
+      расширение спана влево в Р9-1);
+    - название в кавычках сразу после оргформы (Р5: `_quoted_after_org_form_pattern`);
+    - адресные обрывки: 6-значное число (потенциальный почтовый индекс) и слова
+      ``обл.``, ``г.``, ``ул.``, ``пр-т`` — сигнал, что в окне может быть адрес,
+      пропущенный правилами.
     """
     spans = [
         match.span()
@@ -237,6 +252,8 @@ def find_weak_signal_spans(text: str) -> list[tuple[int, int]]:
         if has_name_grammeme(match.group())
     ]
     spans.extend(match.span() for match in _quoted_after_org_form_pattern().finditer(text))
+    spans.extend(match.span() for match in _POSTAL_INDEX_RE.finditer(text))
+    spans.extend(match.span() for match in _ADDRESS_FRAGMENT_RE.finditer(text))
     return spans
 
 

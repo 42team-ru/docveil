@@ -40,6 +40,7 @@ dependencies = [
     # перестанет его импортировать.
     "setuptools<81",
     "textual>=6.6",
+    "rich>=13",
 ]
 
 [project.optional-dependencies]

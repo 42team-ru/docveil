@@ -24,6 +24,7 @@ from api.schemas.custom_types import (
     CompileResponse,
     CustomTypeSpecIn,
     FailedTypeOut,
+    FailReason,
     PreviewMatchOut,
     PreviewOut,
     PreviewSegmentOut,
@@ -141,11 +142,17 @@ def _to_response(outcome: CompileRunOutcome) -> CompileResponse:
         if status == "compiled":
             compiled.append(_compiled_out(item))
         elif status == "failed":
+            raw_code = str(item.get("code", "cannot_compile"))
+            try:
+                fail_code = FailReason(raw_code)
+            except ValueError:
+                fail_code = FailReason.cannot_compile
             failed.append(
                 FailedTypeOut(
                     index=int(item["index"]),
                     description=str(item["description"]),
                     reason=str(item.get("reason", "")),
+                    code=fail_code,
                 )
             )
 

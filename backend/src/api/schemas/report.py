@@ -243,18 +243,138 @@ class ContractPartyOut(BaseModel):
     ogrn: str | None
 
 
+class FactAnchorOut(BaseModel):
+    """Ссылка на диапазон в оригинале — внутри `*_fact.anchors[]`."""
+
+    fmt: str
+    locator: list[str | int | float]
+    label: str = ""
+    segment_order: int
+    start: int
+    end: int
+
+
+class FactAlternativeOut(BaseModel):
+    """Не выбранный кандидат факта — `*_fact.alternatives[]`."""
+
+    value: str
+    purpose: str | None = None
+    source: str
+    anchors: list[FactAnchorOut]
+
+
+class ContractFactOut(BaseModel):
+    """Один факт карточки с цитатой и якорем — `*_fact`."""
+
+    value: str | None = None
+    source_quote: str | None = None
+    anchors: list[FactAnchorOut] = Field(default_factory=list)
+    source: str | None = None
+    status: Literal["found", "ambiguous", "not_found", "confirmed"] = "not_found"
+    alternatives: list[FactAlternativeOut] = Field(default_factory=list)
+
+
+class MoneyFactOut(ContractFactOut):
+    """Цена договора — `contract_summary.contract_amount_fact`."""
+
+    currency: str | None = None
+    vat: str | None = None
+    purpose: str | None = None
+
+
+class PaymentStageOut(BaseModel):
+    """Один этап расчётов — `payment_facts[].stages[]`."""
+
+    percentage: str | None = None
+    amount: str | None = None
+    onset_event: str | None = None
+    days: int | None = None
+    day_kind: str | None = None
+
+
+class PaymentFactOut(ContractFactOut):
+    """Условия оплаты — `contract_summary.payment_facts[]`."""
+
+    stages: list[PaymentStageOut] = Field(default_factory=list)
+
+
+class DeliveryFactOut(ContractFactOut):
+    """Срок поставки — `contract_summary.delivery_facts[]`."""
+
+    object_or_batch: str | None = None
+    onset_event: str | None = None
+    days: int | None = None
+    day_kind: str | None = None
+
+
+class DocumentKindOut(BaseModel):
+    """Жанр документа — `contract_summary.document_kind`."""
+
+    status: Literal["contract", "non_contract", "unknown"] = "unknown"
+    genre: str | None = None
+    confidence: float | None = None
+    source: Literal["rule", "llm", "unavailable"] = "unavailable"
+
+
+class TelemetryEventOut(BaseModel):
+    """Одно событие ленты — `telemetry.events[]`."""
+
+    sequence: int
+    node: str
+    message: str
+
+
+class TelemetryLlmOut(BaseModel):
+    """Итог расходов на LLM — `telemetry.llm`."""
+
+    calls: int
+    prompt_tokens: int
+    completion_tokens: int
+    status: str
+    message: str
+    by_node: list[dict[str, Any]] = Field(default_factory=list)
+    cost: dict[str, Any] | None = None
+
+
+class TelemetryRuntimeOut(BaseModel):
+    """Флаг наличия runtime-метрик — `telemetry.runtime`."""
+
+    available: bool
+    artifact: str | None = None
+    note: str = ""
+
+
+class TelemetryOut(BaseModel):
+    """Детерминированная телеметрия прогона — `report.telemetry`."""
+
+    events: list[TelemetryEventOut] = Field(default_factory=list)
+    llm: TelemetryLlmOut
+    runtime: TelemetryRuntimeOut
+
+
 class ContractSummaryOut(BaseModel):
     """Карточка договора — `report.contract_summary`."""
 
-    customer: ContractPartyOut | None
-    supplier: ContractPartyOut | None
-    federal_law: list[str]
-    contract_amount: str | None
-    delivery_periods: list[str]
-    payment_terms: str | None
-    contract_number: str | None
-    generated_at: str
-    llm_calls: int
+    customer: ContractPartyOut | None = None
+    supplier: ContractPartyOut | None = None
+    federal_law: list[str] = Field(default_factory=list)
+    contract_amount: str | None = None
+    delivery_periods: list[str] = Field(default_factory=list)
+    payment_terms: str | None = None
+    contract_number: str | None = None
+    generated_at: str = ""
+    llm_calls: int = 0
+
+    customer_fact: ContractFactOut = Field(default_factory=ContractFactOut)
+    supplier_fact: ContractFactOut = Field(default_factory=ContractFactOut)
+    federal_law_facts: list[ContractFactOut] = Field(default_factory=list)
+    procurement_regime: ContractFactOut = Field(default_factory=ContractFactOut)
+    contract_amount_fact: MoneyFactOut = Field(default_factory=MoneyFactOut)
+    payment_facts: list[PaymentFactOut] = Field(default_factory=list)
+    delivery_facts: list[DeliveryFactOut] = Field(default_factory=list)
+    contract_number_fact: ContractFactOut = Field(default_factory=ContractFactOut)
+    brief_summary: str | None = None
+    document_kind: DocumentKindOut = Field(default_factory=DocumentKindOut)
 
 
 class DecisionOverriddenOut(BaseModel):
@@ -418,6 +538,8 @@ class ReportOut(BaseModel):
     certificate: CertificateOut | None = None
     #: Размеры страниц готового PDF-артефакта.
     pages: list[PageInfoOut] = Field(default_factory=list)
+    #: Детерминированная телеметрия: события, расход LLM, runtime-флаг.
+    telemetry: TelemetryOut | None = None
 
 
 class AskDocumentOut(BaseModel):

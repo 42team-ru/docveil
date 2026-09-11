@@ -387,9 +387,13 @@ class AddressDetector:
 
     @staticmethod
     def _is_sufficient(kinds: frozenset[str]) -> bool:
-        return "index" in kinds or (
-            "settlement" in kinds and ("street" in kinds or "building" in kinds)
-        )
+        # Индекс без населённого пункта — не полный адрес: обрывки «102400»,
+        # «обл., 184600» дают is_stop=False (есть kind="index"), но их одних
+        # недостаточно, чтобы маскировать. Нужно settlement+index или
+        # settlement+(street|building).
+        has_locality_detail = "settlement" in kinds and ("street" in kinds or "building" in kinds)
+        has_index_with_settlement = "index" in kinds and "settlement" in kinds
+        return has_locality_detail or has_index_with_settlement
 
     def _has_value_label(self, document: Document, segment_index: int, start: int) -> bool:
         segment = document.segments[segment_index]

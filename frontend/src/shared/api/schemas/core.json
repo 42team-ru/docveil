@@ -1823,6 +1823,71 @@
         "title": "ConfidenceLevel",
         "description": "Три уровня уверенности детекции (Р8, режим «мазать всё»).\n\nАсимметрия, ради которой уровни существуют: человек снимает лишнее\nодним кликом, а не дописывает пропущенное — найти забытый реквизит\nпочти невозможно, поэтому детектор маскирует на всех трёх уровнях,\nразница только в том, как решение показано в отчёте.\n\n``CONFIRMED`` — контрольная сумма реквизита либо ≥2 независимых\nдетектора нашли пересекающиеся спаны: маскируется молча.\n``PROBABLE`` — один сигнал (морфология, структура, локальная NER):\nмаскируется, но помечается в отчёте.\n``POSSIBLE`` — заглавное имя собственное вне белого списка, без\nформального подтверждения: маскируется и выносится в отчёте отдельной\nсекцией «снять одним кликом» (``report[\"review_possible\"]``).\n\nКритичные типы (``CRITICAL_TYPES``) всегда ``CONFIRMED`` независимо от\nтого, как их нашли — см. ``masker.detect.confidence.classify_level``."
       },
+      "ContractFactOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "source_quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Quote"
+          },
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/FactAnchorOut"
+            },
+            "type": "array",
+            "title": "Anchors"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "found",
+              "ambiguous",
+              "not_found",
+              "confirmed"
+            ],
+            "title": "Status",
+            "default": "not_found"
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/FactAlternativeOut"
+            },
+            "type": "array",
+            "title": "Alternatives"
+          }
+        },
+        "type": "object",
+        "title": "ContractFactOut",
+        "description": "Один факт карточки с цитатой и якорем — `*_fact`."
+      },
       "ContractPartyOut": {
         "properties": {
           "name": {
@@ -1951,25 +2016,66 @@
           },
           "generated_at": {
             "type": "string",
-            "title": "Generated At"
+            "title": "Generated At",
+            "default": ""
           },
           "llm_calls": {
             "type": "integer",
-            "title": "Llm Calls"
+            "title": "Llm Calls",
+            "default": 0
+          },
+          "customer_fact": {
+            "$ref": "#/components/schemas/ContractFactOut"
+          },
+          "supplier_fact": {
+            "$ref": "#/components/schemas/ContractFactOut"
+          },
+          "federal_law_facts": {
+            "items": {
+              "$ref": "#/components/schemas/ContractFactOut"
+            },
+            "type": "array",
+            "title": "Federal Law Facts"
+          },
+          "procurement_regime": {
+            "$ref": "#/components/schemas/ContractFactOut"
+          },
+          "contract_amount_fact": {
+            "$ref": "#/components/schemas/MoneyFactOut"
+          },
+          "payment_facts": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentFactOut"
+            },
+            "type": "array",
+            "title": "Payment Facts"
+          },
+          "delivery_facts": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryFactOut"
+            },
+            "type": "array",
+            "title": "Delivery Facts"
+          },
+          "contract_number_fact": {
+            "$ref": "#/components/schemas/ContractFactOut"
+          },
+          "brief_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brief Summary"
+          },
+          "document_kind": {
+            "$ref": "#/components/schemas/DocumentKindOut"
           }
         },
         "type": "object",
-        "required": [
-          "customer",
-          "supplier",
-          "federal_law",
-          "contract_amount",
-          "delivery_periods",
-          "payment_terms",
-          "contract_number",
-          "generated_at",
-          "llm_calls"
-        ],
         "title": "ContractSummaryOut",
         "description": "Карточка договора — `report.contract_summary`."
       },
@@ -2183,6 +2289,115 @@
         "title": "DecisionsOut",
         "description": "Решения движка по документу — `report.decisions`."
       },
+      "DeliveryFactOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "source_quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Quote"
+          },
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/FactAnchorOut"
+            },
+            "type": "array",
+            "title": "Anchors"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "found",
+              "ambiguous",
+              "not_found",
+              "confirmed"
+            ],
+            "title": "Status",
+            "default": "not_found"
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/FactAlternativeOut"
+            },
+            "type": "array",
+            "title": "Alternatives"
+          },
+          "object_or_batch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Or Batch"
+          },
+          "onset_event": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onset Event"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "day_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day Kind"
+          }
+        },
+        "type": "object",
+        "title": "DeliveryFactOut",
+        "description": "Срок поставки — `contract_summary.delivery_facts[]`."
+      },
       "DetectionCoverageOut": {
         "properties": {
           "requested_types": {
@@ -2225,6 +2440,55 @@
         ],
         "title": "DeviceType",
         "description": "Тип клиента, выполняющего вход.\n\nWEB получает refresh-токен только в httponly-cookie; остальные — в теле ответа,\nчтобы сами отвечали за его хранение (secure storage на мобильном/десктопе)."
+      },
+      "DocumentKindOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "contract",
+              "non_contract",
+              "unknown"
+            ],
+            "title": "Status",
+            "default": "unknown"
+          },
+          "genre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Genre"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "rule",
+              "llm",
+              "unavailable"
+            ],
+            "title": "Source",
+            "default": "unavailable"
+          }
+        },
+        "type": "object",
+        "title": "DocumentKindOut",
+        "description": "Жанр документа — `contract_summary.document_kind`."
       },
       "EntityBareOut": {
         "properties": {
@@ -2426,6 +2690,96 @@
         ],
         "title": "EntityRecordOut",
         "description": "Сущность, уже размеченная планом — `report.entities[]`."
+      },
+      "FactAlternativeOut": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/FactAnchorOut"
+            },
+            "type": "array",
+            "title": "Anchors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "source",
+          "anchors"
+        ],
+        "title": "FactAlternativeOut",
+        "description": "Не выбранный кандидат факта — `*_fact.alternatives[]`."
+      },
+      "FactAnchorOut": {
+        "properties": {
+          "fmt": {
+            "type": "string",
+            "title": "Fmt"
+          },
+          "locator": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Locator"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          },
+          "segment_order": {
+            "type": "integer",
+            "title": "Segment Order"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fmt",
+          "locator",
+          "segment_order",
+          "start",
+          "end"
+        ],
+        "title": "FactAnchorOut",
+        "description": "Ссылка на диапазон в оригинале — внутри `*_fact.anchors[]`."
       },
       "FailedTypeOut": {
         "properties": {
@@ -2877,6 +3231,104 @@
         ],
         "title": "MaskPlanSkippedOut"
       },
+      "MoneyFactOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "source_quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Quote"
+          },
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/FactAnchorOut"
+            },
+            "type": "array",
+            "title": "Anchors"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "found",
+              "ambiguous",
+              "not_found",
+              "confirmed"
+            ],
+            "title": "Status",
+            "default": "not_found"
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/FactAlternativeOut"
+            },
+            "type": "array",
+            "title": "Alternatives"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "vat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vat"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          }
+        },
+        "type": "object",
+        "title": "MoneyFactOut",
+        "description": "Цена договора — `contract_summary.contract_amount_fact`."
+      },
       "OcrExtractRequest": {
         "properties": {
           "object_name": {
@@ -3035,6 +3487,140 @@
         ],
         "title": "PasswordChangeRequest",
         "description": "Тело запроса `POST /auth/me/password`."
+      },
+      "PaymentFactOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "source_quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Quote"
+          },
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/FactAnchorOut"
+            },
+            "type": "array",
+            "title": "Anchors"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "found",
+              "ambiguous",
+              "not_found",
+              "confirmed"
+            ],
+            "title": "Status",
+            "default": "not_found"
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/FactAlternativeOut"
+            },
+            "type": "array",
+            "title": "Alternatives"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentStageOut"
+            },
+            "type": "array",
+            "title": "Stages"
+          }
+        },
+        "type": "object",
+        "title": "PaymentFactOut",
+        "description": "Условия оплаты — `contract_summary.payment_facts[]`."
+      },
+      "PaymentStageOut": {
+        "properties": {
+          "percentage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percentage"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "onset_event": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onset Event"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "day_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day Kind"
+          }
+        },
+        "type": "object",
+        "title": "PaymentStageOut",
+        "description": "Один этап расчётов — `payment_facts[].stages[]`."
       },
       "PiiEntryOut": {
         "properties": {
@@ -3885,6 +4471,16 @@
             },
             "type": "array",
             "title": "Pages"
+          },
+          "telemetry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TelemetryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -4298,6 +4894,138 @@
         ],
         "title": "SummaryOut",
         "description": "Сводка по документу — `report.summary`."
+      },
+      "TelemetryEventOut": {
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sequence",
+          "node",
+          "message"
+        ],
+        "title": "TelemetryEventOut",
+        "description": "Одно событие ленты — `telemetry.events[]`."
+      },
+      "TelemetryLlmOut": {
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "by_node": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "By Node"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          }
+        },
+        "type": "object",
+        "required": [
+          "calls",
+          "prompt_tokens",
+          "completion_tokens",
+          "status",
+          "message"
+        ],
+        "title": "TelemetryLlmOut",
+        "description": "Итог расходов на LLM — `telemetry.llm`."
+      },
+      "TelemetryOut": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/TelemetryEventOut"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "llm": {
+            "$ref": "#/components/schemas/TelemetryLlmOut"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/TelemetryRuntimeOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "llm",
+          "runtime"
+        ],
+        "title": "TelemetryOut",
+        "description": "Детерминированная телеметрия прогона — `report.telemetry`."
+      },
+      "TelemetryRuntimeOut": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "artifact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "title": "TelemetryRuntimeOut",
+        "description": "Флаг наличия runtime-метрик — `telemetry.runtime`."
       },
       "TokenResponse": {
         "properties": {

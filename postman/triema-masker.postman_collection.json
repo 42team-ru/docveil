@@ -8,12 +8,20 @@
   "auth": {
     "type": "bearer",
     "bearer": [
-      { "key": "token", "value": "{{access_token}}", "type": "string" }
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
     ]
   },
   "event": [],
   "variable": [
-    { "key": "base_url", "value": "http://localhost:8000/api", "type": "string" }
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000/api",
+      "type": "string"
+    }
   ],
   "item": [
     {
@@ -22,17 +30,29 @@
         {
           "name": "Login (Admin)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\",\n  \"device\": \"mobile\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/auth/login",
-              "host": [ "{{base_url}}" ],
-              "path": [ "auth", "login" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
             },
             "description": "Логин администратора. device=mobile — refresh-токен приходит в теле ответа (а не в httponly-cookie), что удобнее для скриптов Postman."
           },
@@ -67,17 +87,29 @@
         {
           "name": "Login (Web, cookie refresh)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device\": \"web\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/auth/login",
-              "host": [ "{{base_url}}" ],
-              "path": [ "auth", "login" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
             },
             "description": "device=web — refresh-токен уходит только в httponly Set-Cookie (Postman сам сохранит его в cookie jar для этого хоста и будет отправлять с запросами на /api/auth/*, включая 'Refresh Token (Cookie)' ниже). В теле ответа refresh_token будет null."
           },
@@ -111,17 +143,29 @@
         {
           "name": "Login (Mobile)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device\": \"mobile\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/auth/login",
-              "host": [ "{{base_url}}" ],
-              "path": [ "auth", "login" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
             },
             "description": "device=mobile/desktop — refresh-токен приходит в теле ответа, клиент сам отвечает за его хранение."
           },
@@ -150,17 +194,29 @@
         {
           "name": "Login - invalid credentials (401)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"definitely-wrong-password\",\n  \"device\": \"mobile\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/auth/login",
-              "host": [ "{{base_url}}" ],
-              "path": [ "auth", "login" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
             },
             "description": "Негативный кейс: неверный пароль -> 401."
           },
@@ -182,17 +238,29 @@
         {
           "name": "Refresh Token (Body)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/auth/refresh",
-              "host": [ "{{base_url}}" ],
-              "path": [ "auth", "refresh" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
             },
             "description": "Ротация refresh-токена, переданного в теле (мобильный/десктопный клиент). Старый refresh-токен отзывается сразу же — повторный вызов с тем же токеном должен вернуть 401."
           },
@@ -218,14 +286,24 @@
         {
           "name": "Refresh Token (Cookie)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
             "header": [],
-            "body": { "mode": "raw", "raw": "" },
+            "body": {
+              "mode": "raw",
+              "raw": ""
+            },
             "url": {
               "raw": "{{base_url}}/auth/refresh",
-              "host": [ "{{base_url}}" ],
-              "path": [ "auth", "refresh" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
             },
             "description": "Ротация refresh-токена из httponly-cookie. Требует, чтобы перед этим был выполнен 'Login (Web, cookie refresh)' в этом же Postman-окружении, чтобы cookie jar уже содержал refresh_token для хоста из base_url."
           },
@@ -253,13 +331,20 @@
         {
           "name": "Refresh Token - missing token (401)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
             "header": [],
             "url": {
               "raw": "{{base_url}}/auth/refresh",
-              "host": [ "{{base_url}}" ],
-              "path": [ "auth", "refresh" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
             },
             "description": "Ни cookie, ни тело не переданы -> 401 'Refresh-токен не передан'."
           },
@@ -285,8 +370,13 @@
             "header": [],
             "url": {
               "raw": "{{base_url}}/auth/me",
-              "host": [ "{{base_url}}" ],
-              "path": [ "auth", "me" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
             },
             "description": "Профиль текущего пользователя по access-токену (заголовок Authorization наследуется с уровня коллекции)."
           },
@@ -313,13 +403,20 @@
         {
           "name": "Get Current User - no token (401)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{base_url}}/auth/me",
-              "host": [ "{{base_url}}" ],
-              "path": [ "auth", "me" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
             }
           },
           "response": [],
@@ -340,17 +437,29 @@
         {
           "name": "Logout",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/auth/logout",
-              "host": [ "{{base_url}}" ],
-              "path": [ "auth", "logout" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
             },
             "description": "Отзывает переданный refresh-токен (или тот, что лежит в cookie) и просит клиента удалить cookie."
           },
@@ -379,18 +488,33 @@
           "request": {
             "auth": {
               "type": "bearer",
-              "bearer": [ { "key": "token", "value": "{{admin_access_token}}", "type": "string" } ]
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_access_token}}",
+                  "type": "string"
+                }
+              ]
             },
             "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"{{new_user_email}}\",\n  \"password\": \"{{new_user_password}}\",\n  \"full_name\": \"{{new_user_full_name}}\",\n  \"roles\": [\"user\"]\n}"
             },
             "url": {
               "raw": "{{base_url}}/users",
-              "host": [ "{{base_url}}" ],
-              "path": [ "users" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "users"
+              ]
             },
             "description": "Требует роль admin. Сохраняет email/пароль созданного пользователя в переменные user_email/user_password, чтобы дальше логиниться под ним (Auth > Login Mobile/Web)."
           },
@@ -445,18 +569,33 @@
           "request": {
             "auth": {
               "type": "bearer",
-              "bearer": [ { "key": "token", "value": "{{admin_access_token}}", "type": "string" } ]
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_access_token}}",
+                  "type": "string"
+                }
+              ]
             },
             "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"{{new_user_email}}\",\n  \"password\": \"{{new_user_password}}\",\n  \"full_name\": \"{{new_user_full_name}}\",\n  \"roles\": [\"user\"]\n}"
             },
             "url": {
               "raw": "{{base_url}}/users",
-              "host": [ "{{base_url}}" ],
-              "path": [ "users" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "users"
+              ]
             },
             "description": "Повторный вызов Create User с тем же email -> 409. Запускать после успешного 'Create User'."
           },
@@ -480,18 +619,33 @@
           "request": {
             "auth": {
               "type": "bearer",
-              "bearer": [ { "key": "token", "value": "{{access_token}}", "type": "string" } ]
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
             },
             "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"someone-else@example.com\",\n  \"password\": \"password123\",\n  \"full_name\": \"Someone Else\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/users",
-              "host": [ "{{base_url}}" ],
-              "path": [ "users" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "users"
+              ]
             },
             "description": "Использует access_token обычного пользователя (не admin) -> 403. Требует, чтобы был выполнен логин под обычным пользователем."
           },
@@ -515,14 +669,24 @@
           "request": {
             "auth": {
               "type": "bearer",
-              "bearer": [ { "key": "token", "value": "{{admin_access_token}}", "type": "string" } ]
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_access_token}}",
+                  "type": "string"
+                }
+              ]
             },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{base_url}}/users",
-              "host": [ "{{base_url}}" ],
-              "path": [ "users" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "users"
+              ]
             },
             "description": "Список всех пользователей. Требует роль admin."
           },
@@ -568,8 +732,13 @@
             },
             "url": {
               "raw": "{{base_url}}/files/upload",
-              "host": [ "{{base_url}}" ],
-              "path": [ "files", "upload" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "files",
+                "upload"
+              ]
             },
             "description": "Загружает файл в MinIO под пришедшим access-токеном. Требует авторизации (любой активный пользователь, не только admin)."
           },
@@ -600,19 +769,30 @@
         {
           "name": "Upload File - no token (401)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
             "header": [],
             "body": {
               "mode": "formdata",
               "formdata": [
-                { "key": "file", "type": "file", "src": "" }
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                }
               ]
             },
             "url": {
               "raw": "{{base_url}}/files/upload",
-              "host": [ "{{base_url}}" ],
-              "path": [ "files", "upload" ]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "files",
+                "upload"
+              ]
             }
           },
           "response": [],
@@ -635,138 +815,384 @@
     {
       "name": "E2E - Mask document",
       "description": "Запускайте в Collection Runner как единственную папку. В окружении нужны user_email, user_password и абсолютный путь input_file. Для polling установите в Runner Request delay 1000 ms: лимит poll_max_attempts=60 означает примерно минуту ожидания.",
-      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
-        "const inputFile = pm.environment.get('input_file');",
-        "if (!inputFile || /^<[^>]+>$/.test(inputFile.trim())) {",
-        "  pm.execution.setNextRequest(null);",
-        "  pm.execution.skipRequest();",
-        "  pm.test('input_file prerequisite', () => pm.expect.fail('Заполните input_file абсолютным путём к существующему DOCX или PDF на машине, где запущен Postman.'));",
-        "}"
-      ] } }],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const inputFile = pm.environment.get('input_file');",
+              "if (!inputFile || /^<[^>]+>$/.test(inputFile.trim())) {",
+              "  pm.execution.setNextRequest(null);",
+              "  pm.execution.skipRequest();",
+              "  pm.test('input_file prerequisite', () => pm.expect.fail('Заполните input_file абсолютным путём к существующему DOCX или PDF на машине, где запущен Postman.'));",
+              "}"
+            ]
+          }
+        }
+      ],
       "item": [
         {
           "name": "E2E - Login",
-          "request": { "auth": { "type": "noauth" }, "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device\": \"mobile\"\n}" }, "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] } },
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device\": \"mobile\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "if (pm.response.code !== 200) {",
-            "  pm.execution.setNextRequest(null);",
-            "  pm.test('E2E login prerequisite', () => pm.expect.fail(`Не удалось войти для E2E (HTTP ${pm.response.code}). Сначала создайте пользователя и проверьте user_email/user_password.`));",
-            "} else {",
-            "  const body = pm.response.json();",
-            "  pm.test('mobile login returns usable tokens', () => { pm.expect(body.access_token).to.be.a('string').and.not.empty; pm.expect(body.refresh_token).to.be.a('string').and.not.empty; });",
-            "  pm.environment.set('access_token', body.access_token);",
-            "  pm.environment.set('refresh_token', body.refresh_token);",
-            "}"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "  pm.test('E2E login prerequisite', () => pm.expect.fail(`Не удалось войти для E2E (HTTP ${pm.response.code}). Сначала создайте пользователя и проверьте user_email/user_password.`));",
+                  "} else {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('mobile login returns usable tokens', () => { pm.expect(body.access_token).to.be.a('string').and.not.empty; pm.expect(body.refresh_token).to.be.a('string').and.not.empty; });",
+                  "  pm.environment.set('access_token', body.access_token);",
+                  "  pm.environment.set('refresh_token', body.refresh_token);",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E - Upload input file",
-          "request": { "method": "POST", "header": [], "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "{{input_file}}", "description": "Путь берётся из input_file окружения." }] }, "url": { "raw": "{{base_url}}/files/upload", "host": ["{{base_url}}"], "path": ["files", "upload"] } },
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{input_file}}",
+                  "description": "Путь берётся из input_file окружения."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/files/upload",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "files",
+                "upload"
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "const body = pm.response.json();",
-            "pm.test('upload identifies stored object and its size', () => { pm.expect(body.object_name).to.be.a('string').and.not.empty; pm.expect(body.bucket).to.be.a('string').and.not.empty; pm.expect(body.size).to.be.a('number').and.to.be.above(0); });",
-            "pm.environment.set('uploaded_object_name', body.object_name);"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('upload identifies stored object and its size', () => { pm.expect(body.object_name).to.be.a('string').and.not.empty; pm.expect(body.bucket).to.be.a('string').and.not.empty; pm.expect(body.size).to.be.a('number').and.to.be.above(0); });",
+                  "pm.environment.set('uploaded_object_name', body.object_name);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E - Start run",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"mask_style\": \"both\",\n  \"profile\": false,\n  \"review\": false\n}" }, "url": { "raw": "{{base_url}}/runs", "host": ["{{base_url}}"], "path": ["runs"] }, "description": "profile=false и review=false исключают две штатные интерактивные паузы; они проверяются в отдельных папках." },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"mask_style\": \"both\",\n  \"profile\": false,\n  \"review\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/runs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs"
+              ]
+            },
+            "description": "profile=false и review=false исключают две штатные интерактивные паузы; они проверяются в отдельных папках."
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 202', () => pm.response.to.have.status(202));",
-            "const body = pm.response.json();",
-            "pm.test('queued run has identifiers and uploaded document', () => { pm.expect(body.id).to.be.a('string').and.not.empty; pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(body.status).to.equal('queued'); pm.expect(body.document).to.have.property('name'); pm.expect(body.document).to.have.property('format'); });",
-            "pm.environment.set('run_id', body.id);",
-            "pm.environment.set('run_status', body.status);",
-            "pm.environment.set('poll_attempt', '0');"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 202', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('queued run has identifiers and uploaded document', () => { pm.expect(body.id).to.be.a('string').and.not.empty; pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(body.status).to.equal('queued'); pm.expect(body.document).to.have.property('name'); pm.expect(body.document).to.have.property('format'); });",
+                  "pm.environment.set('run_id', body.id);",
+                  "pm.environment.set('run_status', body.status);",
+                  "pm.environment.set('poll_attempt', '0');"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E - Poll run status",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}"] }, "description": "В Runner повторяет сам себя, пока фоновый граф не завершится. Задержку между запросами задаёт Request delay Runner-а." },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{run_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{run_id}}"
+              ]
+            },
+            "description": "В Runner повторяет сам себя, пока фоновый граф не завершится. Задержку между запросами задаёт Request delay Runner-а."
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "const body = pm.response.json();",
-            "pm.test('state contains run identity and a known status', () => { pm.expect(body.id).to.equal(pm.environment.get('run_id')); pm.expect(['queued', 'running', 'awaiting_answers', 'awaiting_review', 'done', 'failed', 'leaked']).to.include(body.status); pm.expect(body.document).to.have.property('format'); });",
-            "pm.environment.set('run_status', body.status);",
-            "if (['queued', 'running'].includes(body.status)) {",
-            "  const attempt = Number(pm.environment.get('poll_attempt') || 0) + 1;",
-            "  const maximum = Number(pm.environment.get('poll_max_attempts') || 60);",
-            "  pm.environment.set('poll_attempt', String(attempt));",
-            "  pm.test('polling limit is not exceeded', () => pm.expect(attempt).to.be.at.most(maximum));",
-            "  if (attempt < maximum) pm.execution.setNextRequest('E2E - Poll run status'); else pm.execution.setNextRequest(null);",
-            "} else if (body.status === 'awaiting_answers') {",
-            "  pm.execution.setNextRequest('E2E - Get questions');",
-            "} else if (body.status === 'done') {",
-            "  pm.test('run completed', () => pm.expect(body.finished_at).to.not.equal(null));",
-            "  pm.execution.setNextRequest('E2E - Get report');",
-            "} else {",
-            "  pm.test('run did not stop for review or fail', () => pm.expect.fail(`unexpected terminal status: ${body.status}; ${body.error || ''}`));",
-            "  pm.execution.setNextRequest(null);",
-            "}"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('state contains run identity and a known status', () => { pm.expect(body.id).to.equal(pm.environment.get('run_id')); pm.expect(['queued', 'running', 'awaiting_answers', 'awaiting_review', 'done', 'failed', 'leaked']).to.include(body.status); pm.expect(body.document).to.have.property('format'); });",
+                  "pm.environment.set('run_status', body.status);",
+                  "if (['queued', 'running'].includes(body.status)) {",
+                  "  const attempt = Number(pm.environment.get('poll_attempt') || 0) + 1;",
+                  "  const maximum = Number(pm.environment.get('poll_max_attempts') || 60);",
+                  "  pm.environment.set('poll_attempt', String(attempt));",
+                  "  pm.test('polling limit is not exceeded', () => pm.expect(attempt).to.be.at.most(maximum));",
+                  "  if (attempt < maximum) pm.execution.setNextRequest('E2E - Poll run status'); else pm.execution.setNextRequest(null);",
+                  "} else if (body.status === 'awaiting_answers') {",
+                  "  pm.execution.setNextRequest('E2E - Get questions');",
+                  "} else if (body.status === 'done') {",
+                  "  pm.test('run completed', () => pm.expect(body.finished_at).to.not.equal(null));",
+                  "  pm.execution.setNextRequest('E2E - Get report');",
+                  "} else {",
+                  "  pm.test('run did not stop for review or fail', () => pm.expect.fail(`unexpected terminal status: ${body.status}; ${body.error || ''}`));",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E - Get questions",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{run_id}}/questions", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}", "questions"] }, "description": "Автоматическая ветка: собирает default-ответы на все вопросы политики." },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{run_id}}/questions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{run_id}}",
+                "questions"
+              ]
+            },
+            "description": "Автоматическая ветка: собирает default-ответы на все вопросы политики."
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "const body = pm.response.json();",
-            "pm.test('question envelope has all choices needed to resume', () => { pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(body.questions).to.be.an('array').and.not.empty; body.questions.forEach((question) => pm.expect(question).to.include.keys('id', 'default', 'options')); });",
-            "const answers = Object.fromEntries(body.questions.map((question) => [question.id, question.default]));",
-            "pm.environment.set('e2e_answers_json', JSON.stringify({ schema_version: 1, answers }));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('question envelope has all choices needed to resume', () => { pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(body.questions).to.be.an('array').and.not.empty; body.questions.forEach((question) => pm.expect(question).to.include.keys('id', 'default', 'options')); });",
+                  "const answers = Object.fromEntries(body.questions.map((question) => [question.id, question.default]));",
+                  "pm.environment.set('e2e_answers_json', JSON.stringify({ schema_version: 1, answers }));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E - Answer questions",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{{e2e_answers_json}}" }, "url": { "raw": "{{base_url}}/runs/{{run_id}}/answers", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}", "answers"] } },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{e2e_answers_json}}"
+            },
+            "url": {
+              "raw": "{{base_url}}/runs/{{run_id}}/answers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{run_id}}",
+                "answers"
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 202', () => pm.response.to.have.status(202));",
-            "const body = pm.response.json();",
-            "pm.test('answer request resumes this run', () => { pm.expect(body.id).to.equal(pm.environment.get('run_id')); pm.expect(body.status).to.equal('awaiting_answers'); });",
-            "pm.execution.setNextRequest('E2E - Poll run status');"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 202', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('answer request resumes this run', () => { pm.expect(body.id).to.equal(pm.environment.get('run_id')); pm.expect(body.status).to.equal('awaiting_answers'); });",
+                  "pm.execution.setNextRequest('E2E - Poll run status');"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E - Get report",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{run_id}}/report", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}", "report"] } },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{run_id}}/report",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{run_id}}",
+                "report"
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "const body = pm.response.json();",
-            "pm.test('report contains contract summary, certificate and validation', () => { pm.expect(body).to.have.property('contract_summary'); pm.expect(body.certificate).to.be.an('object'); pm.expect(body.certificate.ok).to.equal(true); pm.expect(body.validation).to.be.an('object'); });",
-            "pm.test('finished document has no leaked source values', () => pm.expect(body.leaked).to.be.an('array').that.is.empty);",
-            "pm.test('report includes page dimensions list (empty for docx, non-empty for pdf)', () => pm.expect(body.pages).to.be.an('array'));",
-            "pm.test('every entity exposes normalized bbox regions array', () => { pm.expect(body.entities).to.be.an('array'); body.entities.forEach(e => { pm.expect(e.regions).to.be.an('array'); e.regions.forEach(r => { pm.expect(r.page).to.be.a('number'); pm.expect(r.x0).to.be.within(0, 1); pm.expect(r.y0).to.be.within(0, 1); pm.expect(r.x1).to.be.within(0, 1); pm.expect(r.y1).to.be.within(0, 1); }); }); });"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('report contains contract summary, certificate and validation', () => { pm.expect(body).to.have.property('contract_summary'); pm.expect(body.certificate).to.be.an('object'); pm.expect(body.certificate.ok).to.equal(true); pm.expect(body.validation).to.be.an('object'); });",
+                  "pm.test('finished document has no leaked source values', () => pm.expect(body.leaked).to.be.an('array').that.is.empty);",
+                  "pm.test('report includes page dimensions list (empty for docx, non-empty for pdf)', () => pm.expect(body.pages).to.be.an('array'));",
+                  "pm.test('every entity exposes normalized bbox regions array', () => { pm.expect(body.entities).to.be.an('array'); body.entities.forEach(e => { pm.expect(e.regions).to.be.an('array'); e.regions.forEach(r => { pm.expect(r.page).to.be.a('number'); pm.expect(r.x0).to.be.within(0, 1); pm.expect(r.y0).to.be.within(0, 1); pm.expect(r.x1).to.be.within(0, 1); pm.expect(r.y1).to.be.within(0, 1); }); }); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E - List artifacts",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{run_id}}/artifacts", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}", "artifacts"] } },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{run_id}}/artifacts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{run_id}}",
+                "artifacts"
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "const body = pm.response.json();",
-            "const highlight = body.find((artifact) => artifact.role === 'masked_highlight');",
-            "const black = body.find((artifact) => artifact.role === 'masked_black');",
-            "pm.test('both redacted artifact variants are available', () => { pm.expect(body).to.be.an('array'); pm.expect(highlight).to.be.an('object'); pm.expect(black).to.be.an('object'); pm.expect(highlight.redacting).to.equal(true); pm.expect(highlight.url).to.contain('/artifacts/masked_highlight'); });",
-            "pm.environment.set('artifact_role', 'masked_highlight');"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const highlight = body.find((artifact) => artifact.role === 'masked_highlight');",
+                  "const black = body.find((artifact) => artifact.role === 'masked_black');",
+                  "pm.test('both redacted artifact variants are available', () => { pm.expect(body).to.be.an('array'); pm.expect(highlight).to.be.an('object'); pm.expect(black).to.be.an('object'); pm.expect(highlight.redacting).to.equal(true); pm.expect(highlight.url).to.contain('/artifacts/masked_highlight'); });",
+                  "pm.environment.set('artifact_role', 'masked_highlight');"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E - Download highlighted artifact",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{run_id}}/artifacts/{{artifact_role}}", "host": ["{{base_url}}"], "path": ["runs", "{{run_id}}", "artifacts", "{{artifact_role}}"] } },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{run_id}}/artifacts/{{artifact_role}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{run_id}}",
+                "artifacts",
+                "{{artifact_role}}"
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "pm.test('download is a named non-empty document', () => { pm.expect(pm.response.headers.get('Content-Disposition')).to.contain('filename='); pm.expect(pm.response.headers.get('Content-Type')).to.be.a('string').and.not.empty; pm.expect(pm.response.text().length).to.be.above(0); });"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('download is a named non-empty document', () => { pm.expect(pm.response.headers.get('Content-Disposition')).to.contain('filename='); pm.expect(pm.response.headers.get('Content-Type')).to.be.a('string').and.not.empty; pm.expect(pm.response.text().length).to.be.above(0); });"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -776,83 +1202,348 @@
       "item": [
         {
           "name": "List runs with filters",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs?query=&status=done&limit=50&offset=0", "host": ["{{base_url}}"], "path": ["runs"], "query": [{ "key": "query", "value": "" }, { "key": "status", "value": "done" }, { "key": "limit", "value": "50" }, { "key": "offset", "value": "0" }] } },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs?query=&status=done&limit=50&offset=0",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs"
+              ],
+              "query": [
+                {
+                  "key": "query",
+                  "value": ""
+                },
+                {
+                  "key": "status",
+                  "value": "done"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('history has paginated items and total', () => { pm.expect(body.items).to.be.an('array'); pm.expect(body.total).to.be.a('number').and.not.below(0); body.items.forEach((item) => { pm.expect(item).to.have.all.keys('id', 'status', 'document', 'created_at', 'finished_at'); }); });"] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('history has paginated items and total', () => { pm.expect(body.items).to.be.an('array'); pm.expect(body.total).to.be.a('number').and.not.below(0); body.items.forEach((item) => { pm.expect(item).to.have.all.keys('id', 'status', 'document', 'created_at', 'finished_at'); }); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get nonexistent run (404)",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{nonexistent_run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{nonexistent_run_id}}"] } },
-          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 404', () => pm.response.to.have.status(404));"] } }]
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{nonexistent_run_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{nonexistent_run_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get another user's run (404)",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{foreign_run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{foreign_run_id}}"] } },
-          "response": [], "event": [
-            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
-              "const runId = pm.environment.get('foreign_run_id');",
-              "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
-              "  pm.execution.setNextRequest(null);",
-              "  pm.execution.skipRequest();",
-              "  pm.test('foreign_run_id prerequisite', () => pm.expect.fail('Заполните foreign_run_id UUID настоящего прогона другого пользователя.'));",
-              "}"
-            ] } },
-            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('foreign run is not disclosed', () => pm.response.to.have.status(404));"] } }
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{foreign_run_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{foreign_run_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const runId = pm.environment.get('foreign_run_id');",
+                  "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "  pm.execution.skipRequest();",
+                  "  pm.test('foreign_run_id prerequisite', () => pm.expect.fail('Заполните foreign_run_id UUID настоящего прогона другого пользователя.'));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('foreign run is not disclosed', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Get run without token (401)",
-          "request": { "auth": { "type": "noauth" }, "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{nonexistent_run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{nonexistent_run_id}}"] } },
-          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 401', () => pm.response.to.have.status(401));"] } }]
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{nonexistent_run_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{nonexistent_run_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
       "name": "Run questions and answers",
       "description": "Для этой ветки нужен question_run_id прогона в awaiting_answers. Сначала выполните GET: он извлечёт id первого вопроса и его default в переменные, затем POST answers.",
-      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
-        "const runId = pm.environment.get('question_run_id');",
-        "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
-        "  pm.execution.setNextRequest(null);",
-        "  pm.execution.skipRequest();",
-        "  pm.test('question_run_id prerequisite', () => pm.expect.fail('Заполните question_run_id UUID прогона в статусе awaiting_answers.'));",
-        "}"
-      ] } }],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const runId = pm.environment.get('question_run_id');",
+              "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
+              "  pm.execution.setNextRequest(null);",
+              "  pm.execution.skipRequest();",
+              "  pm.test('question_run_id prerequisite', () => pm.expect.fail('Заполните question_run_id UUID прогона в статусе awaiting_answers.'));",
+              "}"
+            ]
+          }
+        }
+      ],
       "item": [
         {
           "name": "Get questions",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{question_run_id}}/questions", "host": ["{{base_url}}"], "path": ["runs", "{{question_run_id}}", "questions"] } },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{question_run_id}}/questions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{question_run_id}}",
+                "questions"
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('question envelope has an actionable question', () => { pm.expect(body.schema_version).to.be.a('number'); pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(body.questions).to.be.an('array').and.not.empty; pm.expect(body.questions[0]).to.include.keys('id', 'kind', 'options', 'default', 'critical'); });", "pm.environment.set('question_answer_id', body.questions[0].id);", "pm.environment.set('question_answer_value', body.questions[0].default);"] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('question envelope has an actionable question', () => { pm.expect(body.schema_version).to.be.a('number'); pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(body.questions).to.be.an('array').and.not.empty; pm.expect(body.questions[0]).to.include.keys('id', 'kind', 'options', 'default', 'critical'); });",
+                  "pm.environment.set('question_answer_id', body.questions[0].id);",
+                  "pm.environment.set('question_answer_value', body.questions[0].default);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Answer questions and resume run",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"schema_version\": 1,\n  \"answers\": {\n    \"{{question_answer_id}}\": \"{{question_answer_value}}\"\n  }\n}" }, "url": { "raw": "{{base_url}}/runs/{{question_run_id}}/answers", "host": ["{{base_url}}"], "path": ["runs", "{{question_run_id}}", "answers"] } },
-          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 202', () => pm.response.to.have.status(202));", "const body = pm.response.json();", "pm.test('resume response identifies the same waiting run', () => { pm.expect(body.id).to.equal(pm.environment.get('question_run_id')); pm.expect(body.status).to.equal('awaiting_answers'); pm.expect(body.thread_id).to.be.a('string').and.not.empty; });"] } }]
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schema_version\": 1,\n  \"answers\": {\n    \"{{question_answer_id}}\": \"{{question_answer_value}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/runs/{{question_run_id}}/answers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{question_run_id}}",
+                "answers"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 202', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('resume response identifies the same waiting run', () => { pm.expect(body.id).to.equal(pm.environment.get('question_run_id')); pm.expect(body.status).to.equal('awaiting_answers'); pm.expect(body.thread_id).to.be.a('string').and.not.empty; });"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
       "name": "Operator review edits",
       "description": "Для этой ветки нужен review_run_id прогона в awaiting_review с хотя бы одной сущностью. GET сохраняет ref первой сущности; POST демонстрирует решение оператора keep для этой ссылки.",
-      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
-        "const runId = pm.environment.get('review_run_id');",
-        "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
-        "  pm.execution.setNextRequest(null);",
-        "  pm.execution.skipRequest();",
-        "  pm.test('review_run_id prerequisite', () => pm.expect.fail('Заполните review_run_id UUID прогона в статусе awaiting_review.'));",
-        "}"
-      ] } }],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const runId = pm.environment.get('review_run_id');",
+              "if (!runId || /^<[^>]+>$/.test(runId.trim())) {",
+              "  pm.execution.setNextRequest(null);",
+              "  pm.execution.skipRequest();",
+              "  pm.test('review_run_id prerequisite', () => pm.expect.fail('Заполните review_run_id UUID прогона в статусе awaiting_review.'));",
+              "}"
+            ]
+          }
+        }
+      ],
       "item": [
         {
           "name": "Get review payload",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{review_run_id}}/review", "host": ["{{base_url}}"], "path": ["runs", "{{review_run_id}}", "review"] } },
-          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('review exposes report and an editable entity', () => { pm.expect(body).to.have.all.keys('schema_version', 'thread_id', 'document', 'report'); pm.expect(body.report.entities).to.be.an('array').and.not.empty; pm.expect(body.report).to.have.property('review_possible'); });", "pm.environment.set('review_entity_ref', body.report.entities[0].ref);"] } }]
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{review_run_id}}/review",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{review_run_id}}",
+                "review"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('review exposes report and an editable entity', () => { pm.expect(body).to.have.all.keys('schema_version', 'thread_id', 'document', 'report'); pm.expect(body.report.entities).to.be.an('array').and.not.empty; pm.expect(body.report).to.have.property('review_possible'); });",
+                  "pm.environment.set('review_entity_ref', body.report.entities[0].ref);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Submit review edits",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"schema_version\": 1,\n  \"edits\": {\n    \"decisions\": { \"{{review_entity_ref}}\": \"keep\" },\n    \"type_overrides\": {},\n    \"manual\": []\n  }\n}" }, "url": { "raw": "{{base_url}}/runs/{{review_run_id}}/review", "host": ["{{base_url}}"], "path": ["runs", "{{review_run_id}}", "review"] } },
-          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 202', () => pm.response.to.have.status(202));", "const body = pm.response.json();", "pm.test('review resumption addresses the selected run', () => { pm.expect(body.id).to.equal(pm.environment.get('review_run_id')); pm.expect(body.status).to.equal('awaiting_review'); pm.expect(body.document).to.have.property('name'); });"] } }]
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schema_version\": 1,\n  \"edits\": {\n    \"decisions\": { \"{{review_entity_ref}}\": \"keep\" },\n    \"type_overrides\": {},\n    \"manual\": []\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/runs/{{review_run_id}}/review",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{review_run_id}}",
+                "review"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 202', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('review resumption addresses the selected run', () => { pm.expect(body.id).to.equal(pm.environment.get('review_run_id')); pm.expect(body.status).to.equal('awaiting_review'); pm.expect(body.document).to.have.property('name'); });"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -864,143 +1555,620 @@
           "name": "OCR extract - PDF",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\"\n}" },
-            "url": { "raw": "{{base_url}}/ocr/extract", "host": ["{{base_url}}"], "path": ["ocr", "extract"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/ocr/extract",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ocr",
+                "extract"
+              ]
+            },
             "description": "Распознать текст в PDF через серверный OCR-провайдер. Возвращает строки с bbox и уверенностью на каждую страницу."
           },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "const body = pm.response.json();",
-            "pm.test('response has provider string and pages array', () => { pm.expect(body.provider).to.be.a('string').and.not.empty; pm.expect(body.pages).to.be.an('array'); });",
-            "pm.test('each page has geometry and lines array', () => { body.pages.forEach(p => { pm.expect(p.page).to.be.a('number'); pm.expect(p.width_pt).to.be.a('number').and.above(0); pm.expect(p.height_pt).to.be.a('number').and.above(0); pm.expect(p.dpi).to.be.a('number').and.above(0); pm.expect(p.lines).to.be.an('array'); }); });",
-            "pm.test('each line has text, bbox[4], polygon and confidence', () => { body.pages.forEach(p => p.lines.forEach(l => { pm.expect(l.text).to.be.a('string'); pm.expect(l.bbox).to.be.an('array').with.lengthOf(4); pm.expect(l.polygon).to.be.an('array'); pm.expect(l.confidence).to.be.a('number').and.within(0, 1); })); });"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('response has provider string and pages array', () => { pm.expect(body.provider).to.be.a('string').and.not.empty; pm.expect(body.pages).to.be.an('array'); });",
+                  "pm.test('each page has geometry and lines array', () => { body.pages.forEach(p => { pm.expect(p.page).to.be.a('number'); pm.expect(p.width_pt).to.be.a('number').and.above(0); pm.expect(p.height_pt).to.be.a('number').and.above(0); pm.expect(p.dpi).to.be.a('number').and.above(0); pm.expect(p.lines).to.be.an('array'); }); });",
+                  "pm.test('each line has text, bbox[4], polygon and confidence', () => { body.pages.forEach(p => p.lines.forEach(l => { pm.expect(l.text).to.be.a('string'); pm.expect(l.bbox).to.be.an('array').with.lengthOf(4); pm.expect(l.polygon).to.be.an('array'); pm.expect(l.confidence).to.be.a('number').and.within(0, 1); })); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "OCR extract - unknown object (404)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"does-not-exist/ghost.pdf\"\n}" },
-            "url": { "raw": "{{base_url}}/ocr/extract", "host": ["{{base_url}}"], "path": ["ocr", "extract"] }
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"does-not-exist/ghost.pdf\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/ocr/extract",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ocr",
+                "extract"
+              ]
+            }
           },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 404 for missing object', () => pm.response.to.have.status(404));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404 for missing object', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "OCR extract - DOCX unsupported (422)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"{{uploaded_docx_object_name}}\"\n}" },
-            "url": { "raw": "{{base_url}}/ocr/extract", "host": ["{{base_url}}"], "path": ["ocr", "extract"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_docx_object_name}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/ocr/extract",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ocr",
+                "extract"
+              ]
+            },
             "description": "Для DOCX OCR недоступен — нет визуального слоя. Нужен uploaded_docx_object_name загруженного .docx файла."
           },
           "response": [],
-          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
-            "const name = pm.environment.get('uploaded_docx_object_name');",
-            "if (!name || /^<[^>]+>$/.test((name||'').trim())) { pm.execution.skipRequest(); pm.test('uploaded_docx_object_name prerequisite', () => pm.expect.fail('Загрузите DOCX через Files > Upload File и сохраните object_name в переменную uploaded_docx_object_name.')); }"
-          ] } }, { "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 422 for DOCX format', () => pm.response.to.have.status(422));"
-          ] } }]
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const name = pm.environment.get('uploaded_docx_object_name');",
+                  "if (!name || /^<[^>]+>$/.test((name||'').trim())) { pm.execution.skipRequest(); pm.test('uploaded_docx_object_name prerequisite', () => pm.expect.fail('Загрузите DOCX через Files > Upload File и сохраните object_name в переменную uploaded_docx_object_name.')); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 422 for DOCX format', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "OCR extract - no token (401)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"any/file.pdf\"\n}" },
-            "url": { "raw": "{{base_url}}/ocr/extract", "host": ["{{base_url}}"], "path": ["ocr", "extract"] }
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"any/file.pdf\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/ocr/extract",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ocr",
+                "extract"
+              ]
+            }
           },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 401 without token', () => pm.response.to.have.status(401));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401 without token', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
       "name": "E2E - Mask image",
       "description": "Полный цикл для JPEG/PNG/TIFF входного файла. В окружении нужны user_email, user_password и абсолютный путь image_input_file (JPEG или PNG). image_output_format=original вернёт артефакт в том же формате; image_output_format=pdf — одностраничный PDF.",
-      "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
-        "const inputFile = pm.environment.get('image_input_file');",
-        "if (!inputFile || /^<[^>]+>$/.test((inputFile||'').trim())) { pm.execution.setNextRequest(null); pm.execution.skipRequest(); pm.test('image_input_file prerequisite', () => pm.expect.fail('Заполните image_input_file абсолютным путём к JPEG или PNG на машине, где запущен Postman.')); }"
-      ] } }],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const inputFile = pm.environment.get('image_input_file');",
+              "if (!inputFile || /^<[^>]+>$/.test((inputFile||'').trim())) { pm.execution.setNextRequest(null); pm.execution.skipRequest(); pm.test('image_input_file prerequisite', () => pm.expect.fail('Заполните image_input_file абсолютным путём к JPEG или PNG на машине, где запущен Postman.')); }"
+            ]
+          }
+        }
+      ],
       "item": [
         {
           "name": "E2E Image - Upload",
-          "request": { "method": "POST", "header": [], "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "{{image_input_file}}" }] }, "url": { "raw": "{{base_url}}/files/upload", "host": ["{{base_url}}"], "path": ["files", "upload"] } },
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{image_input_file}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/files/upload",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "files",
+                "upload"
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "const body = pm.response.json();",
-            "pm.test('upload returns object_name', () => { pm.expect(body.object_name).to.be.a('string').and.not.empty; pm.expect(body.size).to.be.above(0); });",
-            "pm.environment.set('image_uploaded_object_name', body.object_name);"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('upload returns object_name', () => { pm.expect(body.object_name).to.be.a('string').and.not.empty; pm.expect(body.size).to.be.above(0); });",
+                  "pm.environment.set('image_uploaded_object_name', body.object_name);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E Image - Start run (original format)",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"{{image_uploaded_object_name}}\",\n  \"mask_style\": \"both\",\n  \"profile\": false,\n  \"review\": false,\n  \"image_output_format\": \"original\"\n}" }, "url": { "raw": "{{base_url}}/runs", "host": ["{{base_url}}"], "path": ["runs"] }, "description": "image_output_format=original: артефакт вернётся в том же формате, что входной файл." },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{image_uploaded_object_name}}\",\n  \"mask_style\": \"both\",\n  \"profile\": false,\n  \"review\": false,\n  \"image_output_format\": \"original\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/runs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs"
+              ]
+            },
+            "description": "image_output_format=original: артефакт вернётся в том же формате, что входной файл."
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 202', () => pm.response.to.have.status(202));",
-            "const body = pm.response.json();",
-            "pm.test('queued run identifies the image document', () => { pm.expect(body.id).to.be.a('string').and.not.empty; pm.expect(body.status).to.equal('queued'); pm.expect(body.document).to.have.property('name'); });",
-            "pm.environment.set('image_run_id', body.id);",
-            "pm.environment.set('image_poll_attempt', '0');"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 202', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('queued run identifies the image document', () => { pm.expect(body.id).to.be.a('string').and.not.empty; pm.expect(body.status).to.equal('queued'); pm.expect(body.document).to.have.property('name'); });",
+                  "pm.environment.set('image_run_id', body.id);",
+                  "pm.environment.set('image_poll_attempt', '0');"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E Image - Poll run status",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{image_run_id}}", "host": ["{{base_url}}"], "path": ["runs", "{{image_run_id}}"] } },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{image_run_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{image_run_id}}"
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "const body = pm.response.json();",
-            "pm.environment.set('image_run_status', body.status);",
-            "if (['queued', 'running'].includes(body.status)) {",
-            "  const attempt = Number(pm.environment.get('image_poll_attempt') || 0) + 1;",
-            "  const maximum = Number(pm.environment.get('poll_max_attempts') || 60);",
-            "  pm.environment.set('image_poll_attempt', String(attempt));",
-            "  pm.test('polling limit not exceeded', () => pm.expect(attempt).to.be.at.most(maximum));",
-            "  if (attempt < maximum) pm.execution.setNextRequest('E2E Image - Poll run status'); else pm.execution.setNextRequest(null);",
-            "} else if (body.status === 'done') {",
-            "  pm.test('image run completed', () => pm.expect(body.finished_at).to.not.equal(null));",
-            "  pm.execution.setNextRequest('E2E Image - Get report');",
-            "} else {",
-            "  pm.test('image run did not fail', () => pm.expect.fail(`unexpected status: ${body.status}; ${body.error || ''}`));",
-            "  pm.execution.setNextRequest(null);",
-            "}"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('image_run_status', body.status);",
+                  "if (['queued', 'running'].includes(body.status)) {",
+                  "  const attempt = Number(pm.environment.get('image_poll_attempt') || 0) + 1;",
+                  "  const maximum = Number(pm.environment.get('poll_max_attempts') || 60);",
+                  "  pm.environment.set('image_poll_attempt', String(attempt));",
+                  "  pm.test('polling limit not exceeded', () => pm.expect(attempt).to.be.at.most(maximum));",
+                  "  if (attempt < maximum) pm.execution.setNextRequest('E2E Image - Poll run status'); else pm.execution.setNextRequest(null);",
+                  "} else if (body.status === 'done') {",
+                  "  pm.test('image run completed', () => pm.expect(body.finished_at).to.not.equal(null));",
+                  "  pm.execution.setNextRequest('E2E Image - Get report');",
+                  "} else {",
+                  "  pm.test('image run did not fail', () => pm.expect.fail(`unexpected status: ${body.status}; ${body.error || ''}`));",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E Image - Get report",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{image_run_id}}/report", "host": ["{{base_url}}"], "path": ["runs", "{{image_run_id}}", "report"] } },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{image_run_id}}/report",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{image_run_id}}",
+                "report"
+              ]
+            }
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "const body = pm.response.json();",
-            "pm.test('image report has page dimensions', () => { pm.expect(body.pages).to.be.an('array').and.not.empty; body.pages.forEach(p => { pm.expect(p.page).to.be.a('number'); pm.expect(p.width_pt).to.be.a('number').and.above(0); pm.expect(p.height_pt).to.be.a('number').and.above(0); }); });",
-            "pm.test('image entities have non-empty regions', () => { pm.expect(body.entities).to.be.an('array'); body.entities.forEach(e => pm.expect(e.regions).to.be.an('array')); });",
-            "pm.test('no leaked source values', () => pm.expect(body.leaked).to.be.an('array').that.is.empty);"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('image report has page dimensions', () => { pm.expect(body.pages).to.be.an('array').and.not.empty; body.pages.forEach(p => { pm.expect(p.page).to.be.a('number'); pm.expect(p.width_pt).to.be.a('number').and.above(0); pm.expect(p.height_pt).to.be.a('number').and.above(0); }); });",
+                  "pm.test('image entities have non-empty regions', () => { pm.expect(body.entities).to.be.an('array'); body.entities.forEach(e => pm.expect(e.regions).to.be.an('array')); });",
+                  "pm.test('no leaked source values', () => pm.expect(body.leaked).to.be.an('array').that.is.empty);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2E Image - Download artifact (original format)",
-          "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/runs/{{image_run_id}}/artifacts/masked_highlight", "host": ["{{base_url}}"], "path": ["runs", "{{image_run_id}}", "artifacts", "masked_highlight"] }, "description": "Артефакт должен прийти в формате исходной картинки (image/jpeg или image/png), а не как PDF." },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{image_run_id}}/artifacts/masked_highlight",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{image_run_id}}",
+                "artifacts",
+                "masked_highlight"
+              ]
+            },
+            "description": "Артефакт должен прийти в формате исходной картинки (image/jpeg или image/png), а не как PDF."
+          },
           "response": [],
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('status is 200', () => pm.response.to.have.status(200));",
-            "pm.test('artifact is an image, not a pdf', () => { const ct = pm.response.headers.get('Content-Type') || ''; pm.expect(ct).to.match(/^image\\//); pm.expect(ct).to.not.include('pdf'); });",
-            "pm.test('artifact has a filename disposition', () => pm.expect(pm.response.headers.get('Content-Disposition')).to.contain('filename='));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('artifact is an image, not a pdf', () => { const ct = pm.response.headers.get('Content-Type') || ''; pm.expect(ct).to.match(/^image\\//); pm.expect(ct).to.not.include('pdf'); });",
+                  "pm.test('artifact has a filename disposition', () => pm.expect(pm.response.headers.get('Content-Disposition')).to.contain('filename='));"
+                ]
+              }
+            }
+          ]
         }
       ]
+    },
+    {
+      "name": "Задача 1 — Схема отчёта (новые поля)",
+      "item": [
+        {
+          "name": "Схема отчёта — Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device\": \"mobile\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "  pm.test('login', () => pm.expect.fail(`HTTP ${pm.response.code}`));",
+                  "} else {",
+                  "  pm.environment.set('access_token', pm.response.json().access_token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Схема отчёта — Upload",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/files/upload",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "files",
+                "upload"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{input_file}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('uploaded_object_name', pm.response.json().object_name);"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('input_file')) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "  pm.expect.fail('Установите input_file в переменных окружения.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Схема отчёта — Start run",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/runs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"types\": [\"inn\", \"passport\", \"ogrn\", \"address\", \"person\"]\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201 or 200', () => pm.expect([200, 201]).to.include(pm.response.code));",
+                  "pm.environment.set('report_run_id', pm.response.json().id || pm.response.json().run_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Схема отчёта — Poll run",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{report_run_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{report_run_id}}"
+              ]
+            },
+            "description": "Повторяет сам себя в Runner до succeeded/failed."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const status = body.status;",
+                  "if (status !== 'succeeded' && status !== 'failed') {",
+                  "  postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.test('run succeeded', () => pm.expect(status).to.equal('succeeded'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Схема отчёта — GET report (проверка новых полей)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{report_run_id}}/report",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "runs",
+                "{{report_run_id}}",
+                "report"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const res = pm.response.json();",
+                  "pm.test('brief_summary присутствует', () => pm.expect(res.contract_summary).to.have.property('brief_summary'));",
+                  "pm.test('document_kind структурирован', () => {",
+                  "  pm.expect(res.contract_summary.document_kind).to.include.keys('status', 'source');",
+                  "});",
+                  "pm.test('customer_fact.status валидный', () => {",
+                  "  const cs = res.contract_summary;",
+                  "  if (cs && cs.customer_fact) {",
+                  "    pm.expect(cs.customer_fact.status).to.be.oneOf(['found', 'ambiguous', 'not_found', 'confirmed']);",
+                  "  }",
+                  "});",
+                  "pm.test('payment_facts массив', () => pm.expect(res.contract_summary.payment_facts).to.be.an('array'));",
+                  "pm.test('delivery_facts массив', () => pm.expect(res.contract_summary.delivery_facts).to.be.an('array'));",
+                  "pm.test('contract_amount_fact имеет currency', () => {",
+                  "  if (res.contract_summary.contract_amount_fact) {",
+                  "    pm.expect(res.contract_summary.contract_amount_fact).to.have.property('currency');",
+                  "  }",
+                  "});",
+                  "pm.test('telemetry присутствует', () => pm.expect(res).to.have.property('telemetry'));",
+                  "pm.test('telemetry.llm.calls массив', () => {",
+                  "  if (res.telemetry) {",
+                  "    pm.expect(res.telemetry.llm).to.be.an('object');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "event": []
     },
     {
       "name": "Custom data types",
@@ -1008,13 +2176,402 @@
       "item": [
         {
           "name": "Compile custom type",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"descriptions\": [\n    \"Номер внутреннего проекта в формате PRJ-1234\"\n  ]\n}" }, "url": { "raw": "{{base_url}}/custom_types/compile", "host": ["{{base_url}}"], "path": ["custom_types", "compile"] } },
-          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('compiler returns a typed outcome and capabilities', () => { pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(['done', 'waiting']).to.include(body.status); pm.expect(body.engine_capabilities).to.be.an('array'); pm.expect(body.compiled).to.be.an('array'); pm.expect(body.failed).to.be.an('array'); pm.expect(body.questions).to.be.an('array'); });", "pm.environment.set('custom_type_thread_id', body.thread_id);", "if (body.status === 'waiting') { pm.test('waiting compiler has a question', () => pm.expect(body.questions).to.not.be.empty); pm.environment.set('custom_type_question_id', body.questions[0].id); pm.environment.set('custom_type_question_answer', body.questions[0].options[0] || ''); }"] } }]
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"descriptions\": [\n    \"Номер внутреннего проекта в формате PRJ-1234\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/custom_types/compile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "custom_types",
+                "compile"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('compiler returns a typed outcome and capabilities', () => { pm.expect(body.thread_id).to.be.a('string').and.not.empty; pm.expect(['done', 'waiting']).to.include(body.status); pm.expect(body.engine_capabilities).to.be.an('array'); pm.expect(body.compiled).to.be.an('array'); pm.expect(body.failed).to.be.an('array'); pm.expect(body.questions).to.be.an('array'); });",
+                  "pm.environment.set('custom_type_thread_id', body.thread_id);",
+                  "if (body.status === 'waiting') { pm.test('waiting compiler has a question', () => pm.expect(body.questions).to.not.be.empty); pm.environment.set('custom_type_question_id', body.questions[0].id); pm.environment.set('custom_type_question_answer', body.questions[0].options[0] || ''); }"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Answer custom type compiler questions",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"schema_version\": 1,\n  \"answers\": {\n    \"{{custom_type_question_id}}\": \"{{custom_type_question_answer}}\"\n  }\n}" }, "url": { "raw": "{{base_url}}/custom_types/compile/{{custom_type_thread_id}}/answers", "host": ["{{base_url}}"], "path": ["custom_types", "compile", "{{custom_type_thread_id}}", "answers"] }, "description": "Запускайте только после Compile custom type со status=waiting." },
-          "response": [], "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('compiler resume returns the same thread and result collections', () => { pm.expect(body.thread_id).to.equal(pm.environment.get('custom_type_thread_id')); pm.expect(['done', 'waiting']).to.include(body.status); pm.expect(body.compiled).to.be.an('array'); pm.expect(body.failed).to.be.an('array'); });"] } }]
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schema_version\": 1,\n  \"answers\": {\n    \"{{custom_type_question_id}}\": \"{{custom_type_question_answer}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/custom_types/compile/{{custom_type_thread_id}}/answers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "custom_types",
+                "compile",
+                "{{custom_type_thread_id}}",
+                "answers"
+              ]
+            },
+            "description": "Запускайте только после Compile custom type со status=waiting."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('compiler resume returns the same thread and result collections', () => { pm.expect(body.thread_id).to.equal(pm.environment.get('custom_type_thread_id')); pm.expect(['done', 'waiting']).to.include(body.status); pm.expect(body.compiled).to.be.an('array'); pm.expect(body.failed).to.be.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "И3 — Негатив: пустое описание (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/custom_types/compile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "custom_types",
+                "compile"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"descriptions\": [\"\"]\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('пустое описание даёт 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "И3 — Негатив: описание 7 символов (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/custom_types/compile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "custom_types",
+                "compile"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"descriptions\": [\"паспорт\"]\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('слишком короткое описание даёт 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "И3 — Негатив: только пробелы (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/custom_types/compile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "custom_types",
+                "compile"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"descriptions\": [\"       \"]\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('пробелы даёт 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "И3 — Happy path: успешная компиляция (однозначное описание)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/custom_types/compile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "custom_types",
+                "compile"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"descriptions\": [\"инн поставщика — десятизначное число в реквизитах продавца\"]\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('есть thread_id', () => pm.expect(body.thread_id).to.be.a('string').and.not.empty);",
+                  "pm.environment.set('custom_type_thread_id', body.thread_id);",
+                  "pm.test('compiled или waiting', () => pm.expect(['done', 'waiting']).to.include(body.status));",
+                  "if (body.status === 'done') {",
+                  "  pm.test('compiled не пустой', () => pm.expect(body.compiled.length).to.be.above(0));",
+                  "  if (body.failed && body.failed.length > 0) {",
+                  "    pm.test('failed имеет code', () => pm.expect(body.failed[0]).to.have.property('code'));",
+                  "  }",
+                  "} else {",
+                  "  pm.test('waiting имеет вопросы', () => pm.expect(body.questions).to.not.be.empty);",
+                  "  pm.environment.set('custom_type_question_id', body.questions[0].id);",
+                  "  pm.environment.set('custom_type_question_answer', body.questions[0].options[0] || 'да');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "И3 — Ответ на уточняющий вопрос (если waiting)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/custom_types/compile/{{custom_type_thread_id}}/answers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "custom_types",
+                "compile",
+                "{{custom_type_thread_id}}",
+                "answers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schema_version\": 1,\n  \"answers\": {\n    \"{{custom_type_question_id}}\": \"{{custom_type_question_answer}}\"\n  }\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('status done', () => pm.expect(body.status).to.equal('done'));",
+                  "if (body.compiled && body.compiled.length > 0 && body.compiled[0].preview) {",
+                  "  pm.test('preview.total_matches число', () => pm.expect(body.compiled[0].preview.total_matches).to.be.a('number'));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('custom_type_thread_id')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "И3 — cannot_compile: слишком общее описание",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/custom_types/compile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "custom_types",
+                "compile"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"descriptions\": [\"замаскируй всё что выглядит подозрительно или может быть секретным\"]\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const code = pm.response.code;",
+                  "pm.test('200 или 422', () => pm.expect([200, 422]).to.include(code));",
+                  "if (code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.failed && body.failed.length > 0) {",
+                  "    pm.test('failed[0].code присутствует', () => pm.expect(body.failed[0]).to.have.property('code'));",
+                  "    pm.test('failed[0].reason непустой', () => pm.expect(body.failed[0].reason).to.be.a('string').with.length.above(5));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "И3 — Preview: regex_llm_filter без падения",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/custom_types/compile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "custom_types",
+                "compile"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_name\": \"{{uploaded_object_name}}\",\n  \"descriptions\": [\"номера платёжных поручений — числа рядом со словами платёжное поручение или п/п\"]\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "if (body.status === 'done' && body.compiled && body.compiled.length > 0) {",
+                  "  const c = body.compiled[0];",
+                  "  if (c.preview) {",
+                  "    pm.test('preview.total_matches число', () => pm.expect(c.preview.total_matches).to.be.a('number'));",
+                  "    pm.test('preview.segments массив', () => pm.expect(c.preview.segments).to.be.an('array'));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
         }
       ]
     }

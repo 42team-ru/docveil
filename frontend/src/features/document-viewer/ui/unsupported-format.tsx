@@ -8,7 +8,12 @@ type UnsupportedFormatProps = {
   fileUrl: string;
 };
 
-/** Заглушка для pdf — привязка ПДн к этому формату не входит в эту итерацию. */
+/**
+ * Заглушка на случай формата, которого нет ни среди docx/xlsx, ни среди
+ * bbox-форматов (`document-viewer.tsx::BBOX_FORMATS`) — сегодня все
+ * значения `PiiDocFormat` разобраны, это только защита от расхождения
+ * контракта с бэкендом.
+ */
 export function UnsupportedFormat({ format, fileUrl }: UnsupportedFormatProps) {
   return (
     <EmptyState

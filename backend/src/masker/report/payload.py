@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -75,12 +76,26 @@ def _entity_record(
     return record
 
 
+def _fallback_review_group_id(entity: Entity) -> str:
+    """Непустая группа для сущности, исключённой из ``plan.replacements``.
+
+    После ``keep`` у сущности уже нет замены и прежняя реализация отдавала
+    пустой ``group_id``. Фронт склеивал все такие строки в одну группу и не
+    мог показать «Вернуть» для нужной сущности. Хеш строится из нормализованной
+    предметной идентичности, поэтому одинаковые значения остаются группой,
+    но исходный текст не попадает в идентификатор отчёта в открытом виде.
+    """
+    key = f"{entity.type}\0{entity.normalized}".encode()
+    return f"R{hashlib.blake2s(key, digest_size=8).hexdigest()}"
+
+
 def _chunk_record(
     document: Document,
     chunk: PiiChunk,
     index: int,
     *,
     ref_by_entity_id: dict[int, str] | None = None,
+    decision_by_ref: dict[str, dict[str, Any]] | None = None,
     marker_by_ref: dict[str, str] | None = None,
     group_id_by_ref: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -91,6 +106,7 @@ def _chunk_record(
             document,
             entity,
             ref_by_entity_id=ref_by_entity_id,
+            decision_by_ref=decision_by_ref,
             marker_by_ref=marker_by_ref,
             group_id_by_ref=group_id_by_ref,
         )
@@ -384,6 +400,11 @@ def build_report_payload(
     group_id_by_ref = (
         {repl.ref: repl.group_id for repl in plan.replacements} if plan is not None else {}
     )
+    if ref_by_entity_id is not None:
+        for entity in entities:
+            ref = ref_by_entity_id.get(id(entity))
+            if ref is not None:
+                group_id_by_ref.setdefault(ref, _fallback_review_group_id(entity))
     # Р8: уровень уверенности по ссылке — читается прямо из `entities`
     # (``Entity.level`` проставляет ``DetectAgent.detect()``), а не
     # пересчитывается здесь заново — единственный источник правды один раз
@@ -437,6 +458,7 @@ def build_report_payload(
                 chunk,
                 index,
                 ref_by_entity_id=ref_by_entity_id,
+                decision_by_ref=decision_by_ref,
                 marker_by_ref=marker_by_ref,
                 group_id_by_ref=group_id_by_ref,
             )

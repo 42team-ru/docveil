@@ -1,12 +1,27 @@
-import type { PiiAnchor } from "../../../entity/pii/model/types";
+import type { PiiAnchor, PiiRegion } from "../../../entity/pii/model/types";
 
-/** Захваченное выделение мышью — текст, готовый якорь для «добавить пропущенное»
- * и координаты выделения в вьюпорте, чтобы показать кнопку добавления рядом с ним. */
-export type SelectionCapture = {
+/**
+ * Захваченное выделение — текст-выделение (docx/xlsx) либо обведённая
+ * рамкой область (pdf/картинка, `bbox-viewer.tsx`). Дискриминант `kind`
+ * разводит их: у текстового есть готовый `anchor` и цитата, у bbox —
+ * нормализованный `region` и текст оператор напечатает сам (на скане его
+ * негде процитировать — там нет текстового слоя). `rect` в обоих случаях —
+ * координаты выделения в вьюпорте, чтобы показать кнопку добавления рядом.
+ */
+export type TextSelectionCapture = {
+  kind: "text";
   text: string;
   anchor: PiiAnchor;
   rect: DOMRect;
 };
+
+export type RegionSelectionCapture = {
+  kind: "region";
+  region: PiiRegion;
+  rect: DOMRect;
+};
+
+export type SelectionCapture = TextSelectionCapture | RegionSelectionCapture;
 
 /**
  * Текст текущего выделения (Selection API) внутри хоста документа, ближайший
@@ -57,6 +72,7 @@ export function captureDocxSelection(host: HTMLElement): SelectionCapture | null
   if (index === -1) return null;
 
   return {
+    kind: "text",
     text: found.text,
     anchor: {
       format: "docx",
@@ -82,6 +98,7 @@ export function captureXlsxSelection(
     if (!row || !col) return null;
 
     return {
+      kind: "text",
       text: found.text,
       anchor: {
         format: "xlsx",

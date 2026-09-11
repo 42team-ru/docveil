@@ -37,6 +37,11 @@ const FORMAT_BY_SUFFIX: Record<string, DocumentFormat> = {
   pdf: "PDF",
   docx: "DOCX",
   xlsx: "XLSX",
+  jpg: "JPG",
+  jpeg: "JPEG",
+  png: "PNG",
+  tif: "TIF",
+  tiff: "TIFF",
 };
 
 /** Формат по расширению; неизвестное расширение показываем как DOCX-заглушку. */

@@ -74,6 +74,9 @@ class RunResponse(BaseModel):
     document: RunDocument
     node_hint: str | None = None
     error: str | None = None
+    #: Версия опубликованного комплекта артефактов. Меняется только после
+    #: успешной пересборки, поэтому фронт не смешивает старый файл с отчётом.
+    artifact_revision: int = 0
     created_at: datetime
     finished_at: datetime | None = None
 
@@ -160,6 +163,12 @@ class ReviewRequest(BaseModel):
     #: Версия конверта правок; см. комментарий у `AnswersRequest`.
     schema_version: Literal[1] = 1
     edits: ReviewEdits = Field(default_factory=ReviewEdits)
+
+
+class RegenerateRequest(ReviewRequest):
+    """Черновые правки и версия результата, на котором их сделал оператор."""
+
+    expected_revision: int = Field(ge=0)
 
 
 class ArtifactOut(BaseModel):

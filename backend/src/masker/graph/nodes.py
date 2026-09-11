@@ -533,7 +533,11 @@ def ask_review_node(state: State) -> dict[str, object]:
     его заново при каждом возобновлении треда, поэтому он ничего не пишет и
     не меняет входной ``state``, кроме поля с правками.
     """
-    return {"review_edits": parse_review_edits(interrupt(build_review_payload(state)))}
+    parsed = parse_review_edits(interrupt(build_review_payload(state)))
+    return {
+        "review_edits": parsed,
+        "review_finalize": bool(parsed.get("finalize", True)),
+    }
 
 
 def apply_review_edits_node(state: State) -> dict[str, object]:
@@ -800,16 +804,18 @@ def _manual_entities(
 def needs_review(state: State) -> str:
     """Нужен ли раунд правок оператора после отчёта.
 
-    Ровно один раунд на прогон: второй заход ведёт в конец. Иначе граф
-    зациклился бы на паре ``ask_review → report``, а прогон никогда бы не
-    завершился — и `resume` на нём всегда возвращал бы «жду правок».
+    Первый отчёт всегда открывает проверку. После каждого применённого раунда
+    клиент явно выбирает: обычное утверждение завершает тред, а
+    ``/regenerate`` возвращает его на следующую паузу. Так нет
+    автоматического цикла ``ask_review → report`` и оператор может
+    последовательно снять и вернуть маску в одном durable-треде.
     """
     options = state.get("options", {})
     if not bool(options.get("review", False)):
         return "end"
-    if int(state.get("review_round", 0)) > 0:
-        return "end"
-    return "ask_review"
+    if int(state.get("review_round", 0)) == 0:
+        return "ask_review"
+    return "end" if bool(state.get("review_finalize", True)) else "ask_review"
 
 
 def needs_human(state: State) -> str:

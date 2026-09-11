@@ -24,6 +24,7 @@ import {
   downloadArtifact,
   hasRunResult,
   isRunPending,
+  useRegenerateReview,
   useSubmitReview,
 } from "../../features/masking-run/api/masking-run";
 import { useReviewData } from "../../features/pii-review/api/use-review-data";
@@ -63,6 +64,7 @@ export function DocumentPage() {
 
   const {
     status,
+    artifactRevision,
     extraction,
     document: reviewedDocument,
     report,
@@ -79,8 +81,16 @@ export function DocumentPage() {
 
   const [notFoundIds, setNotFoundIds] = useState<Set<string>>(new Set());
   const [isConfirmApproveOpen, setIsConfirmApproveOpen] = useState(false);
+  const [regenerationRevision, setRegenerationRevision] = useState<number | null>(null);
 
   const setDocumentGroups = useReviewStore((state) => state.setDocumentGroups);
+  const hasUnappliedChanges = useReviewStore((state) =>
+    Object.keys(state.groupDecisions).length > 0
+      || Object.keys(state.occurrenceDecisions).length > 0
+      || Object.keys(state.typeOverrides).length > 0
+      || Object.keys(state.occurrenceTypeOverrides).length > 0
+      || state.manualOccurrences.length > 0,
+  );
   const confirmedCount = useConfirmedGroupCount();
   const totalCount = useTotalGroupCount();
   const allConfirmed = confirmedCount === totalCount;
@@ -90,26 +100,62 @@ export function DocumentPage() {
   // Счётчики проверки живут в сторе и должны считать по открытому документу,
   // а не по фикстуре, и одинаково — на вкладках «Проверка» и «Отчёт».
   const documentGroups = useMemo(() => {
-    const minConfidence = new Map<string, number>();
+    const groups = new Map<
+      string,
+      {
+        minConfidence: number;
+        appliedDecision: "confirmed" | "rejected";
+        appliedOccurrenceDecisions: Record<string, "confirmed" | "rejected">;
+      }
+    >();
     for (const occurrence of occurrences) {
-      const known = minConfidence.get(occurrence.groupId);
-      minConfidence.set(
-        occurrence.groupId,
-        known === undefined ? occurrence.confidence : Math.min(known, occurrence.confidence),
-      );
+      const known = groups.get(occurrence.groupId);
+      groups.set(occurrence.groupId, {
+        minConfidence: known === undefined
+          ? occurrence.confidence
+          : Math.min(known.minConfidence, occurrence.confidence),
+        appliedDecision:
+          known === undefined
+            ? occurrence.action === "keep"
+              ? "rejected"
+              : "confirmed"
+            : known.appliedDecision === "rejected" && occurrence.action === "keep"
+              ? "rejected"
+              : "confirmed",
+        appliedOccurrenceDecisions: {
+          ...known?.appliedOccurrenceDecisions,
+          [occurrence.id]: occurrence.action === "keep" ? "rejected" : "confirmed",
+        },
+      });
     }
-    return [...minConfidence].map(([id, confidence]) => ({
+    return [...groups].map(([id, group]) => ({
       id,
-      minConfidence: confidence,
+      minConfidence: group.minConfidence,
+      appliedDecision: group.appliedDecision,
+      appliedOccurrenceDecisions: group.appliedOccurrenceDecisions,
     }));
   }, [occurrences]);
 
   useEffect(() => {
-    setDocumentGroups(documentGroups);
-  }, [documentGroups, setDocumentGroups]);
+    if (runId !== null) setDocumentGroups(`${runId}:${artifactRevision}`, documentGroups);
+  }, [artifactRevision, documentGroups, runId, setDocumentGroups]);
 
   const ready = hasRunResult(status);
   const submitReview = useSubmitReview(runId);
+  const regenerateReview = useRegenerateReview(runId);
+  const isRegenerating = regenerationRevision !== null;
+
+  useEffect(() => {
+    if (
+      regenerationRevision !== null
+      && status === "awaiting_review"
+      && artifactRevision >= regenerationRevision
+      && reviewedDocument.fileUrl
+    ) {
+      setRegenerationRevision(null);
+      showToast({ body: "Файл перегенерирован с вашими изменениями", type: "info" });
+    }
+  }, [artifactRevision, regenerationRevision, reviewedDocument.fileUrl, showToast, status]);
 
   /**
    * Утверждение документа. Правки уходят вторым прерыванием в граф, и
@@ -136,6 +182,24 @@ export function DocumentPage() {
         });
       },
     });
+  }
+
+  function handleRegenerate() {
+    if (runId === null || isRegenerating) return;
+    const expectedRevision = artifactRevision;
+    setRegenerationRevision(expectedRevision + 1);
+    regenerateReview.mutate(
+      {
+        edits: buildReviewEdits(extraction, useReviewStore.getState()),
+        expectedRevision,
+      },
+      {
+        onError: (mutationError) => {
+          setRegenerationRevision(null);
+          showToast({ body: mutationError.message || "Не удалось перегенерировать файл", type: "error" });
+        },
+      },
+    );
   }
 
   /** Скачивает подсвеченный вариант — тот же файл, что открыт во вьюере. */
@@ -234,15 +298,15 @@ export function DocumentPage() {
                 variant={ready ? "primary" : "secondary"}
                 label="Скачать обезличенный документ"
                 icon={<Icon icon={Download} size="sm" />}
-                isDisabled={!ready}
+                isDisabled={!ready || hasUnappliedChanges || isRegenerating}
                 onClick={() => void handleDownload()}
               />
               <Button
                 size="sm"
                 variant="secondary"
-                label="Подтвердить замены"
+                label="Завершить проверку"
                 icon={<Icon icon={CheckCircle2} size="sm" />}
-                isDisabled={status !== "awaiting_review" || submitReview.isPending}
+                isDisabled={status !== "awaiting_review" || submitReview.isPending || hasUnappliedChanges || isRegenerating}
                 isLoading={submitReview.isPending}
                 onClick={() => setIsConfirmApproveOpen(true)}
               />
@@ -272,6 +336,7 @@ export function DocumentPage() {
               runId={runId}
               totalCount={totalCount}
               notFoundIds={notFoundIds}
+              isEditingDisabled={isRegenerating}
             />
           ) : undefined
         }
@@ -281,6 +346,10 @@ export function DocumentPage() {
             document={reviewedDocument}
             extraction={extraction}
             occurrences={occurrences}
+            pages={report?.pages ?? []}
+            hasUnappliedChanges={hasUnappliedChanges}
+            isRegenerating={isRegenerating}
+            onRegenerate={handleRegenerate}
             onNotFoundChange={setNotFoundIds}
           />
         ) : (
@@ -292,7 +361,7 @@ export function DocumentPage() {
         runId={runId}
         ask={ask}
         isSelecting={!chooseUpload && isSelectingTypes}
-        isProcessing={!chooseUpload && (isRunPending(status) || isLoading)}
+        isProcessing={!chooseUpload && !isRegenerating && (isRunPending(status) || isLoading)}
         error={chooseUpload ? null : error}
         onSelected={() => setSelectedTypesRunId(runId)}
         onLeave={() => void navigate(uploadIds.length > 1 ? location.pathname : "/documents", {
@@ -315,8 +384,8 @@ export function DocumentPage() {
         title="Утвердить документ?"
         description={
           allConfirmed
-            ? "Документ пересоберётся с вашими правками и уйдёт в финальный отчёт. Отменить утверждение будет нельзя."
-            : `Подтверждено ${confirmedCount} из ${totalCount} — остальные вхождения уйдут в документ как есть. Отменить утверждение будет нельзя.`
+            ? "Документ пересоберётся и проверка будет завершена."
+            : `Подтверждено ${confirmedCount} из ${totalCount}. Завершить проверку можно только после применения всех нужных правок.`
         }
         actionLabel="Утвердить"
         actionVariant="primary"

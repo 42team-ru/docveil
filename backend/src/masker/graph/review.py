@@ -73,6 +73,9 @@ def parse_review_edits(raw: Any) -> dict[str, Any]:
         "decisions": _decisions(edits.get("decisions")),
         "type_overrides": _type_overrides(edits.get("type_overrides")),
         "manual": _manual(edits.get("manual")),
+        # Старые клиенты и уже сохранённые конверты завершают прогон, как
+        # раньше. Только новая ручка перегенерации передаёт ``False``.
+        "finalize": raw.get("finalize", True) is not False,
     }
 
 

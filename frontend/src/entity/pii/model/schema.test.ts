@@ -163,6 +163,24 @@ describe("parseMaskingReport", () => {
 
     expect(report.format).toBe("jpg");
   });
+
+  it("null у plan/profile_judge/contract_summary/decisions не роняет разбор", () => {
+    // Бэкенд шлёт `X | None = None` как JSON `null`, не опускает ключ —
+    // для PDF `--profile` не строится вовсе (run_service._run_options),
+    // и `report.json` реального PDF-прогона несёт ровно такие null.
+    const withNulls = structuredClone(reportPayload) as Record<string, unknown>;
+    withNulls.plan = null;
+    withNulls.profile_judge = null;
+    withNulls.contract_summary = null;
+    withNulls.decisions = null;
+
+    const report = parseMaskingReport(withNulls as unknown as ReportOut);
+
+    expect(report.plan).toBeNull();
+    expect(report.profiles).toEqual([]);
+    expect(report.contractSummary).toBeNull();
+    expect(report.decisions).toBeNull();
+  });
 });
 
 describe("parseAskEnvelope", () => {

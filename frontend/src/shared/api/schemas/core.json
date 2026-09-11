@@ -1055,6 +1055,65 @@
         }
       }
     },
+    "/runs/{run_id}/regenerate": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Post Regenerate",
+        "description": "Применить черновые правки и снова остановиться на проверке.",
+        "operationId": "post_regenerate_api_runs__run_id__regenerate_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegenerateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/runs/{run_id}/report": {
       "get": {
         "tags": [
@@ -3593,6 +3652,30 @@
         "title": "RefreshRequest",
         "description": "Для не-WEB клиентов: передают refresh-токен явно, а не через cookie."
       },
+      "RegenerateRequest": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "edits": {
+            "$ref": "#/components/schemas/ReviewEdits"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "RegenerateRequest",
+        "description": "Черновые правки и версия результата, на котором их сделал оператор."
+      },
       "RegexDetectIn": {
         "properties": {
           "kind": {
@@ -4131,6 +4214,11 @@
               }
             ],
             "title": "Error"
+          },
+          "artifact_revision": {
+            "type": "integer",
+            "title": "Artifact Revision",
+            "default": 0
           },
           "created_at": {
             "type": "string",

@@ -877,6 +877,29 @@ export interface RefreshRequest {
   refresh_token?: string | null;
 }
 
+export type ReviewEditsDecisions = {[key: string]: 'mask' | 'keep'};
+
+export type ReviewEditsTypeOverrides = {[key: string]: string};
+
+/**
+ * Правки оператора: решения по ссылкам, смена типа, добавленные значения.
+ */
+export interface ReviewEdits {
+  decisions?: ReviewEditsDecisions;
+  type_overrides?: ReviewEditsTypeOverrides;
+  manual?: ManualEntityIn[];
+}
+
+/**
+ * Черновые правки и версия результата, на котором их сделал оператор.
+ */
+export interface RegenerateRequest {
+  schema_version?: 1;
+  edits?: ReviewEdits;
+  /** @minimum 0 */
+  expected_revision: number;
+}
+
 export type ReportOutDocumentCoverage = { [key: string]: unknown };
 
 export type ReportOutLeakedItem = { [key: string]: unknown };
@@ -951,19 +974,6 @@ export interface ReportOut {
   layout: LayoutOut[];
   certificate?: CertificateOut | null;
   pages?: PageInfoOut[];
-}
-
-export type ReviewEditsDecisions = {[key: string]: 'mask' | 'keep'};
-
-export type ReviewEditsTypeOverrides = {[key: string]: string};
-
-/**
- * Правки оператора: решения по ссылкам, смена типа, добавленные значения.
- */
-export interface ReviewEdits {
-  decisions?: ReviewEditsDecisions;
-  type_overrides?: ReviewEditsTypeOverrides;
-  manual?: ManualEntityIn[];
 }
 
 /**
@@ -1087,6 +1097,7 @@ export interface RunResponse {
   document: RunDocument;
   node_hint?: string | null;
   error?: string | null;
+  artifact_revision?: number;
   created_at: string;
   finished_at?: string | null;
 }

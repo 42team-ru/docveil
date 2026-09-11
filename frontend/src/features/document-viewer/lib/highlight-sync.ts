@@ -1,4 +1,4 @@
-import { useReviewStore } from "../../../entity/pii/model/review-store";
+import { appliedGroupDecision, useReviewStore } from "../../../entity/pii/model/review-store";
 import { resolvePaintState } from "./apply-highlights";
 import { paintRun } from "./paint-run";
 
@@ -30,7 +30,7 @@ export function subscribeHighlightSync(targets: SyncTarget[]): () => void {
   const repaint = () => {
     const state = useReviewStore.getState();
     for (const { occurrenceId, groupId, run } of targets) {
-      const decision = state.groupDecisions[groupId] ?? "pending";
+      const decision = appliedGroupDecision(state, groupId);
       paintRun(
         run,
         resolvePaintState(decision, state.viewMode),
@@ -42,7 +42,7 @@ export function subscribeHighlightSync(targets: SyncTarget[]): () => void {
   repaint();
 
   const unsubDecisions = useReviewStore.subscribe(
-    (state) => state.groupDecisions,
+    (state) => state.appliedGroupDecisions,
     repaint,
   );
   const unsubSelection = useReviewStore.subscribe(

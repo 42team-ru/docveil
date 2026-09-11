@@ -80,7 +80,9 @@ def storage(tmp_path: Path, mocker) -> Path:
     mocker.patch("api.services.run_service.minio_client.fput_object", side_effect=_fput_object)
     mocker.patch(
         "api.services.run_service.artifact_bytes",
-        side_effect=lambda run_id, name: (objects / f"runs/{run_id}/{name}").read_bytes(),
+        side_effect=lambda run_id, name, artifact_prefix=None: (
+            objects / f"{artifact_prefix or f'runs/{run_id}/revisions/0/'}{name}"
+        ).read_bytes(),
     )
     return objects
 
@@ -204,6 +206,33 @@ def test_review_edits_finish_the_run(client: TestClient, storage: Path) -> None:
     finished = client.get(f"/api/runs/{run_id}").json()
     assert finished["status"] in {"done", "leaked"}
     assert finished["finished_at"] is not None
+
+
+def test_regenerate_returns_to_review_with_next_artifact_revision(
+    client: TestClient, storage: Path
+) -> None:
+    """Перегенерация не завершает тред и публикует следующий комплект файлов."""
+    created = _create_run(client)
+    run_id = created["id"]
+    client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
+
+    regenerated = client.post(
+        f"/api/runs/{run_id}/regenerate",
+        json={"expected_revision": 0, "edits": {}},
+    )
+
+    assert regenerated.status_code == status.HTTP_202_ACCEPTED
+    assert regenerated.json()["status"] == "running"
+    current = client.get(f"/api/runs/{run_id}").json()
+    assert current["status"] == "awaiting_review"
+    assert current["artifact_revision"] == 1
+    assert (storage / f"runs/{run_id}/revisions/1/masked_highlight.docx").is_file()
+
+    stale = client.post(
+        f"/api/runs/{run_id}/regenerate",
+        json={"expected_revision": 0, "edits": {}},
+    )
+    assert stale.status_code == status.HTTP_409_CONFLICT
 
 
 def test_review_manual_region_bad_coordinates_are_422(client: TestClient, storage: Path) -> None:

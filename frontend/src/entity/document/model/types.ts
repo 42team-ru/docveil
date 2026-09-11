@@ -1,4 +1,12 @@
-export type DocumentFormat = "PDF" | "DOCX" | "XLSX";
+export type DocumentFormat =
+  | "PDF"
+  | "DOCX"
+  | "XLSX"
+  | "JPG"
+  | "JPEG"
+  | "PNG"
+  | "TIF"
+  | "TIFF";
 
 /**
  * Откуда взять байты документа при запуске: новый файл из дропзоны

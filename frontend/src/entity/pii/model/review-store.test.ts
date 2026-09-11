@@ -2,14 +2,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { maskingReportFixture } from "./fixtures";
 import { flattenPiiOccurrences, groupOccurrences } from "./flatten";
-import { useReviewStore } from "./review-store";
+import { type ReviewGroup, useReviewStore } from "./review-store";
 
 /** Группы документа в том виде, в каком их кладёт экран проверки. */
-function groupsOf(report = maskingReportFixture) {
+function groupsOf(report = maskingReportFixture): ReviewGroup[] {
   const grouped = groupOccurrences(flattenPiiOccurrences(report.extraction));
   return [...grouped.entries()].map(([id, occurrences]) => ({
     id,
     minConfidence: Math.min(...occurrences.map((o) => o.confidence)),
+    appliedDecision: "confirmed" as const,
   }));
 }
 
@@ -18,7 +19,11 @@ const initial = useReviewStore.getState();
 beforeEach(() => {
   useReviewStore.setState({
     documentGroups: [],
+    documentKey: null,
     groupDecisions: {},
+    appliedGroupDecisions: {},
+    occurrenceDecisions: {},
+    appliedOccurrenceDecisions: {},
     typeOverrides: {},
     occurrenceTypeOverrides: {},
     selectedOccurrenceId: null,
@@ -30,7 +35,7 @@ beforeEach(() => {
 
 describe("setDocumentGroups", () => {
   it("принимает группы открытого документа", () => {
-    initial.setDocumentGroups(groupsOf());
+    initial.setDocumentGroups("run-1:0", groupsOf());
 
     const state = useReviewStore.getState();
     expect(state.documentGroups).toHaveLength(8);
@@ -39,26 +44,63 @@ describe("setDocumentGroups", () => {
 
   it("тот же документ не стирает решения оператора", () => {
     const groups = groupsOf();
-    initial.setDocumentGroups(groups);
+    initial.setDocumentGroups("run-1:0", groups);
     initial.confirmGroup("G1");
 
     // Повторный рендер экрана отдаёт новый массив с тем же составом.
-    initial.setDocumentGroups(groups.map((group) => ({ ...group })));
+    initial.setDocumentGroups("run-1:0", groups.map((group) => ({ ...group })));
 
-    expect(useReviewStore.getState().groupDecisions.G1).toBe("confirmed");
+    expect(useReviewStore.getState().groupDecisions.G1).toBeUndefined();
+    expect(useReviewStore.getState().appliedGroupDecisions.G1).toBe("confirmed");
   });
 
   it("другой документ сбрасывает решения", () => {
-    initial.setDocumentGroups(groupsOf());
+    initial.setDocumentGroups("run-1:0", groupsOf());
     initial.confirmGroup("G1");
     initial.answerQuestion("TYPE-phone", "оставить");
 
-    initial.setDocumentGroups([{ id: "X1", minConfidence: 1 }]);
+    initial.setDocumentGroups("run-2:0", [{ id: "X1", minConfidence: 1, appliedDecision: "confirmed" }]);
 
     const state = useReviewStore.getState();
     expect(state.groupDecisions).toEqual({});
     expect(state.questionAnswers).toEqual({});
     expect(state.documentGroups).toHaveLength(1);
+  });
+});
+
+describe("черновик перегенерации", () => {
+  it("снимает черновик, когда решение возвращается к опубликованному", () => {
+    initial.setDocumentGroups("run-1:0", groupsOf());
+
+    initial.rejectGroup("G1");
+    expect(initial.hasUnappliedChanges()).toBe(true);
+
+    initial.confirmGroup("G1");
+    expect(useReviewStore.getState().groupDecisions).toEqual({});
+    expect(initial.hasUnappliedChanges()).toBe(false);
+  });
+
+  it("разрешает оставить исходный текст только в одном вхождении", () => {
+    const [occurrence] = flattenPiiOccurrences(maskingReportFixture.extraction);
+    initial.setDocumentGroups("run-1:0", groupsOf());
+
+    initial.rejectOccurrence(occurrence.id, occurrence.groupId);
+    expect(useReviewStore.getState().occurrenceDecisions[occurrence.id]).toBe("rejected");
+    expect(initial.hasUnappliedChanges()).toBe(true);
+
+    initial.confirmOccurrence(occurrence.id, occurrence.groupId);
+    expect(useReviewStore.getState().occurrenceDecisions[occurrence.id]).toBeUndefined();
+    expect(initial.hasUnappliedChanges()).toBe(false);
+  });
+
+  it("сохраняет применённое исключение после перезагрузки версии", () => {
+    const groups = groupsOf();
+    groups[0] = { ...groups[0], appliedDecision: "rejected" as "confirmed" | "rejected" };
+    initial.setDocumentGroups("run-1:1", groups);
+
+    expect(useReviewStore.getState().appliedGroupDecisions.G1).toBe("rejected");
+    initial.confirmGroup("G1");
+    expect(initial.hasUnappliedChanges()).toBe(true);
   });
 });
 

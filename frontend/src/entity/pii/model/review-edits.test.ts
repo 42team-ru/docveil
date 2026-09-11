@@ -11,12 +11,14 @@ const first = occurrences[0];
 
 function state(overrides: {
   groupDecisions?: Record<string, PiiDecisionKind>;
+  occurrenceDecisions?: Record<string, PiiDecisionKind>;
   typeOverrides?: Record<string, PiiType>;
   occurrenceTypeOverrides?: Record<string, PiiType>;
   manualOccurrences?: ManualPiiOccurrence[];
 }) {
   return {
     groupDecisions: {},
+    occurrenceDecisions: {},
     typeOverrides: {},
     occurrenceTypeOverrides: {},
     manualOccurrences: [],
@@ -49,6 +51,18 @@ describe("buildReviewEdits", () => {
     const edits = buildReviewEdits(
       extraction,
       state({ groupDecisions: { [first.groupId]: "confirmed" } }),
+    );
+
+    expect(edits.decisions[first.ref]).toBe("mask");
+  });
+
+  it("решение для одного вхождения сильнее решения группы", () => {
+    const edits = buildReviewEdits(
+      extraction,
+      state({
+        groupDecisions: { [first.groupId]: "rejected" },
+        occurrenceDecisions: { [first.id]: "confirmed" },
+      }),
     );
 
     expect(edits.decisions[first.ref]).toBe("mask");

@@ -1,4 +1,11 @@
-import type { PiiAnchor, PiiExtraction, PiiSource, PiiType } from "./types";
+import type {
+  EntityAction,
+  PiiAnchor,
+  PiiExtraction,
+  PiiRegion,
+  PiiSource,
+  PiiType,
+} from "./types";
 
 /**
  * Плоское вхождение — join чанка и одного его pii-элемента. Общая точка входа
@@ -21,6 +28,7 @@ export type FlatPiiOccurrence = {
   chunkId: string;
   groupId: string;
   marker: string;
+  action: EntityAction | null;
   type: PiiType;
   confidence: number;
   source: PiiSource;
@@ -31,6 +39,8 @@ export type FlatPiiOccurrence = {
   segmentOrder: number;
   chunkStart: number;
   chunkEnd: number;
+  /** Bbox-координаты на странице артефакта — пусто для docx/xlsx. */
+  regions: PiiRegion[];
 };
 
 /** В JSON бэкенда нет своего id вхождения — синтезируем детерминированно. */
@@ -56,6 +66,7 @@ export function flattenPiiOccurrences(
         chunkId: chunk.id,
         groupId: pii.groupId,
         marker: pii.marker,
+        action: pii.action,
         type: pii.type,
         confidence: pii.confidence,
         source: pii.source,
@@ -65,6 +76,7 @@ export function flattenPiiOccurrences(
         segmentOrder: pii.segmentOrder,
         chunkStart: pii.chunkStart,
         chunkEnd: pii.chunkEnd,
+        regions: pii.regions,
       });
     }
   }

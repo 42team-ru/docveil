@@ -51,6 +51,7 @@ const rawPiiSchema = z.object({
   ref: z.string(),
   group_id: z.string(),
   marker: z.string(),
+  decision: z.string().optional().nullable(),
   type: z.string(),
   text: z.string(),
   normalized: z.string(),
@@ -79,7 +80,9 @@ const rawExtractionSchema = z.object({
   chunks: z.array(rawChunkSchema),
 });
 
-const KNOWN_FORMATS: PiiDocFormat[] = [
+/** Экспортирован для `use-review-data.ts` — формат по расширению реального
+ * артефакта проверяется тем же списком, что и разбор отчёта. */
+export const KNOWN_FORMATS: PiiDocFormat[] = [
   "docx",
   "pdf",
   "xlsx",
@@ -161,6 +164,10 @@ export function parsePiiExtraction(payload: unknown): PiiExtraction {
         ref: pii.ref,
         groupId: pii.group_id,
         marker: pii.marker,
+        action:
+          pii.decision === "mask" || pii.decision === "keep"
+            ? pii.decision
+            : null,
         type: toType(pii.type),
         text: pii.text,
         normalized: pii.normalized,
@@ -345,15 +352,20 @@ const rawReportSchema = z.object({
   document_coverage: z.record(z.string(), z.unknown()),
   limitations: z.array(z.string()),
   // Секции ниже движок кладёт не всегда: `plan` появляется только когда план
-  // построен, `profile_judge` — при `--profile`, `decisions`/`validation` —
-  // после соответствующих узлов графа.
-  plan: rawPlanSchema.optional(),
+  // построен, `profile_judge` — при `--profile` (PDF его не строит вовсе,
+  // `run_service._run_options`), `decisions`/`validation` — после
+  // соответствующих узлов графа. На бэкенде это `X | None = None`
+  // (`api/schemas/report.py`) — Pydantic сериализует такое как JSON `null`,
+  // ключ не пропускает, поэтому `.optional()` одного не хватает: `null`
+  // — валидный, а не только отсутствующий ключ.
+  plan: rawPlanSchema.nullable().optional(),
   profile_judge: z
     .object({ profiles: z.array(rawProfileSchema) })
     .loose()
+    .nullable()
     .optional(),
-  contract_summary: rawContractSummarySchema.optional(),
-  decisions: rawDecisionsSchema.optional(),
+  contract_summary: rawContractSummarySchema.nullable().optional(),
+  decisions: rawDecisionsSchema.nullable().optional(),
   validation: rawValidationSchema.optional(),
   //: Р8, «снять одним кликом» — группы уровня `possible`; движок кладёт
   //: пустой массив, даже когда плана нет вовсе.
@@ -426,6 +438,7 @@ export function parseMaskingReport(payload: ReportOut): MaskingReport {
   const raw = rawReportSchema.parse(payload);
   const profileJudge = raw.profile_judge as
     | { profiles: z.infer<typeof rawProfileSchema>[] }
+    | null
     | undefined;
 
   return {

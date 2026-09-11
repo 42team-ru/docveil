@@ -46,6 +46,9 @@ def builtin_specs() -> list[EntityTypeSpec]:
         EntityType.BIRTH_DATE: ("Дата рождения", "РОЖДЕНИЕ"),
         EntityType.SITE: ("Сайт", "САЙТ"),
         EntityType.FEDERAL_LAW: ("Федеральный закон", "ФЗ"),
+        EntityType.REGISTRY_KEY: ("Реестровый ключ", "РЕЕСТРОВЫЙ-КЛЮЧ"),
+        EntityType.POWER_OF_ATTORNEY_NUMBER: ("Номер доверенности", "НОМЕР-ДОВЕРЕННОСТИ"),
+        EntityType.IP_ADDRESS: ("IP-адрес", "IP-АДРЕС"),
         EntityType.CONTRACT_AMOUNT: ("Сумма договора", "СУММА-ДОГОВОРА"),
         EntityType.DELIVERY_PERIOD: ("Срок поставки", "СРОК-ПОСТАВКИ"),
         EntityType.PAYMENT_TERMS: ("Условия оплаты", "УСЛОВИЯ-ОПЛАТЫ"),
@@ -96,6 +99,10 @@ class EntityTypeRegistry:
     def is_critical(self, type_id: str) -> bool:
         """Вернуть критичность известного типа; неизвестный id считается ошибкой."""
         return self.spec(type_id).critical
+
+    def is_builtin(self, type_id: str) -> bool:
+        """Принадлежит ли тип встроенному набору, а не пользовательской конфигурации."""
+        return self.spec(type_id).builtin
 
     def extend(self, custom: Iterable[EntityTypeSpec]) -> EntityTypeRegistry:
         """Вернуть новый реестр с добавленными пользовательскими спеками."""

@@ -52,7 +52,7 @@ from __future__ import annotations
 import re
 
 from masker.detect.normalize import normalize_value
-from masker.detect.persons import drop_role_prefix
+from masker.detect.persons import drop_role_prefix, find_identifying_signatory_positions
 from masker.model import Document, Entity, EntityType, Source
 
 #: Заголовок/строка относится к разделу реквизитов или подписей только по
@@ -134,10 +134,56 @@ def find_requisite_block_candidates(document: Document, entities: list[Entity]) 
     for entity in entities:
         occupied.setdefault(entity.segment_order, []).append((entity.start, entity.end))
 
+    # Р24 (11.09.2026): должность подписанта с названием ведомства/компании
+    # раскрывает сторону даже после маски ФИО. Это не зависит от того,
+    # распознал ли PDF отдельный блок реквизитов, поэтому проверяем все
+    # сегменты. Неправильные NER-спаны «Старшего Вице-Президента» и вложенное
+    # «ПАО „Ростелеком“» заменяем единым большим кандидатом: два наложенных
+    # маркера не могут ни сохранить читаемую роль, ни корректно отрендериться.
+    signatory_positions: list[Entity] = []
+    for segment in document.segments:
+        ranges = occupied.setdefault(segment.order, [])
+        for start, end in find_identifying_signatory_positions(segment.text):
+            overlapping = [
+                entity
+                for entity in entities
+                if entity.segment_order == segment.order
+                and entity.start < end
+                and start < entity.end
+            ]
+            if any(
+                entity.type in {EntityType.INN, EntityType.OGRN, EntityType.KPP}
+                for entity in overlapping
+            ):
+                # Формальные реквизиты нельзя выкинуть ради открытого типа
+                # PERSON: это нарушило бы критичный recall.
+                continue
+            if overlapping:
+                entities[:] = [entity for entity in entities if entity not in overlapping]
+                ranges[:] = [
+                    item
+                    for item in ranges
+                    if item not in {(entity.start, entity.end) for entity in overlapping}
+                ]
+            value = segment.text[start:end]
+            signatory_positions.append(
+                Entity(
+                    type=EntityType.PERSON,
+                    text=value,
+                    segment_order=segment.order,
+                    start=start,
+                    end=end,
+                    source=Source.BLOCK,
+                    confidence=_CANDIDATE_CONFIDENCE,
+                    normalized=normalize_value(EntityType.PERSON, value),
+                )
+            )
+            ranges.append((start, end))
+
     segment_text_by_order = {segment.order: segment.text for segment in document.segments}
     blocks = build_context_blocks(document.segments, entities)
 
-    found: list[Entity] = []
+    found: list[Entity] = list(signatory_positions)
     for block in blocks:
         if not _is_target_block(block, segment_text_by_order):
             continue

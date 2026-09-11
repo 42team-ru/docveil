@@ -145,7 +145,7 @@ def test_summary_node_non_contract_omits_contract_fields() -> None:
                         "Это технические условия. Они задают требования. "
                         "Они описывают контроль качества."
                     ),
-                    "is_contract": False,
+                    "kind": "non_contract",
                     "genre": "технические условия",
                     "confidence": 0.94,
                 }

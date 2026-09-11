@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import pytest
 
+from masker.detect import DetectAgent, default_detectors
 from masker.detect.contract_params import (
     ContractAmountDetector,
     DeliveryPeriodDetector,
+    MoneyDetector,
     PaymentTermsDetector,
 )
 from masker.detect.rules import RuleDetector
@@ -34,6 +36,11 @@ def _detect_rules(text: str) -> list[tuple[str, str]]:
 
 def _detect_amount(text: str) -> list[str]:
     entities = ContractAmountDetector().detect(_doc(text))
+    return [e.text for e in entities]
+
+
+def _detect_money(text: str) -> list[str]:
+    entities = MoneyDetector().detect(_doc(text))
     return [e.text for e in entities]
 
 
@@ -78,9 +85,55 @@ def test_federal_law_not_triggered_by_contract_number_44_2026() -> None:
     assert not any(t == EntityType.FEDERAL_LAW for t, _ in hits)
 
 
+def test_federal_law_is_not_passed_to_masking_pipeline() -> None:
+    """Р26: реквизит закона остаётся в документе, хотя правило его знает."""
+    entities = DetectAgent([RuleDetector()]).detect(_doc("Согласно 44-ФЗ.")).entities
+    assert not any(entity.type == EntityType.FEDERAL_LAW for entity in entities)
+
+
 # ---------------------------------------------------------------------------
 # contract_amount
 # ---------------------------------------------------------------------------
+
+
+def test_money_detects_number_words_and_kopecks_as_one_span() -> None:
+    """Общий детектор не оставляет видимыми пропись или копейки."""
+    text = (
+        "Цена 2 432 170 (два миллиона четыреста тридцать две тысячи сто "
+        "семьдесят) рублей 00 копеек; НДС 371 008 рублей 98 копеек."
+    )
+
+    assert _detect_money(text) == [
+        "2 432 170 (два миллиона четыреста тридцать две тысячи сто семьдесят) рублей 00 копеек",
+        "371 008 рублей 98 копеек",
+    ]
+
+
+def test_money_detects_decimal_and_ruble_symbol() -> None:
+    assert _detect_money("К оплате: 1 500,50 руб.; штраф — 250 ₽.") == [
+        "1 500,50 руб.",
+        "250 ₽",
+    ]
+
+
+def test_default_detection_keeps_money_and_contract_amount_for_same_span() -> None:
+    """Общий тип не подменяет более конкретную цену договора."""
+    document = _doc("Цена договора составляет 1 500 рублей.")
+
+    entities = DetectAgent(default_detectors()).detect(document).entities
+
+    assert [
+        (entity.type, entity.text)
+        for entity in entities
+        if entity.type
+        in {
+            EntityType.MONEY,
+            EntityType.CONTRACT_AMOUNT,
+        }
+    ] == [
+        (EntityType.CONTRACT_AMOUNT, "1 500 рублей"),
+        (EntityType.MONEY, "1 500 рублей"),
+    ]
 
 
 def test_contract_amount_detected_with_context() -> None:
@@ -142,6 +195,43 @@ def test_contract_amount_emits_price_vat_and_advance_as_summary_candidates() -> 
     )
 
     assert _detect_amount(text) == ["500 000 руб.", "100 000 руб.", "150 000 руб."]
+
+
+def test_penalty_reference_rates_are_not_money_or_contract_amount() -> None:
+    """Условная шкала ПП РФ №1042 остаётся видимой, конкретная сумма — нет.
+
+    11.09.2026: в `arkhschool-68-183.pdf` ставки а)–г) маскировались, а
+    и) нет. Полный фрагмент фиксирует однородную обработку всего списка.
+    """
+    text = (
+        "Размер штрафа определяется в следующем порядке: "
+        "а) 10 процентов цены Контракта, если цена Контракта не превышает 3 млн. рублей; "
+        "б) 5 процентов цены Контракта, "
+        "если цена Контракта составляет от 3 млн. рублей до 50 млн. рублей; "
+        "в) 1 процент цены Контракта, "
+        "если цена Контракта составляет от 50 млн. рублей до 100 млн. рублей; "
+        "г) 0,5 процента цены Контракта, "
+        "если цена Контракта составляет от 100 млн. рублей до 500 млн. рублей; "
+        "д) 0,4 процента цены Контракта, "
+        "если цена Контракта составляет от 500 млн. рублей до 1 млрд. рублей; "
+        "е) 0,3 процента цены Контракта, "
+        "если цена Контракта составляет от 1 млрд. рублей до 2 млрд. рублей; "
+        "ж) 0,25 процента цены Контракта, "
+        "если цена Контракта составляет от 2 млрд. рублей до 5 млрд. рублей; "
+        "з) 0,2 процента цены Контракта, "
+        "если цена Контракта составляет от 5 млрд. рублей до 10 млрд. рублей; "
+        "и) 0,1 процента цены Контракта, если цена Контракта превышает 10 млрд. рублей; "
+        "и составляет 8 940 073 рублей. "
+        "За обязательство без стоимостного выражения: "
+        "а) 1 000 рублей, если цена Контракта не превышает 3 млн. рублей; "
+        "б) 5 000 рублей, если цена Контракта составляет от 3 млн. рублей до 50 млн. рублей; "
+        "в) 10 000 рублей, если цена Контракта составляет от 50 млн. рублей до 100 млн. рублей; "
+        "г) 100 000 рублей, если цена Контракта превышает 100 млн. рублей; "
+        "и составляет 100 000 рублей."
+    )
+
+    assert _detect_money(text) == ["8 940 073 рублей", "100 000 рублей"]
+    assert _detect_amount(text) == ["8 940 073 рублей", "100 000 рублей"]
 
 
 # ---------------------------------------------------------------------------

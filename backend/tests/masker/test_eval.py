@@ -138,7 +138,13 @@ def _patch_mask_and_validate(
 
     @contextmanager
     def fake(
-        path: Path, *, types: Any, custom_types: Any = (), ocr: Any = None
+        path: Path,
+        *,
+        types: Any,
+        custom_types: Any = (),
+        ocr: Any = None,
+        rules_only: bool = False,
+        llm: Any = None,
     ) -> Iterator[MaskResult]:
         yield by_path[str(path)]
 
@@ -920,7 +926,14 @@ def test_eval_gate_fails_on_render_failure_but_keeps_measuring_the_rest(
     )
 
     @contextmanager
-    def fake(path: Path, *, types: Any, custom_types: Any = ()) -> Iterator[MaskResult]:
+    def fake(
+        path: Path,
+        *,
+        types: Any,
+        custom_types: Any = (),
+        rules_only: bool = False,
+        llm: Any = None,
+    ) -> Iterator[MaskResult]:
         if str(path) == str(broken_path):
             cause = ValueError(
                 "маркер '[СТОРОНА-27-ОРГАНИЗАЦИЯ]' не помещается в прямоугольник "

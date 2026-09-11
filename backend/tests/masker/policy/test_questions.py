@@ -53,20 +53,17 @@ def test_type_questions_are_ordered_alphabetically_by_type_value() -> None:
     questions = PolicyAgent().questions(detection, profiles)
 
     type_ids = [q.id for q in questions if q.kind == "type"]
-    assert type_ids == ["TYPE-inn", "TYPE-person", "TYPE-phone"]
+    assert type_ids == ["TYPE-person", "TYPE-phone"]
 
 
-def test_critical_type_question_offers_only_mask_by_default() -> None:
+def test_critical_type_is_masked_silently_by_default() -> None:
     inn = _entity(EntityType.INN, "3662103003", 0, 0)
     detection = DetectionResult([inn], [])
     profiles = ProfileResult(profiles=[], blocks=[], unassigned=["E1"], candidates=[])
     profiles.anchors = {0: _anchor(0, "абзац 1")}
 
     questions = PolicyAgent().questions(detection, profiles)
-    inn_question = next(q for q in questions if q.id == "TYPE-inn")
-
-    assert inn_question.options == (MASK_OPTION,)
-    assert inn_question.critical is True
+    assert all(question.id != "TYPE-inn" for question in questions)
 
 
 def test_critical_type_question_offers_conscious_keep_with_flag() -> None:
@@ -79,6 +76,19 @@ def test_critical_type_question_offers_conscious_keep_with_flag() -> None:
     inn_question = next(q for q in questions if q.id == "TYPE-inn")
 
     assert inn_question.options == (MASK_OPTION, KEEP_CRITICAL_OPTION)
+
+
+def test_ip_and_registry_key_use_silent_default_policy() -> None:
+    """11.09.2026: технические ключи не создают пустой вопрос оператору."""
+    ip = _entity(EntityType.IP_ADDRESS, "192.0.2.10", 0, 0)
+    registry_key = _entity(EntityType.REGISTRY_KEY, "1234567890", 1, 0)
+    detection = DetectionResult([ip, registry_key], [])
+    profiles = ProfileResult(profiles=[], blocks=[], unassigned=["E1", "E2"], candidates=[])
+    profiles.anchors = {0: _anchor(0, "абзац 1"), 1: _anchor(1, "абзац 2")}
+
+    questions = PolicyAgent().questions(detection, profiles)
+
+    assert {question.id for question in questions} == {PROFILE_UNASSIGNED}
 
 
 def test_non_critical_type_offers_mask_and_keep() -> None:
@@ -129,7 +139,7 @@ def test_profile_without_role_shows_marker_label_and_no_role_word() -> None:
     assert "роль" not in profile_question.prompt.casefold()
 
 
-def test_profile_with_critical_entity_is_marked_critical_without_conscious_option() -> None:
+def test_profile_with_only_critical_entity_is_masked_silently() -> None:
     entities = [_entity(EntityType.INN, "3662103003", 0, 0)]
     profile = _profile_without_role("P1", entities)
     detection = DetectionResult(entities, [])
@@ -137,17 +147,10 @@ def test_profile_with_critical_entity_is_marked_critical_without_conscious_optio
     profiles.anchors = {0: _anchor(0, "абзац 1")}
 
     questions = PolicyAgent().questions(detection, profiles)
-    profile_question = next(q for q in questions if q.id == "PROFILE-P1")
-
-    # У профиля критичность не «всё или ничего»: обычное «оставить» доступно
-    # всегда (снимает маску с некритичной части субъекта), а осознанный
-    # вариант для критичных реквизитов — только с --unmask-critical.
-    assert profile_question.critical is True
-    assert KEEP_CRITICAL_OPTION not in profile_question.options
-    assert profile_question.options == (MASK_OPTION, KEEP_OPTION)
+    assert all(question.id != "PROFILE-P1" for question in questions)
 
 
-def test_profiles_with_same_normalized_inn_link_to_each_other_but_stay_two_questions() -> None:
+def test_profiles_with_only_same_critical_inn_do_not_create_empty_questions() -> None:
     entity_1 = _entity(EntityType.INN, "3662103003", 0, 0)
     entity_2 = _entity(EntityType.INN, "3662103003", 1, 0)
     profile_1 = _profile_without_role("P1", [entity_1])
@@ -159,13 +162,7 @@ def test_profiles_with_same_normalized_inn_link_to_each_other_but_stay_two_quest
     profiles.anchors = {0: _anchor(0, "абзац 1"), 1: _anchor(1, "абзац 2")}
 
     questions = PolicyAgent().questions(detection, profiles)
-    profile_questions = [q for q in questions if q.kind == "profile"]
-
-    assert len(profile_questions) == 2
-    q1 = next(q for q in profile_questions if q.id == "PROFILE-P1")
-    q2 = next(q for q in profile_questions if q.id == "PROFILE-P2")
-    assert q1.linked == ("P2",)
-    assert q2.linked == ("P1",)
+    assert [question for question in questions if question.kind == "profile"] == []
 
 
 def test_entities_outside_profiles_produce_exactly_one_unassigned_question() -> None:
@@ -179,7 +176,7 @@ def test_entities_outside_profiles_produce_exactly_one_unassigned_question() -> 
     questions = PolicyAgent().questions(detection, profiles)
     profile_questions = [q for q in questions if q.kind == "profile"]
 
-    assert [q.id for q in profile_questions] == ["PROFILE-P1", PROFILE_UNASSIGNED]
+    assert [q.id for q in profile_questions] == [PROFILE_UNASSIGNED]
     unassigned_question = next(q for q in profile_questions if q.id == PROFILE_UNASSIGNED)
     assert unassigned_question.found == 1
 

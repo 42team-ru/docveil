@@ -18,7 +18,7 @@ import openpyxl
 from masker.detect.agent import DetectAgent
 from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.mask.agent import PlanAgent
-from masker.model import CRITICAL_TYPES
+from masker.model import CRITICAL_TYPES, EntityType
 from masker.render.xlsx_redact import render_xlsx_redacted
 
 ROOT = next(
@@ -84,6 +84,20 @@ def test_masked_outputs_do_not_leak_source_text_or_formulas(tmp_path: Path) -> N
                     if isinstance(cell.value, str):
                         for secret in secret_values:
                             assert secret not in cell.value
+
+
+def test_bik_in_adjacent_xlsx_cell_reaches_mask_plan() -> None:
+    """БИК из B10 с меткой в A10 обязан дойти до планирования замены."""
+    document = ingest_xlsx(FIXTURE)
+    entities = DetectAgent().detect(document).entities
+    plan = PlanAgent().plan(document, entities)
+
+    # 11.09.2026: регрессия утечки, когда БИК не выходил из детекции вовсе.
+    assert [
+        (replacement.entity.text, replacement.marker, replacement.anchor.locator)
+        for replacement in plan.replacements
+        if replacement.entity.type is EntityType.BIK
+    ] == [("042007681", "[БИК]", ("cell", "Реестр", 10, 2))]
 
 
 def test_formula_referencing_masked_inn_cell_is_neutralized_on_fixture(tmp_path: Path) -> None:

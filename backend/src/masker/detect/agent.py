@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import re
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from masker.detect.base import EntityDetector
 from masker.detect.confidence import classify_level
+from masker.detect.legal_references import is_public_legal_reference_type
 from masker.detect.normalize import normalize_value
 from masker.detect.normalize_layout import normalize_for_detection
 from masker.detect.orgforms import (
@@ -17,7 +19,9 @@ from masker.detect.orgforms import (
     is_role_stopword,
     shrink_span,
 )
+from masker.detect.person_frequency import drop_frequent_common_noun_persons
 from masker.detect.requisite_blocks import find_requisite_block_candidates
+from masker.detect.requisites import drop_incomplete_requisites
 from masker.detect.result import DetectionResult, build_pii_chunks
 from masker.detect.sweep import sweep
 from masker.entity_types import EntityTypeRegistry
@@ -28,6 +32,7 @@ if TYPE_CHECKING:
     from masker.detect.verifier import VerifierReport
 
 MIN_FRAGMENT_LEN = 2
+logger = logging.getLogger(__name__)
 
 
 def _overlaps(first: Entity, second: Entity) -> bool:
@@ -35,6 +40,36 @@ def _overlaps(first: Entity, second: Entity) -> bool:
         first.segment_order == second.segment_order
         and first.start < second.end
         and second.start < first.end
+    )
+
+
+def _one_span_contains_other(first: Entity, second: Entity) -> bool:
+    """Совпадают ли спаны либо один целиком содержит другой в сегменте."""
+    return (
+        first.segment_order == second.segment_order
+        and first.start <= second.start
+        and second.end <= first.end
+    ) or (
+        second.segment_order == first.segment_order
+        and second.start <= first.start
+        and first.end <= second.end
+    )
+
+
+def _is_money_contract_amount_pair(first: Entity, second: Entity) -> bool:
+    """Один и тот же спан может быть и общей суммой, и ценой договора.
+
+    Это не конфликт конкурирующих детекторов: ``contract_amount`` — более
+    конкретная классификация ``money``. Обе записи нужны, чтобы пользователь
+    мог выбрать либо все суммы, либо только цену договора. Рендер получает
+    только одну замену: ``PlanAgent`` предпочитает конкретный тип, когда
+    выбраны оба.
+    """
+    return (
+        {first.type, second.type} == {EntityType.MONEY, EntityType.CONTRACT_AMOUNT}
+        and first.segment_order == second.segment_order
+        and first.start == second.start
+        and first.end == second.end
     )
 
 
@@ -88,8 +123,7 @@ class DetectAgent:
                     f"Detector {detector.name!r} returned entity text outside its span"
                 )
 
-    @staticmethod
-    def _resolve_overlaps(found: list[tuple[EntityDetector, Entity]]) -> list[Entity]:
+    def _resolve_overlaps(self, found: list[tuple[EntityDetector, Entity]]) -> list[Entity]:
         ordered = sorted(
             found,
             key=lambda item: (
@@ -109,6 +143,13 @@ class DetectAgent:
             if not overlaps:
                 accepted.append(entity)
                 continue
+            if all(_is_money_contract_amount_pair(entity, existing) for existing in overlaps):
+                accepted.append(entity)
+                continue
+            if self._replaces_noncritical_builtin(entity, overlaps):
+                accepted = [existing for existing in accepted if existing not in overlaps]
+                accepted.append(entity)
+                continue
             if entity.source is Source.RULE:
                 continue
             accepted.extend(DetectAgent._carve(entity, overlaps))
@@ -116,6 +157,52 @@ class DetectAgent:
             accepted,
             key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
+
+    def _replaces_noncritical_builtin(self, candidate: Entity, overlaps: list[Entity]) -> bool:
+        """Может ли пользовательская роль заменить общий встроенный тип.
+
+        11.09.2026: пользовательский тип, найденный в том же значении,
+        информативнее общего встроенного типа: ``shipment_date`` сохраняет
+        роль, которую ``date`` теряет. Это общее правило для любого
+        пользовательского типа, а не исключение для дат. Оно ограничено
+        совпадающими или вложенными спанами: при частичном пересечении
+        остаётся обычное безопасное вычитание. Встроенный критичный тип
+        никогда не заменяется — его маска важнее уточнения роли.
+        """
+        if self._registry.is_builtin(str(candidate.type)):
+            return False
+        if any(
+            not self._registry.is_builtin(str(existing.type))
+            or self._registry.is_critical(str(existing.type))
+            for existing in overlaps
+        ):
+            return False
+        return all(_one_span_contains_other(candidate, existing) for existing in overlaps)
+
+    def _warn_displaced_custom_types(
+        self,
+        found: list[tuple[EntityDetector, Entity]],
+        accepted: list[Entity],
+    ) -> None:
+        """Явно сообщить, если overlap-resolution вытеснил все кандидаты типа."""
+        custom_candidates: dict[str, set[tuple[int, int, int]]] = {}
+        for _detector, entity in found:
+            if not self._registry.is_builtin(str(entity.type)):
+                custom_candidates.setdefault(str(entity.type), set()).add(
+                    (entity.segment_order, entity.start, entity.end)
+                )
+        accepted_keys = {
+            (str(entity.type), entity.segment_order, entity.start, entity.end)
+            for entity in accepted
+        }
+        for type_id, candidates in sorted(custom_candidates.items()):
+            if not any((type_id, *candidate) in accepted_keys for candidate in candidates):
+                logger.warning(
+                    "Пользовательский тип %r: %d кандидатов, но все вытеснены "
+                    "разрешением пересечений; проверьте пересекающийся встроенный тип.",
+                    type_id,
+                    len(candidates),
+                )
 
     @staticmethod
     def _carve(entity: Entity, existing: list[Entity]) -> list[Entity]:
@@ -282,6 +369,17 @@ class DetectAgent:
             original_text = original_segments[entity.segment_order].text
             start = mapping[entity.start]
             end = mapping[entity.end]
+            if entity.type is EntityType.PERSON and re.search(r"[А-ЯЁ]\.[А-ЯЁ]$", entity.text):
+                cursor = end
+                while cursor < len(original_text) and original_text[cursor] == " ":
+                    cursor += 1
+                if cursor < len(original_text) and original_text[cursor] == ".":
+                    # На `dagestanschool-kais-808.pdf` 11.09.2026 Natasha
+                    # отдавала «Магомедов Н.Г» без завершающей точки, хотя
+                    # карта уже привела к ней через разрядочные пробелы.
+                    # Точка завершает инициал, а не предложение, поэтому
+                    # расширяем только эту строго распознанную форму.
+                    end = cursor + 1
             remapped.append(
                 Entity(
                     type=entity.type,
@@ -326,7 +424,17 @@ class DetectAgent:
             entities = self._remap_entities(entities, maps, original_segments)
             self._validate(detector, document, entities)
             found.extend((detector, entity) for entity in entities)
+        # 11.09.2026: `44-ФЗ` из преамбулы контракта был формально найден
+        # `RuleDetector`, а затем ошибочно попадал в план масок. Реквизит
+        # нормативного акта публичен; фильтруем его после всех детекторов,
+        # не меняя запрещённый низкоуровневый шаблон `rules.py`.
+        found = [
+            (detector, entity)
+            for detector, entity in found
+            if not is_public_legal_reference_type(entity.type)
+        ]
         entities = self._resolve_overlaps(found)
+        self._warn_displaced_custom_types(found, entities)
         extra_sweep_types = frozenset(
             entity_type
             for detector in self._detectors
@@ -361,6 +469,14 @@ class DetectAgent:
                 [*entities, *verifier_result.entities],
                 key=lambda item: (item.segment_order, item.start, item.end, item.type),
             )
+        # Р13: формальная длина — свойство реквизита, а не только регулярки.
+        # Этот общий барьер покрывает любой текущий или будущий детектор до
+        # профилирования и планирования масок.
+        entities = drop_incomplete_requisites(entities)
+        # Р15: повторяющаяся роль стороны может прийти и от NER, и от
+        # структурного блока реквизитов. Фильтруем объединённый результат,
+        # чтобы один источник не мог обойти общий частотный барьер.
+        entities = drop_frequent_common_noun_persons(entities)
         # Уровень уверенности (Р8) — последний шаг, после того как состав
         # принятых сущностей окончательно определён: `_count_signals` читает
         # ещё не разрешённые `found`, а `sweep`-находки уже сами по себе

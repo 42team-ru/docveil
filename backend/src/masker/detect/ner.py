@@ -7,21 +7,26 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from masker.detect.legal_references import is_federal_law_reference
 from masker.detect.normalize import normalize_value
 from masker.detect.orgforms import (
     expand_org_span,
     fix_person_initials,
     has_organization_evidence,
+    is_formula_variable,
     is_landmark_place,
     is_organization_form_only,
     is_partial_org_form,
+    is_product_brand_context,
     is_public_body,
     is_regulatory_code,
     is_role_phrase,
     is_role_stopword,
     is_role_token,
+    is_unqualified_short_uppercase_abbreviation,
     shrink_span,
 )
+from masker.detect.person_values import is_single_token_uppercase_abbreviation
 from masker.detect.persons import (
     drop_role_prefix,
     expand_person_left,
@@ -145,6 +150,10 @@ class NatashaDetector:
                     bounds = expand_person_left(segment.text, *bounds)
                 start, end = bounds
                 value = segment.text[start:end]
+                if entity_type is EntityType.PERSON and is_single_token_uppercase_abbreviation(
+                    value
+                ):
+                    continue
                 org_evidence = entity_type is EntityType.ORG_NAME and has_organization_evidence(
                     value
                 )
@@ -159,13 +168,19 @@ class NatashaDetector:
                     or (
                         entity_type is EntityType.ORG_NAME
                         and (
-                            is_organization_form_only(value)
+                            # Ссылка на федеральный закон — обозначение
+                            # нормативного акта, не название организации.
+                            is_federal_law_reference(value)
+                            or is_organization_form_only(value)
                             or is_partial_org_form(value)
                             # орг. форма (ООО, МАОУ…) — достаточное свидетельство того,
                             # что это организация, а не госорган: не фильтруем.
                             or (not org_evidence and is_public_body(value))
                             or is_regulatory_code(value)
                             or is_role_phrase(value)
+                            or is_unqualified_short_uppercase_abbreviation(value)
+                            or is_formula_variable(segment.text, start, end)
+                            or is_product_brand_context(segment.text, start)
                             or (not has_organization_evidence(value) and len(value.split()) == 1)
                         )
                     )

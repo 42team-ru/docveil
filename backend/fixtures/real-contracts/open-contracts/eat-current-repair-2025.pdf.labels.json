@@ -1,0 +1,92 @@
+{
+  "entities": [
+    {
+      "type": "inn",
+      "text": "0278007048"
+    },
+    {
+      "type": "inn",
+      "text": "025500083991"
+    },
+    {
+      "type": "kpp",
+      "text": "027801001"
+    },
+    {
+      "type": "bik",
+      "text": "018073401"
+    },
+    {
+      "type": "bik",
+      "text": "042202824"
+    },
+    {
+      "type": "bank_account",
+      "text": "03211643000000010100"
+    },
+    {
+      "type": "bank_account",
+      "text": "40102810045370000067"
+    },
+    {
+      "type": "bank_account",
+      "text": "40802810629330004534"
+    },
+    {
+      "type": "bank_account",
+      "text": "30101810200000000824"
+    },
+    {
+      "type": "email",
+      "text": "m5ural-torgi@mail.ru"
+    },
+    {
+      "type": "email",
+      "text": "ippronkosr@mail.ru"
+    },
+    {
+      "type": "phone",
+      "text": "+7(937)159-27-73"
+    },
+    {
+      "type": "date",
+      "text": "13.06.2025"
+    },
+    {
+      "type": "date",
+      "text": "13.07.2025"
+    },
+    {
+      "type": "date",
+      "text": "43.39.19"
+    },
+    {
+      "type": "date",
+      "text": "27.05.2025"
+    },
+    {
+      "type": "date",
+      "text": "15.03.2024"
+    },
+    {
+      "type": "date",
+      "text": "15.06.2025"
+    },
+    {
+      "type": "money",
+      "text": "600 000 руб."
+    },
+    {
+      "type": "person",
+      "text": "Республике Башкортостан Кор"
+    },
+    {
+      "type": "bank_name",
+      "text": "Наименование банка: УФК по Республике Башкортостан"
+    },
+    {
+      "type": "bank_name",
+      "text": "Наименование банка: Индивидуальный предприниматель ПРОНЬКО СВЕТЛАНА РИНАТОВНА"
+    }
+  ]
+}

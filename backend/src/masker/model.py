@@ -32,6 +32,9 @@ class EntityType(StrEnum):
     BIRTH_DATE = "birth_date"
     SITE = "site"
     FEDERAL_LAW = "federal_law"
+    REGISTRY_KEY = "registry_key"
+    POWER_OF_ATTORNEY_NUMBER = "power_of_attorney_number"
+    IP_ADDRESS = "ip_address"
     CONTRACT_AMOUNT = "contract_amount"
     DELIVERY_PERIOD = "delivery_period"
     PAYMENT_TERMS = "payment_terms"
@@ -39,6 +42,11 @@ class EntityType(StrEnum):
 
 #: Типы, пропуск которых — утечка персональных/платёжных данных.
 #: Для них порог recall в воротах равен 1.0.
+#: 11.09.2026: номер доверенности критичен — это устойчивый ключ поиска
+#: стороны и её представителя, поэтому судья не должен оставлять его по
+#: умолчанию. Публичный IP-адрес сюда не входит: он может быть общим для
+#: нескольких абонентов и сам по себе не является надёжным идентификатором
+#: физического лица.
 CRITICAL_TYPES: frozenset[EntityType] = frozenset(
     {
         EntityType.INN,
@@ -46,6 +54,7 @@ CRITICAL_TYPES: frozenset[EntityType] = frozenset(
         EntityType.SNILS,
         EntityType.BANK_ACCOUNT,
         EntityType.PASSPORT,
+        EntityType.POWER_OF_ATTORNEY_NUMBER,
     }
 )
 

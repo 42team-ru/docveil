@@ -10,7 +10,7 @@ include $(ENV_FILE)
 export
 endif
 
-.PHONY: gate tasks test eval bench demo fmt install gate-selftest migrate migration api seed-admin
+.PHONY: gate tasks test eval bench bench-matrix demo fmt install gate-selftest migrate migration api seed-admin
 
 install:
 	uv venv --python 3.14 .venv
@@ -38,6 +38,14 @@ eval:
 # 46-страничного PDF в корпусе — это ожидаемо, не зависание.
 bench:
 	$(PY) -m masker.bench
+
+# К4 — матричный бенчмарк слоёв детекции (rules/ner/gliner) и провайдеров LLM
+# (none/cassette/gigachat/openrouter). НЕ ЧАСТЬ `make gate`, не запускается
+# по умолчанию нигде: `gigachat`/`openrouter` тратят деньги и требуют сети.
+# Без GIGACHAT_CREDENTIALS/OPENROUTER_API_KEY живые клетки помечаются
+# пропущенными, а не падают — это единственная сетевая цель в этом Makefile.
+bench-matrix:
+	$(PY) -m masker.bench_matrix
 
 demo:
 	$(PY) -m masker.cli fixtures/labeled/*.docx --out out/ --types all

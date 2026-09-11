@@ -599,6 +599,38 @@ def _quantize_erase_rect(
     return pymupdf.Rect(rect.x0, rect.y0, new_x1, rect.y1)
 
 
+def _delete_annotations_in_redaction_regions(
+    page: pymupdf.Page, redaction_regions: list[pymupdf.Rect]
+) -> None:
+    """Удалить виджеты и аннотации, чьё содержимое попало под редакцию.
+
+    ``Page.apply_redactions()`` вычищает только content stream страницы.
+    Текст в appearance-словаре PDF-виджета или аннотации при этом остаётся
+    извлекаемым: в частности, электронная подпись хранит там ФИО и email.
+    Геометрически корректная редакция такого текста поэтому не меняет файл
+    вовсе. Если хотя бы одна запланированная область редакции пересекает
+    прямоугольник виджета либо аннотации, удаляем объект целиком: частичная
+    редакция его appearance stream не поддерживается PyMuPDF и оставила бы
+    утечку. Сохранение с ``garbage=4`` ниже физически вычищает объект.
+
+    Виджеты и обычные аннотации обходятся отдельно: PyMuPDF не включает
+    виджет подписи в ``page.annots()``, но включает его текст в
+    ``page.get_text()`` и, следовательно, в план и валидатор.
+    """
+    if not redaction_regions:
+        return
+
+    def overlaps(region: pymupdf.Rect) -> bool:
+        return any(region.intersects(redaction) for redaction in redaction_regions)
+
+    for widget in tuple(page.widgets() or ()):
+        if overlaps(widget.rect):
+            page.delete_widget(widget)
+    for annot in tuple(page.annots() or ()):
+        if overlaps(annot.rect):
+            page.delete_annot(annot)
+
+
 def compute_erase_geometry(
     source_path: str | pathlib.Path, plan: MaskPlan
 ) -> dict[str, tuple[PdfRegion, ...]]:
@@ -766,13 +798,18 @@ def compute_label_geometry(
                         abs_end,
                         pre_line_boxes[line_id],
                     )
-                    # Тот же ``add_redact_annot``, что и ``render_pdf_redacted``
-                    # (план М6-1) — иначе символьные боксы, прочитанные ниже
-                    # после ``apply_redactions``, не отразят настоящего
-                    # редактирования вовсе.
-                    page.add_redact_annot(quantized_rect, fill=_HIGHLIGHT_FILL)
                     trimmed_rects.append((line_id, quantized_rect))
                 trimmed_jobs.append((job, trimmed_rects))
+            _delete_annotations_in_redaction_regions(
+                page,
+                [rect for _job, rects in trimmed_jobs for _line_id, rect in rects],
+            )
+            # Виджеты и аннотации удалены до добавления наших redaction
+            # annotations: ``page.annots()`` включает последние, и обратный
+            # порядок удалил бы запланированные области вместе с виджетом.
+            for _job, rects in trimmed_jobs:
+                for _line_id, rect in rects:
+                    page.add_redact_annot(rect, fill=_HIGHLIGHT_FILL)
             page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
 
             post_chars = page_chars(page)
@@ -1162,9 +1199,18 @@ def render_pdf_redacted(
                 quantized_rect = _quantize_erase_rect(
                     chars, line_id, trimmed_rect, abs_start, abs_end, line_boxes[line_id]
                 )
-                page.add_redact_annot(quantized_rect, fill=fill_color)
                 trimmed_rects.append((line_id, quantized_rect))
             trimmed_jobs.append((job, trimmed_rects))
+        _delete_annotations_in_redaction_regions(
+            page,
+            [rect for _job, rects in trimmed_jobs for _line_id, rect in rects],
+        )
+        # См. тот же порядок в ``compute_label_geometry``: сначала убрать
+        # внешний appearance stream, затем добавить собственные redaction
+        # annotations, чтобы не удалить их при обходе ``page.annots()``.
+        for _job, rects in trimmed_jobs:
+            for _line_id, rect in rects:
+                page.add_redact_annot(rect, fill=fill_color)
         page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
 
         if style == "blackbox":
@@ -1543,6 +1589,19 @@ def _label_box_candidates(
         top_limit, bottom_limit = _free_extension_vertical(
             post_line_boxes, own_line, erase_rect.x0, label_x1, other_erase_rects
         )
+        # 11.09.2026: соседняя замена — не свободное место для отступа
+        # подписи. Средина полосы пересечения строк безопасна для удаления
+        # исходных глифов, но оставляла 0.46--0.55 pt, в которые заходил
+        # маркер следующего поля (БИК/счёт/КПП в школьном договоре). Для
+        # двух масок нужна строгая граница самого erase-региона: иначе
+        # подсветка одной маски накрывает живые глифы маркера другой.
+        for other in other_erase_rects:
+            if other.x1 <= erase_rect.x0 + _GEOMETRY_EPS or other.x0 >= label_x1 - (_GEOMETRY_EPS):
+                continue
+            if other.y1 <= erase_rect.y0 + _GEOMETRY_EPS:
+                top_limit = max(top_limit, other.y1)
+            elif other.y0 >= erase_rect.y1 - _GEOMETRY_EPS:
+                bottom_limit = min(bottom_limit, other.y0)
         # Желаемый отступ на воздух под глифы — не безусловный, а зажатый
         # доказанно свободной вертикальной границей (план М5): без соседа
         # рядом отступ остаётся тем же, что и раньше (``-1``/``+2``).

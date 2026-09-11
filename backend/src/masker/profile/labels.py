@@ -33,6 +33,11 @@ REQUISITES = re.compile(
 SIGNATURE = re.compile(
     r"^\s*(?:\d+(?:\.\d+)*\.?\s*)?([А-ЯЁ][А-ЯЁа-яё\- ]{1,40}):\s*(?=[_—-]{2,}|[А-ЯЁ])"
 )
+# В PDF шапка подписи часто извлечена не как «Заказчик:», а как «от
+# Заказчика:». Это всё та же явная роль стороны, а не должность подписанта.
+# 11.09.2026 на `arkhschool-68-183.pdf` без неё блок с должностью министра
+# оставался без ролевой метки и не мог получить псевдоним заказчика.
+SIGNATORY_SIDE = re.compile(r"\bот\s+([А-ЯЁ][А-ЯЁа-яё\- ]{1,40}):", re.IGNORECASE)
 # И2-2: роль из формулировки обязательств. Документы без преамбулы
 # «именуемое в дальнейшем» (school-контракт) вообще не называют роль ни
 # разу в именительном падеже рядом со стороной — единственная связка роли
@@ -171,6 +176,18 @@ def find_labels(text: str) -> list[tuple[int, str]]:
         if not label or _is_collective(label):
             continue
         if label in preamble_labels or _is_known_party_role(label):
+            found.append((match.start(1), label))
+    for match in SIGNATORY_SIDE.finditer(text):
+        # «От Заказчика» требует родительного падежа, но метка профиля
+        # должна совпадать с «Заказчик» из преамбулы/реквизитов. 11.09.2026
+        # на `arkhschool-68-183.pdf` иначе получались два разных профиля
+        # одной стороны: «заказчик» и «заказчика».
+        label = _to_nominative(normalize_label(match.group(1)))
+        if (
+            label
+            and not _is_collective(label)
+            and (label in preamble_labels or _is_known_party_role(label))
+        ):
             found.append((match.start(1), label))
     for match in REPRESENTATIVE.finditer(text):
         label = normalize_label(match.group(1))

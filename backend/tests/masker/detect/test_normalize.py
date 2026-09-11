@@ -46,6 +46,19 @@ def test_unknown_type_is_casefolded_and_whitespace_is_collapsed() -> None:
     assert normalize_value("unknown", "  Тест\tЗначение ") == "тест значение"
 
 
+@pytest.mark.parametrize(
+    ("entity_type", "text", "expected"),
+    [
+        (EntityType.POWER_OF_ATTORNEY_NUMBER, " МЧД-42 / А ", "мчд-42/а"),
+        (EntityType.IP_ADDRESS, " 83.171.96.195 ", "83.171.96.195"),
+    ],
+)
+def test_new_requisite_types_have_stable_normalized_keys(
+    entity_type: EntityType, text: str, expected: str
+) -> None:
+    assert normalize_value(entity_type, text) == expected
+
+
 def test_initials_key_is_the_same_regardless_of_word_order() -> None:
     assert normalize_value(EntityType.PERSON, "Атараев Б.М") == normalize_value(
         EntityType.PERSON, "Б.М. Атараев"

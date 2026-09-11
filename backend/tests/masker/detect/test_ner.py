@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import pytest
+
 from masker.detect.ner import NatashaDetector, NerSpan
 from masker.model import Anchor, Document, EntityType, Segment
 
@@ -56,6 +58,16 @@ def test_role_word_is_dropped() -> None:
     assert NatashaDetector(tagger).detect(document) == []
 
 
+def test_single_uppercase_abbreviation_is_not_person() -> None:
+    """Р13: даже триггер должности не превращает «МИК» в фамилию."""
+    text = "Директор МИК"
+    document = _document(text)
+    start = text.index("МИК")
+    tagger = FakeTagger({text: [NerSpan(start, start + len("МИК"), "PER")]})
+
+    assert NatashaDetector(tagger).detect(document) == []
+
+
 def test_overlong_model_span_is_shrunk() -> None:
     text = 'ООО "Ромашка" (ОКПО 12345678'
     document = _document(text)
@@ -73,6 +85,31 @@ def test_public_body_is_dropped() -> None:
     tagger = FakeTagger({text: [NerSpan(0, len(text), "ORG")]})
 
     assert NatashaDetector(tagger).detect(document) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "Федерального закона",
+        "В соответствии с Федеральным законом",
+    ),
+)
+def test_federal_law_reference_is_not_organization(text: str) -> None:
+    """Р19: название нормативного акта не является стороной договора."""
+    document = _document(text)
+    tagger = FakeTagger({text: [NerSpan(0, len(text), "ORG")]})
+
+    assert NatashaDetector(tagger).detect(document) == []
+
+
+def test_organization_name_without_law_reference_is_still_detected() -> None:
+    text = "АО «Триема»"
+    document = _document(text)
+    tagger = FakeTagger({text: [NerSpan(0, len(text), "ORG")]})
+
+    assert [(entity.type, entity.text) for entity in NatashaDetector(tagger).detect(document)] == [
+        (EntityType.ORG_NAME, text)
+    ]
 
 
 def test_single_token_org_without_evidence_is_dropped() -> None:
@@ -110,3 +147,34 @@ def test_org_with_form_or_quotes_survives() -> None:
         (EntityType.ORG_NAME, "Общество с ограниченной ответственностью «Вектор»"),
         (EntityType.ORG_NAME, "ООО «Мойдодыр»"),
     ]
+
+
+def test_formula_variable_with_multiplication_sign_is_not_organization() -> None:
+    """11.09.2026: ``ДК `` в формуле пени не должен стать названием организации."""
+    text = "ДП К = 100% ДК "
+    document = _document(text)
+    start = text.index("ДК")
+    tagger = FakeTagger({text: [NerSpan(start, len(text), "ORG")]})
+
+    assert NatashaDetector(tagger).detect(document) == []
+
+
+def test_short_quoted_organization_name_survives() -> None:
+    """Парные кавычки остаются достаточным признаком короткого названия."""
+    text = "«ДОУ»"
+    document = _document(text)
+    tagger = FakeTagger({text: [NerSpan(0, len(text), "ORG")]})
+
+    assert [(entity.type, entity.text) for entity in NatashaDetector(tagger).detect(document)] == [
+        (EntityType.ORG_NAME, "«ДОУ»"),
+    ]
+
+
+def test_product_brand_is_not_organization() -> None:
+    """Марка оборудования в кавычках не является названием стороны."""
+    text = 'Облучатель-рециркулятор, марка "ГАЛА"'
+    start = text.index('"ГАЛА"')
+    document = _document(text)
+    tagger = FakeTagger({text: [NerSpan(start, start + len('"ГАЛА"'), "ORG")]})
+
+    assert NatashaDetector(tagger).detect(document) == []

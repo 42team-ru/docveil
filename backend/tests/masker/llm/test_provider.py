@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
+from unittest import mock
 from urllib.request import Request
 
 import pytest
@@ -437,3 +439,67 @@ def test_openrouter_live_smoke() -> None:
     provider = get_provider()
     response = provider.complete([Message("user", "Ответь только словом OK")])
     assert response.strip()
+
+
+def test_openrouter_pins_hosting_provider_without_fallbacks() -> None:
+    """Закреплённый хостер уходит в запрос вместе с запретом подмены.
+
+    Без `allow_fallbacks: False` OpenRouter молча уведёт запрос к другому
+    хостеру, и замер задержки будет приписан не тому, кого мерили.
+    """
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def read(self) -> bytes:
+            return json.dumps({"choices": [{"message": {"content": "ok"}}], "usage": {}}).encode(
+                "utf-8"
+            )
+
+        def __enter__(self) -> _Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def _fake_urlopen(request: Any, timeout: float = 0) -> _Response:
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    provider = OpenRouterProvider(
+        api_key="k", model="deepseek/deepseek-v4.1-flash", provider_order=("novita",)
+    )
+    with mock.patch("masker.llm.openrouter.urlopen", _fake_urlopen):
+        provider.complete([Message(role="user", content="привет")])
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["provider"] == {"order": ["novita"], "allow_fallbacks": False}
+
+
+def test_openrouter_without_pinned_provider_lets_openrouter_route() -> None:
+    """Пустой список — маршрутизацию выбирает OpenRouter, поля в запросе нет."""
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def read(self) -> bytes:
+            return json.dumps({"choices": [{"message": {"content": "ok"}}], "usage": {}}).encode(
+                "utf-8"
+            )
+
+        def __enter__(self) -> _Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def _fake_urlopen(request: Any, timeout: float = 0) -> _Response:
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    provider = OpenRouterProvider(api_key="k", model="deepseek/deepseek-v4.1-flash")
+    with mock.patch("masker.llm.openrouter.urlopen", _fake_urlopen):
+        provider.complete([Message(role="user", content="привет")])
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert "provider" not in body

@@ -1,5 +1,9 @@
 """Детекторы коммерческих параметров договора: сумма и срок поставки (Фаза 1 плана).
 
+``MoneyDetector`` — находит все денежные суммы в рублях. Он использует тот же
+проверенный шаблон, что и детектор цены договора, чтобы граница суммы (включая
+сумму прописью и копейки) была одинаковой для обоих типов.
+
 ``ContractAmountDetector`` — находит денежную сумму договора: ищет числа с
 рублёвым суффиксом и проверяет, есть ли рядом (в том же или соседнем сегменте)
 ключевые слова «цена договора», «сумма договора» и т.д. Если контекст есть —
@@ -9,9 +13,9 @@
 ``DeliveryPeriodDetector`` — находит срок поставки/выполнения по regex-шаблонам
 вида «в течение 30 рабочих дней», «не позднее 5 дней с момента» и т.д.
 
-Оба детектора не пересекаются по результатам с правилами (``RuleDetector``):
-они испускают типы ``contract_amount`` и ``delivery_period``, которых в PATTERNS
-нет, поэтому в ``DetectAgent._resolve_overlaps`` конфликтов не возникает.
+Эти детекторы не пересекаются по результатам с правилами (``RuleDetector``):
+они испускают типы ``money``, ``contract_amount`` и ``delivery_period``,
+которых в PATTERNS нет.
 """
 
 from __future__ import annotations
@@ -74,6 +78,56 @@ _AMOUNT_SEG_LOOKAROUND = 2
 CONFIDENCE = 0.90
 
 
+# 11.09.2026: в `arkhschool-68-183.pdf` и `eat-654000009321.pdf` условные
+# ставки ПП РФ №1042 маскировались частично. Условие «если цена …» отличает
+# справочную шкалу от следующей утвердительной суммы «и составляет …».
+def _is_reference_penalty_rate(text: str, start: int, end: int) -> bool:
+    """Отличить типовую ставку штрафа от суммы конкретного контракта.
+
+    В ПП РФ №1042 ставка (в том числе фиксированные 1 000, 5 000 и т. п.
+    рублей) всегда входит в условие «если цена Контракта …». Сумма, которую
+    надо скрыть, формулируется отдельно: «и составляет 12 345 рублей».
+    Поэтому смотрим только от суммы до конца её пункта: предыдущая ставка не
+    получает иммунитет из-за условия следующего пункта.
+    """
+    clause_end = min(
+        (boundary for boundary in (text.find(";", end), text.find(".", end)) if boundary >= 0),
+        default=len(text),
+    )
+    clause = text[start:clause_end].casefold()
+    return "если" in clause and "цена" in clause
+
+
+class MoneyDetector:
+    """Все денежные суммы в рублях по общему формату договоров."""
+
+    name = "money"
+    source = Source.RULE
+    priority = 84
+    types: frozenset[str] = frozenset({EntityType.MONEY})
+
+    def detect(self, document: Document) -> list[Entity]:
+        found: list[Entity] = []
+        for seg in document.segments:
+            for match in _MONEY_RE.finditer(seg.text):
+                if _is_reference_penalty_rate(seg.text, match.start(), match.end()):
+                    continue
+                value = match.group()
+                found.append(
+                    Entity(
+                        type=EntityType.MONEY,
+                        text=value,
+                        segment_order=seg.order,
+                        start=match.start(),
+                        end=match.end(),
+                        source=Source.RULE,
+                        confidence=CONFIDENCE,
+                        normalized=normalize_value(EntityType.MONEY, value),
+                    )
+                )
+        return found
+
+
 def _amount_context(
     segments_by_order: Sequence[Segment], seg_order: int, start: int, end: int
 ) -> str:
@@ -107,6 +161,8 @@ class ContractAmountDetector:
         found: list[Entity] = []
         for seg in segments_sorted:
             for m in _MONEY_RE.finditer(seg.text):
+                if _is_reference_penalty_rate(seg.text, m.start(), m.end()):
+                    continue
                 context = _amount_context(segments_sorted, seg.order, m.start(), m.end())
                 if not _has_amount_context(context):
                     continue

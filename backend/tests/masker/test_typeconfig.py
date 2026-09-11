@@ -57,6 +57,25 @@ def test_valid_regex_type_with_context_loaded() -> None:
     assert specs[0].context == ("отгрузк", "поставк")
 
 
+def test_regex_llm_filter_keeps_russian_description() -> None:
+    specs = load_type_config(
+        _config(
+            _type(
+                id_="shipment_date",
+                title="Дата отгрузки",
+                marker="[ДАТА-ОТГРУЗКИ-{n}]",
+                detect={
+                    "kind": "regex_llm_filter",
+                    "pattern": r"\d{2}\.\d{2}\.\d{4}",
+                    "description": "Дата фактической отгрузки товара, а не дата подписания.",
+                },
+            )
+        )
+    )
+
+    assert specs[0].description == "Дата фактической отгрузки товара, а не дата подписания."
+
+
 def test_valid_literals_type_loaded() -> None:
     item = _type(
         id_="internal_secret",
@@ -237,6 +256,16 @@ def test_critical_false_by_default_no_warning(recwarn: pytest.WarningsRecorder) 
     specs = load_type_config(_config(_type()))
     assert specs[0].spec.critical is False
     assert len(recwarn) == 0
+
+
+def test_critical_same_type_warns_only_once(recwarn: pytest.WarningsRecorder) -> None:
+    """Повторная загрузка конфига с тем же критичным типом не дублирует предупреждение."""
+    unique_id = "warn_once_probe_unique"
+    cfg = _config(_type(id_=unique_id, critical=True))
+    load_type_config(cfg)
+    load_type_config(cfg)
+    critical_warns = [w for w in recwarn.list if "critical" in str(w.message).lower()]
+    assert len(critical_warns) == 1
 
 
 # ---------------------------------------------------------------------------

@@ -76,6 +76,32 @@ def _make_pdf_with_inn(tmp_path: pathlib.Path, pages: int = 1) -> pathlib.Path:
     return path
 
 
+def _make_pdf_with_pii_widget(tmp_path: pathlib.Path) -> pathlib.Path:
+    """PDF со сложной формой: текст PII живёт в appearance виджета.
+
+    ``apply_redactions`` не редактирует appearance stream поля формы, хотя
+    ``page.get_text`` и ``search_for`` этот текст видят. Такое же устройство
+    у виджета электронной подписи в реальном договоре из М14.
+    """
+    path = tmp_path / "form-layout.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Contract details", fontsize=12)
+    page.insert_text((72, 104), "Signer certificate:", fontsize=10)
+    page.insert_text((72, 136), "Signature is in the form field at right", fontsize=10)
+    widget = pymupdf.Widget()
+    widget.field_name = "signer_certificate"
+    widget.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+    widget.field_value = "Ivanova  Tatyana  Petrovna; email=signer@example.test"
+    widget.rect = pymupdf.Rect(280, 88, 550, 150)
+    widget.text_font = "helv"
+    widget.text_fontsize = 9
+    page.add_widget(widget)
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
 def _filled_rect_colors(path: pathlib.Path) -> list[tuple[float, float, float]]:
     """Цвета фактически нарисованных заполненных прямоугольников PDF."""
     doc = pymupdf.open(path)
@@ -245,6 +271,46 @@ def test_redacted_marker_appears_in_text(tmp_path: pathlib.Path) -> None:
     text = doc[0].get_text()
     doc.close()
     assert "[ИНН]" in text
+
+
+@pytest.mark.parametrize("style", ("marker", "blackbox"))
+def test_redacted_form_widget_is_deleted_when_its_planned_text_overlaps(
+    tmp_path: pathlib.Path, style: str
+) -> None:
+    """М14: каждая замена из виджета формы должна физически исчезнуть.
+
+    До удаления виджета этот тест оставляет обе строки в text layer: PyMuPDF
+    применяет прямоугольники к content stream страницы, но не к appearance
+    stream виджета. Проверка через ValidateAgent доказывает не наличие
+    заливки, а отсутствие каждого исходного значения в готовом артефакте.
+    """
+    src = _make_pdf_with_pii_widget(tmp_path)
+    dest = tmp_path / f"redacted-{style}.pdf"
+    document = ingest_pdf(src)
+    person = "Ivanova  Tatyana  Petrovna"
+    email = "signer@example.test"
+    plan = _plan(
+        document,
+        [
+            _entity_for_doc(document, person, EntityType.PERSON),
+            _entity_for_doc(document, email, EntityType.EMAIL),
+        ],
+    )
+
+    outcome = render_pdf_redacted(src, dest, document, plan, style=style)
+
+    assert {replacement.ref for replacement in outcome.replacements} == {
+        replacement.ref for replacement in plan.replacements
+    }
+    assert ValidateAgent().validate(plan, [dest], source=src).leaked == ()
+    doc = pymupdf.open(dest)
+    try:
+        assert list(doc[0].widgets() or ()) == []
+        text = doc[0].get_text()
+    finally:
+        doc.close()
+    assert person not in text
+    assert email not in text
 
 
 def test_centered_marker_uses_vector_dots_without_polluting_text_layer(
@@ -1608,6 +1674,33 @@ def test_label_box_candidates_never_extends_into_another_replacements_erase_rect
     assert label_box.x1 <= 50.0 + 0.01, (
         f"подпись залезла в эрейз-регион другой замены: label.x1={label_box.x1:.2f}"
     )
+
+
+def test_label_box_candidates_do_not_share_vertical_margin_with_another_mask() -> None:
+    """11.09.2026: две соседние маски не могут накрывать маркеры друг друга.
+
+    Середина полосы пересечения строк достаточна для redaction, но оставляет
+    часть erase-региона соседа доступной для подписи. Здесь верхняя граница
+    своей строки пересекается с нижней границей уже удалённого поля: подпись
+    обязана начаться не раньше конца соседней маски.
+    """
+    text = "XW"
+    chars = PageChars(
+        text=text,
+        boxes=(
+            pymupdf.Rect(0.0, 0.0, 10.0, 10.0),
+            pymupdf.Rect(0.0, 9.0, 10.0, 21.0),
+        ),
+        line_ids=(0, 1),
+    )
+    pre_line_boxes = _line_boxes(chars)
+    post_line_boxes = _line_boxes(chars, skip_space=True)
+    own = pymupdf.Rect(0.0, 10.0, 10.0, 20.0)
+    other = pymupdf.Rect(0.0, 0.0, 10.0, 10.0)
+
+    candidates = _label_box_candidates(chars, pre_line_boxes, post_line_boxes, [(1, own)], [other])
+
+    assert candidates[0][1].y0 >= other.y1 - 0.01
 
 
 def test_label_box_candidates_uses_post_redaction_chars_not_pre() -> None:

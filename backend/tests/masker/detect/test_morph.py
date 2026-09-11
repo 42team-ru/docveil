@@ -54,6 +54,16 @@ def test_standalone_name_gets_lower_confidence() -> None:
     assert 0 < matches[0].confidence < 0.7
 
 
+def test_single_uppercase_abbreviation_is_not_person(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Р13: словарный разбор не должен выпускать аббревиатуру «МИК»."""
+    monkeypatch.setattr(
+        "masker.detect.morph._classify_word",
+        lambda word: "Name" if word == "МИК" else None,
+    )
+
+    assert _persons_via_detector("МИК") == []
+
+
 # ---------------------------------------------------------------------------
 # Р4, кейс 2 и 3 — уже чинятся в orgforms.py (fix_person_initials/
 # shrink_span), но пайплайн целиком обязан отдавать полный кейс.
@@ -93,6 +103,12 @@ def test_full_name_declined_form_high_confidence() -> None:
     entities = MorphPersonDetector().detect(_document(text))
     match = next(e for e in entities if e.text == "Курбангалеева Рустэма Ильдаровича")
     assert match.confidence >= 0.85
+
+
+def test_uppercase_surname_is_included_before_name_and_patronymic() -> None:
+    """Сертификат ЭП не оставляет фамилию видимой из-за верхнего регистра."""
+    text = "ФИО: ЗУБРИЦКАЯ ТАТЬЯНА ИВАНОВНА Должность: ДИРЕКТОР"
+    assert _persons_via_detector(text) == ["ЗУБРИЦКАЯ ТАТЬЯНА ИВАНОВНА"]
 
 
 # ---------------------------------------------------------------------------

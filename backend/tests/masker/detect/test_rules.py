@@ -36,6 +36,92 @@ def test_bank_account_found_with_valid_checksum() -> None:
     assert accounts[0].confidence == 1.0
 
 
+def test_bik_in_value_cell_right_of_xlsx_label_is_found() -> None:
+    """БИК из табличной пары XLSX не остаётся вне плана масок."""
+    segments = [
+        Segment(
+            text="БИК",
+            anchor=Anchor(fmt="xlsx", locator=("cell", "Реестр", 10, 1), label="A10"),
+            order=0,
+        ),
+        Segment(
+            text="042007681",
+            anchor=Anchor(fmt="xlsx", locator=("cell", "Реестр", 10, 2), label="B10"),
+            order=1,
+        ),
+    ]
+
+    # 11.09.2026: метка и значение в разных ячейках — регрессия утечки БИК.
+    assert [
+        (entity.text, entity.segment_order, entity.start, entity.end)
+        for entity in detect_by_rules(segments)
+        if entity.type is EntityType.BIK
+    ] == [("042007681", 1, 0, 9)]
+
+
+def test_personal_account_found_only_with_account_context() -> None:
+    """Р14: одиннадцатизначный л/сч — счёт только после его метки."""
+    contexts = (
+        "л/с 39062000144",
+        "л/сч 39062000144",
+        "лицевой счёт 39062000144",
+        "лицевого счёта: 39062000144",
+    )
+
+    for text in contexts:
+        segment = Segment(
+            text=text,
+            anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+            order=0,
+        )
+
+        accounts = [
+            entity
+            for entity in detect_by_rules([segment])
+            if entity.type is EntityType.BANK_ACCOUNT
+        ]
+
+        assert [(entity.text, entity.confidence) for entity in accounts] == [("39062000144", 1.0)]
+
+
+def test_treasury_personal_account_with_letter_and_qualified_label_is_found() -> None:
+    """Р18: лицевой счёт допускает букву и уточнение между меткой и значением."""
+    segment = Segment(
+        text=("Номер лицевого счета на сайте федерального казначейства: 03061А74190"),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    accounts = [
+        entity for entity in detect_by_rules([segment]) if entity.type is EntityType.BANK_ACCOUNT
+    ]
+
+    assert [(entity.text, entity.normalized) for entity in accounts] == [
+        ("03061А74190", "03061А74190")
+    ]
+
+
+def test_eleven_digit_numbers_without_personal_account_context_are_not_accounts() -> None:
+    """Р14: ОКТМО, СНИЛС и голый код не становятся лицевыми счетами.
+
+    Сам ОКТМО с 11.09.2026 маскируется как ключ реестра (решение владельца
+    в Р22: это адрес стороны в виде кода), но тип у него свой — спутать его
+    с лицевым счётом по одной длине в одиннадцать знаков нельзя."""
+    segment = Segment(
+        text="ОКТМО 65701000001; СНИЛС 112-233-445 95; код 39062000144",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    entities = detect_by_rules([segment])
+
+    assert not any(entity.type is EntityType.BANK_ACCOUNT for entity in entities)
+    assert [(entity.type, entity.text) for entity in entities] == [
+        (EntityType.REGISTRY_KEY, "65701000001"),
+        (EntityType.SNILS, "112-233-445 95"),
+    ]
+
+
 def test_invalid_inn_not_detected_as_passport() -> None:
     """Дефект 2: ИНН с битой контрольной цифрой не должен опознаваться как паспорт."""
     segments = [
@@ -194,6 +280,55 @@ def test_real_phones_still_detected() -> None:
     assert len(phones) == 2
     assert any("+7 (473) 250-10-10" in e.text for e in phones)
     assert any("8-910-347-51-07" in e.text for e in phones)
+
+
+def test_phone_with_seven_country_prefix_without_plus_is_found() -> None:
+    """Р18: ``7(814)259-09-61`` — полный телефон и без знака «+»."""
+    segment = Segment(
+        text="Номер контактного телефона: 7(814)259-09-61",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    phones = [entity for entity in detect_by_rules([segment]) if entity.type is EntityType.PHONE]
+
+    assert [entity.text for entity in phones] == ["7(814)259-09-61"]
+
+
+def test_ten_digit_phone_requires_phone_context() -> None:
+    """Р18: десять цифр без телефонного контекста не становятся телефоном."""
+    segment = Segment(
+        text="Код поставки: 1234567890",
+        anchor=Anchor(fmt="docx", locator=("body", 0), label=""),
+        order=0,
+    )
+
+    assert not any(entity.type is EntityType.PHONE for entity in detect_by_rules([segment]))
+
+
+def test_ten_digit_phones_are_found_in_contact_field_and_phone_table() -> None:
+    """Р18: голые номера разрешены только полем телефона либо его таблицей."""
+    segments = [
+        Segment(
+            text="Контактный телефон: 3833300807; 3833320032",
+            anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+            order=0,
+        ),
+        Segment(
+            text="Перечень абонентских номеров",
+            anchor=Anchor(fmt="pdf", locator=("page", 1), label="стр. 2"),
+            order=1,
+        ),
+        Segment(
+            text="1 3833300975 шт.",
+            anchor=Anchor(fmt="pdf", locator=("page", 2), label="стр. 3"),
+            order=2,
+        ),
+    ]
+
+    phones = [entity for entity in detect_by_rules(segments) if entity.type is EntityType.PHONE]
+
+    assert [entity.text for entity in phones] == ["3833300807", "3833320032", "3833300975"]
 
 
 def test_treasury_bik_wins_over_kpp() -> None:
@@ -527,3 +662,241 @@ def test_phone_does_not_trigger_inside_longer_digit_run() -> None:
         ),
     ]
     assert not any(e.type is EntityType.PHONE for e in detect_by_rules(segments))
+
+
+# ---------------------------------------------------------------------------
+# Р16/Р17 — ключи открытых реестров.
+# ---------------------------------------------------------------------------
+
+
+def test_registry_key_detector_masks_ikz_as_a_single_entity() -> None:
+    """ИКЗ не дробится на реквизиты и сам становится одной заменой."""
+    segment = Segment(
+        text="ИКЗ: 24 1 7710474375 770301001 0038 001 0000 244",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    entities = detect_by_rules([segment])
+
+    assert [(entity.type, entity.text) for entity in entities] == [
+        (EntityType.REGISTRY_KEY, "24 1 7710474375 770301001 0038 001 0000 244")
+    ]
+
+
+def test_registry_key_detector_masks_license_number_by_its_format() -> None:
+    """Стандартный номер лицензии — самостоятельный ключ реестра."""
+    segment = Segment(
+        text="Л030-00114-77/00078235 выдана для оказания услуг связи",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert [(entity.type, entity.text) for entity in detect_by_rules([segment])] == [
+        (EntityType.REGISTRY_KEY, "Л030-00114-77/00078235")
+    ]
+
+
+def test_registry_key_detector_masks_fsb_license_number_with_license_context() -> None:
+    """Р21: старый номер ФСБ — ключ реестра лишь возле признака лицензии."""
+    segment = Segment(
+        text=(
+            "Лицензия Л051-00105-78/00560548 "
+            "(78/78/1346/Н/Н) от 29 октября 2021 г. на осуществление разработки"
+        ),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    keys = [
+        entity.text
+        for entity in detect_by_rules([segment])
+        if entity.type is EntityType.REGISTRY_KEY
+    ]
+
+    assert keys == ["Л051-00105-78/00560548", "78/78/1346/Н/Н"]
+
+
+def test_registry_key_detector_masks_short_fsb_license_by_registration_context() -> None:
+    """Старая трёхчастная запись тоже не должна оставаться открытой."""
+    segment = Segment(
+        text="Регистрационный номер лицензии: 78/1346/Н, выдан для защиты информации.",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert [(entity.type, entity.text) for entity in detect_by_rules([segment])] == [
+        (EntityType.REGISTRY_KEY, "78/1346/Н")
+    ]
+
+
+def test_registry_key_detector_does_not_treat_bare_fsb_shaped_code_as_license() -> None:
+    """Похожий служебный код без признака лицензии не является реестровым ключом."""
+    segment = Segment(
+        text="Внутренний шифр поставки: 78/78/1346/Н/Н.",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert not any(entity.type is EntityType.REGISTRY_KEY for entity in detect_by_rules([segment]))
+
+
+def test_registry_key_detector_masks_okpo_only_after_its_label() -> None:
+    """ОКПО — восемь цифр только с явной меткой классификатора."""
+    segment = Segment(
+        text="ОКПО 12711098; код по ОКПО: 84454733",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert [(entity.type, entity.text) for entity in detect_by_rules([segment])] == [
+        (EntityType.REGISTRY_KEY, "12711098"),
+        (EntityType.REGISTRY_KEY, "84454733"),
+    ]
+
+
+def test_registry_key_detector_does_not_treat_bare_eight_digits_as_okpo() -> None:
+    """Количество или сумма из восьми цифр без контекста не является ОКПО."""
+    segment = Segment(
+        text="В партии предусмотрено 12711098 единиц товара.",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert not any(entity.type is EntityType.REGISTRY_KEY for entity in detect_by_rules([segment]))
+
+
+# ---------------------------------------------------------------------------
+# Р22 — поисковые ключи сторон, не закрытые прежними правилами.
+# ---------------------------------------------------------------------------
+
+
+def test_registry_key_detector_masks_kbk_and_territorial_codes_but_not_reference_codes() -> None:
+    """Р22: КБК, ОКТМО, ОКАТО и ОКПО скрываются; ОКОГУ/ОКВЭД остаются."""
+    segment = Segment(
+        text=(
+            "КБК 071 0410 23 2 D2 07200 244; ОКТМО: 45380000000; "
+            "ОКАТО: 40298000000; Код по ОКПО: 17514186; "
+            "ОКОГУ: 4210001; ОКВЭД: 61.10"
+        ),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    entities = detect_by_rules([segment])
+
+    assert [entity.text for entity in entities if entity.type is EntityType.REGISTRY_KEY] == [
+        "071 0410 23 2 D2 07200 244",
+        "45380000000",
+        "40298000000",
+        "17514186",
+    ]
+    assert not any(entity.text in {"4210001", "61.10"} for entity in entities)
+
+
+def test_power_of_attorney_number_requires_its_context() -> None:
+    """Р22: доверенность находит номер с косыми чертами и короткий номер."""
+    segment = Segment(
+        text=(
+            "действует на основании доверенности от 20 июля 2022 г. № 01/29/533/23; "
+            "по доверенности № 109; приложение № 109"
+        ),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    numbers = [
+        entity.text
+        for entity in detect_by_rules([segment])
+        if entity.type is EntityType.POWER_OF_ATTORNEY_NUMBER
+    ]
+
+    assert numbers == ["01/29/533/23", "109"]
+
+
+def test_labeled_bik_masks_entire_numeric_tail_including_parser_artifacts() -> None:
+    """Р22: лишний ноль и слипшиеся БИК не оставляют цифровой хвост."""
+    segment = Segment(
+        text="БИК 024501901; БИК: 0044525225; БИК ТОФК 040702615018209001",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert [
+        entity.text for entity in detect_by_rules([segment]) if entity.type is EntityType.BIK
+    ] == [
+        "024501901",
+        "0044525225",
+        "040702615018209001",
+    ]
+
+
+def test_ip_address_detector_accepts_only_labeled_public_ipv4() -> None:
+    """Р22: публичный IP маскируется, версии и закрытые сети — нет."""
+    segment = Segment(
+        text=(
+            "IP-адрес: 83.171.96.195; IP адрес: 10.1.2.3; ip: 172.16.1.1; "
+            "ip: 192.168.1.1; ip: 127.0.0.1; ip: 0.1.2.3; ip: 255.255.255.255; "
+            "версия ПО 1.2.3.4; пункт 4.6.2"
+        ),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert [
+        entity.text for entity in detect_by_rules([segment]) if entity.type is EntityType.IP_ADDRESS
+    ] == ["83.171.96.195"]
+
+
+# ---------------------------------------------------------------------------
+# Р13 — ИКЗ не является контейнером для вложенных реквизитов.
+# ---------------------------------------------------------------------------
+
+
+def test_ikz_is_excluded_from_requisite_rules() -> None:
+    """Старый 29-значный ИКЗ с группировкой не дробится на счёт, ИНН и КПП.
+
+    Без исключения `bank_account` сначала совпадает с двадцатью цифрами,
+    а затем после пересечения с вложенными ИНН/КПП превращается в «1 ».
+    """
+    segment = Segment(
+        text="Идентификационный код закупки: 24 1 7710474375 770301001 0038 001",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    entities = detect_by_rules([segment])
+
+    requisites = {
+        EntityType.BANK_ACCOUNT,
+        EntityType.INN,
+        EntityType.OGRN,
+        EntityType.SNILS,
+        EntityType.KPP,
+        EntityType.BIK,
+    }
+    assert not any(entity.type in requisites for entity in entities)
+
+
+def test_current_36_digit_ikz_is_also_excluded_from_requisite_rules() -> None:
+    """Текущий слитный ИКЗ не отдаёт вложенный ИНН/КПП как отдельные PII."""
+    segment = Segment(
+        text=("Идентификационный код закупки: 182519150124451900100100070016110244"),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    entities = detect_by_rules([segment])
+
+    assert not any(
+        entity.type
+        in {
+            EntityType.BANK_ACCOUNT,
+            EntityType.INN,
+            EntityType.OGRN,
+            EntityType.SNILS,
+            EntityType.KPP,
+            EntityType.BIK,
+        }
+        for entity in entities
+    )

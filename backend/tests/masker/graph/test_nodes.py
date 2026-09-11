@@ -187,7 +187,7 @@ def test_policy_node_builds_type_and_profile_questions() -> None:
 
     questions = policy_questions_from_dicts(state["policy_questions"])
     assert any(question.kind == "type" for question in questions)
-    assert any(question.id == "TYPE-inn" for question in questions)
+    assert all(question.id != "TYPE-inn" for question in questions)
 
 
 def _finalized_state() -> State:

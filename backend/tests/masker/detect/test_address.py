@@ -58,6 +58,74 @@ def test_full_address_with_index_is_one_span(text: str, expected: str) -> None:
 @pytest.mark.parametrize(
     "text, expected",
     [
+        (
+            "123112, Российская Федерация, г. Москва, Пресненская наб., д.10, стр.2",
+            "123112, Российская Федерация, г. Москва, Пресненская наб., д.10, стр.2",
+        ),
+        (
+            "Фактический адрес 630005, г. Новосибирск, ул. Гоголя, дом 39",
+            "630005, г. Новосибирск, ул. Гоголя, дом 39",
+        ),
+    ],
+)
+def test_indexed_address_with_postfix_street_is_one_span(text: str, expected: str) -> None:
+    """Адрес с индексом маскируется целиком и без обязательной метки."""
+    assert [entity.text for entity in _detect(text)] == [expected]
+
+
+def test_labeled_address_keeps_internal_line_breaks_and_literal() -> None:
+    text = (
+        "Юридический адрес: 191167, Российская Федерация,\n"
+        "г. Санкт-Петербург, вн.тер. г. муниципальный округ\n"
+        "Смольнинское, наб. Синопская, д. 14, Литера А, ИНН 784201001"
+    )
+
+    assert [entity.text for entity in _detect(text)] == [
+        "191167, Российская Федерация,\n"
+        "г. Санкт-Петербург, вн.тер. г. муниципальный округ\n"
+        "Смольнинское, наб. Синопская, д. 14, Литера А"
+    ]
+
+
+def test_labeled_address_after_organization_quotes_stops_before_inn() -> None:
+    """Кавычки в названии стороны не разрывают следующий реквизит адреса."""
+    text = (
+        "ПАО «Ростелеком» Юридический адрес: 191167, город Санкт-Петербург, "
+        "вн.тер. г. муниципальный округ Смольнинское, наб. Синопская, "
+        "д. 14 Литера А ИНН: 7707049388"
+    )
+
+    assert [entity.text for entity in _detect(text)] == [
+        "191167, город Санкт-Петербург, вн.тер. г. муниципальный округ "
+        "Смольнинское, наб. Синопская, д. 14 Литера А"
+    ]
+
+
+def test_address_stops_before_text_from_adjacent_pdf_column() -> None:
+    """Текст соседней PDF-колонки после строения не попадает в маску."""
+    text = (
+        "123112, Российская Федерация, г. Москва, Пресненская наб., "
+        "д.10, стр.2 Межрегиональное операционное УФК"
+    )
+
+    assert [entity.text for entity in _detect(text)] == [
+        "123112, Российская Федерация, г. Москва, Пресненская наб., д.10, стр.2"
+    ]
+
+
+@pytest.mark.parametrize("requisite", ["ИНН 7707049388", "КПП 770301001", "Банк ПАО"])
+def test_address_stops_before_requisite_from_neighboring_table_column(requisite: str) -> None:
+    """Реквизит в следующей колонке таблицы не должен стать частью адреса."""
+    text = f"Почтовый адрес: 630005, г. Новосибирск, ул. Гоголя, дом 39, {requisite}"
+
+    assert [entity.text for entity in _detect(text)] == [
+        "630005, г. Новосибирск, ул. Гоголя, дом 39"
+    ]
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
         ("г. Воронеж, ул. Мира, 12", "г. Воронеж, ул. Мира, 12"),
         (
             "Воронежская обл., Новоусманский р-н, с. Отрадное, ул. Мира, 12",
@@ -78,6 +146,32 @@ def test_address_span_matches_segment_text() -> None:
 
     for entity in _detect(text):
         assert entity.text == text[entity.start : entity.end]
+
+
+def test_address_after_organization_region_has_valid_span() -> None:
+    """Регион в названии учреждения не должен обнулять следующий адрес."""
+    text = (
+        "Государственныйкомитет Республики Башкортостан"
+        "поинформатизацииивопросамфункционированиясистемы "
+        "юридическийадрес: 450008, г. Уфа, ул. Пушкина, 106"
+        "получатель: УФКпо Республике Башкортостан"
+    )
+    document = Document(
+        path="test.pdf",
+        fmt="pdf",
+        segments=[Segment(text=text, anchor=Anchor("pdf", (0, 0)), order=0)],
+    )
+
+    entities = AddressDetector().detect(document)
+
+    # Ровно инвариант `DetectAgent._validate` для координат и текста спана.
+    assert all(
+        0 <= entity.start < entity.end <= len(text)
+        and entity.text == text[entity.start : entity.end]
+        for entity in entities
+    )
+    assert len(entities) == 1
+    assert len(DetectAgent([AddressDetector()]).detect(document).entities) == 1
 
 
 def _split_cell_document() -> Document:
@@ -355,7 +449,11 @@ def test_body_address_ends_before_signatory() -> None:
             "address",
             "394024, Воронежская область, г Воронеж, пер Здоровья, д 86а, кв 95",
         ),
-        ("person", "Атараев Б.М"),
+        # Точка после второго инициала входит в спан: 11.09.2026 ремаппер
+        # перестал обрезать последний символ, и «Атараев Б.М.» закрывается
+        # целиком. Оставлять её снаружи маски незачем — обрезанный инициал
+        # выглядит как дефект вёрстки, а не как обезличивание.
+        ("person", "Атараев Б.М."),
     ]
 
 

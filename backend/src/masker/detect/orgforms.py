@@ -16,6 +16,12 @@ _QUOTE_CHARS = frozenset(
 )
 _SHRINK_TRIM_CHARS = "".join(char for char in TRIM_CHARS if char not in _QUOTE_CHARS)
 
+#: Одна--три прописные буквы сами по себе не идентифицируют организацию.
+_SHORT_UPPERCASE_ABBREVIATION_RE = re.compile(r"^[А-ЯЁA-Z]{1,3}$")
+#: Natasha иногда присоединяет к переменной следующий математический знак.
+_SHORT_UPPERCASE_FORMULA_TAIL_RE = re.compile(r"^[А-ЯЁA-Z]{1,3}\s*[=×/%]\s*$")
+_FORMULA_OPERATOR_CHARS = frozenset("=×/%")
+
 
 @dataclass(frozen=True, slots=True)
 class OrgForms:
@@ -233,6 +239,62 @@ def has_organization_evidence(text: str) -> bool:
         or (opening != closing and opening in text and closing in text)
         for opening, closing in org_forms().quote_pairs
     )
+
+
+def is_unqualified_short_uppercase_abbreviation(text: str) -> bool:
+    """Вернуть ``True`` для короткой КАПС-аббревиатуры без признака организации.
+
+    ОПФ и парные кавычки достаточны для настоящего короткого названия: «ДОУ»
+    и ``АО «РЖД»`` не отбрасываются.
+    """
+    value = text.strip(TRIM_CHARS)
+    return not has_organization_evidence(text) and bool(
+        _SHORT_UPPERCASE_ABBREVIATION_RE.fullmatch(value)
+    )
+
+
+def is_formula_variable(text: str, start: int, end: int) -> bool:
+    """Проверить, что короткий ORG-спан является переменной формулы.
+
+    11.09.2026 на brsc-contract.pdf Natasha приняла ``ДК `` за ORG: знак
+    умножения попал в тот же спан. Помимо оператора около переменной учитываем
+    её расшифровку в том же сегменте (``где: ДК — срок…``), чтобы PDF-вёрстка
+    с разнесёнными строками не превращала обозначение формулы в организацию.
+    """
+    value = text[start:end].strip(TRIM_CHARS)
+    match = _SHORT_UPPERCASE_ABBREVIATION_RE.fullmatch(value)
+    if match is None:
+        match = _SHORT_UPPERCASE_FORMULA_TAIL_RE.fullmatch(value)
+    if match is None or has_organization_evidence(text[start:end]):
+        return False
+
+    before = text[:start].rstrip()
+    after = text[end:].lstrip()
+    operator_nearby = (
+        bool(before and before[-1] in _FORMULA_OPERATOR_CHARS)
+        or bool(after and after[0] in _FORMULA_OPERATOR_CHARS)
+        or bool(_SHORT_UPPERCASE_FORMULA_TAIL_RE.fullmatch(value))
+    )
+    definition = re.search(
+        rf"(?:где\s*:\s*)?{re.escape(value.split()[0])}\s*[—-]\s*\S",
+        text,
+        re.IGNORECASE,
+    )
+    return operator_nearby or definition is not None
+
+
+def is_product_brand_context(text: str, start: int) -> bool:
+    """Вернуть True, если кавычечный ORG-спан — марка изделия, а не сторона.
+
+    Natasha помечает короткие торговые марки как организации. В частности,
+    в таблице имущества ``марка "ГАЛА"`` — характеристика
+    облучателя-рециркулятора, а не юридическое лицо. Проверяем только
+    непосредственно предшествующий контекст в пределах фразы, чтобы слово
+    «марка» из предыдущего предложения не отбрасывала настоящее имя.
+    """
+    before = text[:start]
+    clause_start = max(before.rfind(mark) for mark in ".;:\n") + 1
+    return bool(re.search(r"\bмарка\s*$", before[clause_start:], re.IGNORECASE))
 
 
 def is_role_phrase(text: str) -> bool:

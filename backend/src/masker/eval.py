@@ -14,6 +14,7 @@ import json
 import pathlib
 import sys
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,7 +25,7 @@ from masker.ingest.docx_ingest import ingest_docx
 from masker.ingest.pdf_ingest import ingest_pdf
 from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.judge import JudgeAgent
-from masker.llm import get_provider
+from masker.llm import LLMProvider, get_provider
 from masker.model import Document, EntityType, MaskPlan, is_critical
 from masker.policy.agent import PolicyAgent
 from masker.profile import ProfileAgent
@@ -647,8 +648,20 @@ def score(expected: set[tuple[str, ...]], found: set[tuple[str, ...]]) -> dict[s
     return {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1}
 
 
-def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> dict[str, float]:
-    """Посчитать профиль и судью напрямую, пока общий pipeline ещё не собран."""
+def _profile_judge_metrics(
+    corpus: list[tuple[pathlib.Path, dict[str, Any]]],
+    *,
+    provider: LLMProvider | None = None,
+    detect_agent_factory: Callable[[], DetectAgent] | None = None,
+) -> dict[str, float]:
+    """Посчитать профиль и судью напрямую, пока общий pipeline ещё не собран.
+
+    ``provider`` и ``detect_agent_factory`` — параметры матричного
+    бенчмарка (``masker.bench_matrix``, К4): по умолчанию оба сохраняют
+    прежнее поведение (``get_provider()`` из конфигурации и голый
+    ``DetectAgent()``), поэтому обычный ``make eval`` этой правки не
+    замечает.
+    """
     matched = 0
     party_matched = 0
     covered = 0
@@ -673,8 +686,10 @@ def _profile_judge_metrics(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) ->
             for segment in document.segments
             for _offset, label in find_labels(segment.text)
         }
-        detection = DetectAgent().detect(document)
-        profiles = ProfileAgent(get_provider()).profile(document, detection)
+        agent = detect_agent_factory() if detect_agent_factory is not None else DetectAgent()
+        detection = agent.detect(document)
+        active_provider = provider if provider is not None else get_provider()
+        profiles = ProfileAgent(active_provider).profile(document, detection)
         judge = JudgeAgent().judge(detection, profiles)
         profile_by_value = {
             (member.entity.type, _collapse(member.entity.text)): profile
@@ -799,13 +814,23 @@ class MaskingMetrics:
     highlight_overlaps: int = 0
 
 
-def _mask_corpus(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> MaskingMetrics:
+def _mask_corpus(
+    corpus: list[tuple[pathlib.Path, dict[str, Any]]],
+    *,
+    rules_only: bool = False,
+    llm: LLMProvider | None = None,
+) -> MaskingMetrics:
     """Прогнать ``mask_and_validate`` по каждому документу корпуса и собрать метрики.
 
     Общая часть основного, holdout- и негативного прогонов (К2, план
     `docs/plans/product-completion.md`): раньше это тело жило только внутри
     `run()` и не могло быть вызвано второй раз для `fixtures/holdout` и
     `fixtures/negative` без копипаста.
+
+    ``rules_only`` и ``llm`` — параметры матричного бенчмарка
+    (``masker.bench_matrix``, К4): по умолчанию оба сохраняют прежнее
+    поведение (обычный набор детекторов, граф без LLM), поэтому
+    обычный ``make eval`` этой правки не замечает.
     """
     from masker.pipeline import mask_and_validate
 
@@ -815,7 +840,11 @@ def _mask_corpus(corpus: list[tuple[pathlib.Path, dict[str, Any]]]) -> MaskingMe
         custom_types = labels.get("custom_types", [])
         try:
             with mask_and_validate(
-                path, types=list(EntityType), custom_types=custom_types
+                path,
+                types=list(EntityType),
+                custom_types=custom_types,
+                rules_only=rules_only,
+                llm=llm,
             ) as result:
                 for item in labels["entities"]:
                     key = (path.name, item["type"], _collapse(item["text"]))

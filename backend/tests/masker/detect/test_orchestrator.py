@@ -108,7 +108,7 @@ def test_default_detectors_include_rules_then_natasha() -> None:
     # `org_form` (план T2.2.2, шаг 6, Д11) — между `address` и `natasha`:
     # приоритет 60 ниже правил/адреса, выше локальной NER-модели.
     # `dates` (план T1.15) — рядом, приоритет 95, до `org_form`.
-    # `contract_amount` / `delivery_period` / `payment_terms` (Фаза 1-2) — приоритет 85.
+    # `contract_amount` / `money` / `delivery_period` / `payment_terms` — правила параметров.
     # `morph_person` (план Р4) — последним, приоритет 45, ниже `natasha` (50):
     # добирает морфологически опознанные ФИО там, где Natasha молчит.
     assert [detector.name for detector in agent.detectors] == [
@@ -116,6 +116,7 @@ def test_default_detectors_include_rules_then_natasha() -> None:
         "address",
         "dates",
         "contract_amount",
+        "money",
         "delivery_period",
         "payment_terms",
         "org_form",

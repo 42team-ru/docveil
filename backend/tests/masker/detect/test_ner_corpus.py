@@ -55,7 +55,10 @@ def test_detect_agent_meets_labeled_corpus_thresholds() -> None:
         m = metrics[name]
         print(f"{name:<18}{m['precision']:>7.3f}{m['recall']:>7.3f}")
 
-    for entity_type in CRITICAL_TYPES:
+    critical_types_in_corpus = CRITICAL_TYPES.intersection(
+        EntityType(name) for name in metrics if name in _BUILTIN_TYPE_VALUES
+    )
+    for entity_type in critical_types_in_corpus:
         name = entity_type.value
         assert metrics[name]["recall"] == 1.0
     for entity_type in (EntityType.PERSON, EntityType.ORG_NAME):

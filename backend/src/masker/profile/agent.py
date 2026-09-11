@@ -37,7 +37,15 @@ from masker.refs import EntityIndex
 #: поставки не принадлежат ни одной стороне. `birth_date` — исключение: она
 #: принадлежит конкретному субъекту и обязана получить `[ПРОДАВЕЦ-РОЖДЕНИЕ]`
 #: (план T1.15, раздел «Два типа»), поэтому в этот список не входит.
-_DOCUMENT_LEVEL_TYPES = frozenset({EntityType.CONTRACT_NUMBER, EntityType.DATE})
+_DOCUMENT_LEVEL_TYPES = frozenset(
+    {
+        EntityType.CONTRACT_NUMBER,
+        EntityType.DATE,
+        EntityType.REGISTRY_KEY,
+        EntityType.POWER_OF_ATTORNEY_NUMBER,
+        EntityType.IP_ADDRESS,
+    }
+)
 
 
 @dataclass(slots=True)

@@ -428,11 +428,16 @@ def test_detection_coverage_follows_detector_set(tmp_path: Path, rules_only: boo
 
     report = json.loads((tmp_path / FIXTURE.stem / "report.json").read_text(encoding="utf-8"))
     # После T1.15 `date`/`birth_date` перешли в активные детекторы.
-    # Фаза 1-2: contract_amount/delivery_period/payment_terms покрыты — остались bank_name и money.
-    assert report["detection_coverage"]["requested_without_detector"] == [
-        "bank_name",
-        "money",
-    ]
+    # Фаза 1-2: contract_amount/delivery_period/payment_terms покрыты.
+    # 11.09.2026 в Р20 появился детектор денежных сумм, и `money` ушёл из
+    # списка непокрытых: до этого суммы не маскировались вовсе. Остался
+    # только `bank_name` — название банка ищет NER, а не правило.
+    # `money` покрыт детектором из Р20, но тот живёт не в слое правил:
+    # в режиме `--rules-only` суммы снова остаются без детектора, и отчёт
+    # обязан говорить об этом честно, а не показывать одинаковый список
+    # для двух разных наборов детекторов.
+    expected = ["bank_name", "money"] if rules_only else ["bank_name"]
+    assert report["detection_coverage"]["requested_without_detector"] == expected
 
 
 def test_cli_highlights_entity_split_across_runs(tmp_path: Path) -> None:

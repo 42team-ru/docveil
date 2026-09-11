@@ -186,7 +186,7 @@ def test_person_label_does_not_start_with_job_title(pdf_path: Path) -> None:
 
 
 def test_school_contract_has_treasury_requisites_from_defect_8() -> None:
-    """Д8: БИК/КПП/оба казначейских счёта размечены явно и с верным типом.
+    """Д8/Р14: казначейские реквизиты размечены явно и с верным типом.
 
     Инвариант зафиксирован тестом, чтобы приёмку шага 4 (Д8) нельзя было
     незаметно обнулить правкой разметки — план T2.2.1, шаг 1.
@@ -198,6 +198,7 @@ def test_school_contract_has_treasury_requisites_from_defect_8() -> None:
         "668601001": EntityType.KPP.value,
         "03234643657010006200": EntityType.BANK_ACCOUNT.value,
         "40102810645370000054": EntityType.BANK_ACCOUNT.value,
+        "39062000144": EntityType.BANK_ACCOUNT.value,
     }
     for text, expected_type in expected.items():
         assert by_text.get(text) == expected_type, (

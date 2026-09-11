@@ -25,7 +25,10 @@ from docx import Document as DocxDocument
 from docx.shared import Pt
 
 from masker.detect.checksums import (
-    _weighted_mod11,  # noqa: PLC2701 — тот же приватный помощник, что тесты К1 используют напрямую
+    _INN10,
+    _INN11,
+    _INN12,
+    _weighted_mod11,
     is_valid_account,
     is_valid_bik,
     is_valid_inn,
@@ -33,7 +36,6 @@ from masker.detect.checksums import (
     is_valid_ogrn,
     is_valid_snils,
 )
-from masker.detect.checksums import _INN10, _INN11, _INN12  # noqa: PLC2701
 
 OUT_HOLDOUT = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "holdout"
 OUT_NEGATIVE = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "negative"

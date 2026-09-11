@@ -41,15 +41,65 @@ llm:
       pricing: *pricing_unknown
     gigachat-max:
       provider: gigachat
-      model: GigaChat-Max
+      model: GigaChat-3-Ultra
       api_key_env: GIGACHAT_CREDENTIALS
       gigachat:
         scope: GIGACHAT_API_PERS
         temperature: 0.0001
         ca_bundle_file: ""
-        insecure_skip_tls_verify: false
+        # Проверка сертификата выключена осознанно, решение владельца
+        # продукта. Причина не в GigaChat: в сети команды стоит прокси с
+        # самоподписанным корнем, и цепочка не проверяется ни для одного
+        # внешнего адреса. Ставить корневые сертификаты в систему ради
+        # одного бенчмарка запрещено явным указанием.
+        insecure_skip_tls_verify: true
+      # Базовый тариф GigaChat, названный владельцем продукта 10.09.2026:
+      # 96 ₽ за миллион входных токенов и 289 ₽ за миллион выходных.
+      # В конфиге тариф хранится на 1000 токенов, отсюда деление на 1000.
+      # `verified_at` — дата, на которую цена сверена: тарифы меняются, и
+      # отчёт со стоимостью обязан говорить, когда её последний раз
+      # проверяли, а не выдавать старое число за текущее.
       pricing:
-        prompt_per_1k: 1
+        prompt_per_1k: 0.096
+        completion_per_1k: 0.289
+        currency: RUB
+        verified_at: "2026-09-10"
+    # Дешёвый ориентир: сравнить GigaChat с моделью общего назначения.
+    # Тариф с карточки модели OpenRouter на 10.09.2026, $ за 1000 токенов.
+    openrouter-deepseek-flash:
+      provider: openrouter
+      model: deepseek/deepseek-v4.1-flash
+      api_key_env: OPENROUTER_API_KEY
+      openrouter:
+        temperature: 0.0
+        # Хостер закреплён ради воспроизводимости замера: у одной и той же
+        # модели он у разных хостеров разный по задержке и по доле ошибок
+        # структурированного ответа, а мы всюду ходим со строгой схемой.
+        # novita на 10.09.2026: задержка 1.16 с, 117 токенов/с, аптайм 100%.
+        # Пустой список вернёт автоматическую маршрутизацию OpenRouter.
+        provider_order: [novita]
+      pricing:
+        prompt_per_1k: 0.00015
+        completion_per_1k: 0.0006
+        currency: USD
+        verified_at: "2026-09-10"
+
+    # Потолок качества. Нужен не для продакшена, а чтобы ответить на вопрос,
+    # ради которого затевался бенчмарк: роли уже насыщены эвристикой (0.833)
+    # или GigaChat просто слаб (0.827)? Если сильная модель тоже даёт ≈0.83 —
+    # задача насыщена, и LLM в ней не нужен никому.
+    openrouter-deepseek-pro:
+      provider: openrouter
+      model: deepseek/deepseek-v4-pro-0813
+      api_key_env: OPENROUTER_API_KEY
+      openrouter:
+        temperature: 0.0
+      pricing:
+        prompt_per_1k: 0.00058
+        completion_per_1k: 0.00174
+        currency: USD
+        verified_at: "2026-09-10"
+
     openrouter-glm-5-3-flash:
       provider: openrouter
       model: z-ai/glm-5.3-flash
@@ -61,7 +111,7 @@ llm:
 # Распознавание сканов. fake не ходит в сеть и не тянет веса — этого
 # достаточно для тестов и ворот.
 ocr:
-  provider: fake
+  provider: rapid
 
 # Локальные веса моделей.
 models:

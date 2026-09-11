@@ -84,6 +84,11 @@
       "party": "customer"
     },
     {
+      "type": "bank_account",
+      "text": "39062000144",
+      "party": "customer"
+    },
+    {
       "type": "phone",
       "text": "+7(343)360-62-27",
       "party": "customer"
@@ -116,11 +121,6 @@
     {
       "type": "org_name",
       "text": "ООО \"ШБС №11\"",
-      "party": "contractor"
-    },
-    {
-      "type": "org_name",
-      "text": "ШБС № 11",
       "party": "contractor"
     },
     {
@@ -318,6 +318,51 @@
     {
       "type": "contract_amount",
       "text": "13 439 891 (Тринадцать миллионов четыреста тридцать девять тысяч восемьсот девяносто один) рубль 28 копеек"
+    },
+    {
+      "type": "money",
+      "text": "13 439 891 (Тринадцать миллионов четыреста тридцать девять тысяч восемьсот девяносто один) рубль 28 копеек"
+    },
+    {
+      "type": "money",
+      "text": "1 000,00 рублей"
+    },
+    {
+      "type": "money",
+      "text": "134 398,91 рублей"
+    },
+    {
+      "type": "registry_key",
+      "text": "65701000001",
+      "party": "customer"
+    },
+    {
+      "type": "money",
+      "text": "337,93 рублей"
+    },
+    {
+      "type": "money",
+      "text": "10 628,60 рублей"
+    },
+    {
+      "type": "money",
+      "text": "1 275 431 руб. 96 коп."
+    },
+    {
+      "type": "money",
+      "text": "10 628руб. 60 коп."
+    },
+    {
+      "type": "money",
+      "text": "10 628 руб. 60 коп."
+    },
+    {
+      "type": "money",
+      "text": "337 руб. 93 коп."
+    },
+    {
+      "type": "money",
+      "text": "10 966 руб. 53 коп."
     },
     {
       "type": "payment_terms",

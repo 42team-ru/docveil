@@ -326,9 +326,19 @@ def _usage_report(calls: list[dict[str, object]], pricing: LLMPricing | None) ->
         for item in calls
         if (tokens := _int_or_none(item.get("completion_tokens"))) is not None
     )
-    known_calls = sum(
-        item.get("prompt_tokens") is not None and item.get("completion_tokens") is not None
+    # Цена одного вызова известна только когда поставщик вернул обе части
+    # usage. Одиночный prompt/completion нельзя домыслить второй половиной:
+    # иначе даже пометка «не менее» могла бы стать завышенной.
+    usage_calls = [
+        item
         for item in calls
+        if _int_or_none(item.get("prompt_tokens")) is not None
+        and _int_or_none(item.get("completion_tokens")) is not None
+    ]
+    known_calls = len(usage_calls)
+    priced_prompt = sum(_int_or_none(item.get("prompt_tokens")) or 0 for item in usage_calls)
+    priced_completion = sum(
+        _int_or_none(item.get("completion_tokens")) or 0 for item in usage_calls
     )
     by_node = [
         {
@@ -354,11 +364,16 @@ def _usage_report(calls: list[dict[str, object]], pricing: LLMPricing | None) ->
     elif providers == {"cassette"}:
         message = "Потрачено 0: использованы записанные ответы (cassette), сеть не использовалась."
         status = "offline_cassette"
-    elif known_calls != len(calls):
+    elif known_calls == 0:
         message = "Токены не вернул поставщик; стоимость не рассчитывалась."
         status = "usage_unavailable"
     elif pricing is None or not pricing.configured:
-        message = "Токены учтены, но тариф не задан; стоимость не рассчитывалась."
+        usage_note = (
+            "Токены учтены"
+            if known_calls == len(calls)
+            else f"Usage вернули {known_calls} из {len(calls)} вызовов"
+        )
+        message = f"{usage_note}, но тариф не задан; стоимость не рассчитывалась."
         status = "tariff_not_configured"
     else:
         # ``configured`` гарантирует, что оба тарифа заданы, но это свойство
@@ -368,12 +383,16 @@ def _usage_report(calls: list[dict[str, object]], pricing: LLMPricing | None) ->
         assert pricing.completion_per_1k is not None, (
             "LLMPricing.configured противоречит своим полям"
         )
-        amount = (
-            Decimal(prompt) / Decimal(1000) * pricing.prompt_per_1k
-            + Decimal(completion) / Decimal(1000) * pricing.completion_per_1k
-        )
-        message = f"Потрачено {format(amount, 'f')} {pricing.currency}."
-        status = "charged"
+        amount = _cost_amount(priced_prompt, priced_completion, pricing)
+        if known_calls == len(calls):
+            message = f"Потрачено {format(amount, 'f')} {pricing.currency}."
+            status = "charged"
+        else:
+            message = (
+                f"Не менее {format(amount, 'f')} {pricing.currency}: usage вернули "
+                f"{known_calls} из {len(calls)} вызовов, остальные в расчёт не вошли."
+            )
+            status = "charged_lower_bound"
     result: dict[str, object] = {
         "calls": len(calls),
         "prompt_tokens": prompt,
@@ -385,14 +404,22 @@ def _usage_report(calls: list[dict[str, object]], pricing: LLMPricing | None) ->
         result["by_node"] = by_node
     if pricing is not None:
         result["pricing"] = pricing.as_dict()
-    if status == "charged" and pricing is not None and pricing.configured:
+    if status in {"charged", "charged_lower_bound"} and pricing is not None and pricing.configured:
         assert pricing.prompt_per_1k is not None
         assert pricing.completion_per_1k is not None
-        amount = (
-            Decimal(prompt) / Decimal(1000) * pricing.prompt_per_1k
-            + Decimal(completion) / Decimal(1000) * pricing.completion_per_1k
-        )
         result["cost"] = {"amount": format(amount, "f"), "currency": pricing.currency}
+        if status == "charged_lower_bound":
+            result["cost"]["kind"] = "lower_bound"  # type: ignore[index]
     else:
         result["cost"] = None
     return result
+
+
+def _cost_amount(prompt_tokens: int, completion_tokens: int, pricing: LLMPricing) -> Decimal:
+    """Стоимость известных токенов по полностью заданному тарифу."""
+    assert pricing.prompt_per_1k is not None
+    assert pricing.completion_per_1k is not None
+    return (
+        Decimal(prompt_tokens) / Decimal(1000) * pricing.prompt_per_1k
+        + Decimal(completion_tokens) / Decimal(1000) * pricing.completion_per_1k
+    )

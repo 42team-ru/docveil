@@ -17,6 +17,8 @@ from api.schemas.custom_types import (
     CompileRequest,
     CompileResponse,
     CustomTypeSpecIn,
+    FailedTypeOut,
+    FailReason,
 )
 from masker.typeconfig import load_type_config
 
@@ -215,3 +217,77 @@ def test_answer_request_default_schema_version() -> None:
 def test_answer_request_rejects_unknown_schema_version() -> None:
     with pytest.raises(ValidationError):
         AnswerRequest.model_validate({"schema_version": 2, "answers": {}})
+
+
+# ---------------------------------------------------------------------------
+# CompileRequest.descriptions — граничные значения длины (задача 2.1)
+# ---------------------------------------------------------------------------
+
+
+def test_compile_request_rejects_empty_description() -> None:
+    with pytest.raises(ValidationError):
+        CompileRequest.model_validate({"object_name": "doc.docx", "descriptions": [""]})
+
+
+def test_compile_request_rejects_whitespace_only_description() -> None:
+    with pytest.raises(ValidationError):
+        CompileRequest.model_validate({"object_name": "doc.docx", "descriptions": ["       "]})
+
+
+def test_compile_request_rejects_too_short_description() -> None:
+    with pytest.raises(ValidationError):
+        CompileRequest.model_validate({"object_name": "doc.docx", "descriptions": ["паспорт"]})
+
+
+def test_compile_request_accepts_minimum_length_description() -> None:
+    request = CompileRequest.model_validate(
+        {"object_name": "doc.docx", "descriptions": ["паспорта"]}
+    )
+    assert request.descriptions == ["паспорта"]
+
+
+def test_compile_request_rejects_too_long_description() -> None:
+    with pytest.raises(ValidationError):
+        CompileRequest.model_validate({"object_name": "doc.docx", "descriptions": ["а" * 1001]})
+
+
+def test_compile_request_trims_leading_trailing_whitespace() -> None:
+    request = CompileRequest.model_validate(
+        {"object_name": "doc.docx", "descriptions": ["  замажь даты отгрузки  "]}
+    )
+    assert request.descriptions == ["замажь даты отгрузки"]
+
+
+# ---------------------------------------------------------------------------
+# FailReason и FailedTypeOut — код ошибки (задача 2.3)
+# ---------------------------------------------------------------------------
+
+
+def test_failed_type_out_default_code_is_cannot_compile() -> None:
+    out = FailedTypeOut(index=0, description="x", reason="y")
+    assert out.code == FailReason.cannot_compile
+
+
+def test_failed_type_out_accepts_known_code() -> None:
+    out = FailedTypeOut(index=0, description="x", reason="y", code=FailReason.llm_unavailable)
+    assert out.code == FailReason.llm_unavailable
+
+
+def test_compile_response_serialises_fail_reason_code() -> None:
+    response = CompileResponse.model_validate(
+        {
+            "thread_id": "abc",
+            "status": "done",
+            "compiled": [],
+            "failed": [
+                {
+                    "index": 0,
+                    "description": "что-то непонятное",
+                    "reason": "слишком общее",
+                    "code": "cannot_compile",
+                }
+            ],
+            "questions": [],
+        }
+    )
+    assert response.failed[0].code == FailReason.cannot_compile

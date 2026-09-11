@@ -272,7 +272,19 @@ def _check_width_quantization(
             name="width_quantization", ok=True, detail="не применимо: нет PDF-артефактов"
         )
 
-    geometry = _compute_erase_geometry(source, plan)
+    # 11.09.2026: на договоре edukirovsk-2018-659372.pdf повторный расчёт
+    # геометрии открывал и разбирал все 35 страниц уже после рендера. Рендер
+    # кладёт те же финальные erase_regions в plan; берём их, чтобы сертификат
+    # оставался независимой проверкой кратности, но не повторял подготовку.
+    geometry = {
+        replacement.ref: replacement.erase_regions
+        for replacement in plan.replacements
+        if replacement.erase_regions
+    }
+    if not geometry:
+        # Прямой вызов ValidateAgent с исходным, ещё не обогащённым планом
+        # остаётся поддержанным для API и тестов: тогда безопасно пересчитываем.
+        geometry = _compute_erase_geometry(source, plan)
     entity_type_by_ref = {repl.ref: repl.entity.type for repl in plan.replacements}
     widths: list[tuple[str, str, int, float, float, float, float]] = []
     for ref, regions in geometry.items():

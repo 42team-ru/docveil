@@ -30,8 +30,10 @@ from api.schemas.run import (
     ReviewRequest,
     RunCreateRequest,
     RunDocument,
+    RunEventsResponse,
     RunListItem,
     RunListResponse,
+    RunProgressEvent,
     RunResponse,
     RunStatus,
 )
@@ -92,6 +94,8 @@ async def create_run(
     except run_service.UnsupportedFormatError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
 
+    run_service.run_events.open(run.id)
+
     background.add_task(
         run_service.execute_run,
         run.id,
@@ -137,6 +141,26 @@ async def get_run(
 ) -> RunResponse:
     """Состояние прогона — то, что опрашивает фронт."""
     return _run_response(await _require_run(session, user, run_id))
+
+
+@router.get("/{run_id}/events", response_model=RunEventsResponse)
+async def get_run_events(
+    run_id: uuid.UUID,
+    after: int = Query(default=0, ge=0),
+    user: UserORM = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> RunEventsResponse:
+    """Вернуть новые события polling-формой, устойчивой к обычным прокси.
+
+    SSE не выбран: фронт уже опрашивает статус, а polling переживает буферы
+    reverse-proxy и не держит долгие HTTP-соединения. Снимки есть лишь пока
+    прогон активен и не записываются в БД/отчёт из-за исходных значений PII.
+    """
+    await _require_run(session, user, run_id)
+    events = run_service.run_events.read(run_id, after)
+    event_models = [RunProgressEvent.model_validate(event) for event in events]
+    next_after = event_models[-1].sequence if event_models else after
+    return RunEventsResponse(events=event_models, next_after=next_after)
 
 
 @router.get("/{run_id}/questions", response_model=AskEnvelopeOut)

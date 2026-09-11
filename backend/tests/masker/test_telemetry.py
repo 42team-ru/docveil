@@ -180,6 +180,37 @@ def test_report_is_deterministic_while_runtime_file_contains_stage_times(tmp_pat
     assert {item["node"] for item in runtime["events"]} >= {"extract", "detect", "report"}
 
 
+def test_progress_events_are_ordered_and_publisher_failure_does_not_stop_run(
+    tmp_path: Path,
+) -> None:
+    """Живой канал получает снимки по порядку и остаётся необязательным для графа."""
+    received: list[str] = []
+
+    def publish(node: str, _content: dict[str, object]) -> None:
+        received.append(node)
+
+    options = RunOptions(rules_only=True, interactive=False, preview=False)
+    outcome = start_run(
+        FIXTURE,
+        options,
+        checkpointer_factory=lambda: InMemorySaver(),
+        deps=RunDeps(artifact_dir=tmp_path / "events", progress_observer=publish),
+    )
+    assert outcome.status == "done"
+    assert received.index("extract") < received.index("detect") < received.index("plan")
+
+    def broken_publish(_node: str, _content: dict[str, object]) -> None:
+        raise OSError("временный сбой транспорта")
+
+    recovered = start_run(
+        FIXTURE,
+        options,
+        checkpointer_factory=lambda: InMemorySaver(),
+        deps=RunDeps(artifact_dir=tmp_path / "broken", progress_observer=broken_publish),
+    )
+    assert recovered.status == "done"
+
+
 def test_cassette_is_honestly_reported_as_zero_network_cost() -> None:
     report = report_telemetry(
         {

@@ -33,6 +33,7 @@ NER-модель ошибочно принимает `[ПОСТАВЩИК-ОРГ
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -56,6 +57,67 @@ def _collapse(value: str) -> str:
     не делось и по смыслу утекло, даже если побитово строки чуть разошлись.
     """
     return " ".join(value.split())
+
+
+class _ValueMatcher:
+    """Мультипаттерный поиск: regex на C плюс бор только в точках совпадений.
+
+    11.09.2026: на 457 заменах и 72 частях старый цикл делал до 32 904
+    отдельных поисков. Полный обход бором на Python оказался медленнее
+    встроенного поиска на PDF, поэтому regex проходит часть на C, а бор
+    сохраняет перекрытия только в позициях, где regex уже нашёл кандидат.
+    """
+
+    def __init__(self, values: frozenset[str]) -> None:
+        self._next: list[dict[str, int]] = [{}]
+        self._fail: list[int] = [0]
+        self._output: list[set[str]] = [set()]
+        self._max_length = max((len(value) for value in values), default=0)
+        escaped_values = "|".join(
+            re.escape(value) for value in sorted(values, key=len, reverse=True)
+        )
+        self._candidate = re.compile("(?=" + escaped_values + ")") if values else None
+        for value in values:
+            if not value:
+                continue
+            node = 0
+            for char in value:
+                target = self._next[node].get(char)
+                if target is None:
+                    target = len(self._next)
+                    self._next[node][char] = target
+                    self._next.append({})
+                    self._fail.append(0)
+                    self._output.append(set())
+                node = target
+            self._output[node].add(value)
+
+        queue = list(self._next[0].values())
+        for node in queue:
+            self._fail[node] = 0
+        for node in queue:
+            for char, target in self._next[node].items():
+                failure = self._fail[node]
+                while failure and char not in self._next[failure]:
+                    failure = self._fail[failure]
+                self._fail[target] = self._next[failure].get(char, 0)
+                self._output[target].update(self._output[self._fail[target]])
+                queue.append(target)
+
+    def find(self, text: str) -> set[str]:
+        """Вернуть все значения, встретившиеся в тексте, без потери перекрытий."""
+        found: set[str] = set()
+        if self._candidate is None:
+            return found
+        for candidate in self._candidate.finditer(text):
+            node = 0
+            for char in text[candidate.start() : candidate.start() + self._max_length]:
+                target = self._next[node].get(char)
+                if target is None:
+                    break
+                node = target
+                found.update(self._output[node])
+        return found
 
 
 def _artifact_parts(path: Path) -> tuple[str, list[DocPart]]:
@@ -221,15 +283,32 @@ class ValidateAgent:
         if fmt == "pdf" and source is not None and source.suffix.lower() == ".pdf":
             return self._search_pdf_values_by_occurrence(artifact, parts, plan, source)
 
+        values = frozenset(
+            replacement.entity.text for replacement in plan.replacements if replacement.entity.text
+        )
+        matcher = _ValueMatcher(values)
+        collapsed_values = {value: _collapse(value) for value in values}
+        collapsed_matcher = _ValueMatcher(frozenset(collapsed_values.values()))
         found: list[Leak] = []
         for part in parts:
             kind = "metadata" if _is_metadata_part(fmt, part.name) else "raw"
             collapsed_part_text = _collapse(part.text) if part.text else ""
+            # Декодирование только ускоряет предварительный отбор. Решение об
+            # утечке всё ещё принимает исходный побайтовый тест ниже, поэтому
+            # некорректные байты контейнера не могут дать ложный зелёный итог.
+            raw_values = matcher.find(part.raw.decode("utf-8", errors="ignore"))
+            text_values = matcher.find(part.text) if part.text else set()
+            collapsed_found = collapsed_matcher.find(collapsed_part_text) if part.text else set()
+            text_values.update(
+                value
+                for value, collapsed in collapsed_values.items()
+                if collapsed in collapsed_found
+            )
             for replacement in plan.replacements:
                 value = replacement.entity.text
                 if not value:
                     continue
-                if value.encode("utf-8") in part.raw:
+                if value in raw_values and value.encode("utf-8") in part.raw:
                     found.append(
                         Leak(
                             kind=kind,
@@ -243,7 +322,7 @@ class ValidateAgent:
                         )
                     )
                     continue
-                if part.text and (value in part.text or _collapse(value) in collapsed_part_text):
+                if value in text_values:
                     found.append(
                         Leak(
                             kind=kind,

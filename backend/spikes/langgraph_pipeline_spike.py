@@ -130,7 +130,7 @@ def render(state: State) -> dict[str, Any]:
         "artifacts": {
             "black": "out/masked_black.docx",
             "highlight": "out/masked_highlight.docx",
-            "report": "out/report.html",
+            "report": "out/report.json",
         }
     }
 

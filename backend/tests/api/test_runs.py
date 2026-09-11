@@ -158,6 +158,24 @@ def test_run_pauses_on_questions_and_exposes_envelope(client: TestClient, storag
     assert {"id", "kind", "target", "options", "default"} <= set(questions["questions"][0])
 
 
+def test_progress_events_are_available_with_cursor(client: TestClient, storage: Path) -> None:
+    """Polling-ручка даёт ранние снимки и не меняет основной статусный контракт."""
+    created = _create_run(client)
+    response = client.get(f"/api/runs/{created['id']}/events")
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    nodes = [item["node"] for item in payload["events"]]
+    assert nodes.index("extract") < nodes.index("detect")
+    detect = next(item for item in payload["events"] if item["node"] == "detect")
+    assert {"total", "by_type", "findings"} <= set(detect["content"])
+    assert (
+        client.get(f"/api/runs/{created['id']}/events?after={payload['next_after']}").json()[
+            "events"
+        ]
+        == []
+    )
+
+
 def test_report_and_artifacts_appear_only_after_answers(client: TestClient, storage: Path) -> None:
     """Пока граф стоит на вопросах, узлы `render`/`report` не выполнялись."""
     created = _create_run(client)

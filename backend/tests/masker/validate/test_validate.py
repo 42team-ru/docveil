@@ -21,7 +21,7 @@ from masker.refs import EntityIndex
 from masker.render.docx_redact import render_docx_redacted
 from masker.render.pdf_render import render_pdf_redacted
 from masker.render.xlsx_redact import render_xlsx_redacted
-from masker.validate.agent import ValidateAgent
+from masker.validate.agent import ValidateAgent, _ValueMatcher
 from masker.validate.parts import xlsx_parts
 
 ROOT = next(
@@ -401,6 +401,12 @@ def test_leaked_order_is_stable(tmp_path: pathlib.Path, monkeypatch: pytest.Monk
     assert first.leaked == second.leaked
     assert first.residual == second.residual
     assert len(first.leaked) >= 2  # обе сущности реально утекли
+
+
+def test_value_matcher_finds_overlapping_values_in_one_pass() -> None:
+    """Короткое значение не теряется, когда оно — префикс длинного."""
+    matcher = _ValueMatcher(frozenset({"123", "1234", "234"}))
+    assert matcher.find("x1234y") == {"123", "1234", "234"}
 
 
 def test_pdf_text_layer_leak_is_caught(tmp_path: pathlib.Path) -> None:

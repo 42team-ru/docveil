@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import pathlib
 
 import pymupdf
@@ -128,6 +129,34 @@ def test_check_width_quantization_not_applicable_for_docx_source(tmp_path: pathl
     check = _check_width_quantization(plan, tmp_path / "source.docx", [tmp_path / "out.docx"])
     assert check.ok is True
     assert "не применимо" in check.detail
+
+
+def test_width_quantization_uses_geometry_from_rendered_plan(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сертификат не должен второй раз разбирать источник после рендера."""
+
+    import masker.validate.certificate as certificate_module
+
+    path = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="dvu", fontfile=_FONT)
+    page.insert_text((72, 100), "Иванов", fontname="dvu", fontsize=12)
+    doc.save(str(path))
+    doc.close()
+
+    document = ingest_pdf(path)
+    plan = PlanAgent().plan(document, [_person_entity(document, "Иванов")])
+    dest = tmp_path / "redacted.pdf"
+    outcome = render_pdf_redacted(path, dest, document, plan, style="blackbox")
+    rendered_plan = dataclasses.replace(plan, replacements=outcome.replacements)
+
+    def must_not_recalculate(_source: object, _plan: object) -> object:
+        raise AssertionError("геометрия уже есть в плане после рендера")
+
+    monkeypatch.setattr(certificate_module, "_compute_erase_geometry", must_not_recalculate)
+    assert _check_width_quantization(rendered_plan, path, [dest]).ok is True
 
 
 def test_check_width_quantization_fails_when_render_leaves_geometry_unquantized(

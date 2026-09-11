@@ -40,6 +40,8 @@ _ALLOWED_FLAG_MASK = re.IGNORECASE | re.UNICODE
 _DETECT_KINDS = frozenset(
     {"literals", "regex", "regex_llm_filter", "gliner_label", "gliner_structure"}
 )
+# Типы, про критичность которых уже предупредили в этом процессе.
+_WARNED_CRITICAL: set[str] = set()
 _MATCH_MODES = frozenset({"whole_word", "substring"})
 
 
@@ -151,7 +153,8 @@ def _build_type(item: Any, index: int) -> CustomTypeSpec:
         )
 
     critical = bool(item.get("critical", False))
-    if critical:
+    if critical and type_id not in _WARNED_CRITICAL:
+        _WARNED_CRITICAL.add(type_id)
         warnings.warn(
             f"Тип {type_id!r} объявлен критичным (critical: true): порог recall в "
             f"воротах поднимается до 1.0, пользовательская регулярка обязана его "

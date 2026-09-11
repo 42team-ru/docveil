@@ -59,7 +59,9 @@ dev = [
     "mypy>=1.19",
 ]
 gliner = [
-    "gliner2[local]>=1.3.2",
+    # <2.0.0: в 2.0.0 AutoExtractor молча возвращает пустой список на весах
+    # типа "extractor" — несовместимость без ошибки (Р10 в TASKS.md).
+    "gliner2[local]>=1.3.2,<2.0.0",
     "peft>=0.17",
     "torch>=2.8",
     # Токенизатору mdeberta-v3 нужны protobuf и sentencepiece, но transformers

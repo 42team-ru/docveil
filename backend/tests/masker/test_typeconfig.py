@@ -239,6 +239,16 @@ def test_critical_false_by_default_no_warning(recwarn: pytest.WarningsRecorder) 
     assert len(recwarn) == 0
 
 
+def test_critical_same_type_warns_only_once(recwarn: pytest.WarningsRecorder) -> None:
+    """Повторная загрузка конфига с тем же критичным типом не дублирует предупреждение."""
+    unique_id = "warn_once_probe_unique"
+    cfg = _config(_type(id_=unique_id, critical=True))
+    load_type_config(cfg)
+    load_type_config(cfg)
+    critical_warns = [w for w in recwarn.list if "critical" in str(w.message).lower()]
+    assert len(critical_warns) == 1
+
+
 # ---------------------------------------------------------------------------
 # detect.kind
 # ---------------------------------------------------------------------------

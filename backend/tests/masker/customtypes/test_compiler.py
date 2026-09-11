@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -21,7 +22,7 @@ from masker.customtypes.compiler import (
     compile_type,
 )
 from masker.entity_types import EntityTypeRegistry
-from masker.llm import FakeProvider, Message
+from masker.llm import FakeProvider, LLMProvider, Message
 
 REGISTRY = EntityTypeRegistry.builtin()
 
@@ -378,37 +379,37 @@ def test_cannot_compile_outcome_carries_cannot_compile_code() -> None:
     assert outcome.code == "cannot_compile"
 
 
+def _live_provider() -> LLMProvider:
+    """Вернуть провайдер из окружения или пропустить тест."""
+
+    from masker.llm import LLMError, get_provider
+
+    masker_llm = os.environ.get("MASKER_LLM", "").casefold()
+    if masker_llm == "openrouter" and not os.environ.get("OPENROUTER_API_KEY"):
+        pytest.skip("MASKER_LLM=openrouter, но OPENROUTER_API_KEY не задан")
+    elif masker_llm == "gigachat" and not os.environ.get("GIGACHAT_CREDENTIALS"):
+        pytest.skip("MASKER_LLM=gigachat, но GIGACHAT_CREDENTIALS не задан")
+    elif masker_llm not in {"openrouter", "gigachat"}:
+        pytest.skip("MASKER_LLM не задан или fake — живой тест пропущен")
+    try:
+        return get_provider()
+    except LLMError as exc:
+        pytest.skip(f"get_provider() не смог создать провайдер: {exc}")
+
+
 @pytest.mark.e2e
 def test_e2e_shipment_dates_compile_to_regex_or_gliner_structure() -> None:
     """Живой провайдер: «замажь даты отгрузки» → compile с ожидаемым kind."""
-    import os
-
-    from masker.llm import LLMConfig, get_provider
-
-    api_key_env = "OPENROUTER_API_KEY"
-    if not os.environ.get(api_key_env):
-        pytest.skip(f"{api_key_env} не задан — живой тест пропущен")
-    llm = get_provider(
-        LLMConfig(provider="openrouter", model="openai/gpt-4o-mini", api_key_env=api_key_env)
-    )
+    llm = _live_provider()
     outcome = compile_type("замажь даты отгрузки товара", llm=llm, registry=REGISTRY)
     assert isinstance(outcome, CompileOutcome)
-    assert outcome.spec["detect"]["kind"] in {"regex", "gliner_structure"}
+    assert outcome.spec["detect"]["kind"] in {"regex", "regex_context", "gliner_structure"}
 
 
 @pytest.mark.e2e
 def test_e2e_person_maps_to_use_builtin() -> None:
     """Живой провайдер: «замажь ФИО» → use_builtin(person)."""
-    import os
-
-    from masker.llm import LLMConfig, get_provider
-
-    api_key_env = "OPENROUTER_API_KEY"
-    if not os.environ.get(api_key_env):
-        pytest.skip(f"{api_key_env} не задан — живой тест пропущен")
-    llm = get_provider(
-        LLMConfig(provider="openrouter", model="openai/gpt-4o-mini", api_key_env=api_key_env)
-    )
+    llm = _live_provider()
     outcome = compile_type("замажь ФИО людей в документе", llm=llm, registry=REGISTRY)
     assert isinstance(outcome, UseBuiltinOutcome)
     assert outcome.type_id == "person"

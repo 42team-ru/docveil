@@ -147,9 +147,9 @@ export function PiiGroupItem({
       />
 
       {isOpen ? (
-        <VStack gap={0} as="ul" paddingInlineStart={6}>
+        <VStack gap={1} as="ul" paddingInlineStart={6}>
           {occurrences.map((occurrence) => (
-            <HStack key={occurrence.id} gap={0} vAlign="center">
+            <HStack key={occurrence.id} gap={0} vAlign="center" paddingInlineEnd={2}>
               <StackItem size="fill">
                 <PiiOccurrenceItem
                   occurrence={occurrence}

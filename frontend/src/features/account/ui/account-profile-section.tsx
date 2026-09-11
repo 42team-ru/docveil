@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Check, Eye, EyeOff, Pencil, X } from "lucide-react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Divider } from "@astryxdesign/core/Divider";
@@ -44,6 +44,7 @@ export function AccountProfileSection() {
   const showToast = useToast();
 
   const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const [isEditingName, setIsEditingName] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
@@ -58,8 +59,8 @@ export function AccountProfileSection() {
     );
   }
 
-  const name = nameDraft ?? user.full_name;
-  const isNameDirty = name.trim() !== "" && name !== user.full_name;
+  const name = isEditingName ? (nameDraft ?? user.full_name) : user.full_name;
+  const isNameDirty = isEditingName && name.trim() !== "" && name !== user.full_name;
   const passwordError = changePassword.error as ErrorType | undefined;
   const strength = evaluatePasswordStrength(newPassword);
 
@@ -78,30 +79,62 @@ export function AccountProfileSection() {
 
       <Divider />
 
-      <HStack gap={8} align="stretch">
+      <HStack gap={8} align="start">
         <StackItem size="fill">
           <VStack gap={4}>
-            <VStack gap={2}>
-              <TextInput label="Имя" value={name} onChange={setNameDraft} />
-              <HStack hAlign="end">
-                <Button
-                  label="Сохранить"
-                  size="sm"
-                  variant="primary"
-                  isDisabled={!isNameDirty}
-                  isLoading={updateFullName.isPending}
+            <HStack gap={2} vAlign="end">
+              <StackItem size="fill">
+                <TextInput
+                  label="Имя"
+                  value={name}
+                  isDisabled={!isEditingName}
+                  hasAutoFocus={isEditingName}
+                  onChange={setNameDraft}
+                />
+              </StackItem>
+              {isEditingName ? (
+                <>
+                  <IconButton
+                    size="md"
+                    variant="ghost"
+                    label="Отменить редактирование имени"
+                    icon={<Icon icon={X} size="sm" />}
+                    onClick={() => {
+                      setNameDraft(null);
+                      setIsEditingName(false);
+                    }}
+                  />
+                  <IconButton
+                    size="md"
+                    variant="primary"
+                    label="Сохранить имя"
+                    icon={<Icon icon={Check} size="sm" />}
+                    isDisabled={!isNameDirty}
+                    isLoading={updateFullName.isPending}
+                    onClick={() => {
+                      updateFullName.mutate(name, {
+                        onSuccess: () => {
+                          setNameDraft(null);
+                          setIsEditingName(false);
+                          showToast({ body: "Имя сохранено", type: "info" });
+                        },
+                      });
+                    }}
+                  />
+                </>
+              ) : (
+                <IconButton
+                  size="md"
+                  variant="ghost"
+                  label="Редактировать имя"
+                  icon={<Icon icon={Pencil} size="sm" />}
                   onClick={() => {
-                    updateFullName.mutate(name, {
-                      onSuccess: () => {
-                        setNameDraft(null);
-                        showToast({ body: "Имя сохранено", type: "info" });
-                      },
-                    });
+                    setNameDraft(user.full_name);
+                    setIsEditingName(true);
                   }}
                 />
-              </HStack>
-            </VStack>
-
+              )}
+            </HStack>
             <Selector
               label="Часовой пояс"
               options={TIMEZONE_OPTIONS}
@@ -116,10 +149,7 @@ export function AccountProfileSection() {
         <Divider orientation="vertical" />
 
         <StackItem size="fill">
-          <VStack gap={3}>
-            <Text type="label" weight="medium">
-              Смена пароля
-            </Text>
+          <VStack gap={4}>
             {passwordError ? (
               <Banner
                 status="error"

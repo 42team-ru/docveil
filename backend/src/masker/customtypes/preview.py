@@ -59,6 +59,15 @@ def _entities_for_spec(spec: CustomTypeSpec, document: Document) -> list[Entity]
         from masker.detect.config_detector import ConfigDetector
 
         return ConfigDetector([spec]).detect(document)
+    if spec.kind == "regex_llm_filter":
+        import dataclasses
+
+        from masker.detect.config_detector import ConfigDetector
+
+        # Preview показывает кандидатов регулярки без LLM-фильтрации:
+        # результат — «что регулярка найдёт», а не «что модель подтвердит».
+        regex_spec = dataclasses.replace(spec, kind="regex")
+        return ConfigDetector([regex_spec]).detect(document)
     if spec.kind.startswith("gliner_"):
         from masker.detect.gliner import GlinerDetector
 

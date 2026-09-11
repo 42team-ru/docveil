@@ -38,6 +38,85 @@ _TRIGGER_WINDOW = 40
 
 _TOKEN_RE = re.compile(r"\S+")
 
+# Начало должности, которая в подписях и преамбуле может содержать имя
+# конкретного органа или организации. Обычный «Генеральный директор» сюда
+# тоже попадает, но выпускается только после `_has_identifying_position_tail`.
+_SIGNATORY_POSITION_START = re.compile(
+    r"(?:и\.?\s*о\.?\s+)?(?:заместител\w*\s+)?(?:"
+    r"министр\w*|(?:старш\w+\s+)?вице-?президент\w*|"
+    r"генеральн\w+\s+директор\w*|главн\w+\s+бухгалтер\w*|"
+    r"директор\w*|ректор\w*)",
+    re.IGNORECASE,
+)
+_SIGNATORY_PREAMBLE = re.compile(
+    r"\bв\s+лице\s+(?P<position>.+)\s+"
+    r"[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+"
+    r"(?=\s*,\s*действующ)",
+    re.IGNORECASE,
+)
+_SIGNATORY_SIGNATURE = re.compile(
+    r"\bот\s+(?:Заказчик\w*|Исполнител\w*|Поставщик\w*|Покупател\w*)\s*:\s*"
+    r"(?P<position>.+?)(?=\s*_{2,}|\s*/[А-ЯЁ])",
+    re.IGNORECASE,
+)
+
+
+def _has_identifying_position_tail(value: str) -> bool:
+    """Проверить, что должность называет сторону, а не только функцию."""
+    folded = value.casefold()
+    return (
+        "российской федерац" in folded
+        or any(
+            marker in folded
+            for marker in (
+                " пао",
+                " ооо",
+                " ао ",
+                "гбпоу",
+                "фгбоу",
+                "маоу",
+                "мбоу",
+                "министерств",
+                "администраци",
+            )
+        )
+    )
+
+
+def find_identifying_signatory_positions(text: str) -> list[tuple[int, int]]:
+    """Найти должности подписанта, по которым можно установить сторону.
+
+    Голая типовая функция не является идентификатором: «Генеральный
+    директор», «Главный бухгалтер» и «И.о. директора» остаются читаемыми.
+    Но должность с названием органа/организации — фактически его публичная
+    визитная карточка и маскируется целиком. 11.09.2026 это измерено на
+    `arkhschool-68-183.pdf`: после маски ФИО строка «Заместитель Министра
+    цифрового развития ... Российской Федерации» буквально выдавала
+    заказчика; у исполнителя ту же роль играл хвост «ПАО „Ростелеком“».
+
+    В преамбуле границей справа служит полное ФИО перед «действующего», а в
+    подписи — линия/ФИО после должности. Поэтому хвост «по работе с
+    корпоративным и государственным сегментами» остаётся внутри одного
+    спана, а не переживает маскировку ФИО отдельно.
+    """
+    spans: set[tuple[int, int]] = set()
+    for pattern in (_SIGNATORY_PREAMBLE, _SIGNATORY_SIGNATURE):
+        for match in pattern.finditer(text):
+            start, end = match.span("position")
+            value = text[start:end].strip()
+            if not _SIGNATORY_POSITION_START.match(value) or not _has_identifying_position_tail(
+                value
+            ):
+                continue
+            # Пробелы на краю не должны становиться частью замены: иначе
+            # PDF-рендер теряет разделитель между маркером и подписью.
+            while start < end and text[start].isspace():
+                start += 1
+            while start < end and text[end - 1].isspace():
+                end -= 1
+            spans.add((start, end))
+    return sorted(spans)
+
 
 def drop_role_prefix(text: str, start: int, end: int) -> tuple[int, int] | None:
     """Срезать ведущие ролевые/должностные токены спана.

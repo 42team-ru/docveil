@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from masker.detect.base import EntityDetector
 from masker.detect.confidence import classify_level
+from masker.detect.legal_references import is_public_legal_reference_type
 from masker.detect.normalize import normalize_value
 from masker.detect.normalize_layout import normalize_for_detection
 from masker.detect.orgforms import (
@@ -304,6 +305,17 @@ class DetectAgent:
             original_text = original_segments[entity.segment_order].text
             start = mapping[entity.start]
             end = mapping[entity.end]
+            if entity.type is EntityType.PERSON and re.search(r"[А-ЯЁ]\.[А-ЯЁ]$", entity.text):
+                cursor = end
+                while cursor < len(original_text) and original_text[cursor] == " ":
+                    cursor += 1
+                if cursor < len(original_text) and original_text[cursor] == ".":
+                    # На `dagestanschool-kais-808.pdf` 11.09.2026 Natasha
+                    # отдавала «Магомедов Н.Г» без завершающей точки, хотя
+                    # карта уже привела к ней через разрядочные пробелы.
+                    # Точка завершает инициал, а не предложение, поэтому
+                    # расширяем только эту строго распознанную форму.
+                    end = cursor + 1
             remapped.append(
                 Entity(
                     type=entity.type,
@@ -348,6 +360,15 @@ class DetectAgent:
             entities = self._remap_entities(entities, maps, original_segments)
             self._validate(detector, document, entities)
             found.extend((detector, entity) for entity in entities)
+        # 11.09.2026: `44-ФЗ` из преамбулы контракта был формально найден
+        # `RuleDetector`, а затем ошибочно попадал в план масок. Реквизит
+        # нормативного акта публичен; фильтруем его после всех детекторов,
+        # не меняя запрещённый низкоуровневый шаблон `rules.py`.
+        found = [
+            (detector, entity)
+            for detector, entity in found
+            if not is_public_legal_reference_type(entity.type)
+        ]
         entities = self._resolve_overlaps(found)
         extra_sweep_types = frozenset(
             entity_type

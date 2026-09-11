@@ -140,6 +140,22 @@ def _expand_right_past_quote(text: str, quote_start: int) -> int:
     return quote_start
 
 
+def _expand_right_into_quoted_name_after_region_code(text: str, end: int) -> int:
+    """Пройти от ОПФ через короткий код региона к названию в кавычках.
+
+    11.09.2026 в ``ГБПОУ РД «КАиС»`` код ``РД`` отделял форму от названия,
+    поэтому обычное расширение останавливалось перед открывающей кавычкой и
+    оставляло собственно имя организации незамаскированным.
+    """
+    match = re.match(r"(?:[ \t ]+[А-ЯЁA-Z]{1,3}){1,2}[ \t ]+", text[end:])
+    if match is None:
+        return end
+    quote_start = end + match.end()
+    if quote_start >= len(text) or text[quote_start] not in _quote_chars():
+        return end
+    return _expand_right_past_quote(text, quote_start)
+
+
 def _expand_right_plain(text: str, end: int) -> int:
     """Набрать название вправо словами до стоп-условия (план, шаг 6, п. 2)."""
     stop_chars = _STOP_PUNCT | _quote_chars()
@@ -243,7 +259,9 @@ class OrgFormDetector:
                         # раскрыть напрямую, не сверяя форму повторно.
                         new_end = _expand_right_past_quote(text, cursor)
                 else:
-                    new_end = _expand_right_plain(text, end)
+                    new_end = _expand_right_into_quoted_name_after_region_code(text, end)
+                    if new_end == end:
+                        new_end = _expand_right_plain(text, end)
                 value = text[start:new_end]
                 if is_organization_form_only(value):
                     continue

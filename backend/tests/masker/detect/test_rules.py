@@ -82,7 +82,11 @@ def test_treasury_personal_account_with_letter_and_qualified_label_is_found() ->
 
 
 def test_eleven_digit_numbers_without_personal_account_context_are_not_accounts() -> None:
-    """Р14: ОКТМО, СНИЛС и голый код не становятся лицевыми счетами."""
+    """Р14: ОКТМО, СНИЛС и голый код не становятся лицевыми счетами.
+
+    Сам ОКТМО с 11.09.2026 маскируется как ключ реестра (решение владельца
+    в Р22: это адрес стороны в виде кода), но тип у него свой — спутать его
+    с лицевым счётом по одной длине в одиннадцать знаков нельзя."""
     segment = Segment(
         text="ОКТМО 65701000001; СНИЛС 112-233-445 95; код 39062000144",
         anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
@@ -93,6 +97,7 @@ def test_eleven_digit_numbers_without_personal_account_context_are_not_accounts(
 
     assert not any(entity.type is EntityType.BANK_ACCOUNT for entity in entities)
     assert [(entity.type, entity.text) for entity in entities] == [
+        (EntityType.REGISTRY_KEY, "65701000001"),
         (EntityType.SNILS, "112-233-445 95"),
     ]
 
@@ -739,6 +744,86 @@ def test_registry_key_detector_does_not_treat_bare_eight_digits_as_okpo() -> Non
     )
 
     assert not any(entity.type is EntityType.REGISTRY_KEY for entity in detect_by_rules([segment]))
+
+
+# ---------------------------------------------------------------------------
+# Р22 — поисковые ключи сторон, не закрытые прежними правилами.
+# ---------------------------------------------------------------------------
+
+
+def test_registry_key_detector_masks_kbk_and_territorial_codes_but_not_reference_codes() -> None:
+    """Р22: КБК, ОКТМО, ОКАТО и ОКПО скрываются; ОКОГУ/ОКВЭД остаются."""
+    segment = Segment(
+        text=(
+            "КБК 071 0410 23 2 D2 07200 244; ОКТМО: 45380000000; "
+            "ОКАТО: 40298000000; Код по ОКПО: 17514186; "
+            "ОКОГУ: 4210001; ОКВЭД: 61.10"
+        ),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    entities = detect_by_rules([segment])
+
+    assert [entity.text for entity in entities if entity.type is EntityType.REGISTRY_KEY] == [
+        "071 0410 23 2 D2 07200 244",
+        "45380000000",
+        "40298000000",
+        "17514186",
+    ]
+    assert not any(entity.text in {"4210001", "61.10"} for entity in entities)
+
+
+def test_power_of_attorney_number_requires_its_context() -> None:
+    """Р22: доверенность находит номер с косыми чертами и короткий номер."""
+    segment = Segment(
+        text=(
+            "действует на основании доверенности от 20 июля 2022 г. № 01/29/533/23; "
+            "по доверенности № 109; приложение № 109"
+        ),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    numbers = [
+        entity.text
+        for entity in detect_by_rules([segment])
+        if entity.type is EntityType.POWER_OF_ATTORNEY_NUMBER
+    ]
+
+    assert numbers == ["01/29/533/23", "109"]
+
+
+def test_labeled_bik_masks_entire_numeric_tail_including_parser_artifacts() -> None:
+    """Р22: лишний ноль и слипшиеся БИК не оставляют цифровой хвост."""
+    segment = Segment(
+        text="БИК 024501901; БИК: 0044525225; БИК ТОФК 040702615018209001",
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert [entity.text for entity in detect_by_rules([segment]) if entity.type is EntityType.BIK] == [
+        "024501901",
+        "0044525225",
+        "040702615018209001",
+    ]
+
+
+def test_ip_address_detector_accepts_only_labeled_public_ipv4() -> None:
+    """Р22: публичный IP маскируется, версии и закрытые сети — нет."""
+    segment = Segment(
+        text=(
+            "IP-адрес: 83.171.96.195; IP адрес: 10.1.2.3; ip: 172.16.1.1; "
+            "ip: 192.168.1.1; ip: 127.0.0.1; ip: 0.1.2.3; ip: 255.255.255.255; "
+            "версия ПО 1.2.3.4; пункт 4.6.2"
+        ),
+        anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
+        order=0,
+    )
+
+    assert [entity.text for entity in detect_by_rules([segment]) if entity.type is EntityType.IP_ADDRESS] == [
+        "83.171.96.195"
+    ]
 
 
 # ---------------------------------------------------------------------------

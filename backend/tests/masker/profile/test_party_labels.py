@@ -42,6 +42,12 @@ def test_signature_known_party_role_is_still_accepted() -> None:
     assert find_labels("Исполнитель: ООО «ШБС»") == [(0, "исполнитель")]
 
 
+def test_signature_side_with_ot_is_party_role() -> None:
+    """«От Заказчика:» помечает блок подписи ролью стороны, не должностью."""
+    text = "от Заказчика: Заместитель Министра цифрового развития"
+    assert find_labels(text) == [(text.index("Заказчика"), "заказчик")]
+
+
 def test_signature_accepts_role_already_introduced_by_preamble() -> None:
     """Метка, которой нет в статичном списке, но которую документ сам ввёл
     через преамбулу («именуемое в дальнейшем «X»»), не выдумана — её можно

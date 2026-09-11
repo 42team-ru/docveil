@@ -31,6 +31,12 @@ def _detect_inn(text: str) -> list[str]:
     return [entity.text for entity in result.entities if entity.type == EntityType.INN]
 
 
+def _detect_type(text: str, entity_type: EntityType) -> list[str]:
+    """Вернуть исходные спаны одного типа из сквозной детекции."""
+    result = DetectAgent(default_detectors()).detect(_document(text))
+    return [entity.text for entity in result.entities if entity.type == entity_type]
+
+
 def _map_roundtrip(text: str, mapping: list[int], start: int, end: int) -> str:
     """Применить карту смещений к спану ``[start, end)``, найденному в
     нормализованном тексте, и вернуть срез исходного ``text``. Именно так
@@ -243,3 +249,90 @@ class TestDetectAgentAcceptsLayoutVariants:
         normalized_once, _ = normalize_for_detection(text)
         normalized_twice, _ = normalize_for_detection(normalized_once)
         assert normalized_once == normalized_twice == text
+
+    def test_sparse_segment_is_collapsed_but_title_case_name_keeps_word_boundaries(self) -> None:
+        """Разрядка всего сегмента не мешает NER увидеть отдельные части ФИО."""
+        text = "М а г о м е д о в А б д у р а х м а н Ю н у с о в и ч"
+        normalized, mapping = normalize_for_detection(text)
+        assert normalized == "Магомедов Абдурахман Юнусович"
+        start = normalized.index("Магомедов")
+        assert _map_roundtrip(text, mapping, start, len(normalized)) == text
+
+    def test_sparse_account_chain_is_split_only_after_account_label(self) -> None:
+        """Два слипшихся счета остаются двумя 20-разрядными кандидатами."""
+        text = "Р а с ч е т н ы й с ч е т 4070281096032001443403224643820000000300"
+        normalized, mapping = normalize_for_detection(text)
+        assert normalized == "Расчетныйсчет 40702810960320014434 03224643820000000300"
+        first = normalized.index("40702810960320014434")
+        second = normalized.index("03224643820000000300")
+        assert _map_roundtrip(text, mapping, first, first + 20) == "40702810960320014434"
+        assert _map_roundtrip(text, mapping, second, second + 20) == "03224643820000000300"
+
+    def test_sparse_correspondent_account_chain_is_split_after_short_label(self) -> None:
+        text = "К о р р . с ч е т 3010181090702000061540102810945370000069"
+        normalized, _ = normalize_for_detection(text)
+        assert normalized == "Корр . счет 30101810907020000615 40102810945370000069"
+
+    def test_sparse_kpp_and_inn_chain_is_split_at_valid_inn(self) -> None:
+        text = "И Н Н / К П П 0 5 5 4 0 1 0 0 1 0 5 4 5 0 1 1 6 2 8"
+        normalized, _ = normalize_for_detection(text)
+        assert normalized == "ИНН / КПП 055401001 0545011628"
+
+    def test_sparse_phone_chain_repairs_text_layer_and_splits_numbers(self) -> None:
+        text = "Т е л е ф о н ы 8 - 9 2 8 - 5 6 5 - 4 f - 3 1 8 -9 0 3 - 4 8 0 - 0 8 - 6 2"
+        normalized, mapping = normalize_for_detection(text)
+        assert normalized == "Телефоны 8-928-565-41-31,8-903-480-08-62"
+        second = normalized.index("8-903")
+        assert _map_roundtrip(text, mapping, second, second + len("8-903-480-08-62")) == (
+            "8 -9 0 3 - 4 8 0 - 0 8 - 6 2"
+        )
+
+    def test_sparse_email_chain_repairs_ocr_symbols_and_keeps_three_spans(self) -> None:
+        text = (
+            "Е - m ail k tk -d a 2 ® .m a il.r u : "
+            "k a sp iy te le k o m f® ,m a il.r u k a s o k o lle ® ,m a il.r u"
+        )
+        normalized, _ = normalize_for_detection(text)
+        assert normalized == "Е-mail ktk-da2@mail.ru : kaspiytelekomf@mail.ru kasokolle@mail.ru"
+        assert _detect_type(text, EntityType.EMAIL) == [
+            "k tk -d a 2 ® .m a il.r u",
+            "k a sp iy te le k o m f® ,m a il.r u ",
+            "k a s o k o lle ® ,m a il.r u",
+        ]
+
+    def test_concatenated_biks_are_separate_labeled_values(self) -> None:
+        text = "БИК040702615018209001"
+        normalized, _ = normalize_for_detection(text)
+        assert normalized == "БИК 040702615 БИК 018209001"
+        assert _detect_type(text, EntityType.BIK) == ["040702615", "018209001"]
+
+    def test_sparse_signatory_initials_include_the_final_dot_in_source_span(self) -> None:
+        text = "М а г о м е д о в Н .Г ."
+        assert _detect_type(text, EntityType.PERSON) == [text]
+
+    def test_sparse_gbpou_name_is_detected_as_organization(self) -> None:
+        text = "Г Б П О У Р Д я К А и С »"
+        assert _detect_type(text, EntityType.ORG_NAME) == [text]
+
+    def test_columnar_requisites_keep_digit_to_letter_boundaries(self) -> None:
+        """Двойные пробелы обычной таблицы не должны склеивать реквизиты.
+
+        Регрессия `arkhschool-68-183.pdf`, сегмент 197: там 5 одиночных
+        буквенных токенов из 50, то есть это колоночная вёрстка, а не
+        разрядка. Без границ после чисел терялись ОГРН, оба счёта и ОКПО.
+        """
+        text = (
+            "Код отрасли по ОКПО: 17514186  ОГРН: 1027700198767  "
+            "БАНК: ПАО Сбербанк  БИК: 0044525225 "
+            "Корреспондентский счет:  30101810400000000225  "
+            "Расчетный счет: 40702810038180132605"
+        )
+        normalized, _ = normalize_for_detection(text)
+        assert "1027700198767 БАНК" in normalized
+        assert "30101810400000000225 Расчетный" in normalized
+        assert _detect_type(text, EntityType.OGRN) == ["1027700198767"]
+        assert _detect_type(text, EntityType.BANK_ACCOUNT) == [
+            "30101810400000000225",
+            "40702810038180132605",
+        ]
+        assert _detect_type(text, EntityType.REGISTRY_KEY) == ["17514186"]

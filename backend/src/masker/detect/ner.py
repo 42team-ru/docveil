@@ -13,6 +13,7 @@ from masker.detect.orgforms import (
     expand_org_span,
     fix_person_initials,
     has_organization_evidence,
+    is_formula_variable,
     is_landmark_place,
     is_organization_form_only,
     is_partial_org_form,
@@ -21,6 +22,7 @@ from masker.detect.orgforms import (
     is_role_phrase,
     is_role_stopword,
     is_role_token,
+    is_unqualified_short_uppercase_abbreviation,
     shrink_span,
 )
 from masker.detect.person_values import is_single_token_uppercase_abbreviation
@@ -177,6 +179,8 @@ class NatashaDetector:
                             or (not org_evidence and is_public_body(value))
                             or is_regulatory_code(value)
                             or is_role_phrase(value)
+                            or is_unqualified_short_uppercase_abbreviation(value)
+                            or is_formula_variable(segment.text, start, end)
                             or (not has_organization_evidence(value) and len(value.split()) == 1)
                         )
                     )

@@ -53,6 +53,8 @@ VALIDATED_TYPES: frozenset[EntityType] = frozenset(
         EntityType.SNILS,
         EntityType.KPP,
         EntityType.REGISTRY_KEY,
+        EntityType.POWER_OF_ATTORNEY_NUMBER,
+        EntityType.IP_ADDRESS,
     }
 )
 

@@ -114,10 +114,6 @@
     },
     {
       "type": "date",
-      "text": "18.07.2011"
-    },
-    {
-      "type": "date",
       "text": "03 декабря 2024"
     },
     {
@@ -130,23 +126,11 @@
     },
     {
       "type": "date",
-      "text": "9 декабря 2011"
-    },
-    {
-      "type": "date",
       "text": "2.4.3590"
     },
     {
       "type": "date",
       "text": "31 июля 2025"
-    },
-    {
-      "type": "date",
-      "text": "30.03.1999"
-    },
-    {
-      "type": "date",
-      "text": "02.01.2000"
     },
     {
       "type": "date",
@@ -203,18 +187,6 @@
     {
       "type": "money",
       "text": "1 000 (одна тысяча) рублей 00 копеек"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 223-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 52-ФЗ"
-    },
-    {
-      "type": "federal_law",
-      "text": "№ 29-ФЗ"
     },
     {
       "type": "org_name",

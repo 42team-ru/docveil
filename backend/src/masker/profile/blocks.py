@@ -12,6 +12,8 @@ MAX_EMPTY_GAP = 2
 MAX_BLOCK_SPANS = 12
 MAX_BLOCK_CHARS = 4000
 HEADING = re.compile(r"^\s*\d+(?:\.\d+)*\.?\s+")
+#: Метаданные ЭП отделяют подпись одной стороны от сертификата другой.
+_SIGNATURE_METADATA_HEADING = re.compile(r"^данные\s+(?:электронной\s+подписи|сертификата)\b", re.I)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +79,7 @@ def build_context_blocks(segments: list[Segment], entities: list[Entity]) -> lis
         heading = segment.text.strip() if _is_heading(segment.text) else ""
         # Сброс выполняется до применения explicit_label этого же сегмента —
         # иначе заголовок, который сам несёт метку, погасил бы её же.
-        if is_numbered_heading or (
+        if is_numbered_heading or _SIGNATURE_METADATA_HEADING.match(segment.text.strip()) or (
             previous_anchor_kind is not None
             and segment_anchor_kind != previous_anchor_kind
             and not active_label_from_heading

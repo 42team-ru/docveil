@@ -248,6 +248,7 @@ def test_penalty_reference_rates_are_not_money_or_contract_amount() -> None:
         "Срок поставки — 14 календарных дней.",
         "Срок поставки: 7 дней.",
         "30 рабочих дней с момента получения заявки.",
+        "Заказчик вправе продлить срок приемки не более чем на 5 (Пять) рабочих дней.",
     ],
 )
 def test_delivery_period_detected(text: str) -> None:

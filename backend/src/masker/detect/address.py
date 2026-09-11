@@ -390,7 +390,8 @@ class AddressDetector:
         # Индекс без населённого пункта — не полный адрес: обрывки «102400»,
         # «обл., 184600» дают is_stop=False (есть kind="index"), но их одних
         # недостаточно, чтобы маскировать. Нужно settlement+index или
-        # settlement+(street|building).
+        # settlement+(street|building). Явная метка «адрес» обрабатывается
+        # отдельно в вызывающем коде через `_has_value_label`.
         has_locality_detail = "settlement" in kinds and ("street" in kinds or "building" in kinds)
         has_index_with_settlement = "index" in kinds and "settlement" in kinds
         return has_locality_detail or has_index_with_settlement

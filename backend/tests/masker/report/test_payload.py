@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from masker.detect.agent import DetectAgent
 from masker.entity_types import EntityTypeRegistry
 from masker.ingest.docx_ingest import ingest_docx
@@ -147,6 +149,26 @@ def test_marker_legend_maps_shown_to_canonical_with_human_page_numbers() -> None
     assert legend == [{"shown_label": "[Ф1]", "canonical_label": "[ПОСТАВЩИК-ФИО-1]", "pages": [3]}]
 
 
+def test_marker_legend_skips_self_explanatory_semantic_short_label() -> None:
+    """11.09.2026: дата выдачи лицензии читается без отдельной расшифровки."""
+    assert (
+        marker_legend(
+            [
+                _degradation(
+                    shown_label="[Выд. лиц. 4]", canonical_label="[Дата выдачи лицензии 4]", page=0
+                )
+            ]
+        )
+        == []
+    )
+
+
+def test_marker_legend_rejects_mismatching_visible_and_canonical_numbers() -> None:
+    """Нельзя молча выдать легенду, связывающую «Сумма 3» с «Сумма 1»."""
+    with pytest.raises(ValueError, match="не совпадает"):
+        marker_legend([_degradation(shown_label="[Сумма 3]", canonical_label="[Сумма 1]", page=0)])
+
+
 def test_marker_legend_aggregates_pages_and_deduplicates() -> None:
     """Один и тот же сокращённый маркер встречается на нескольких страницах
     — легенда даёт одну строку с отсортированным списком уникальных страниц,
@@ -170,12 +192,12 @@ def test_marker_legend_keeps_different_canonical_labels_separate() -> None:
     legend = marker_legend(
         [
             _degradation(shown_label="[Ф1]", canonical_label="[ПОСТАВЩИК-ФИО-1]", page=1),
-            _degradation(shown_label="[Ф2]", canonical_label="[ПОКУПАТЕЛЬ-ФИО-1]", page=1),
+            _degradation(shown_label="[П1]", canonical_label="[ПОКУПАТЕЛЬ-ФИО-1]", page=1),
         ]
     )
     assert legend == [
+        {"shown_label": "[П1]", "canonical_label": "[ПОКУПАТЕЛЬ-ФИО-1]", "pages": [2]},
         {"shown_label": "[Ф1]", "canonical_label": "[ПОСТАВЩИК-ФИО-1]", "pages": [2]},
-        {"shown_label": "[Ф2]", "canonical_label": "[ПОКУПАТЕЛЬ-ФИО-1]", "pages": [2]},
     ]
 
 
@@ -218,18 +240,18 @@ def test_marker_legend_order_is_deterministic_regardless_of_input_order() -> Non
     отчёта (инвариант проекта)."""
     forward = marker_legend(
         [
-            _degradation(shown_label="[Ф2]", canonical_label="[ПОКУПАТЕЛЬ-ФИО-1]", page=5),
+            _degradation(shown_label="[П1]", canonical_label="[ПОКУПАТЕЛЬ-ФИО-1]", page=5),
             _degradation(shown_label="[Ф1]", canonical_label="[ПОСТАВЩИК-ФИО-1]", page=1),
         ]
     )
     backward = marker_legend(
         [
             _degradation(shown_label="[Ф1]", canonical_label="[ПОСТАВЩИК-ФИО-1]", page=1),
-            _degradation(shown_label="[Ф2]", canonical_label="[ПОКУПАТЕЛЬ-ФИО-1]", page=5),
+            _degradation(shown_label="[П1]", canonical_label="[ПОКУПАТЕЛЬ-ФИО-1]", page=5),
         ]
     )
     assert forward == backward
-    assert [item["shown_label"] for item in forward] == ["[Ф1]", "[Ф2]"]
+    assert [item["shown_label"] for item in forward] == ["[П1]", "[Ф1]"]
 
 
 # ── _validation_record: сертификат обезличивания в report.json (план М3) ─────────

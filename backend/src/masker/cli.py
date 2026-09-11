@@ -60,13 +60,16 @@ def _run_options_from_args(
     source: Path,
     interactive: bool,
 ) -> RunOptions:
-    """Опции графа из CLI. PDF принудительно ``profile=False`` (риск R5, T2.2)."""
+    """Опции графа из CLI; PDF получает офлайн-профили сторон по умолчанию."""
     types_tuple = (
         None
         if selected_types == frozenset(EntityType)
         else tuple(sorted(entity_type.value for entity_type in selected_types))
     )
-    profile = args.profile and source.suffix.casefold() != ".pdf"
+    # 11.09.2026: без структурного профиля PDF не может дать стороне один
+    # номер во всех вхождениях. Это офлайн-кластеризация, а не отправка
+    # документа в LLM; `--profile` по-прежнему нужен только для судьи/LLM.
+    profile = args.profile or source.suffix.casefold() == ".pdf"
     return RunOptions(
         types=types_tuple,
         rules_only=args.rules_only,

@@ -22,6 +22,7 @@ from masker.detect.result import PiiChunk
 from masker.entity_types import EntityTypeRegistry
 from masker.graph.serde import judge_to_dicts, profiles_to_dicts
 from masker.judge.agent import JudgeResult
+from masker.mask.labels import label_number
 from masker.model import ConfidenceLevel, Document, Entity, Leak, MaskPlan, ValidationReport
 from masker.profile.agent import ProfileResult
 
@@ -328,6 +329,26 @@ def marker_legend(render_degradations: list[dict[str, Any]]) -> list[dict[str, A
         shown = str(item.get("shown_label") or "")
         canonical = str(item.get("canonical_label") or "")
         if not shown or not canonical or shown == canonical:
+            continue
+        if label_number(shown) != label_number(canonical):
+            raise ValueError(
+                f"Номер видимой метки не совпадает с канонической: {shown!r} != {canonical!r}"
+            )
+        # 11.09.2026: короткие подписи дат и лицензий уже называют значение
+        # (`[Выд. лиц. 1]`, `[Срок лиц. 2]`), поэтому дублирующая легенда
+        # только раздувает отчёт. Неоднозначные сокращения роли остаются.
+        if shown.startswith(
+            (
+                "[Выд. лиц.",
+                "[Дата дог.",
+                "[Довер.",
+                "[Лицензия",
+                "[Переоф. лиц.",
+                "[Рег. лиц.",
+                "[Срок лиц.",
+                "[№ дов.",
+            )
+        ):
             continue
         pages_by_key[(shown, canonical)].add(int(item.get("page", 0)) + 1)
     return [

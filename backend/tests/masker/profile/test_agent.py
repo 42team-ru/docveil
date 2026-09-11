@@ -122,6 +122,46 @@ def test_power_of_attorney_number_and_ip_address_stay_without_party_profile() ->
     assert result.unassigned == ["E1", "E2"]
 
 
+def test_signature_metadata_does_not_attach_other_side_or_country_to_executor() -> None:
+    """12.09.2026: второй сертификат ЭП не наследует роль Исполнителя."""
+    texts = [
+        "ЗАКАЗЧИК: Угнивенко Дмитрия Константиновича",
+        "ИСПОЛНИТЕЛЬ: Ермаков Валерий Викторович; Российская Федерация",
+        "Данные электронной подписи",
+        "Владелец: Угнивенко Дмитрий Константинович; Организация: Российская Федерация",
+    ]
+    segments = [
+        Segment(text, Anchor("pdf", ("page", 0, order, order + len(text))), order)
+        for order, text in enumerate(texts)
+    ]
+
+    def person(order: int, value: str) -> Entity:
+        start = texts[order].index(value)
+        return Entity(EntityType.PERSON, value, order, start, start + len(value), Source.NER, 0.9)
+
+    customer = person(0, "Угнивенко Дмитрия Константиновича")
+    executor = person(1, "Ермаков Валерий Викторович")
+    false_country = person(1, "Российская Федерация")
+    certificate_owner = person(3, "Угнивенко Дмитрий Константинович")
+    result = ProfileAgent().profile(
+        Document("signature.pdf", "pdf", segments),
+        DetectionResult([customer, executor, false_country, certificate_owner], []),
+    )
+
+    executor_profile = next(
+        profile for profile in result.profiles if profile.marker_label == "ИСПОЛНИТЕЛЬ"
+    )
+    executor_texts = {member.entity.text for member in executor_profile.members}
+    assert "Угнивенко Дмитрий Константинович" not in executor_texts
+    assert "Российская Федерация" not in executor_texts
+    customer_profile = next(
+        profile for profile in result.profiles if profile.marker_label == "ЗАКАЗЧИК"
+    )
+    assert "Угнивенко Дмитрий Константинович" in {
+        member.entity.text for member in customer_profile.members
+    }
+
+
 def result_source_is_rule_before_llm(document: Document, detection: DetectionResult) -> bool:
     baseline = ProfileAgent(None).profile(document, detection)
     profile = baseline.profiles[0]

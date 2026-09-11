@@ -9,14 +9,21 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 
 from masker.entity_types import EntityTypeRegistry
 from masker.mask.keys import group_key
 from masker.mask.labels import (
+    align_compact_label_number,
     assign_compact_labels,
+    belongs_to_subject,
+    compact_type_code,
     compose_canonical_label,
     compose_marker,
+    contextual_type_label,
+    is_anonymous_role,
+    short_role_label,
     type_marker_label,
 )
 from masker.model import (
@@ -104,18 +111,87 @@ class PlanAgent:
         pending = _prefer_contract_amount(pending)
 
         buckets = _bucket_by_first_occurrence(pending)
+        segments_by_order = {segment.order: segment for segment in document.segments}
+        display_label_by_bucket = {
+            bucket: contextual_type_label(
+                items[0].entity.type,
+                segments_by_order[items[0].entity.segment_order].text,
+                items[0].entity.start,
+                items[0].entity.end,
+            )
+            for bucket, items in buckets.items()
+        }
+        profile_number_by_id = _profile_numbers(profiles)
         marker_by_bucket, number_by_bucket, canonical_by_bucket = _assign_markers(
-            buckets, role_label_by_profile_id, self._registry
-        )
-        # Компактная метка (план М1) нумеруется сквозным счётчиком по типу
-        # для всего документа, а не по паре (роль, тип) — иначе два профиля
-        # с разными ролями схлопнутся в одинаковый `[Ф1]` (обе пары
-        # начинают свой номер с 1). Порядок — порядок вставки `buckets`,
-        # то есть порядок первого появления в тексте (детерминизм).
-        compact_label_by_bucket = assign_compact_labels(
-            [(bucket, items[0].entity.type) for bucket, items in buckets.items()],
+            buckets,
+            role_label_by_profile_id,
+            profile_number_by_id,
+            display_label_by_bucket,
             self._registry,
         )
+        _align_power_of_attorney_numbers(
+            buckets,
+            number_by_bucket,
+            canonical_by_bucket,
+            display_label_by_bucket,
+            self._registry,
+        )
+        # База короткой метки строится в порядке первого появления группы;
+        # затем её номер выравнивается по канонической форме ниже.
+        compact_label_by_bucket = assign_compact_labels(
+            [
+                (bucket, items[0].entity.type, display_label_by_bucket[bucket])
+                for bucket, items in buckets.items()
+            ],
+            self._registry,
+        )
+        for bucket, items in buckets.items():
+            # Короткая форма может сократить тип или роль, но не переименовать
+            # группу: отдельный сквозной счётчик раньше превращал каноническую
+            # «[Сумма 1]» в видимую «[Сумма 3]».
+            compact_label_by_bucket[bucket] = align_compact_label_number(
+                compact_label_by_bucket[bucket], canonical_by_bucket[bucket]
+            )
+            profile_id = items[0].profile_id
+            profile_number = profile_number_by_id.get(profile_id)
+            role_label = role_label_by_profile_id.get(profile_id, "")
+            if (
+                profile_number is not None
+                and belongs_to_subject(items[0].entity.type)
+                and not is_anonymous_role(role_label)
+            ):
+                # 11.09.2026: все написания значения из одного профиля
+                # обязаны иметь одну короткую подпись, не свой номер группы.
+                compact_label_by_bucket[bucket] = (
+                    f"[{short_role_label(role_label)}"
+                    f"{compact_type_code(items[0].entity.type, self._registry)}{profile_number}]"
+                )
+
+        canonical_by_compact: dict[str, str] = {}
+        used_compact_labels: set[str] = set()
+        for bucket in buckets:
+            label = compact_label_by_bucket[bucket]
+            canonical = canonical_by_bucket[bucket]
+            previous_canonical = canonical_by_compact.get(label)
+            if previous_canonical is None or previous_canonical == canonical:
+                # 12.09.2026: повтор канонической метки означает одну
+                # читаемую роль стороны, даже если PlanAgent хранит разные
+                # значения в отдельных группах. Разная подпись здесь лжёт
+                # читателю, будто это разные стороны.
+                canonical_by_compact.setdefault(label, canonical)
+                used_compact_labels.add(label)
+                continue
+            # Одинаковая короткая форма у РАЗНЫХ канонических меток делает
+            # их неразличимыми. Только в этом случае добавляем различитель;
+            # номер канонической метки остаётся последним для отчёта.
+            for offset in range(32):
+                suffix = chr(ord("а") + offset)
+                candidate = re.sub(r"(\d+)\]$", rf"{suffix}\1]", label)
+                if candidate not in used_compact_labels:
+                    compact_label_by_bucket[bucket] = candidate
+                    canonical_by_compact[candidate] = canonical
+                    used_compact_labels.add(candidate)
+                    break
 
         groups: list[MaskGroup] = []
         group_id_by_bucket: dict[_BucketKey, str] = {}
@@ -198,6 +274,75 @@ def _profile_lookup(
     return role_label_by_profile_id, profile_id_by_ref
 
 
+def _profile_numbers(profiles: list[Profile] | None) -> dict[str, int]:
+    """Назначить стабильный номер каждому профилю внутри его роли.
+
+    Номер стороны должен происходить из профиля, а не из очереди значений:
+    тогда одна и та же персона, сведённая профилировщиком из полной и краткой
+    формы, сохраняет номер во всех местах документа.
+    """
+    if not profiles:
+        return {}
+    by_role: dict[str, list[Profile]] = {}
+    for profile in profiles:
+        by_role.setdefault(profile.marker_label, []).append(profile)
+    result: dict[str, int] = {}
+    for grouped in by_role.values():
+        # 11.09.2026: порядок профилей уже задан первым вхождением cluster(),
+        # но сортировка id фиксирует номер и для переданных извне профилей.
+        for number, profile in enumerate(sorted(grouped, key=lambda item: item.id), start=1):
+            result[profile.id] = number
+    return result
+
+
+def _align_power_of_attorney_numbers(
+    buckets: dict[_BucketKey, list[_PendingEntity]],
+    number_by_bucket: dict[_BucketKey, int],
+    canonical_by_bucket: dict[_BucketKey, str],
+    display_label_by_bucket: dict[_BucketKey, str],
+    registry: EntityTypeRegistry,
+) -> None:
+    """Дать дате и номеру одной доверенности общий читаемый номер."""
+    powers = [
+        bucket
+        for bucket, items in buckets.items()
+        if items[0].entity.type == EntityType.POWER_OF_ATTORNEY_NUMBER
+    ]
+    for bucket, items in buckets.items():
+        entity = items[0].entity
+        if entity.type != EntityType.DATE or display_label_by_bucket[bucket] != "Дата доверенности":
+            continue
+        same_segment = [
+            power
+            for power in powers
+            if buckets[power][0].entity.segment_order == entity.segment_order
+            and buckets[power][0].entity.start >= entity.end
+        ]
+        if not same_segment:
+            continue
+        power = min(same_segment, key=lambda item: buckets[item][0].entity.start)
+        number = number_by_bucket[power]
+        # 12.09.2026: в школьном контракте «от 26 октября … №109»
+        # превращалось в `[Довер. 2]` и `[Ном. дов. 1]`, потому что date и
+        # power_of_attorney_number нумеровались разными очередями.
+        number_by_bucket[bucket] = number
+        power_entity = buckets[power][0].entity
+        canonical_by_bucket[power] = compose_canonical_label(
+            "",
+            power_entity.type,
+            number,
+            registry,
+            display_type_label=display_label_by_bucket[power],
+        )
+        canonical_by_bucket[bucket] = compose_canonical_label(
+            "",
+            entity.type,
+            number,
+            registry,
+            display_type_label=display_label_by_bucket[bucket],
+        )
+
+
 def _bucket_by_first_occurrence(
     pending: list[_PendingEntity],
 ) -> dict[_BucketKey, list[_PendingEntity]]:
@@ -217,6 +362,8 @@ def _bucket_by_first_occurrence(
 def _assign_markers(
     buckets: dict[_BucketKey, list[_PendingEntity]],
     role_label_by_profile_id: dict[str, str],
+    profile_number_by_id: dict[str, int],
+    display_label_by_bucket: dict[_BucketKey, str],
     registry: EntityTypeRegistry,
 ) -> tuple[dict[_BucketKey, str], dict[_BucketKey, int], dict[_BucketKey, str]]:
     """Пронумеровать группы внутри пары (роль, тип) и собрать маркеры.
@@ -244,12 +391,29 @@ def _assign_markers(
     canonical_by_bucket: dict[_BucketKey, str] = {}
     for (role_label, entity_type), bucket_keys in pair_order.items():
         type_label = type_marker_label(entity_type, registry)
+        marker_role = (
+            role_label
+            if belongs_to_subject(entity_type) and not is_anonymous_role(role_label)
+            else ""
+        )
         show_suffix = len(bucket_keys) > 1
         for number, bucket in enumerate(bucket_keys, start=1):
             number_by_bucket[bucket] = number
-            suffix = number if show_suffix else None
-            marker_by_bucket[bucket] = compose_marker(role_label, type_label, suffix)
+            profile_id = buckets[bucket][0].profile_id
+            role_number = profile_number_by_id.get(profile_id)
+            # 11.09.2026: субъектные метки получают номер профиля; условия
+            # договора остаются без роли и продолжают различаться значением.
+            suffix = (
+                role_number
+                if role_number is not None and not is_anonymous_role(role_label)
+                else (number if show_suffix else None)
+            )
+            marker_by_bucket[bucket] = compose_marker(marker_role, type_label, suffix)
             canonical_by_bucket[bucket] = compose_canonical_label(
-                role_label, entity_type, suffix, registry
+                role_label,
+                entity_type,
+                suffix,
+                registry,
+                display_type_label=display_label_by_bucket[bucket],
             )
     return marker_by_bucket, number_by_bucket, canonical_by_bucket

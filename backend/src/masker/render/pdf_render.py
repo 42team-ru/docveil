@@ -105,21 +105,11 @@ _FONT_NAME = "cyr"
 #: на более мелкий шрифт. Раньше здесь были размеры вплоть до 2 pt — именно
 #: это порождало жалобу заказчика «мелкий шрифт».
 _MARKER_FONT_SIZES: tuple[float, ...] = (10.0, 9.0, 8.0)
-#: Реальная высота строки, которую требует ``page.insert_textbox`` — не
-#: кегль сам по себе (план М5, диагностика на ``contract_pdf_02_school.pdf``,
-#: группа ``G1``): бинарным поиском по нескольким ширинам/кеглям измерено
-#: устойчиво ``высота = 1.4 × кегль`` независимо от текста и ширины поля —
-#: внутренний межстрочный интервал PyMuPDF, не наша величина. Прежняя
-#: оценка (`box.height >= size`) была систематически оптимистична и
-#: молчала об этом, пока щедрый безусловный отступ (``-1``/``+2``) с запасом
-#: перекрывал разницу везде. План М5 сузил отступ до доказанно свободного
-#: места, и на одном реальном кандидате (тесная область у нижнего колонтитула)
-#: запаса больше не осталось: оценка сказала «влезет», а настоящая вставка
-#: текста — нет, что и должно было быть пойманым сразу, а не через дефект
-#: подсветки. Без этого множителя оценка и факт расходятся ровно там, где
-#: раньше расхождение маскировалось лишним воздухом, а не там, где текста
-#: действительно нет места.
-_LABEL_LINE_HEIGHT = 1.4
+#: 12.09.2026: подпись рисуется ``insert_text``, поэтому ей нужна высота
+#: реального глифа, а не служебный интервал ``insert_textbox`` в 1.4 кегля.
+#: Старое ограничение без причины уменьшало кегль даже у короткой метки,
+#: которая свободно помещалась на исходной строке.
+_LABEL_GLYPH_HEIGHT = 1.2
 #: Шаг сетки квантования ширины `erase_regions` (план М1, правило 5).
 #: Ширина прямоугольника, повторяющая ширину удалённого текста, — доказанный
 #: канал утечки длины фамилии (PoPETs 2023, ≈13 бит, один человек из 8000):
@@ -262,6 +252,68 @@ class RenderOutcome:
     replacements: tuple[Replacement, ...]
     markers: tuple[MarkerRenderResult, ...]
     collisions: tuple[RenderCollision, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _LabelCandidate:
+    """Безопасное поле подписи, baseline и кегль исходной строки."""
+
+    erase_rect: pymupdf.Rect
+    label_box: pymupdf.Rect
+    line_y0: float
+    source_font_size: float
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        """Сохранить старый внутренний контракт распаковки пары rect/box."""
+        return iter((self.erase_rect, self.label_box))
+
+    def __getitem__(self, index: int) -> pymupdf.Rect:
+        return (self.erase_rect, self.label_box)[index]
+
+
+def _line_font_sizes(page: pymupdf.Page) -> dict[int, float]:
+    """Вернуть обычный кегль каждой физической строки PDF.
+
+    12.09.2026: метка обязана наследовать кегль заменённого текста, а не
+    подстраиваться под ширину свободного поля. У строки с несколькими
+    спанами берём медиану, чтобы один надстрочный индекс не менял кегль
+    всей подписи.
+    """
+    sizes: dict[int, float] = {}
+    line_id = 0
+    for block in page.get_text("rawdict")["blocks"]:
+        if block["type"] != 0:
+            continue
+        for line in block["lines"]:
+            span_sizes = sorted(float(span["size"]) for span in line["spans"] if span["chars"])
+            if span_sizes:
+                sizes[line_id] = span_sizes[len(span_sizes) // 2]
+            line_id += 1
+    return sizes
+
+
+@dataclass(slots=True)
+class _PreparedMarkerBase:
+    """Очищенный PDF до рисования marker-подписей для второго стиля.
+
+    Копия сохраняется только на пару вызовов одного ``render_node``: сначала
+    создаётся ``masked_highlight``, затем из той же уже отредактированной
+    основы — ``masked_black``. Исходные глифы к этому моменту удалены именно
+    ``apply_redactions()``, а не закрыты графикой.
+    """
+
+    source: pathlib.Path
+    plan: MaskPlan
+    pdf: bytes
+    replacements: tuple[Replacement, ...]
+    collisions: tuple[RenderCollision, ...]
+
+
+# 11.09.2026: на 35-страничном edukirovsk оба стиля повторяли полный
+# ``apply_redactions()``; второй стиль получает уже очищенную основу.
+# Ровно один последний элемент ограничивает память и не смешивает документы
+# разных запусков графа.
+_PREPARED_MARKER_BASE: _PreparedMarkerBase | None = None
 
 
 class _PageCharsCache:
@@ -705,7 +757,13 @@ def compute_erase_geometry(
         doc.close()
 
 
-def _fitting_size(font: pymupdf.Font, text: str, box: pymupdf.Rect) -> float | None:
+def _fitting_size(
+    font: pymupdf.Font,
+    text: str,
+    box: pymupdf.Rect,
+    source_font_size: float,
+    fallback_reason: str = "",
+) -> float | None:
     """Первый кегль лестницы размеров (от крупного к минимальному), в
     который ``text`` помещается в ``box`` — та же формула, что и
     ``_ladder_fits``, только возвращает конкретный кегль, а не булево:
@@ -714,12 +772,20 @@ def _fitting_size(font: pymupdf.Font, text: str, box: pymupdf.Rect) -> float | N
     черновой странице (``count_highlight_overlaps``), а не гадать."""
     if box.width <= 0 or box.height <= 0:
         return None
-    for size in _MARKER_FONT_SIZES:
-        if font.text_length(text, fontsize=size) <= box.width and box.height >= (
-            size * _LABEL_LINE_HEIGHT
-        ):
+    for size in _font_size_candidates(source_font_size):
+        if font.text_length(text, fontsize=size) <= box.width and box.height >= size * _LABEL_GLYPH_HEIGHT:
             return size
     return None
+
+
+def _font_size_candidates(source_font_size: float) -> tuple[float, ...]:
+    """Сначала кегль источника, затем только допустимые ступени уменьшения.
+
+    12.09.2026: уменьшение — именно аварийная деградация, а не обычный
+    способ вписать метку в прямоугольник. Повтор не добавляем, когда
+    исходный кегль уже равен одной из ступеней.
+    """
+    return (source_font_size, *tuple(size for size in _MARKER_FONT_SIZES if size != source_font_size))
 
 
 def compute_label_geometry(
@@ -781,16 +847,17 @@ def compute_label_geometry(
                 _PageJob(replacement=replacement, seg_char_start=seg_start, rects=rects)
             )
 
-        candidates_by_group: dict[str, list[list[tuple[pymupdf.Rect, pymupdf.Rect]]]] = defaultdict(
+        candidates_by_group: dict[str, list[list[_LabelCandidate]]] = defaultdict(
             list
         )
-        candidates_by_ref: dict[str, list[tuple[pymupdf.Rect, pymupdf.Rect]]] = {}
+        candidates_by_ref: dict[str, list[_LabelCandidate]] = {}
         page_by_ref: dict[str, int] = {}
 
         for page_num in sorted(by_page):
             page = doc[page_num]
             pre_line_boxes = cache.line_boxes(page_num)
             pre_chars = cache.chars(page_num)
+            line_font_sizes = _line_font_sizes(page)
             trimmed_jobs: list[tuple[_PageJob, list[tuple[int, pymupdf.Rect]]]] = []
             for job in by_page[page_num]:
                 abs_start = job.seg_char_start + job.replacement.entity.start
@@ -822,14 +889,24 @@ def compute_label_geometry(
 
             post_chars = page_chars(page)
             post_line_boxes = _line_boxes(post_chars, skip_space=True)
+            suppressed_label_refs = _redundant_label_refs(
+                [job for job, _rects in trimmed_jobs],
+                {group.id: group for group in plan.groups},
+            )
             for job, trimmed_rects in trimmed_jobs:
                 other_erase_rects = _other_jobs_erase_rects(trimmed_jobs, job)
                 candidates = _label_box_candidates(
-                    post_chars, pre_line_boxes, post_line_boxes, trimmed_rects, other_erase_rects
+                    post_chars,
+                    pre_line_boxes,
+                    post_line_boxes,
+                    trimmed_rects,
+                    other_erase_rects,
+                    line_font_sizes,
                 )
                 candidates_by_group[job.replacement.group_id].append(candidates)
-                candidates_by_ref[job.replacement.ref] = candidates
-                page_by_ref[job.replacement.ref] = page_num
+                if job.replacement.ref not in suppressed_label_refs:
+                    candidates_by_ref[job.replacement.ref] = candidates
+                    page_by_ref[job.replacement.ref] = page_num
 
         rung_by_group = _choose_group_rungs(font, plan.groups, candidates_by_group)
 
@@ -838,11 +915,12 @@ def compute_label_geometry(
             candidates = candidates_by_ref.get(replacement.ref)
             if candidates is None:
                 continue
-            text, _reason = rung_by_group.get(replacement.group_id, ("", "blank"))
+            text, reason = rung_by_group.get(replacement.group_id, ("", "blank"))
             if not text:
                 continue
-            for _erase_rect, label_box in candidates:
-                size = _fitting_size(font, text, label_box)
+            for candidate in candidates:
+                _erase_rect, label_box = candidate
+                size = _fitting_size(font, text, label_box, candidate.source_font_size, reason)
                 if size is None:
                     continue
                 result[replacement.ref] = (
@@ -1084,6 +1162,33 @@ def _insert_invisible_ocr_layer(page: pymupdf.Page, jobs: list[_OcrPageJob]) -> 
         )
 
 
+def _render_blackbox_from_prepared(
+    prepared: _PreparedMarkerBase, dest_path: pathlib.Path
+) -> RenderOutcome:
+    """Собрать чёрный вариант из уже действительно отредактированной основы."""
+    doc = pymupdf.open(stream=prepared.pdf, filetype="pdf")
+    try:
+        for replacement in prepared.replacements:
+            for region in replacement.erase_regions:
+                doc[region.page].draw_rect(
+                    pymupdf.Rect(region.x0, region.y0, region.x1, region.y1),
+                    color=(0.0, 0.0, 0.0),
+                    fill=(0.0, 0.0, 0.0),
+                    width=0,
+                )
+        doc.set_metadata({})
+        doc.del_xml_metadata()
+        doc.save(str(dest_path), garbage=4, deflate=True, no_new_id=True)
+    finally:
+        doc.close()
+    os.chmod(dest_path, 0o600)
+    return RenderOutcome(
+        replacements=prepared.replacements,
+        markers=(),
+        collisions=prepared.collisions,
+    )
+
+
 def render_pdf_redacted(
     source_path: str | pathlib.Path,
     dest_path: str | pathlib.Path,
@@ -1129,6 +1234,13 @@ def render_pdf_redacted(
 
     source_path = pathlib.Path(source_path)
     dest_path = pathlib.Path(dest_path)
+    global _PREPARED_MARKER_BASE
+    # 12.09.2026: нельзя строить blackbox из marker-основы: в ней уже есть
+    # янтарная заливка redact-аннотаций. Чёрный вариант проходит собственный
+    # этап построения redaction с чёрной заливкой, поэтому под ним физически
+    # нет подсветки, а не просто закрыта поверх неё.
+    _PREPARED_MARKER_BASE = None
+
     doc = pymupdf.open(str(source_path))
     font = pymupdf.Font(fontfile=str(_FONT_FILE))
     cache = _PageCharsCache(doc)
@@ -1171,11 +1283,12 @@ def render_pdf_redacted(
     # выбирается общая ступень по самому тесному из её вхождений, и только
     # потом эта фиксированная ступень вписывается в каждое вхождение.
     pending_labels: list[
-        tuple[int, Replacement, tuple[PdfRegion, ...], list[tuple[pymupdf.Rect, pymupdf.Rect]]]
+        tuple[int, Replacement, tuple[PdfRegion, ...], list[_LabelCandidate]]
     ] = []
-    candidates_by_group: dict[str, list[list[tuple[pymupdf.Rect, pymupdf.Rect]]]] = defaultdict(
+    candidates_by_group: dict[str, list[list[_LabelCandidate]]] = defaultdict(
         list
     )
+    suppressed_label_refs: set[str] = set()
 
     # Явная сортировка по номеру страницы — детерминизм не должен зависеть
     # от порядка обхода defaultdict (план T2.2.1, раздел «Детерминизм»).
@@ -1184,6 +1297,7 @@ def render_pdf_redacted(
         page = doc[page_num]
         line_boxes = cache.line_boxes(page_num)
         chars = cache.chars(page_num)
+        line_font_sizes = _line_font_sizes(page)
         trimmed_jobs: list[tuple[_PageJob, list[tuple[int, pymupdf.Rect]]]] = []
         for job in jobs:
             abs_start = job.seg_char_start + job.replacement.entity.start
@@ -1246,6 +1360,9 @@ def render_pdf_redacted(
         # ``contract_pdf_02_school.pdf`` — «(далее» уезжает на 7 pt влево).
         post_chars = page_chars(page)
         post_line_boxes = _line_boxes(post_chars, skip_space=True)
+        suppressed_label_refs.update(
+            _redundant_label_refs([job for job, _rects in trimmed_jobs], groups_by_id)
+        )
 
         page.insert_font(fontname=_FONT_NAME, fontfile=str(_FONT_FILE))
         for job, trimmed_rects in trimmed_jobs:
@@ -1255,8 +1372,16 @@ def render_pdf_redacted(
             )
             other_erase_rects = _other_jobs_erase_rects(trimmed_jobs, job)
             candidates = _label_box_candidates(
-                post_chars, line_boxes, post_line_boxes, trimmed_rects, other_erase_rects
+                post_chars,
+                line_boxes,
+                post_line_boxes,
+                trimmed_rects,
+                other_erase_rects,
+                line_font_sizes,
             )
+            # Даже подавленный фрагмент участвует в выборе общей ступени:
+            # 12.09.2026 видимая форма в легенде не должна меняться лишь
+            # потому, что вложенный дубль перестали печатать вторым текстом.
             candidates_by_group[job.replacement.group_id].append(candidates)
             pending_labels.append((page_num, job.replacement, erase_regions, candidates))
 
@@ -1283,17 +1408,54 @@ def render_pdf_redacted(
             e = job.entity_rect
             e_regions = (PdfRegion(page=page_num, x0=e.x0, y0=e.y0, x1=e.x1, y1=e.y1),)
             label_box = pymupdf.Rect(e.x0, e.y0, job.seg_rect.x1, e.y1)
-            candidates = [(e, label_box)]
+            candidates = [_LabelCandidate(e, label_box, e.y0, max(8.0, e.height))]
             candidates_by_group[job.replacement.group_id].append(candidates)
             pending_labels.append((page_num, job.replacement, e_regions, candidates))
 
     if style == "marker":
+        # 11.09.2026: снимок берём после всех ``apply_redactions()``, но до
+        # ``insert_textbox``. Поэтому blackbox получает тот же удалённый
+        # content stream без marker-текста и не выполняет второй дорогой
+        # проход редакции по 35 страницам.
+        prepared_replacements = [
+            dataclasses.replace(
+                replacement,
+                erase_regions=erase_regions,
+                paint_regions=erase_regions,
+            )
+            for _page_num, replacement, erase_regions, _candidates in pending_labels
+        ]
+        order_by_ref = {
+            replacement.ref: index for index, replacement in enumerate(plan.replacements)
+        }
+        prepared_replacements.sort(key=lambda item: order_by_ref[item.ref])
+        _PREPARED_MARKER_BASE = _PreparedMarkerBase(
+            source=source_path.resolve(),
+            plan=plan,
+            pdf=doc.tobytes(garbage=4, deflate=True, no_new_id=True),
+            replacements=tuple(prepared_replacements),
+            collisions=tuple(sorted(collisions, key=lambda item: (item.page, item.line_id))),
+        )
+
+    if style == "marker":
         rung_by_group = _choose_group_rungs(font, plan.groups, candidates_by_group)
+        # 11.09.2026: два Shape на страницу вместо двух коммитов на каждую
+        # из 457 подписей; порядок ключей фиксирован для детерминизма.
+        dot_shapes: dict[tuple[int, str], pymupdf.Shape] = {}
         for page_num, replacement, erase_regions, candidates in pending_labels:
+            if replacement.ref in suppressed_label_refs:
+                out_replacements.append(
+                    dataclasses.replace(
+                        replacement,
+                        erase_regions=erase_regions,
+                        paint_regions=erase_regions,
+                    )
+                )
+                continue
             page = doc[page_num]
             group = groups_by_id[replacement.group_id]
             label_region, marker_result = _place_label_fixed(
-                page, font, candidates, replacement, rung_by_group[group.id], fill_color
+                page, font, candidates, replacement, rung_by_group[group.id], fill_color, dot_shapes
             )
             markers.append(marker_result)
             paint_regions = (*erase_regions, label_region) if fill_color is not None else ()
@@ -1305,6 +1467,9 @@ def render_pdf_redacted(
                     label_region=label_region,
                 )
             )
+        for key in sorted(dot_shapes):
+            dot_shapes[key].finish(color=None, fill=_MARKER_TEXT_COLOR, width=0)
+            dot_shapes[key].commit()
 
     for page_num in sorted(ocr_by_page):
         _insert_invisible_ocr_layer(doc[page_num], ocr_by_page[page_num])
@@ -1342,7 +1507,7 @@ def _parse_locator(locator: tuple[str | int | float, ...]) -> tuple[int, int, in
 
 def _ladder_fits(
     font: pymupdf.Font,
-    box: pymupdf.Rect,
+    candidate: _LabelCandidate,
     ladder: list[tuple[str, str]],
 ) -> bool:
     """Влезет ли хоть одна ступень в ``box`` — БЕЗ рисования на странице.
@@ -1354,14 +1519,16 @@ def _ladder_fits(
     такая полоса была невидима, с янтарной (``_HIGHLIGHT_FILL``) — это
     видимый мусор на странице.
     """
+    box = candidate.label_box
     if box.width <= 0 or box.height <= 0:
         return False
     return any(
         font.text_length(text, fontsize=size) <= box.width
-        and box.height >= size * _LABEL_LINE_HEIGHT
-        for text, _reason in ladder
+        and box.height
+        >= size * _LABEL_GLYPH_HEIGHT
+        for text, reason in ladder
         if text
-        for size in _MARKER_FONT_SIZES
+        for size in _font_size_candidates(candidate.source_font_size)
     )
 
 
@@ -1370,6 +1537,9 @@ def _try_ladder(
     font: pymupdf.Font,
     box: pymupdf.Rect,
     ladder: list[tuple[str, str]],
+    *,
+    baseline_y0: float | None = None,
+    source_font_size: float = 8.0,
 ) -> tuple[str, str, float] | None:
     """Попробовать вписать в ``box`` первую подходящую ступень лестницы.
 
@@ -1390,23 +1560,31 @@ def _try_ladder(
     for text, fallback_reason in ladder:
         if not text:
             continue
-        for size in _MARKER_FONT_SIZES:
+        for size in _font_size_candidates(source_font_size):
             if font.text_length(text, fontsize=size) > box.width:
                 continue
-            result = page.insert_textbox(
-                box,
+            if box.height < size * _LABEL_GLYPH_HEIGHT:
+                continue
+            # 12.09.2026: все ступени получают baseline исходной строки.
+            # `insert_textbox` сдвигал компактную подпись вниз и PyMuPDF
+            # извлекал её отдельной строкой. Перенос здесь не нужен: ширина
+            # и высота целой подписи проверены до рисования.
+            marker_x0 = box.x0 + (box.width - font.text_length(text, fontsize=size)) / 2
+            page.insert_text(
+                (
+                    marker_x0,
+                    (baseline_y0 if baseline_y0 is not None else box.y0) + size * font.ascender,
+                ),
                 text,
                 fontname=_FONT_NAME,
                 fontfile=str(_FONT_FILE),
                 fontsize=size,
                 color=_MARKER_TEXT_COLOR,
-                # Маркер занимает центр уже вычисленной безопасной области.
-                # Это не меняет условие влезания: PyMuPDF переносит/отвергает
-                # тот же текст в том же поле, меняется только x-координата.
-                align=pymupdf.TEXT_ALIGN_CENTER,
             )
-            if result >= 0:
-                return text, fallback_reason, size
+            reason = fallback_reason
+            if size != source_font_size:
+                reason = "+".join(part for part in (reason, "font_size_reduced") if part)
+            return text, reason, size
     return None
 
 
@@ -1450,6 +1628,9 @@ def _draw_marker_dots(
     box: pymupdf.Rect,
     text: str,
     size: float,
+    dot_shapes: dict[tuple[int, str], pymupdf.Shape] | None = None,
+    *,
+    baseline_y0: float | None = None,
 ) -> None:
     """Нарисовать точки-заполнители в ``box`` без добавления их в text layer.
 
@@ -1469,23 +1650,35 @@ def _draw_marker_dots(
     marker_x1 = marker_x0 + marker_width
     # insert_textbox начинает первую базовую линию на ascender * fontsize
     # от верхней границы. У точки DejaVu центр расположен чуть выше неё.
-    dot_y = box.y0 + size * (font.ascender - 0.10)
+    dot_y = (baseline_y0 if baseline_y0 is not None else box.y0) + size * (font.ascender - 0.10)
     radius = min(dot_advance * 0.22, size * 0.09)
+    # 11.09.2026: на edukirovsk-2018-659372 отдельный ``page.draw_circle``
+    # на каждую точку доминировал в marker-рендере: каждый вызов коммитит
+    # отдельный content stream. По одному Shape на сторону сохраняет те же
+    # векторные круги двумя коммитами, а также различимые слева и справа
+    # ранги, на которые опирается визуальная регрессия.
 
-    def draw_run(start: float, available: float, count: int) -> None:
+    def draw_run(start: float, available: float, count: int, side: str) -> None:
+        if not count:
+            return
+        shape = (
+            page.new_shape()
+            if dot_shapes is None
+            else dot_shapes.setdefault((page.number, side), page.new_shape())
+        )
         run_width = count * dot_advance
         first_center = start + (available - run_width) / 2 + dot_advance / 2
         for index in range(count):
-            page.draw_circle(
+            shape.draw_circle(
                 (first_center + index * dot_advance, dot_y),
                 radius,
-                color=None,
-                fill=_MARKER_TEXT_COLOR,
-                width=0,
             )
+        if dot_shapes is None:
+            shape.finish(color=None, fill=_MARKER_TEXT_COLOR, width=0)
+            shape.commit()
 
-    draw_run(box.x0, left_free, left_count)
-    draw_run(marker_x1, box.x1 - marker_x1, right_count)
+    draw_run(box.x0, left_free, left_count, "left")
+    draw_run(marker_x1, box.x1 - marker_x1, right_count, "right")
 
 
 def _other_jobs_erase_rects(
@@ -1505,13 +1698,56 @@ def _other_jobs_erase_rects(
     ]
 
 
+def _redundant_label_refs(
+    jobs: list[_PageJob], groups_by_id: dict[str, MaskGroup]
+) -> set[str]:
+    """Вернуть подписи вложенных фрагментов одного смыслового вхождения.
+
+    Все найденные фрагменты всё равно редактируются: это единственный
+    безопасный способ не оставить утечку. Но 12.09.2026 в преамбуле школьного
+    контракта пересекающиеся NER/block-спаны одной роли печатали три
+    ``[Исп.П1]`` подряд. Для читателя это три человека, хотя профиль один.
+    Печатаем подпись только у первого фрагмента цепочки; соседние и вложенные
+    фрагменты остаются подсвеченными, но не получают второй текст.
+    """
+    ordered = sorted(
+        jobs,
+        key=lambda job: (
+            job.seg_char_start + job.replacement.entity.start,
+            -(job.seg_char_start + job.replacement.entity.end),
+            job.replacement.ref,
+        ),
+    )
+    retained: list[tuple[_PageJob, int, int, MaskGroup]] = []
+    redundant: set[str] = set()
+    for job in ordered:
+        group = groups_by_id[job.replacement.group_id]
+        start = job.seg_char_start + job.replacement.entity.start
+        end = job.seg_char_start + job.replacement.entity.end
+        for _previous, previous_start, previous_end, previous_group in retained:
+            same_label = group.canonical_label == previous_group.canonical_label
+            same_profile = (
+                group.profile_id is not None and group.profile_id == previous_group.profile_id
+            )
+            if same_label and start <= previous_end + 1:
+                redundant.add(job.replacement.ref)
+                break
+            if same_profile and previous_start <= start and end <= previous_end:
+                redundant.add(job.replacement.ref)
+                break
+        else:
+            retained.append((job, start, end, group))
+    return redundant
+
+
 def _label_box_candidates(
     post_chars: PageChars,
     pre_line_boxes: dict[int, pymupdf.Rect],
     post_line_boxes: dict[int, pymupdf.Rect],
     trimmed_rects: list[tuple[int, pymupdf.Rect]],
     other_erase_rects: list[pymupdf.Rect] | tuple[pymupdf.Rect, ...] = (),
-) -> list[tuple[pymupdf.Rect, pymupdf.Rect]]:
+    line_font_sizes: dict[int, float] | None = None,
+) -> list[_LabelCandidate]:
     """Кандидаты (эрейз-прямоугольник, поле подписи) одного вхождения.
 
     Чистая геометрия, без рисования на странице — план М4 выбирает ступень
@@ -1575,7 +1811,7 @@ def _label_box_candidates(
                 f"вырожденный прямоугольник {rect!r} — вставлять текст некуда"
             )
 
-    candidates: list[tuple[pymupdf.Rect, pymupdf.Rect]] = []  # (erase_rect, label_box)
+    candidates: list[_LabelCandidate] = []
     for line_id, erase_rect in trimmed_rects:
         own_line = pre_line_boxes[line_id]
         # Горизонтальная безопасная граница уже доказанно свободна
@@ -1616,22 +1852,49 @@ def _label_box_candidates(
         label_y0 = max(erase_rect.y0 - 1, top_limit)
         label_y1 = min(erase_rect.y1 + 2, bottom_limit)
         label_box = pymupdf.Rect(erase_rect.x0, label_y0, label_x1, label_y1)
-        candidates.append((erase_rect, label_box))
+        candidates.append(
+            _LabelCandidate(
+                erase_rect,
+                label_box,
+                _label_baseline_y0(own_line, post_line_boxes),
+                (line_font_sizes or {}).get(line_id, max(8.0, own_line.height)),
+            )
+        )
     return candidates
+
+
+def _label_baseline_y0(
+    own_line: pymupdf.Rect,
+    post_line_boxes: dict[int, pymupdf.Rect],
+) -> float:
+    """Вернуть baseline именно исходной строки заменённого значения.
+
+    12.09.2026: после удаления строки, состоящей только из PII, её нет в
+    ``post_line_boxes``. Нельзя подменять её предыдущей живой строкой:
+    метка тогда накладывается на заголовок поля (например, «ЗАКАЗЧИК:»),
+    как в реквизитах arkhschool-68-183.pdf. Отдельная строка метки лучше
+    наложения и сохраняет координату удалённого значения.
+    """
+    del post_line_boxes
+    return own_line.y0
 
 
 def _rung_fits_everywhere(
     font: pymupdf.Font,
     text: str,
-    occurrences: list[list[tuple[pymupdf.Rect, pymupdf.Rect]]],
+    fallback_reason: str,
+    occurrences: list[list[_LabelCandidate]],
 ) -> bool:
     """``text`` обязан поместиться хоть в одном кандидате **каждого** вхождения."""
     return all(
         any(
             font.text_length(text, fontsize=size) <= label_box.width
-            and label_box.height >= size * _LABEL_LINE_HEIGHT
-            for _erase_rect, label_box in occurrence
-            for size in _MARKER_FONT_SIZES
+            and label_box.height
+            >= size
+            * _LABEL_GLYPH_HEIGHT
+            for candidate in occurrence
+            for _erase_rect, label_box in (candidate,)
+            for size in _font_size_candidates(candidate.source_font_size)
         )
         for occurrence in occurrences
     )
@@ -1640,7 +1903,7 @@ def _rung_fits_everywhere(
 def _choose_group_rungs(
     font: pymupdf.Font,
     groups: tuple[MaskGroup, ...],
-    candidates_by_group: dict[str, list[list[tuple[pymupdf.Rect, pymupdf.Rect]]]],
+    candidates_by_group: dict[str, list[list[_LabelCandidate]]],
 ) -> dict[str, tuple[str, str]]:
     """Выбрать одну ступень лестницы на группу (план М4, пункт 3).
 
@@ -1658,27 +1921,50 @@ def _choose_group_rungs(
     дошёл вовсе) получает ``("", "blank")`` — печатать для неё нечего.
     """
     result: dict[str, tuple[str, str]] = {}
+    used_by_label: dict[str, str] = {}
+    occurrences_by_canonical: dict[
+        str, list[list[_LabelCandidate]]
+    ] = defaultdict(list)
+    first_group_by_canonical: dict[str, MaskGroup] = {}
     for group in groups:
-        occurrences = candidates_by_group.get(group.id, [])
+        canonical = group.canonical_label
+        occurrences_by_canonical[canonical].extend(candidates_by_group.get(group.id, []))
+        first_group_by_canonical.setdefault(canonical, group)
+    for group in groups:
+        canonical = group.canonical_label
+        if canonical in result:
+            result[group.id] = result[canonical]
+            continue
+        occurrences = occurrences_by_canonical[canonical]
         chosen: tuple[str, str] = ("", "blank")
         if occurrences:
-            for text, reason in marker_ladder(group):
+            for text, reason in marker_ladder(first_group_by_canonical[canonical]):
                 if not text:
                     continue
-                if _rung_fits_everywhere(font, text, occurrences):
+                # 12.09.2026: разные PlanAgent-группы с одной канонической
+                # ролью стороны обязаны показать одну подпись. Занятой текст
+                # запрещён только другой канонической метке, иначе легенда
+                # превращает одного Исполнителя в несколько «а/б/в».
+                if text in used_by_label and used_by_label[text] != canonical:
+                    continue
+                if _rung_fits_everywhere(font, text, reason, occurrences):
                     chosen = (text, reason)
                     break
         result[group.id] = chosen
+        result[canonical] = chosen
+        if chosen[0]:
+            used_by_label[chosen[0]] = canonical
     return result
 
 
 def _place_label_fixed(
     page: pymupdf.Page,
     font: pymupdf.Font,
-    candidates: list[tuple[pymupdf.Rect, pymupdf.Rect]],
+    candidates: list[_LabelCandidate],
     replacement: Replacement,
     rung: tuple[str, str],
     fill_color: tuple[float, float, float] | None,
+    dot_shapes: dict[tuple[int, str], pymupdf.Shape] | None = None,
 ) -> tuple[PdfRegion, MarkerRenderResult]:
     """Вписать в это вхождение ступень, уже выбранную для всей группы.
 
@@ -1692,8 +1978,9 @@ def _place_label_fixed(
     text, reason = rung
     if text:
         single_rung = [(text, reason)]
-        for erase_rect, label_box in candidates:
-            if not _ladder_fits(font, label_box, single_rung):
+        for candidate in candidates:
+            erase_rect, label_box = candidate
+            if not _ladder_fits(font, candidate, single_rung):
                 continue
             if fill_color is not None and label_box.x1 > erase_rect.x1 + _GEOMETRY_EPS:
                 # Расширение вправо доказанно свободно
@@ -1706,14 +1993,28 @@ def _place_label_fixed(
                     fill=fill_color,
                     width=0,
                 )
-            outcome = _try_ladder(page, font, label_box, single_rung)
+            outcome = _try_ladder(
+                page,
+                font,
+                label_box,
+                single_rung,
+                baseline_y0=candidate.line_y0,
+                source_font_size=candidate.source_font_size,
+            )
             if outcome is None:
                 continue
             shown_text, fallback_reason, size = outcome
-            # Точки рисуются только внутри уже принятого поля подписи. Они
-            # никогда не меняют erase/paint/label-геометрию и потому не могут
-            # накрыть символ, который безопасная область раньше не накрывала.
-            _draw_marker_dots(page, font, label_box, shown_text, size)
+            # 12.09.2026: центрируем метку в освобождённой полосе и тут же
+            # возвращаем точки по краям; иначе остаётся визуальная пустота.
+            _draw_marker_dots(
+                page,
+                font,
+                label_box,
+                shown_text,
+                size,
+                dot_shapes,
+                baseline_y0=candidate.line_y0,
+            )
             region = PdfRegion(
                 page=page.number,
                 x0=label_box.x0,

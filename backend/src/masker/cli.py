@@ -1,7 +1,7 @@
 """CLI: единственный вызывающий графа (T1.10, шаг 9).
 
 Разбор аргументов, LLM-конфиг, вызов ``start_run``/``resume_run``, запись
-``report.json``/``questions.json``/``report.html``, печать, коды возврата.
+``report.json``/``questions.json``, печать, коды возврата.
 Детекция, план, рендер, валидация и сборка структуры отчёта — в узлах
 графа; сюда предметная логика обратно не тащится.
 """
@@ -23,7 +23,6 @@ from masker.ingest import SUPPORTED_SUFFIXES, SUPPORTED_TITLES
 from masker.llm import LLMError, LLMProvider, TracingProvider, resolve_cli_llm, write_trace
 from masker.model import EntityType
 from masker.ocr.select import select_ocr
-from masker.report.html import render_html_report
 from masker.run import (
     AlreadyFinishedError,
     RunFailedError,
@@ -61,13 +60,16 @@ def _run_options_from_args(
     source: Path,
     interactive: bool,
 ) -> RunOptions:
-    """Опции графа из CLI. PDF принудительно ``profile=False`` (риск R5, T2.2)."""
+    """Опции графа из CLI; PDF получает офлайн-профили сторон по умолчанию."""
     types_tuple = (
         None
         if selected_types == frozenset(EntityType)
         else tuple(sorted(entity_type.value for entity_type in selected_types))
     )
-    profile = args.profile and source.suffix.casefold() != ".pdf"
+    # 11.09.2026: без структурного профиля PDF не может дать стороне один
+    # номер во всех вхождениях. Это офлайн-кластеризация, а не отправка
+    # документа в LLM; `--profile` по-прежнему нужен только для судьи/LLM.
+    profile = args.profile or source.suffix.casefold() == ".pdf"
     return RunOptions(
         types=types_tuple,
         rules_only=args.rules_only,
@@ -125,17 +127,10 @@ def _finish(
     presenter: CliPresenter,
     elapsed_seconds: float,
 ) -> int:
-    """Записать report.json (+report.html), напечатать сводку, вернуть код."""
+    """Записать report.json, напечатать сводку, вернуть код."""
     report = report_of(outcome)
     report_path = artifact_dir / "report.json"
     _write_json(report_path, report)
-    # Шаблон HTML читает покрытие DOCX; у PDF оно другой формы, рендер упал бы.
-    html_wanted = bool(args.html) and report["format"] == "docx"
-    if args.html and not html_wanted:
-        presenter.info(f"{source}: --html поддержан только для DOCX, report.html не создан")
-    html_path = artifact_dir / "report.html" if html_wanted else None
-    if html_path is not None:
-        render_html_report(report, source, html_path)
     leaked = report.get("leaked") or []
     if leaked:
         print(f"{source}: найдены утечки в артефакте ({len(leaked)}):", file=sys.stderr)
@@ -151,7 +146,6 @@ def _finish(
         artifacts_of(outcome),
         report_path,
         thread_id=outcome.thread_id,
-        html_path=html_path,
         trace_paths=trace_paths,
         elapsed_seconds=elapsed_seconds,
     )

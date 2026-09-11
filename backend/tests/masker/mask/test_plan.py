@@ -89,8 +89,8 @@ def test_org_mentioned_five_times_in_three_spellings_gets_one_marker() -> None:
     assert len(plan.groups) == 1
     assert len(plan.replacements) == 5
     markers = {repl.marker for repl in plan.replacements}
-    assert markers == {"[ПОСТАВЩИК-ОРГАНИЗАЦИЯ]"}
-    assert plan.groups[0].marker == "[ПОСТАВЩИК-ОРГАНИЗАЦИЯ]"
+    assert markers == {"[ПОСТАВЩИК-ОРГАНИЗАЦИЯ-1]"}
+    assert plan.groups[0].marker == "[ПОСТАВЩИК-ОРГАНИЗАЦИЯ-1]"
     assert plan.groups[0].refs == tuple(index.ref(entity) for entity in entities)
 
 
@@ -177,7 +177,7 @@ def test_two_persons_of_one_party_get_numbered_markers() -> None:
     plan = PlanAgent().plan(document, entities, profiles=profiles)
 
     markers = sorted(repl.marker for repl in plan.replacements)
-    assert markers == ["[ПОСТАВЩИК-ФИО-1]", "[ПОСТАВЩИК-ФИО-2]"]
+    assert markers == ["[ПОСТАВЩИК-ФИО-1]", "[ПОСТАВЩИК-ФИО-1]"]
 
 
 def test_single_group_in_bucket_has_no_number() -> None:
@@ -189,8 +189,58 @@ def test_single_group_in_bucket_has_no_number() -> None:
 
     plan = PlanAgent().plan(document, entities, profiles=profiles)
 
-    assert plan.replacements[0].marker == "[ПОКУПАТЕЛЬ-ИНН]"
+    assert plan.replacements[0].marker == "[ПОКУПАТЕЛЬ-ИНН-1]"
     assert plan.groups[0].number == 1
+
+
+def test_profile_number_is_shared_by_all_spellings_of_one_person() -> None:
+    """11.09.2026: номер берётся от профиля, а не от позиции в тексте."""
+    full = _entity(EntityType.PERSON, "Иванов Иван Иванович", segment_order=0)
+    short = _entity(EntityType.PERSON, "Иванов И.И.", segment_order=1)
+    entities = [full, short]
+    document = _document(len(entities))
+    index = EntityIndex(entities)
+    profile = _profile("P7", "ЗАКАЗЧИК", entities, index)
+
+    plan = PlanAgent().plan(document, entities, profiles=[profile])
+
+    assert len(plan.groups) == 2  # профиль стороны ещё не склеивает варианты ФИО
+    assert {replacement.marker for replacement in plan.replacements} == {"[ЗАКАЗЧИК-ФИО-1]"}
+    assert plan.groups[0].canonical_label == "[Заказчик Представитель 1]"
+
+
+def test_document_condition_never_gets_profile_role_in_marker() -> None:
+    condition = _entity(EntityType.DELIVERY_PERIOD, "до 31 декабря", segment_order=0)
+    document = _document(1)
+    index = EntityIndex([condition])
+    profile = _profile("P7", "СТОРОНА-7", [condition], index)
+
+    plan = PlanAgent().plan(document, [condition], profiles=[profile])
+
+    assert plan.replacements[0].marker == "[СРОК-ПОСТАВКИ]"
+    assert plan.groups[0].canonical_label == "[Срок поставки]"
+
+
+def test_date_and_number_of_one_power_of_attorney_share_number() -> None:
+    """12.09.2026: «от даты № номера» не получает две разные нумерации."""
+    text = "действует на основании доверенности от 26 октября 2023 г. № 109"
+    document = Document(
+        "test.pdf",
+        "pdf",
+        [Segment(text, Anchor("pdf", ("page", 0, 0, len(text))), 0)],
+    )
+    date = _entity(EntityType.DATE, "26 октября 2023", start=text.index("26 октября 2023"))
+    number = _entity(
+        EntityType.POWER_OF_ATTORNEY_NUMBER,
+        "109",
+        start=text.rindex("109"),
+    )
+
+    plan = PlanAgent().plan(document, [date, number])
+
+    labels = {group.type: group.canonical_label for group in plan.groups}
+    assert labels[EntityType.DATE] == "[Дата доверенности 1]"
+    assert labels[EntityType.POWER_OF_ATTORNEY_NUMBER] == "[Номер доверенности 1]"
 
 
 def test_requested_types_filter_moves_to_plan() -> None:
@@ -259,7 +309,7 @@ def test_same_value_in_two_profiles_gets_two_markers() -> None:
     plan = PlanAgent().plan(document, entities, profiles=profiles)
 
     markers = {repl.marker for repl in plan.replacements}
-    assert markers == {"[ПОСТАВЩИК-ИНН]", "[ПОКУПАТЕЛЬ-ИНН]"}
+    assert markers == {"[ПОСТАВЩИК-ИНН-1]", "[ПОКУПАТЕЛЬ-ИНН-1]"}
     assert len(plan.groups) == 2
 
 
@@ -329,4 +379,4 @@ def test_group_numbering_follows_first_occurrence_not_input_order(reverse: bool)
 
     by_ref = {repl.ref: repl.marker for repl in plan.replacements}
     assert by_ref[index.ref(earlier)] == "[ПОСТАВЩИК-ФИО-1]"
-    assert by_ref[index.ref(later)] == "[ПОСТАВЩИК-ФИО-2]"
+    assert by_ref[index.ref(later)] == "[ПОСТАВЩИК-ФИО-1]"

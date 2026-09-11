@@ -71,9 +71,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     flags, keyword_args = highlight_background_argument()
     input_group.add_argument(*flags, **keyword_args)
-    input_group.add_argument(
-        "--html", action="store_true", help="создать report.html (только DOCX)"
-    )
     ux_group = parser.add_argument_group("Интерфейс")
     ux_group.add_argument("--quiet", action="store_true", help="печатать только ошибки")
     ux_group.add_argument(

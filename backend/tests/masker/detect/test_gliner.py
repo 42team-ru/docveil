@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,11 @@ from masker.detect.gliner import GlinerDetector, verify_runtime_versions
 from masker.entity_types import EntityTypeRegistry
 from masker.model import Anchor, Document, Segment, Source
 from masker.typeconfig import load_type_config
+
+# 11.09.2026: проверки пути к весам достижимы только с установленным GLiNER2.
+# В CI extra намеренно не ставится, но тесты защиты от отсутствующего runtime
+# должны продолжать выполняться там, а не исчезать вместе с этим сценарием.
+_GLINER2_INSTALLED = importlib.util.find_spec("gliner2") is not None
 
 
 class FakeGliner:
@@ -188,6 +194,10 @@ def test_gliner_logs_explicitly_when_custom_type_has_no_candidates(
     assert "не дал ни одного кандидата в документе" in caplog.text
 
 
+@pytest.mark.skipif(
+    not _GLINER2_INSTALLED,
+    reason="пропущено: проверка локальных весов требует установленный пакет gliner2",
+)
 def test_missing_weights_has_actionable_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -197,6 +207,10 @@ def test_missing_weights_has_actionable_error(
         GlinerDetector(_specs())
 
 
+@pytest.mark.skipif(
+    not _GLINER2_INSTALLED,
+    reason="пропущено: проверка локальных весов требует установленный пакет gliner2",
+)
 def test_gliner_path_reads_from_project_yaml(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -208,6 +222,42 @@ def test_gliner_path_reads_from_project_yaml(
 
     with pytest.raises(RuntimeError, match=r"gliner2"):
         GlinerDetector(_specs())
+
+
+def test_missing_gliner_package_has_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Р10: отсутствие GLiNER2 останавливает детекцию с понятным действием."""
+
+    def missing_gliner2(package: str) -> str:
+        if package == "gliner2":
+            from importlib.metadata import PackageNotFoundError
+
+            raise PackageNotFoundError(package)
+        return "2.0.0"
+
+    monkeypatch.setattr("masker.detect.gliner.version", missing_gliner2)
+
+    with pytest.raises(RuntimeError, match=r"пакет 'gliner2' не установлен") as exc_info:
+        verify_runtime_versions()
+
+    assert "ожидается 2.0.0" in str(exc_info.value)
+
+
+def test_missing_gliner_package_has_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Р10: отсутствие GLiNER2 останавливает детекцию с понятным действием."""
+
+    def missing_gliner2(package: str) -> str:
+        if package == "gliner2":
+            from importlib.metadata import PackageNotFoundError
+
+            raise PackageNotFoundError(package)
+        return "2.0.0"
+
+    monkeypatch.setattr("masker.detect.gliner.version", missing_gliner2)
+
+    with pytest.raises(RuntimeError, match=r"пакет 'gliner2' не установлен") as exc_info:
+        verify_runtime_versions()
+
+    assert "ожидается 2.0.0" in str(exc_info.value)
 
 
 def test_incompatible_model_type_raises_runtime_error(

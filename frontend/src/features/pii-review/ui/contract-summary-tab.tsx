@@ -69,7 +69,7 @@ function PartyBlock({
  * Карточка договора — краткое содержание, собранное движком из уже найденных
  * сущностей и профилей сторон (`report.contract_summary`).
  *
- * Показываем и `paymentTerms`: HTML-отчёт бэкенда это поле опускает, хотя в
+ * Показываем и `paymentTerms`: это поле важно для полной карточки договора, хотя в
  * данных оно есть, и оператору условия оплаты нужны наравне со сроками.
  */
 export function ContractSummaryTab({ summary }: ContractSummaryTabProps) {

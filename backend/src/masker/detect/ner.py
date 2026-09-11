@@ -36,6 +36,19 @@ from masker.detect.persons import (
 )
 from masker.model import Document, Entity, EntityType, Source
 
+# 12.09.2026: Natasha воспринимает кавычки как достаточный сигнал ORG, но
+# «сеть „Интернет“» и «Техническое задание» — термины договора, не стороны.
+# Их маскирование превращает повторяющийся технический текст в кашу.
+_GENERIC_ORG_TERMS = frozenset(
+    {
+        "интернет",
+        "техническое задание",
+        "техническим заданием",
+        "технического задания",
+    }
+)
+_GENERIC_PERSON_TERMS = frozenset({"российская федерация"})
+
 
 @dataclass(frozen=True, slots=True)
 class NerSpan:
@@ -150,6 +163,10 @@ class NatashaDetector:
                     bounds = expand_person_left(segment.text, *bounds)
                 start, end = bounds
                 value = segment.text[start:end]
+                if entity_type is EntityType.PERSON and value.strip(" \t,.").casefold() in _GENERIC_PERSON_TERMS:
+                    # 12.09.2026: географическое название в адресе не лицо;
+                    # его соседний адрес уже закрывается AddressDetector.
+                    continue
                 if entity_type is EntityType.PERSON and is_single_token_uppercase_abbreviation(
                     value
                 ):
@@ -157,6 +174,7 @@ class NatashaDetector:
                 org_evidence = entity_type is EntityType.ORG_NAME and has_organization_evidence(
                     value
                 )
+                generic_org_term = value.strip(" \t«»\"'“”„").casefold() in _GENERIC_ORG_TERMS
                 if (
                     is_role_stopword(value)
                     # is_landmark_place «применяется только к спанам без
@@ -171,6 +189,7 @@ class NatashaDetector:
                             # Ссылка на федеральный закон — обозначение
                             # нормативного акта, не название организации.
                             is_federal_law_reference(value)
+                            or generic_org_term
                             or is_organization_form_only(value)
                             or is_partial_org_form(value)
                             # орг. форма (ООО, МАОУ…) — достаточное свидетельство того,

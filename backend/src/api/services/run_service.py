@@ -26,6 +26,7 @@ from api.core.db import async_session_maker
 from api.core.storage import minio_client
 from api.models.run import RunORM
 from api.schemas.run import RunCreateRequest
+from api.services.run_events import run_events
 from masker.graph.nodes import RunDeps
 from masker.ingest import SUPPORTED_SUFFIXES as ENGINE_SUFFIXES
 from masker.llm import LLMProvider, get_provider, resolve_llm_config
@@ -63,6 +64,7 @@ __all__ = [
     "regenerate_review",
     "resume_with_answers",
     "resume_with_review",
+    "run_events",
     "run_report",
 ]
 
@@ -313,6 +315,7 @@ def _execute(
         artifact_dir=artifact_dir,
         pricing=resolve_llm_config().pricing,
         ocr=select_ocr(),
+        progress_observer=lambda node, content: run_events.publish(run_id, node, content),
     )
     try:
         if options is not None:
@@ -404,6 +407,7 @@ async def execute_run(
             # Документ и файлы рендера нужны только до конца прогона: дальше
             # артефакты живут в MinIO, а исходник — в загрузках пользователя.
             shutil.rmtree(_work_dir(run_id), ignore_errors=True)
+            run_events.close(run_id)
 
         run.status = status
         run.node_hint = node_hint

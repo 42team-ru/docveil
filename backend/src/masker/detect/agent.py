@@ -35,6 +35,21 @@ MIN_FRAGMENT_LEN = 2
 logger = logging.getLogger(__name__)
 
 
+def _is_generic_person_entity(entity: Entity) -> bool:
+    """Отбрасывает название государства, ошибочно размеченное как PERSON.
+
+    12.09.2026: ``Российская Федерация`` встречается в банковских и
+    реквизитных строках как публичный текст; NER и структурный детектор
+    иногда принимали его за имя человека. Это не персональные данные и не
+    должно попадать в план маскирования.
+    """
+    return (
+        entity.type is EntityType.PERSON
+        and entity.text.strip(" \t\r\n.,:;()[]«»\"'").casefold()
+        == "российская федерация"
+    )
+
+
 def _overlaps(first: Entity, second: Entity) -> bool:
     return (
         first.segment_order == second.segment_order
@@ -432,6 +447,7 @@ class DetectAgent:
             (detector, entity)
             for detector, entity in found
             if not is_public_legal_reference_type(entity.type)
+            and not _is_generic_person_entity(entity)
         ]
         entities = self._resolve_overlaps(found)
         self._warn_displaced_custom_types(found, entities)
@@ -473,6 +489,7 @@ class DetectAgent:
         # Этот общий барьер покрывает любой текущий или будущий детектор до
         # профилирования и планирования масок.
         entities = drop_incomplete_requisites(entities)
+        entities = [entity for entity in entities if not _is_generic_person_entity(entity)]
         # Р15: повторяющаяся роль стороны может прийти и от NER, и от
         # структурного блока реквизитов. Фильтруем объединённый результат,
         # чтобы один источник не мог обойти общий частотный барьер.

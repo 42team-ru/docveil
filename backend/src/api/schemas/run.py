@@ -81,6 +81,21 @@ class RunResponse(BaseModel):
     finished_at: datetime | None = None
 
 
+class RunProgressEvent(BaseModel):
+    """Краткоживущий снимок завершённого узла; может содержать PII владельца файла."""
+
+    sequence: int
+    node: str
+    content: dict[str, Any]
+
+
+class RunEventsResponse(BaseModel):
+    """Ответ polling-ручки прогресса; `next_after` передаётся следующим запросом."""
+
+    events: list[RunProgressEvent]
+    next_after: int
+
+
 class RunListItem(BaseModel):
     """Строка журнала обработок (`/history`)."""
 

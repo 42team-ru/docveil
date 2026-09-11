@@ -87,6 +87,15 @@ def test_public_body_is_dropped() -> None:
     assert NatashaDetector(tagger).detect(document) == []
 
 
+@pytest.mark.parametrize("text", ("сеть «Интернет»", "Техническим заданием"))
+def test_contract_generic_terms_are_not_organizations(text: str) -> None:
+    """12.09.2026: технические термины договора не должны маскироваться."""
+    document = _document(text)
+    tagger = FakeTagger({text: [NerSpan(0, len(text), "ORG")]})
+
+    assert NatashaDetector(tagger).detect(document) == []
+
+
 @pytest.mark.parametrize(
     "text",
     (

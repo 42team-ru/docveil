@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 from masker.entity_types import EntityTypeRegistry
@@ -91,7 +92,7 @@ HUMAN_TYPE_LABELS: dict[str, str] = {
     EntityType.PASSPORT: "Паспорт",
     EntityType.CONTRACT_NUMBER: "Номер договора",
     EntityType.MONEY: "Сумма",
-    EntityType.DATE: "Дата договора",
+    EntityType.DATE: "Дата",
     EntityType.BIRTH_DATE: "Дата рождения",
     EntityType.SITE: "Сайт",
     EntityType.FEDERAL_LAW: "Федеральный закон",
@@ -102,6 +103,203 @@ HUMAN_TYPE_LABELS: dict[str, str] = {
     EntityType.DELIVERY_PERIOD: "Срок поставки",
     EntityType.PAYMENT_TERMS: "Условия оплаты",
 }
+
+#: Типы условий описывают сам договор, а не одну из его сторон. 11.09.2026:
+#: явная классификация не даёт контекстному профилю приклеить «Сторона N» к
+#: сроку, цене или номеру сделки и делает правило проверяемым в одном месте.
+DOCUMENT_OWNED_TYPES: frozenset[str] = frozenset(
+    {
+        EntityType.CONTRACT_NUMBER,
+        EntityType.CONTRACT_AMOUNT,
+        EntityType.DELIVERY_PERIOD,
+        EntityType.PAYMENT_TERMS,
+        EntityType.DATE,
+    }
+)
+
+
+def belongs_to_subject(entity_type: str) -> bool:
+    """Принадлежит ли тип стороне, а не документу как сделке."""
+    return entity_type not in DOCUMENT_OWNED_TYPES
+
+
+def is_anonymous_role(role_label: str) -> bool:
+    """Распознать технический фолбэк профиля, который нельзя печатать человеку."""
+    return role_label.startswith("СТОРОНА-")
+
+
+def contextual_type_label(entity_type: str, text: str, start: int, end: int) -> str:
+    """Вернуть смысловую подпись реквизита по ближайшему контексту.
+
+    Тип ``date`` намеренно остаётся общим контрактом детектора: один и тот
+    же формат даты встречается у договора, доверенности и лицензии. Здесь,
+    на границе с читаемой маской, контекст превращается в подпись, не меняя
+    тип, правила поиска или политику.
+    """
+    # 11.09.2026: подпись должна объяснять значение, а не выдавать каждую
+    # дату за дату договора — это устраняет ложную семантику в PDF и легенде.
+    before = text[max(0, start - 100) : start].casefold()
+    after = text[end : min(len(text), end + 100)].casefold()
+    nearby = before + " " + after
+    if entity_type == EntityType.DATE:
+        if re.search(r"срок\s+лицензи|лицензи\w*\s*[—-]?\s*до\s*$", before):
+            return "Срок действия лицензии"
+        if "доверенност" in before:
+            return "Дата доверенности"
+        if "переоформлен" in before:
+            return "Дата переоформления лицензии"
+        if "регистрационн" in before:
+            return "Дата регистрации лицензии"
+        # 11.09.2026: строка лицензии начинается с номера «Л…», а слово
+        # «лицензия» часто находится только в предыдущем абзаце преамбулы.
+        # Формат номера уже проверен детектором, поэтому это надёжный признак
+        # даты выдачи, а не угадывание по произвольной букве «Л».
+        if re.search(r"Л\d{3}-\d{5}-\d{2}/\d{8}", before, re.I):
+            return "Дата выдачи лицензии"
+        if "постановк" in nearby and "уч[её]т" in nearby:
+            return "Дата постановки на учёт"
+        if "лицензи" in nearby:
+            return "Дата выдачи лицензии"
+        if "договор" in nearby or "контракт" in nearby:
+            return "Дата договора"
+        return "Дата"
+    if entity_type == EntityType.REGISTRY_KEY:
+        # 12.09.2026: в строке реквизитов часто рядом стоят ОКТМО, ОКАТО и
+        # ОКПО. Выбирать первый встретившийся в окне нельзя: ОКАТО тогда
+        # получал подпись ОКПО. Ближайшая метка слева однозначно задаёт код.
+        code_labels = (
+            ("икз", "Идентификационный код закупки"),
+            ("кбк", "КБК"),
+            ("окпо", "ОКПО"),
+            ("октмо", "ОКТМО"),
+            ("окато", "ОКАТО"),
+        )
+        _position, label = max(
+            ((before.rfind(token), title) for token, title in code_labels),
+            default=(-1, ""),
+        )
+        if _position >= 0:
+            return label
+        if "икз" in before or ("идентификационн" in before and "закупк" in before):
+            return "Идентификационный код закупки"
+        if "кбк" in before:
+            return "КБК"
+        if "окпо" in before:
+            return "ОКПО"
+        if "октмо" in before:
+            return "ОКТМО"
+        if "окато" in before:
+            return "ОКАТО"
+        if (
+            "лицензи" in nearby
+            or re.fullmatch(r"Л\d{3}-\d{5}-\d{2}/\d{8}", text[start:end], re.I)
+            or re.search(r"Л\d{3}-\d{5}-\d{2}/\d{8}", before, re.I)
+        ):
+            return "Номер лицензии"
+    return human_type_label(entity_type)
+
+
+_SHORT_TYPE_LABELS: dict[str, str] = {
+    "Дата доверенности": "Довер.",
+    "Дата выдачи лицензии": "Выд. лиц.",
+    "Дата переоформления лицензии": "Переоф. лиц.",
+    "Дата регистрации лицензии": "Рег. лиц.",
+    "Срок действия лицензии": "Срок лиц.",
+    "Дата постановки на учёт": "Учёт",
+    "Дата договора": "Дата дог.",
+    "Дата": "Дата",
+    "Идентификационный код закупки": "ИКЗ",
+    "Номер лицензии": "Лицензия",
+    "Номер доверенности": "Ном. дов.",
+    "Представитель": "Предст.",
+    "Организация": "Орг.",
+    "Реестровый ключ": "Ключ",
+}
+
+
+def short_type_label(label: str) -> str:
+    """Сократить смысловую подпись без буквенно-цифрового шифра."""
+    # 11.09.2026: `[Довер. 2]` читается без легенды, в отличие от `[ДА2]`.
+    return _SHORT_TYPE_LABELS.get(label, label)
+
+
+def short_role_label(role_label: str) -> str:
+    """Дать роли короткую, но различимую форму для узкой PDF-метки."""
+    # 11.09.2026: роль различает стороны сильнее типа; удалять её нельзя.
+    role = humanize_role(role_label)
+    if role == "Заказчик":
+        return "Зак."
+    if role == "Исполнитель":
+        return "Исп."
+    return role[:4] + "." if len(role) > 4 else role
+
+
+def label_number(label: str) -> int | None:
+    """Вернуть напечатанный в метке завершающий номер, если он есть."""
+    match = re.search(r"(\d+)(?:\])?$", label)
+    return int(match.group(1)) if match else None
+
+
+def align_compact_label_number(compact_label: str, canonical_label: str) -> str:
+    """Привести номер короткой метки к номеру канонической формы.
+
+    Номер — часть идентичности группы, а не расходный счётчик ступени
+    отступления. Сокращать можно тип или роль, но не переназывать группу.
+    """
+    compact_stem = re.sub(r"\d+\]$", "]", compact_label)
+    number = label_number(canonical_label)
+    if number is None:
+        return compact_stem
+    return f"{compact_stem[:-1]}{number}]"
+
+
+def compact_type_code(entity_type: str, registry: EntityTypeRegistry | None = None) -> str:
+    """Вернуть короткий различитель типа для метки с уже названной ролью."""
+    # 11.09.2026: роль занимает главное место; один-два символа типа сохраняют
+    # различие реквизитов и влезают туда, где полное «Расчётный счёт» не влезает.
+    # Ключ — строка, а не `EntityType`: сюда приходят и пользовательские типы,
+    # которых в перечислении нет. Без явной аннотации mypy выводит тип ключа
+    # по литералам перечисления и ругается на `get(entity_type, ...)`.
+    labels: dict[str, str] = {
+        EntityType.INN: "И",
+        EntityType.KPP: "К",
+        EntityType.OGRN: "ОГ",
+        EntityType.PERSON: "П",
+        EntityType.ORG_NAME: "ОР",
+        EntityType.BANK_ACCOUNT: "С",
+        EntityType.BIK: "Б",
+        EntityType.ADDRESS: "А",
+        EntityType.EMAIL: "Э",
+        EntityType.PASSPORT: "ПС",
+        EntityType.PHONE: "Т",
+        EntityType.CONTRACT_NUMBER: "Д",
+        EntityType.POWER_OF_ATTORNEY_NUMBER: "В",
+        EntityType.MONEY: "С",
+        EntityType.DATE: "ДТ",
+    }
+    return labels.get(entity_type, short_type_label(human_type_label(entity_type, registry))[:2])
+
+
+def minimum_marker_label(
+    group: MaskGroup,
+    registry: EntityTypeRegistry | None = None,
+) -> str:
+    """Вернуть последнюю текстовую ступень, сохраняющую сторону и вид значения.
+
+    12.09.2026: узкие ячейки реального PDF (вплоть до 16.6 pt) не вмещают
+    даже ``[№ дов. 1]``. Пустая жёлтая область не объясняет читателю ничего,
+    поэтому перед ``blank`` остаётся короткая, но различимая подпись:
+    ``[ИП1]`` — исполнитель-представитель №1, ``[В1]`` — доверенность №1.
+    """
+    role = ""
+    if group.role_label and not is_anonymous_role(group.role_label):
+        role = short_role_label(group.role_label)[:1]
+    # Номер печатается только если он есть и в канонической форме: у
+    # единственного номера договора ``[Д]`` не должен притворяться
+    # «договором №1» и ломать связь подписи с легендой.
+    number = label_number(group.canonical_label)
+    suffix = str(number) if number is not None else ""
+    return f"[{role}{compact_type_code(group.type, registry)}{suffix}]"
 
 
 def human_type_label(
@@ -147,6 +345,7 @@ def compose_canonical_label(
     entity_type: str,
     number: int | None,
     registry: EntityTypeRegistry | None = None,
+    display_type_label: str | None = None,
 ) -> str:
     """Собрать человекочитаемую каноническую метку группы (план М4, пункт 1).
 
@@ -165,8 +364,14 @@ def compose_canonical_label(
     сущностей такого рода больше одной — та же асимметрия «без номера у
     единственной/с номером у нескольких», что и в ``compose_marker``.
     """
-    role = humanize_role(role_label)
-    type_label = human_type_label(entity_type, registry)
+    # 11.09.2026: техническая «СТОРОНА-N» не объясняет читателю ничего;
+    # оставляем нейтральную метку типа с устойчивым номером профиля.
+    role = (
+        ""
+        if is_anonymous_role(role_label) or not belongs_to_subject(entity_type)
+        else humanize_role(role_label)
+    )
+    type_label = display_type_label or human_type_label(entity_type, registry)
     if role and entity_type == EntityType.ORG_NAME:
         text = role
     elif role:
@@ -238,10 +443,10 @@ def assign_type_codes(
 
 
 def assign_compact_labels(
-    ordered_types: list[tuple[object, str]],
+    ordered_types: list[tuple[object, str] | tuple[object, str, str | None]],
     registry: EntityTypeRegistry | None = None,
 ) -> dict[object, str]:
-    """Построить `compact_label` для каждой группы — вида `[Ф1]`, `[Ф2]`, `[О1]`.
+    """Построить короткие, но читаемые метки групп.
 
     ``ordered_types`` — пары (ключ группы, тип сущности) в порядке первого
     появления группы в документе. Номер внутри кода — сквозной по всему
@@ -251,13 +456,20 @@ def assign_compact_labels(
     профиля с разными ролями никогда не схлопываются в одну короткую метку
     (план М1, критерий приёмки).
     """
-    distinct_types = {entity_type for _key, entity_type in ordered_types}
-    codes = assign_type_codes(distinct_types, registry)
-    seq_by_type: dict[str, int] = {}
+    normalized = [(item[0], item[1], item[2] if len(item) == 3 else None) for item in ordered_types]
+    labels = [
+        label or human_type_label(entity_type, registry) for _key, entity_type, label in normalized
+    ]
+    total_by_label = {label: labels.count(label) for label in labels}
+    seq_by_label: dict[str, int] = {}
     result: dict[object, str] = {}
-    for key, entity_type in ordered_types:
-        seq_by_type[entity_type] = seq_by_type.get(entity_type, 0) + 1
-        result[key] = f"[{codes[entity_type]}{seq_by_type[entity_type]}]"
+    for key, entity_type, label in normalized:
+        display = label or human_type_label(entity_type, registry)
+        seq_by_label[display] = seq_by_label.get(display, 0) + 1
+        suffix = f" {seq_by_label[display]}" if total_by_label[display] > 1 else ""
+        # 11.09.2026: номер нужен только при нескольких одноимённых значениях;
+        # иначе он удлиняет подпись, не добавляя читателю различающей информации.
+        result[key] = f"[{short_type_label(display)}{suffix}]"
     return result
 
 
@@ -284,19 +496,14 @@ def marker_ladder(
     предыдущим (например, у сущности без роли рунг «только роль» не
     строится вовсе), пропускаются — пробовать их отдельно бессмысленно.
     """
-    type_label = human_type_label(group.type, registry)
-    show_number = group.marker.endswith(f"-{group.number}]")
-    suffix = group.number if show_number else None
-
     steps: list[tuple[str, str]] = [(group.canonical_label, "")]
-    if group.role_label:
-        role_only = _role_only_label(group.role_label, suffix)
-        if role_only != steps[-1][0]:
-            steps.append((role_only, "role_only"))
+    # 11.09.2026: ступень «только роль» скрывала, кто именно является
+    # представителем/реквизитом; короткая смысловая метка ниже сохраняет роль
+    # значения и потому безопаснее для читаемости договора.
     if group.compact_label and group.compact_label != steps[-1][0]:
         steps.append((group.compact_label, "compact"))
-    type_only = f"[{type_label}]"
-    if type_only != steps[-1][0]:
-        steps.append((type_only, "type_only"))
+    minimum = minimum_marker_label(group, registry)
+    if minimum and minimum != steps[-1][0]:
+        steps.append((minimum, "minimal"))
     steps.append(("", "blank"))
     return steps

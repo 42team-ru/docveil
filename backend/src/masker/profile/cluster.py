@@ -37,11 +37,29 @@ def cluster(document: Document, blocks: list[ContextBlock], index: EntityIndex) 
         if block.label:
             by_label[block.label].append(block_index)
         for entity in block.entities:
-            if entity.type in {EntityType.INN, EntityType.OGRN, EntityType.ORG_NAME}:
+            if entity.type in {
+                EntityType.INN,
+                EntityType.OGRN,
+                EntityType.ORG_NAME,
+                EntityType.PERSON,
+            }:
                 by_key[merge_key(entity)].append(block_index)
-    for group in [*by_label.values(), *by_key.values()]:
+    for group in by_label.values():
         for item in group[1:]:
             union.union(group[0], item)
+    # 12.09.2026: один ИНН/ОГРН может встретиться в двух колонках с
+    # разными ролями (например, реквизиты исполнителя и подпись заказчика).
+    # Склеивать такие блоки по сильному ключу нельзя: профиль первой колонки
+    # иначе переименовывает банк/ОГРН второй стороны в «Заказчика». Ключи
+    # объединяем только внутри одной роли либо через безымянные блоки.
+    for group in by_key.values():
+        for left_index, left in enumerate(group):
+            for right in group[left_index + 1 :]:
+                left_label = occupied[left].label
+                right_label = occupied[right].label
+                if left_label and right_label and left_label != right_label:
+                    continue
+                union.union(left, right)
     grouped: dict[int, list[ContextBlock]] = defaultdict(list)
     for position, block in enumerate(occupied):
         grouped[union.find(position)].append(block)

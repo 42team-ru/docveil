@@ -5,13 +5,17 @@ import pytest
 from masker.mask.labels import (
     HUMAN_TYPE_LABELS,
     MARKER_TYPE_LABELS,
+    align_compact_label_number,
     assign_compact_labels,
     assign_type_codes,
+    belongs_to_subject,
     compose_canonical_label,
     compose_marker,
+    contextual_type_label,
     human_type_label,
     humanize_role,
     marker_ladder,
+    short_role_label,
     type_marker_label,
 )
 from masker.model import EntityType, MaskGroup
@@ -86,13 +90,13 @@ def test_assign_type_codes_single_letter_for_non_colliding_type() -> None:
 
 def test_assign_compact_labels_gives_different_roles_different_labels() -> None:
     """Два профиля с разными ролями (оба — первая группа ФИО в своей паре)
-    не должны схлопнуться в одинаковый `[Ф1]` — см. критерий приёмки М1."""
+    не должны схлопнуться в одинаковую читаемую метку."""
     labels = assign_compact_labels(
         [("supplier_g1", EntityType.PERSON), ("buyer_g1", EntityType.PERSON)]
     )
     assert labels["supplier_g1"] != labels["buyer_g1"]
-    assert labels["supplier_g1"] == "[Ф1]"
-    assert labels["buyer_g1"] == "[Ф2]"
+    assert labels["supplier_g1"] == "[Предст. 1]"
+    assert labels["buyer_g1"] == "[Предст. 2]"
 
 
 def test_assign_compact_labels_numbers_sequentially_per_type() -> None:
@@ -103,7 +107,7 @@ def test_assign_compact_labels_numbers_sequentially_per_type() -> None:
             ("g3", EntityType.PERSON),
         ]
     )
-    assert labels == {"g1": "[Ф1]", "g2": "[И1]", "g3": "[Ф2]"}
+    assert labels == {"g1": "[Предст. 1]", "g2": "[ИНН]", "g3": "[Предст. 2]"}
 
 
 # ── план М4: человекочитаемая каноническая форма ────────────────────────────
@@ -133,7 +137,7 @@ def test_human_type_label_matches_dict() -> None:
     assert human_type_label(EntityType.INN) == "ИНН"
     assert human_type_label(EntityType.ORG_NAME) == "Организация"
     assert human_type_label(EntityType.CONTRACT_NUMBER) == "Номер договора"
-    assert human_type_label(EntityType.DATE) == "Дата договора"
+    assert human_type_label(EntityType.DATE) == "Дата"
     assert human_type_label(EntityType.POWER_OF_ATTORNEY_NUMBER) == "Номер доверенности"
     assert human_type_label(EntityType.IP_ADDRESS) == "IP-адрес"
 
@@ -164,7 +168,7 @@ def test_compose_canonical_label_person_with_role_shows_role_and_type() -> None:
 
 def test_compose_canonical_label_without_role_is_bare_type() -> None:
     assert compose_canonical_label("", EntityType.CONTRACT_NUMBER, None) == "[Номер договора]"
-    assert compose_canonical_label("", EntityType.DATE, None) == "[Дата договора]"
+    assert compose_canonical_label("", EntityType.DATE, None) == "[Дата]"
 
 
 def test_compose_canonical_label_number_only_when_given() -> None:
@@ -178,6 +182,40 @@ def test_compose_canonical_label_two_roles_never_collapse() -> None:
     supplier = compose_canonical_label("ПОСТАВЩИК", EntityType.PERSON, None)
     buyer = compose_canonical_label("ПОКУПАТЕЛЬ", EntityType.PERSON, None)
     assert supplier != buyer
+
+
+@pytest.mark.parametrize(
+    "entity_type,expected",
+    [
+        (EntityType.CONTRACT_NUMBER, False),
+        (EntityType.CONTRACT_AMOUNT, False),
+        (EntityType.DELIVERY_PERIOD, False),
+        (EntityType.PAYMENT_TERMS, False),
+        (EntityType.DATE, False),
+        (EntityType.INN, True),
+        (EntityType.PERSON, True),
+    ],
+)
+def test_entity_ownership_is_explicit(entity_type: EntityType, expected: bool) -> None:
+    """11.09.2026: условия сделки не наследуют роль стороны."""
+    assert belongs_to_subject(entity_type) is expected
+
+
+def test_document_condition_drops_profile_role_from_canonical_label() -> None:
+    assert (
+        compose_canonical_label("СТОРОНА-7", EntityType.DELIVERY_PERIOD, 1) == "[Срок поставки 1]"
+    )
+
+
+def test_short_role_label_keeps_contract_sides_distinct() -> None:
+    """11.09.2026: компактная ступень не превращает стороны в один ИНН."""
+    assert short_role_label("ЗАКАЗЧИК") == "Зак."
+    assert short_role_label("ИСПОЛНИТЕЛЬ") == "Исп."
+
+
+def test_compact_label_keeps_canonical_group_number() -> None:
+    """Сокращение типа не вправе подменять номер группы в легенде."""
+    assert align_compact_label_number("[Сумма 3]", "[Сумма 1]") == "[Сумма 1]"
 
 
 # ── план М1/М4: лестница отступления маркера ────────────────────────────────
@@ -219,9 +257,8 @@ def test_marker_ladder_full_sequence_with_role_and_number() -> None:
     ladder = marker_ladder(group)
     assert ladder == [
         ("[Поставщик Представитель 1]", ""),
-        ("[Поставщик 1]", "role_only"),
         ("[Ф1]", "compact"),
-        ("[Представитель]", "type_only"),
+        ("[ПП1]", "minimal"),
         ("", "blank"),
     ]
 
@@ -238,7 +275,7 @@ def test_marker_ladder_without_role_skips_role_rungs() -> None:
     assert ladder == [
         ("[ИНН]", ""),
         ("[И1]", "compact"),
-        ("[ИНН]", "type_only"),
+        ("[И]", "minimal"),
         ("", "blank"),
     ]
 
@@ -254,7 +291,19 @@ def test_marker_ladder_type_only_rung_dropped_when_equal_to_canonical() -> None:
         canonical_label="[ИНН]",
     )
     ladder = marker_ladder(group)
-    assert ladder == [("[ИНН]", ""), ("", "blank")]
+    assert ladder == [("[ИНН]", ""), ("[И]", "minimal"), ("", "blank")]
+
+
+def test_marker_ladder_has_visible_minimum_for_tight_unknown_font_box() -> None:
+    """12.09.2026: до `blank` остаётся подпись стороны и вида значения."""
+    group = _group(
+        marker="[ИСПОЛНИТЕЛЬ-ФИО-1]",
+        role_label="ИСПОЛНИТЕЛЬ",
+        number=1,
+        compact_label="[Исп.П1]",
+        canonical_label="[Исполнитель Представитель 1]",
+    )
+    assert marker_ladder(group)[-2] == ("[ИП1]", "minimal")
 
 
 def test_marker_ladder_two_roles_never_collapse_to_same_compact_rung() -> None:
@@ -277,9 +326,8 @@ def test_marker_ladder_two_roles_never_collapse_to_same_compact_rung() -> None:
     assert supplier_compact != buyer_compact
 
 
-def test_marker_ladder_two_roles_never_collapse_to_same_role_only_rung() -> None:
-    """Тот же инвариант для ступени «только роль» — она сама и есть роль,
-    поэтому две разные роли по определению не совпадают."""
+def test_marker_ladder_does_not_hide_entity_kind_behind_role_only_rung() -> None:
+    """Короткая форма должна сохранять вид значения, а не только сторону."""
     supplier = _group(
         marker="[ПОСТАВЩИК-ФИО-1]",
         role_label="ПОСТАВЩИК",
@@ -290,8 +338,34 @@ def test_marker_ladder_two_roles_never_collapse_to_same_role_only_rung() -> None
         role_label="ПОКУПАТЕЛЬ",
         canonical_label="[Покупатель Представитель]",
     )
-    supplier_role_only = next(
-        text for text, reason in marker_ladder(supplier) if reason == "role_only"
-    )
-    buyer_role_only = next(text for text, reason in marker_ladder(buyer) if reason == "role_only")
-    assert supplier_role_only != buyer_role_only
+    assert all(reason != "role_only" for _text, reason in marker_ladder(supplier))
+    assert all(reason != "role_only" for _text, reason in marker_ladder(buyer))
+
+
+@pytest.mark.parametrize(
+    "entity_type,text,value,expected",
+    [
+        (EntityType.DATE, "доверенности от 20 июля 2022 г.", "20 июля 2022", "Дата доверенности"),
+        (
+            EntityType.DATE,
+            "лицензия от 27 января 2021 г.",
+            "27 января 2021",
+            "Дата выдачи лицензии",
+        ),
+        (
+            EntityType.DATE,
+            "срок лицензии – до 27 января 2026 г.",
+            "27 января 2026",
+            "Срок действия лицензии",
+        ),
+        (EntityType.REGISTRY_KEY, "ИКЗ: 123", "123", "Идентификационный код закупки"),
+        (EntityType.REGISTRY_KEY, "КБК: 123", "123", "КБК"),
+        (EntityType.REGISTRY_KEY, "ОКПО: 123", "123", "ОКПО"),
+        (EntityType.REGISTRY_KEY, "ОКТМО: 123", "123", "ОКТМО"),
+    ],
+)
+def test_contextual_type_label_preserves_meaning(
+    entity_type: EntityType, text: str, value: str, expected: str
+) -> None:
+    start = text.index(value)
+    assert contextual_type_label(entity_type, text, start, start + len(value)) == expected

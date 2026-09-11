@@ -51,6 +51,8 @@ def _instrument(
 
     def wrapped(state: State) -> dict[str, object]:
         deps.notify_stage(name, "started")
+        if name in {"render", "validate"}:
+            deps.notify_progress(name, {"status": "started", "message": f"начат узел {name}"})
         offset = deps.metering_offset()
         started = time.perf_counter()
         result = node(state)
@@ -58,6 +60,7 @@ def _instrument(
         combined = {**state, **result}
         message = _event_message(name, combined)
         deps.notify_stage(name, "completed", message)
+        deps.notify_progress(name, _event_content(name, combined, message))
         return {
             **result,
             "telemetry": append_stage(
@@ -86,10 +89,12 @@ def _event_message(node: str, state: dict[str, object]) -> str:
         # видит `object`, а на неверном содержимом узел молча падал бы.
         raw = state.get("entities", [])
         entities = raw if isinstance(raw, list) else []
-        sources = Counter(
-            str(item.get("source", "unknown")) for item in entities if isinstance(item, dict)
+        types = Counter(
+            str(item.get("type", "unknown")) for item in entities if isinstance(item, dict)
         )
-        details = ", ".join(f"{source} {count}" for source, count in sorted(sources.items()))
+        details = ", ".join(
+            f"{entity_type} {count}" for entity_type, count in sorted(types.items())
+        )
         return f"найдено сущностей {len(entities)}" + (f": {details}" if details else "")
     if node == "profile":
         return f"определено профилей сторон: {len(state.get('profiles', []))}"  # type: ignore[arg-type]
@@ -104,9 +109,82 @@ def _event_message(node: str, state: dict[str, object]) -> str:
         return f"сформировано файлов: {len(state.get('artifacts', []))}"  # type: ignore[arg-type]
     if node == "validate":
         return f"проверены артефакты, утечек: {len(state.get('leaked', []))}"  # type: ignore[arg-type]
+    if node == "summary":
+        summary = state.get("contract_summary", {})
+        document_kind = summary.get("document_kind") if isinstance(summary, dict) else {}
+        kind = document_kind.get("genre") if isinstance(document_kind, dict) else None
+        return (
+            f"тип документа: {kind}"
+            if isinstance(kind, str) and kind
+            else "сводка документа готова"
+        )
     if node == "report":
         return "сформирован отчёт"
     return f"выполнен узел {node}"
+
+
+def _event_content(node: str, state: dict[str, object], message: str) -> dict[str, object]:
+    """Собрать JSON-снимок для живого UI; он не сериализуется в чекпойнт."""
+    content: dict[str, object] = {"status": "completed", "message": message}
+    if node == "extract":
+        coverage = state.get("coverage")
+        coverage = coverage if isinstance(coverage, dict) else {}
+        extracted_segments = state.get("segments", [])
+        segment_count = len(extracted_segments) if isinstance(extracted_segments, list) else 0
+        content.update({"format": state.get("fmt"), "segments": segment_count})
+        for key in ("pages", "sheets", "body", "tables", "image"):
+            value = coverage.get(key)
+            if isinstance(value, dict):
+                content[key] = dict(value)
+        segments = state.get("segments", [])
+        content["ocr"] = (
+            any(isinstance(item, dict) and item.get("origin") == "ocr" for item in segments)
+            if isinstance(segments, list)
+            else False
+        )
+    elif node == "detect":
+        entities = state.get("entities", [])
+        rows = (
+            [item for item in entities if isinstance(item, dict)]
+            if isinstance(entities, list)
+            else []
+        )
+        by_type = Counter(str(item.get("type", "unknown")) for item in rows)
+        segments = state.get("segments", [])
+        anchors: list[dict[str, object]] = []
+        for item in rows[:5]:
+            order = item.get("segment_order")
+            segment = (
+                segments[order]
+                if isinstance(order, int)
+                and isinstance(segments, list)
+                and 0 <= order < len(segments)
+                else {}
+            )
+            anchors.append(
+                {
+                    "type": item.get("type"),
+                    "value": item.get("text"),
+                    "anchor": dict(segment.get("anchor", {})) if isinstance(segment, dict) else {},
+                }
+            )
+        content.update(
+            {"total": len(rows), "by_type": dict(sorted(by_type.items())), "findings": anchors}
+        )
+    elif node == "summary":
+        summary = state.get("contract_summary", {})
+        content["summary"] = dict(summary) if isinstance(summary, dict) else {}
+    elif node == "plan":
+        plan = state.get("plan", {})
+        replacements = plan.get("replacements", []) if isinstance(plan, dict) else []
+        content["replacements"] = len(replacements) if isinstance(replacements, list) else 0
+    elif node in {"render", "validate"}:
+        artifacts = state.get("artifacts", [])
+        content["artifacts"] = len(artifacts) if isinstance(artifacts, list) else 0
+        if node == "validate":
+            leaked = state.get("leaked", [])
+            content["leaks"] = len(leaked) if isinstance(leaked, list) else 0
+    return content
 
 
 def build_graph(deps: RunDeps) -> StateGraph[State]:

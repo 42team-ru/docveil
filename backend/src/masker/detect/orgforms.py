@@ -283,6 +283,20 @@ def is_formula_variable(text: str, start: int, end: int) -> bool:
     return operator_nearby or definition is not None
 
 
+def is_product_brand_context(text: str, start: int) -> bool:
+    """Вернуть True, если кавычечный ORG-спан — марка изделия, а не сторона.
+
+    Natasha помечает короткие торговые марки как организации. В частности,
+    в таблице имущества ``марка "ГАЛА"`` — характеристика
+    облучателя-рециркулятора, а не юридическое лицо. Проверяем только
+    непосредственно предшествующий контекст в пределах фразы, чтобы слово
+    «марка» из предыдущего предложения не отбрасывала настоящее имя.
+    """
+    before = text[:start]
+    clause_start = max(before.rfind(mark) for mark in ".;:\n") + 1
+    return bool(re.search(r"\bмарка\s*$", before[clause_start:], re.IGNORECASE))
+
+
 def is_role_phrase(text: str) -> bool:
     """ORG без кавычек и без оргформы, содержащий хотя бы один ролевой
     токен, — не организация, а часть текста договора («Заказчика

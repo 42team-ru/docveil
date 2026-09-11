@@ -36,6 +36,29 @@ def test_bank_account_found_with_valid_checksum() -> None:
     assert accounts[0].confidence == 1.0
 
 
+def test_bik_in_value_cell_right_of_xlsx_label_is_found() -> None:
+    """БИК из табличной пары XLSX не остаётся вне плана масок."""
+    segments = [
+        Segment(
+            text="БИК",
+            anchor=Anchor(fmt="xlsx", locator=("cell", "Реестр", 10, 1), label="A10"),
+            order=0,
+        ),
+        Segment(
+            text="042007681",
+            anchor=Anchor(fmt="xlsx", locator=("cell", "Реестр", 10, 2), label="B10"),
+            order=1,
+        ),
+    ]
+
+    # 11.09.2026: метка и значение в разных ячейках — регрессия утечки БИК.
+    assert [
+        (entity.text, entity.segment_order, entity.start, entity.end)
+        for entity in detect_by_rules(segments)
+        if entity.type is EntityType.BIK
+    ] == [("042007681", 1, 0, 9)]
+
+
 def test_personal_account_found_only_with_account_context() -> None:
     """Р14: одиннадцатизначный л/сч — счёт только после его метки."""
     contexts = (
@@ -64,10 +87,7 @@ def test_personal_account_found_only_with_account_context() -> None:
 def test_treasury_personal_account_with_letter_and_qualified_label_is_found() -> None:
     """Р18: лицевой счёт допускает букву и уточнение между меткой и значением."""
     segment = Segment(
-        text=(
-            "Номер лицевого счета на сайте федерального казначейства: "
-            "03061А74190"
-        ),
+        text=("Номер лицевого счета на сайте федерального казначейства: 03061А74190"),
         anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
         order=0,
     )
@@ -802,7 +822,9 @@ def test_labeled_bik_masks_entire_numeric_tail_including_parser_artifacts() -> N
         order=0,
     )
 
-    assert [entity.text for entity in detect_by_rules([segment]) if entity.type is EntityType.BIK] == [
+    assert [
+        entity.text for entity in detect_by_rules([segment]) if entity.type is EntityType.BIK
+    ] == [
         "024501901",
         "0044525225",
         "040702615018209001",
@@ -821,9 +843,9 @@ def test_ip_address_detector_accepts_only_labeled_public_ipv4() -> None:
         order=0,
     )
 
-    assert [entity.text for entity in detect_by_rules([segment]) if entity.type is EntityType.IP_ADDRESS] == [
-        "83.171.96.195"
-    ]
+    assert [
+        entity.text for entity in detect_by_rules([segment]) if entity.type is EntityType.IP_ADDRESS
+    ] == ["83.171.96.195"]
 
 
 # ---------------------------------------------------------------------------
@@ -859,10 +881,7 @@ def test_ikz_is_excluded_from_requisite_rules() -> None:
 def test_current_36_digit_ikz_is_also_excluded_from_requisite_rules() -> None:
     """Текущий слитный ИКЗ не отдаёт вложенный ИНН/КПП как отдельные PII."""
     segment = Segment(
-        text=(
-            "Идентификационный код закупки: "
-            "182519150124451900100100070016110244"
-        ),
+        text=("Идентификационный код закупки: 182519150124451900100100070016110244"),
         anchor=Anchor(fmt="pdf", locator=("page", 0), label="стр. 1"),
         order=0,
     )

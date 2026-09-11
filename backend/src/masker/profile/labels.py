@@ -183,8 +183,10 @@ def find_labels(text: str) -> list[tuple[int, str]]:
         # на `arkhschool-68-183.pdf` иначе получались два разных профиля
         # одной стороны: «заказчик» и «заказчика».
         label = _to_nominative(normalize_label(match.group(1)))
-        if label and not _is_collective(label) and (
-            label in preamble_labels or _is_known_party_role(label)
+        if (
+            label
+            and not _is_collective(label)
+            and (label in preamble_labels or _is_known_party_role(label))
         ):
             found.append((match.start(1), label))
     for match in REPRESENTATIVE.finditer(text):

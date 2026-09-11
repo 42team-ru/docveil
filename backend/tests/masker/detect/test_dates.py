@@ -44,7 +44,7 @@ def test_quoted_day_span_includes_quotes() -> None:
 
 def test_spaced_quoted_day_in_contract_header_is_detected() -> None:
     """Р26: дата договора в « 7 » февраля 2024 не остаётся открытой."""
-    assert _detect('г. Москва « 7 » февраля 2024 г.') == [
+    assert _detect("г. Москва « 7 » февраля 2024 г.") == [
         (EntityType.DATE.value, "« 7 » февраля 2024")
     ]
     assert normalize_value(EntityType.DATE, "« 7 » февраля 2024") == "2024-02-07"

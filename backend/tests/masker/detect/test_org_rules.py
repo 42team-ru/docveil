@@ -4,8 +4,9 @@
 
 from __future__ import annotations
 
+from masker.detect import DetectAgent
 from masker.detect.org_rules import OrgFormDetector
-from masker.model import Anchor, Document, Segment
+from masker.model import Anchor, Document, Entity, EntityType, Segment, Source
 
 
 def _detect(text: str) -> list:  # type: ignore[type-arg]
@@ -60,6 +61,39 @@ def test_org_form_double_space_from_pdf_layout_is_matched() -> None:
         entities[0].text
         == "Общество с  Ограниченной Ответственностью «Школьно-базовая столовая № 11»"
     )
+
+
+def test_org_form_wins_over_overlapping_false_address() -> None:
+    """Ложный адресный фрагмент не разрезает полное название с ОПФ."""
+    text = "Общество с Ограниченной Ответственностью «Школьно-базовая столовая № 11»"
+    document = Document(
+        path="test.pdf",
+        fmt="pdf",
+        segments=[Segment(text=text, anchor=Anchor("pdf", ("page", 0, 0, len(text))), order=0)],
+    )
+
+    class FalseAddressDetector:
+        name = "false_address"
+        source = Source.RULE
+        priority = 90
+        types = frozenset({EntityType.ADDRESS})
+
+        def detect(self, _: Document) -> list[Entity]:
+            start = text.index("с Ограниченной")
+            end = start + len("с Ограниченной Ответственностью")
+            return [
+                Entity(
+                    type=EntityType.ADDRESS,
+                    text=text[start:end],
+                    segment_order=0,
+                    start=start,
+                    end=end,
+                    source=Source.RULE,
+                )
+            ]
+
+    entities = DetectAgent([FalseAddressDetector(), OrgFormDetector()]).detect(document).entities
+    assert [(entity.type, entity.text) for entity in entities] == [(EntityType.ORG_NAME, text)]
 
 
 def test_org_form_stops_at_role_words() -> None:

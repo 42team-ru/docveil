@@ -330,9 +330,11 @@ class AddressDetector:
                 else ()
             )
             first_marker = min(markers_after_address or marker_starts, default=None)
-            is_stop = (has_index_like and not kinds) or (
-                first_stop is not None and (first_marker is None or first_stop < first_marker)
-            ) or (address_start >= 0 and first_marker is None)
+            is_stop = (
+                (has_index_like and not kinds)
+                or (first_stop is not None and (first_marker is None or first_stop < first_marker))
+                or (address_start >= 0 and first_marker is None)
+            )
             stop_offsets = [
                 offset
                 for offset in (first_stop, address_start)

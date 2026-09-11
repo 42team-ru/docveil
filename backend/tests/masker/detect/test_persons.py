@@ -41,10 +41,7 @@ def test_signatory_position_keeps_tail_after_name_mask_boundary() -> None:
 
 def test_generic_position_without_organization_is_not_masked() -> None:
     """Типовая должность не идентифицирует сторону и сохраняет читабельность."""
-    text = (
-        "в лице Генерального директора Иванова Ивана Ивановича, действующего "
-        "на основании Устава"
-    )
+    text = "в лице Генерального директора Иванова Ивана Ивановича, действующего на основании Устава"
 
     assert find_identifying_signatory_positions(text) == []
 

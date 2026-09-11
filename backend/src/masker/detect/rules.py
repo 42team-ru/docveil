@@ -13,8 +13,8 @@ precision почти единица достаётся бесплатно, оф�
 
 from __future__ import annotations
 
-from ipaddress import AddressValueError, IPv4Address
 import re
+from ipaddress import AddressValueError, IPv4Address
 
 from masker.detect.checksums import (
     is_valid_account,
@@ -154,9 +154,11 @@ _TERRITORIAL_CODE_RE = re.compile(
 #: После метки маскируем весь непрерывный числовой хвост, иначе из
 #: `0044525225` оставался бы хотя бы один поисковый ключ (Р22, 11.09.2026,
 #: `bashkirschool-usak-kichu2-4149.pdf`).
-_LABELED_BIK_RE = re.compile(
-    r"\bбик(?:\s+тофк)?\b\s*[:№]?\s*(?P<value>\d+)(?!\d)", re.IGNORECASE
-)
+_LABELED_BIK_RE = re.compile(r"\bбик(?:\s+тофк)?\b\s*[:№]?\s*(?P<value>\d+)(?!\d)", re.IGNORECASE)
+#: В XLSX подпись и значение реквизита обычно лежат в соседних ячейках,
+#: поэтому строковая регулярка выше их намеренно не видит.
+_XLSX_BIK_LABEL_RE = re.compile(r"\s*бик(?:\s+тофк)?\s*[:№]?\s*\Z", re.IGNORECASE)
+_XLSX_BIK_VALUE_RE = re.compile(r"\s*(?P<value>\d+)\s*\Z")
 #: Номер доверенности — самостоятельный ключ реестра полномочий. Метка
 #: обязательна: `№ 109` без неё может быть номером пункта или приложения;
 #: запись с косыми чертами покрывает доверенность Ростелекома
@@ -253,7 +255,7 @@ def find_biks(segments: list[Segment]) -> dict[int, list[str]]:
     """
     found: dict[int, list[str]] = {}
     for seg in segments:
-        hits = []
+        hits: list[str] = []
         for match in _LABELED_BIK_RE.finditer(seg.text):
             tail = match.group("value")
             hits.extend(
@@ -263,6 +265,15 @@ def find_biks(segments: list[Segment]) -> dict[int, list[str]]:
             )
         if hits:
             found[seg.order] = hits
+    for entity in _xlsx_labeled_bik_hits(segments):
+        value = entity.text
+        hits = [
+            value[offset : offset + 9]
+            for offset in range(len(value) - 8)
+            if is_valid_bik(value[offset : offset + 9])
+        ]
+        if hits:
+            found.setdefault(entity.segment_order, []).extend(hits)
     return found
 
 
@@ -484,6 +495,51 @@ def _labeled_bik_hits(seg: Segment) -> list[Entity]:
     ]
 
 
+def _xlsx_labeled_bik_hits(segments: list[Segment]) -> list[Entity]:
+    """Вернуть БИК из ячейки справа от точной табличной метки XLSX.
+
+    Метка из другой строки или листа не подходит: в таблицах с плотными
+    реквизитами это создало бы ложную связь между независимыми полями.
+    """
+    cells: dict[tuple[str, int, int], Segment] = {}
+    for segment in segments:
+        locator = segment.anchor.locator
+        if (
+            len(locator) == 4
+            and locator[0] == "cell"
+            and isinstance(locator[1], str)
+            and isinstance(locator[2], int)
+            and isinstance(locator[3], int)
+        ):
+            cells[(locator[1], locator[2], locator[3])] = segment
+
+    hits: list[Entity] = []
+    for (sheet_name, row, column), label_segment in cells.items():
+        if not _XLSX_BIK_LABEL_RE.fullmatch(label_segment.text):
+            continue
+        value_segment = cells.get((sheet_name, row, column + 1))
+        if value_segment is None:
+            continue
+        value_match = _XLSX_BIK_VALUE_RE.fullmatch(value_segment.text)
+        if value_match is None:
+            continue
+        # 11.09.2026: маскируем БИК из отдельной value-ячейки, иначе он
+        # обходит план и остаётся в XML marker- и blackbox-вариантов.
+        hits.append(
+            Entity(
+                type=EntityType.BIK,
+                text=value_match.group("value"),
+                segment_order=value_segment.order,
+                start=value_match.start("value"),
+                end=value_match.end("value"),
+                source=Source.RULE,
+                confidence=1.0,
+                normalized=normalize_value(EntityType.BIK, value_match.group("value")),
+            )
+        )
+    return hits
+
+
 def _power_of_attorney_hits(seg: Segment) -> list[Entity]:
     """Вернуть номера доверенностей только с контекстной меткой."""
     return [
@@ -686,6 +742,7 @@ def detect_by_rules(segments: list[Segment]) -> list[Entity]:
                     )
                 )
         raw_hits.extend(_personal_account_hits(seg))
+    raw_hits.extend(_xlsx_labeled_bik_hits(segments))
     raw_hits.extend(contextual_phones)
     return resolve_overlaps(raw_hits)
 
@@ -697,7 +754,13 @@ class RuleDetector:
     source = Source.RULE
     priority = 100
     types: frozenset[str] = frozenset(
-        (*PATTERNS, EntityType.REGISTRY_KEY, EntityType.BIK, EntityType.POWER_OF_ATTORNEY_NUMBER, EntityType.IP_ADDRESS)
+        (
+            *PATTERNS,
+            EntityType.REGISTRY_KEY,
+            EntityType.BIK,
+            EntityType.POWER_OF_ATTORNEY_NUMBER,
+            EntityType.IP_ADDRESS,
+        )
     )
 
     def detect(self, document: Document) -> list[Entity]:

@@ -160,9 +160,11 @@ def find_requisite_block_candidates(document: Document, entities: list[Entity]) 
                 continue
             if overlapping:
                 entities[:] = [entity for entity in entities if entity not in overlapping]
-                ranges[:] = [item for item in ranges if item not in {
-                    (entity.start, entity.end) for entity in overlapping
-                }]
+                ranges[:] = [
+                    item
+                    for item in ranges
+                    if item not in {(entity.start, entity.end) for entity in overlapping}
+                ]
             value = segment.text[start:end]
             signatory_positions.append(
                 Entity(

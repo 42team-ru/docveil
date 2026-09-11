@@ -168,3 +168,13 @@ def test_short_quoted_organization_name_survives() -> None:
     assert [(entity.type, entity.text) for entity in NatashaDetector(tagger).detect(document)] == [
         (EntityType.ORG_NAME, "«ДОУ»"),
     ]
+
+
+def test_product_brand_is_not_organization() -> None:
+    """Марка оборудования в кавычках не является названием стороны."""
+    text = 'Облучатель-рециркулятор, марка "ГАЛА"'
+    start = text.index('"ГАЛА"')
+    document = _document(text)
+    tagger = FakeTagger({text: [NerSpan(start, start + len('"ГАЛА"'), "ORG")]})
+
+    assert NatashaDetector(tagger).detect(document) == []

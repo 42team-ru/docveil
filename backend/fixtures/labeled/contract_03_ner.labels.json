@@ -11,6 +11,11 @@
       "party": "supplier"
     },
     {
+      "type": "registry_key",
+      "text": "12345678",
+      "party": "supplier"
+    },
+    {
       "type": "person",
       "text": "Петровой Марии Сергеевны",
       "party": "supplier"

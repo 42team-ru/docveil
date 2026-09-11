@@ -58,6 +58,12 @@ def test_corpus_run_marks_validator_leak_as_failed(
         keep_artifacts=False,
     )
 
-    assert summary["succeeded"] == 0
-    assert summary["failed"] == 1
+    # Документ с утечкой обработан, но провален: он попадает в `processed`
+    # (метрики по нему посчитаны) и в `with_leaks`, а «чистых» не остаётся.
+    # Ключ `failed` с 11.09.2026 означает только «не обработан вовсе» —
+    # иначе сводка не могла отличить упавший рендер от готового артефакта,
+    # из которого валидатор всё ещё читает исходное значение.
+    assert summary["clean"] == 0
+    assert summary["with_leaks"] == 1
+    assert summary["failed"] == 0
     assert summary["per_document"][0]["status"] == "leaked"

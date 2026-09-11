@@ -54,7 +54,5 @@ def has_complete_requisite_length(entity_type: str, value: str) -> bool:
 def drop_incomplete_requisites(entities: Collection[Entity]) -> list[Entity]:
     """Убрать обрывки реквизитов до передачи результатов дальше по графу."""
     return [
-        entity
-        for entity in entities
-        if has_complete_requisite_length(entity.type, entity.text)
+        entity for entity in entities if has_complete_requisite_length(entity.type, entity.text)
     ]

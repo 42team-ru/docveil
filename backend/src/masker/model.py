@@ -32,6 +32,7 @@ class EntityType(StrEnum):
     BIRTH_DATE = "birth_date"
     SITE = "site"
     FEDERAL_LAW = "federal_law"
+    REGISTRY_KEY = "registry_key"
     CONTRACT_AMOUNT = "contract_amount"
     DELIVERY_PERIOD = "delivery_period"
     PAYMENT_TERMS = "payment_terms"

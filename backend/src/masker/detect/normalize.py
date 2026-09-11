@@ -24,6 +24,7 @@ _DIGIT_TYPES = frozenset(
         EntityType.BIK,
         EntityType.PASSPORT,
         EntityType.PHONE,
+        EntityType.REGISTRY_KEY,
     }
 )
 _PERSON_ENDINGS = (

@@ -48,6 +48,25 @@ def test_trailing_year_word_is_not_in_span() -> None:
     assert entities[0].text == "10 марта 2025"
 
 
+@pytest.mark.parametrize(
+    "text",
+    (
+        "В соответствии с Федеральным законом от 27 июля 2006 года № 149-ФЗ.",
+        "Требованиям Федерального закона от 06.04.2011 № 63-ФЗ соответствуют.",
+    ),
+)
+def test_adoption_date_in_federal_law_reference_is_not_pii(text: str) -> None:
+    """Р19: дата в конструкции «федеральный закон от <дата>» публична."""
+    assert _detect(text) == []
+
+
+def test_contract_date_after_federal_law_reference_is_still_detected() -> None:
+    """Иммунитет даты ограничен непосредственно ссылкой на закон."""
+    text = "Федеральным законом установлено правило. Договор подписан 14.10.2025."
+
+    assert _detect(text) == [(EntityType.DATE.value, "14.10.2025")]
+
+
 def test_two_digit_year_is_not_detected() -> None:
     """Двузначный год не ловим (план, «Не ловим»): коллизий с накладными много."""
     assert _detect("Оплата 12.02.25.") == []

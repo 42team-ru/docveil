@@ -32,6 +32,7 @@ class _FragmentDetector:
 def test_requisite_lengths_are_definitions_not_minimum_heuristics() -> None:
     assert has_complete_requisite_length(EntityType.BANK_ACCOUNT, "4" * 20)
     assert has_complete_requisite_length(EntityType.BANK_ACCOUNT, "3" * 11)
+    assert has_complete_requisite_length(EntityType.BANK_ACCOUNT, "03061А74190")
     assert has_complete_requisite_length(EntityType.INN, "7" * 10)
     assert has_complete_requisite_length(EntityType.INN, "7" * 12)
     assert has_complete_requisite_length(EntityType.OGRN, "1" * 13)

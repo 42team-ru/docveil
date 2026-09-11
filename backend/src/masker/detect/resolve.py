@@ -47,7 +47,13 @@ MIN_FRAGMENT_LEN = 2
 #: этого недостаточно для «неприкосновенности» — только для приоритета выше
 #: нестрогих регулярок вроде телефона (см. `FALLBACK_PRIORITY`).
 VALIDATED_TYPES: frozenset[EntityType] = frozenset(
-    {EntityType.INN, EntityType.OGRN, EntityType.SNILS, EntityType.KPP}
+    {
+        EntityType.INN,
+        EntityType.OGRN,
+        EntityType.SNILS,
+        EntityType.KPP,
+        EntityType.REGISTRY_KEY,
+    }
 )
 
 #: Счёт валиден, только если его удалось проверить в паре с БИК —

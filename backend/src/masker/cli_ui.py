@@ -181,7 +181,6 @@ class CliPresenter:
         report_path: Path,
         *,
         thread_id: str,
-        html_path: Path | None,
         trace_paths: tuple[Path, Path] | None,
         elapsed_seconds: float,
     ) -> None:
@@ -203,8 +202,6 @@ class CliPresenter:
         print(f"  отчёт: {report_path}")
         for item in artifacts:
             print(f"  {item['role']}: {item['path']}")
-        if html_path is not None:
-            print(f"  HTML:  {html_path}")
         if trace_paths is not None:
             print(f"  LLM-трейс:  {trace_paths[0]}")
             print(f"  LLM-трейс (человекочитаемый): {trace_paths[1]}")

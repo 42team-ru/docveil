@@ -17,16 +17,12 @@
 ```bash
 .venv/bin/python -m masker.cli contract.docx --types inn,person,org_name
 .venv/bin/python -m masker.cli contract.docx --rules-only
-.venv/bin/python -m masker.cli contract.docx --html
 ```
 
 Для каждого входного файла создаётся каталог `<out>/<имя файла>/`:
 
 - `report.json` — сводка, покрытие документа, сущности и контекстные чанки;
 - `preview.docx` — копия документа с точной жёлтой подсветкой находок.
-- `report.html` — опциональный полный документ при флаге `--html`: контекст
-  chunks подсвечен жёлтым, PII — цветами по типу, необработанные таблицы
-  показаны на своём месте с предупреждением.
 
 В `report.json` особенно полезны:
 

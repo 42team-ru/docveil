@@ -123,7 +123,12 @@ def _word_xbounds_from_chars(
     curr_x0: float | None = None
     curr_x1: float | None = None
 
-    for ch, box in zip(char_texts, char_bboxes):
+    # `strict=False` осознанно: RapidOCR — сторонний источник, и рассинхрон
+    # длин списка символов и списка боксов приходит из его вывода, а не из
+    # нашей логики. Падать на этом нельзя — документ всё равно надо
+    # обработать по тем символам, для которых геометрия есть; строка ниже
+    # уже отбрасывает некорректный бокс (11.09.2026).
+    for ch, box in zip(char_texts, char_bboxes, strict=False):
         if not isinstance(box, (list, tuple)) or len(box) < 2:
             continue
         pts = np.asarray(box, dtype=float)

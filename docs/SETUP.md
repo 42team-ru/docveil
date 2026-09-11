@@ -93,8 +93,7 @@ cd backend
 .venv/bin/masker fixtures/labeled/contract_01.docx \
   --out out/check \
   --types all \
-  --redact-style both \
-  --html
+  --redact-style both
 ```
 
 Флаг `--redact-style` обязателен, если нужны сами обезличенные файлы:
@@ -111,7 +110,6 @@ cd backend
 | `masked_highlight.docx` | версия для своей проверки — жёлтая подсветка, маркер виден |
 | `preview.docx` | **содержит исходный текст**, только для отладки детектора, наружу не отдавать |
 | `report.json` | сводка находок, сертификат обезличивания, карточка договора, все решения |
-| `report.html` | тот же отчёт человекочитаемо (только при `--html`) |
 
 Файлы создаются с правами `0600`. Полный разбор флагов и содержимого
 `report.json` — `CLI.md`.

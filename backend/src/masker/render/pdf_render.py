@@ -264,6 +264,30 @@ class RenderOutcome:
     collisions: tuple[RenderCollision, ...]
 
 
+@dataclass(slots=True)
+class _PreparedMarkerBase:
+    """Очищенный PDF до рисования marker-подписей для второго стиля.
+
+    Копия сохраняется только на пару вызовов одного ``render_node``: сначала
+    создаётся ``masked_highlight``, затем из той же уже отредактированной
+    основы — ``masked_black``. Исходные глифы к этому моменту удалены именно
+    ``apply_redactions()``, а не закрыты графикой.
+    """
+
+    source: pathlib.Path
+    plan: MaskPlan
+    pdf: bytes
+    replacements: tuple[Replacement, ...]
+    collisions: tuple[RenderCollision, ...]
+
+
+# 11.09.2026: на 35-страничном edukirovsk оба стиля повторяли полный
+# ``apply_redactions()``; второй стиль получает уже очищенную основу.
+# Ровно один последний элемент ограничивает память и не смешивает документы
+# разных запусков графа.
+_PREPARED_MARKER_BASE: _PreparedMarkerBase | None = None
+
+
 class _PageCharsCache:
     """Кэш ``page_chars`` и производных от него полос строк на один прогон
     рендера — план T2.2.2, шаги 2–3: страницы не меняются между заменами
@@ -1084,6 +1108,33 @@ def _insert_invisible_ocr_layer(page: pymupdf.Page, jobs: list[_OcrPageJob]) -> 
         )
 
 
+def _render_blackbox_from_prepared(
+    prepared: _PreparedMarkerBase, dest_path: pathlib.Path
+) -> RenderOutcome:
+    """Собрать чёрный вариант из уже действительно отредактированной основы."""
+    doc = pymupdf.open(stream=prepared.pdf, filetype="pdf")
+    try:
+        for replacement in prepared.replacements:
+            for region in replacement.erase_regions:
+                doc[region.page].draw_rect(
+                    pymupdf.Rect(region.x0, region.y0, region.x1, region.y1),
+                    color=(0.0, 0.0, 0.0),
+                    fill=(0.0, 0.0, 0.0),
+                    width=0,
+                )
+        doc.set_metadata({})
+        doc.del_xml_metadata()
+        doc.save(str(dest_path), garbage=4, deflate=True, no_new_id=True)
+    finally:
+        doc.close()
+    os.chmod(dest_path, 0o600)
+    return RenderOutcome(
+        replacements=prepared.replacements,
+        markers=(),
+        collisions=prepared.collisions,
+    )
+
+
 def render_pdf_redacted(
     source_path: str | pathlib.Path,
     dest_path: str | pathlib.Path,
@@ -1129,6 +1180,17 @@ def render_pdf_redacted(
 
     source_path = pathlib.Path(source_path)
     dest_path = pathlib.Path(dest_path)
+    global _PREPARED_MARKER_BASE
+    prepared = _PREPARED_MARKER_BASE
+    if (
+        style == "blackbox"
+        and prepared is not None
+        and prepared.source == source_path.resolve()
+        and prepared.plan is plan
+    ):
+        _PREPARED_MARKER_BASE = None
+        return _render_blackbox_from_prepared(prepared, dest_path)
+
     doc = pymupdf.open(str(source_path))
     font = pymupdf.Font(fontfile=str(_FONT_FILE))
     cache = _PageCharsCache(doc)
@@ -1288,12 +1350,40 @@ def render_pdf_redacted(
             pending_labels.append((page_num, job.replacement, e_regions, candidates))
 
     if style == "marker":
+        # 11.09.2026: снимок берём после всех ``apply_redactions()``, но до
+        # ``insert_textbox``. Поэтому blackbox получает тот же удалённый
+        # content stream без marker-текста и не выполняет второй дорогой
+        # проход редакции по 35 страницам.
+        prepared_replacements = [
+            dataclasses.replace(
+                replacement,
+                erase_regions=erase_regions,
+                paint_regions=erase_regions,
+            )
+            for _page_num, replacement, erase_regions, _candidates in pending_labels
+        ]
+        order_by_ref = {
+            replacement.ref: index for index, replacement in enumerate(plan.replacements)
+        }
+        prepared_replacements.sort(key=lambda item: order_by_ref[item.ref])
+        _PREPARED_MARKER_BASE = _PreparedMarkerBase(
+            source=source_path.resolve(),
+            plan=plan,
+            pdf=doc.tobytes(garbage=4, deflate=True, no_new_id=True),
+            replacements=tuple(prepared_replacements),
+            collisions=tuple(sorted(collisions, key=lambda item: (item.page, item.line_id))),
+        )
+
+    if style == "marker":
         rung_by_group = _choose_group_rungs(font, plan.groups, candidates_by_group)
+        # 11.09.2026: два Shape на страницу вместо двух коммитов на каждую
+        # из 457 подписей; порядок ключей фиксирован для детерминизма.
+        dot_shapes: dict[tuple[int, str], pymupdf.Shape] = {}
         for page_num, replacement, erase_regions, candidates in pending_labels:
             page = doc[page_num]
             group = groups_by_id[replacement.group_id]
             label_region, marker_result = _place_label_fixed(
-                page, font, candidates, replacement, rung_by_group[group.id], fill_color
+                page, font, candidates, replacement, rung_by_group[group.id], fill_color, dot_shapes
             )
             markers.append(marker_result)
             paint_regions = (*erase_regions, label_region) if fill_color is not None else ()
@@ -1305,6 +1395,9 @@ def render_pdf_redacted(
                     label_region=label_region,
                 )
             )
+        for key in sorted(dot_shapes):
+            dot_shapes[key].finish(color=None, fill=_MARKER_TEXT_COLOR, width=0)
+            dot_shapes[key].commit()
 
     for page_num in sorted(ocr_by_page):
         _insert_invisible_ocr_layer(doc[page_num], ocr_by_page[page_num])
@@ -1450,6 +1543,7 @@ def _draw_marker_dots(
     box: pymupdf.Rect,
     text: str,
     size: float,
+    dot_shapes: dict[tuple[int, str], pymupdf.Shape] | None = None,
 ) -> None:
     """Нарисовать точки-заполнители в ``box`` без добавления их в text layer.
 
@@ -1471,21 +1565,33 @@ def _draw_marker_dots(
     # от верхней границы. У точки DejaVu центр расположен чуть выше неё.
     dot_y = box.y0 + size * (font.ascender - 0.10)
     radius = min(dot_advance * 0.22, size * 0.09)
+    # 11.09.2026: на edukirovsk-2018-659372 отдельный ``page.draw_circle``
+    # на каждую точку доминировал в marker-рендере: каждый вызов коммитит
+    # отдельный content stream. По одному Shape на сторону сохраняет те же
+    # векторные круги двумя коммитами, а также различимые слева и справа
+    # ранги, на которые опирается визуальная регрессия.
 
-    def draw_run(start: float, available: float, count: int) -> None:
+    def draw_run(start: float, available: float, count: int, side: str) -> None:
+        if not count:
+            return
+        shape = (
+            page.new_shape()
+            if dot_shapes is None
+            else dot_shapes.setdefault((page.number, side), page.new_shape())
+        )
         run_width = count * dot_advance
         first_center = start + (available - run_width) / 2 + dot_advance / 2
         for index in range(count):
-            page.draw_circle(
+            shape.draw_circle(
                 (first_center + index * dot_advance, dot_y),
                 radius,
-                color=None,
-                fill=_MARKER_TEXT_COLOR,
-                width=0,
             )
+        if dot_shapes is None:
+            shape.finish(color=None, fill=_MARKER_TEXT_COLOR, width=0)
+            shape.commit()
 
-    draw_run(box.x0, left_free, left_count)
-    draw_run(marker_x1, box.x1 - marker_x1, right_count)
+    draw_run(box.x0, left_free, left_count, "left")
+    draw_run(marker_x1, box.x1 - marker_x1, right_count, "right")
 
 
 def _other_jobs_erase_rects(
@@ -1679,6 +1785,7 @@ def _place_label_fixed(
     replacement: Replacement,
     rung: tuple[str, str],
     fill_color: tuple[float, float, float] | None,
+    dot_shapes: dict[tuple[int, str], pymupdf.Shape] | None = None,
 ) -> tuple[PdfRegion, MarkerRenderResult]:
     """Вписать в это вхождение ступень, уже выбранную для всей группы.
 
@@ -1713,7 +1820,7 @@ def _place_label_fixed(
             # Точки рисуются только внутри уже принятого поля подписи. Они
             # никогда не меняют erase/paint/label-геометрию и потому не могут
             # накрыть символ, который безопасная область раньше не накрывала.
-            _draw_marker_dots(page, font, label_box, shown_text, size)
+            _draw_marker_dots(page, font, label_box, shown_text, size, dot_shapes)
             region = PdfRegion(
                 page=page.number,
                 x0=label_box.x0,

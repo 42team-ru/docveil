@@ -117,6 +117,9 @@ if TYPE_CHECKING:
     from masker.ingest.image_meta import ImageMetadata
 
 StageObserver = Callable[[str, str, str], None]
+# Содержимое прогресса намеренно не попадает в State или отчёт: в находках
+# есть исходные PII. Это краткоживущий канал того же владельца загрузки.
+ProgressObserver = Callable[[str, dict[str, object]], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +140,7 @@ class RunDeps:
     ocr: OCRProvider | None = None
     pricing: LLMPricing | None = None
     stage_observer: StageObserver | None = field(default=None, compare=False, repr=False)
+    progress_observer: ProgressObserver | None = field(default=None, compare=False, repr=False)
     _meter: MeteringProvider | None = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -162,6 +166,20 @@ class RunDeps:
         """Передать вызывающему ход графа, не добавляя UI-данные в State."""
         if self.stage_observer is not None:
             self.stage_observer(node, status, message)
+
+    def notify_progress(self, node: str, content: dict[str, object]) -> None:
+        """Опубликовать краткоживущий снимок, не влияя на прогон при сбое UI."""
+        if self.progress_observer is None:
+            return
+        try:
+            self.progress_observer(node, content)
+        except Exception:
+            # Канал наблюдения намеренно best-effort: маскирование важнее UI.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "не удалось опубликовать ход прогона", exc_info=True
+            )
 
 
 def _document(state: State) -> Document:
@@ -1255,9 +1273,7 @@ def _entity_questions_summary(
 def make_report_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """Собрать ``report_node`` — структуру ``report.json`` из ``State``.
 
-    HTML не строится здесь: ``report.html`` остаётся на стороне вызывающего
-    (раздел 0 плана T1.10) — React возьмёт эту структуру из ``State``
-    напрямую, минуя файл. Абсолютных путей в отчёте быть не должно: ``coverage``/
+    Абсолютных путей в отчёте быть не должно: ``coverage``/
     ``detection_coverage``/``plan`` уже без путей, ``artifacts[].path`` сюда
     не копируется — только производный от него булев ``preview_only``.
     Фабрика, а не голая функция: только через ``deps.tracer`` узел узнаёт,

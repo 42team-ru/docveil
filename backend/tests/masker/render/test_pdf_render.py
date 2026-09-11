@@ -483,6 +483,27 @@ def test_blackbox_inserts_no_text(tmp_path: pathlib.Path) -> None:
     assert outcome.markers == ()
 
 
+def test_blackbox_reuses_marker_redaction_base_without_marker_text(tmp_path: pathlib.Path) -> None:
+    """Второй стиль берёт общую очищенную основу, но остаётся немым.
+
+    11.09.2026: это регрессия для оптимизации ``both`` — reuse разрешён
+    только после настоящего ``apply_redactions()``, до вставки marker-текста.
+    """
+    src = _make_pdf_block(tmp_path, [_INN])
+    document = ingest_pdf(src)
+    entity = _entity_for_doc(document, _INN, EntityType.INN)
+    plan = _plan(document, [entity])
+    render_pdf_redacted(src, tmp_path / "marker.pdf", document, plan, style="marker")
+    outcome = render_pdf_redacted(src, tmp_path / "black.pdf", document, plan, style="blackbox")
+
+    doc = pymupdf.open(str(tmp_path / "black.pdf"))
+    text = doc[0].get_text()
+    doc.close()
+    assert _INN not in text
+    assert text.strip() == "", text
+    assert outcome.markers == ()
+
+
 def test_blackbox_never_reports_degradation(tmp_path: pathlib.Path) -> None:
     """`blackbox` никогда не порождает `MarkerDegradation` — «без текста»
     для него замысел стиля, а не деградация (план T2.2.2, шаг 1). Тот же

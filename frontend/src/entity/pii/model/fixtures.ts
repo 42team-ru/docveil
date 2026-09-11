@@ -14,7 +14,7 @@ import { parseAskEnvelope, parseMaskingReport } from "./schema";
  * ```
  * cd backend
  * .venv/Scripts/python -m masker.cli fixtures/labeled/contract_08_roles.docx \
- *   --out out/fe-fixtures --profile --redact-style marker --html
+ *   --out out/fe-fixtures --profile --redact-style marker
  * .venv/Scripts/python -m masker.cli fixtures/labeled/contract_08_roles.docx \
  *   --out out/fe-ask --profile --redact-style marker --ask
  * ```

@@ -94,7 +94,7 @@ class DeliveryFact(ContractFact):
 
 
 class ContractParty(BaseModel):
-    """Совместимое представление стороны для существующего HTML-отчёта."""
+    """Совместимое представление стороны для отчёта и API."""
 
     name: str | None = None
     role_title: str | None = None

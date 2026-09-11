@@ -5,11 +5,7 @@
 расползётся обратно при первой же правке, добавившей «удобный» прямой
 вызов агента в обход графа.
 
-``render_html_report`` — единственное исключение из семейства ``render_*``:
-HTML-отчёт остаётся на стороне вызывающего по решению раздела 0 плана
-T1.10 (React возьмёт ``state["report"]`` напрямую, минуя файл, но CLI
-сегодня продолжает уметь ``--html``), поэтому имя намеренно не входит в
-список запрещённых подстрок ниже.
+``cli.py`` не должен напрямую вызывать рендеры: артефакты создаёт граф.
 """
 
 from __future__ import annotations
@@ -57,14 +53,15 @@ def test_supported_formats_have_a_single_source() -> None:
     работает в воротах и не работает в продукте, не ловится ни одним
     тестом — поэтому проверяем сам факт единственного источника.
     """
-    from api.services.run_service import SUPPORTED_SUFFIXES as api_suffixes
     from masker.bench import _GRAPH_SUPPORTED_SUFFIXES as bench_suffixes
     from masker.cli import SUPPORTED_SUFFIXES as cli_suffixes
     from masker.ingest import SUPPORTED_SUFFIXES as engine_suffixes
 
     assert cli_suffixes is engine_suffixes
-    assert api_suffixes is engine_suffixes
     assert bench_suffixes is engine_suffixes
+    api_source = (ROOT / "src" / "api" / "services" / "run_service.py").read_text(encoding="utf-8")
+    assert "from masker.ingest import SUPPORTED_SUFFIXES as ENGINE_SUFFIXES" in api_source
+    assert "SUPPORTED_SUFFIXES = ENGINE_SUFFIXES" in api_source
 
 
 def test_engine_parses_every_declared_format() -> None:

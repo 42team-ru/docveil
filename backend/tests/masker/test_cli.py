@@ -43,12 +43,11 @@ def table_shape(path: Path) -> list[tuple[int, list[int], int]]:
 def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
     source_hash = hashlib.sha256(FIXTURE.read_bytes()).digest()
 
-    assert main([str(FIXTURE), "--out", str(tmp_path), "--rules-only", "--html"]) == 0
+    assert main([str(FIXTURE), "--out", str(tmp_path), "--rules-only"]) == 0
 
     artifact_dir = tmp_path / FIXTURE.stem
     report = json.loads((artifact_dir / "report.json").read_text(encoding="utf-8"))
     preview = open_docx(artifact_dir / "preview.docx")
-    html = (artifact_dir / "report.html").read_text(encoding="utf-8")
     original = open_docx(FIXTURE)
 
     assert report["preview_only"] is True
@@ -103,16 +102,10 @@ def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
         if run.font.highlight_color == WD_COLOR_INDEX.YELLOW
     ]
     assert "500100732259" in highlighted
-    assert 'class="pii pii-inn"' in html
-    assert 'id="full-document"' in html
-    assert 'class="chunk-range"' in html
-    assert "Накладная № 3662103004" in html
-    assert "chunk-001" in html
-    assert "НЕ БЕЗОПАСЕН ДЛЯ ЭКСПОРТА" in html
     assert hashlib.sha256(FIXTURE.read_bytes()).digest() == source_hash
     assert stat.S_IMODE((artifact_dir / "report.json").stat().st_mode) == 0o600
     assert stat.S_IMODE((artifact_dir / "preview.docx").stat().st_mode) == 0o600
-    assert stat.S_IMODE((artifact_dir / "report.html").stat().st_mode) == 0o600
+    assert not (artifact_dir / "report.html").exists()
 
 
 def test_report_lists_marker_for_every_masked_entity(tmp_path: Path) -> None:
@@ -449,7 +442,7 @@ def test_cli_highlights_entity_split_across_runs(tmp_path: Path) -> None:
         paragraph.add_run(text)
     source.save(source_path)
 
-    assert main([str(source_path), "--out", str(output_path), "--rules-only", "--html"]) == 0
+    assert main([str(source_path), "--out", str(output_path), "--rules-only"]) == 0
 
     preview = open_docx(output_path / "split-runs" / "preview.docx")
     runs = iter_runs(preview.paragraphs[0])
@@ -458,9 +451,6 @@ def test_cli_highlights_entity_split_across_runs(tmp_path: Path) -> None:
         "500100",
         "732259",
     ]
-    html = (output_path / "split-runs" / "report.html").read_text(encoding="utf-8")
-    assert "<script>" not in html
-    assert "&lt;script&gt;" in html
 
 
 def test_preview_highlights_entity_inside_table_cell(tmp_path: Path) -> None:
@@ -471,7 +461,7 @@ def test_preview_highlights_entity_inside_table_cell(tmp_path: Path) -> None:
     table.cell(0, 0).text = "ИНН 500100732259"
     source.save(source_path)
 
-    assert main([str(source_path), "--out", str(output_path), "--rules-only", "--html"]) == 0
+    assert main([str(source_path), "--out", str(output_path), "--rules-only"]) == 0
 
     preview = open_docx(output_path / "table-cell" / "preview.docx")
     highlighted = [
@@ -482,10 +472,7 @@ def test_preview_highlights_entity_inside_table_cell(tmp_path: Path) -> None:
         for run in iter_runs(paragraph)
         if run.font.highlight_color == WD_COLOR_INDEX.YELLOW
     ]
-    html = (output_path / "table-cell" / "report.html").read_text(encoding="utf-8")
     assert highlighted == ["500100732259"]
-    assert "<span>Таблица 1</span><span>обработана</span>" in html
-    assert 'class="pii pii-inn"' in html
 
 
 def test_preview_keeps_table_shape(tmp_path: Path) -> None:
@@ -504,7 +491,7 @@ def test_preview_highlights_entity_split_across_runs_in_cell(tmp_path: Path) -> 
         paragraph.add_run(text)
     source.save(source_path)
 
-    assert main([str(source_path), "--out", str(output_path), "--rules-only", "--html"]) == 0
+    assert main([str(source_path), "--out", str(output_path), "--rules-only"]) == 0
 
     preview = open_docx(output_path / "split-runs-cell" / "preview.docx")
     runs = iter_runs(preview.tables[0].cell(0, 0).paragraphs[0])
@@ -513,9 +500,6 @@ def test_preview_highlights_entity_split_across_runs_in_cell(tmp_path: Path) -> 
         "500100",
         "732259",
     ]
-    html = (output_path / "split-runs-cell" / "report.html").read_text(encoding="utf-8")
-    assert "<script>" not in html
-    assert "&lt;script&gt;" in html
 
 
 def test_cli_rejects_unknown_type(tmp_path: Path) -> None:
@@ -600,6 +584,7 @@ def test_cli_help_groups_options_and_examples(capsys: pytest.CaptureFixture[str]
     assert "Вход и результат" in captured.out
     assert "Интерфейс" in captured.out
     assert "Примеры:" in captured.out
+    assert "--html" not in captured.out
 
 
 def test_report_exposes_processed_tables_and_unprocessed_metadata(tmp_path: Path) -> None:
@@ -617,7 +602,6 @@ def test_report_exposes_processed_tables_and_unprocessed_metadata(tmp_path: Path
                 "--out",
                 str(tmp_path / "output"),
                 "--rules-only",
-                "--html",
             ]
         )
         == 0
@@ -634,13 +618,6 @@ def test_report_exposes_processed_tables_and_unprocessed_metadata(tmp_path: Path
     assert report["document_coverage"]["safe_to_export"] is False
     assert "author" in report["document_coverage"]["metadata"]["present_fields"]
     assert all("Таблицы, колонтитулы" not in item for item in report["limitations"])
-    html = (tmp_path / "output" / "table" / "report.html").read_text(encoding="utf-8")
-    assert "НЕ ОБРАБОТАНА ДЕТЕКТОРОМ" not in html
-    assert "<span>Таблица 1</span><span>обработана</span>" in html
-    assert "ИНН " in html
-    assert "500100732259" in html
-    assert 'class="pii pii-inn"' in html
-    assert "Test Author" in html
 
 
 def test_safe_to_export_stays_false_until_headers_and_render(tmp_path: Path) -> None:
@@ -817,7 +794,6 @@ def test_critical_unmask_shows_banner_and_limitation(tmp_path: Path) -> None:
                 "--profile",
                 "--answers",
                 str(answers_path),
-                "--html",
             ]
         )
         == 0
@@ -826,8 +802,6 @@ def test_critical_unmask_shows_banner_and_limitation(tmp_path: Path) -> None:
     report = json.loads((tmp_path / "contract_01" / "report.json").read_text(encoding="utf-8"))
     assert report["decisions"]["critical_unmasked"]
     assert any("осознанн" in item.casefold() for item in report["limitations"])
-    html = (tmp_path / "contract_01" / "report.html").read_text(encoding="utf-8")
-    assert "критич" in html.casefold()
 
 
 # ── PDF ───────────────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ from masker.mask.labels import (
     human_type_label,
     humanize_role,
     marker_ladder,
+    minimum_marker_label,
     short_role_label,
     type_marker_label,
 )
@@ -218,6 +219,34 @@ def test_compact_label_keeps_canonical_group_number() -> None:
     assert align_compact_label_number("[Сумма 3]", "[Сумма 1]") == "[Сумма 1]"
 
 
+def test_minimum_contract_date_label_is_readable_like_canonical_label() -> None:
+    """12.09.2026: узкий fallback не сокращает дату договора до `[ДТ5]`."""
+    group = _group(
+        marker="[ДАТА-5]",
+        entity_type=EntityType.DATE,
+        canonical_label="[Дата договора 5]",
+    )
+    assert minimum_marker_label(group) == "[Дата дог. 5]"
+
+
+def test_minimum_marker_label_keeps_role_or_human_type_not_internal_code() -> None:
+    """Последняя ступень не превращает группу в шифр `[Д]`/`[ДТ11]`."""
+    contract = _group(
+        marker="[ДОГОВОР]",
+        entity_type=EntityType.CONTRACT_NUMBER,
+        canonical_label="[Номер договора]",
+    )
+    representative = _group(
+        marker="[ЗАКАЗЧИК-ФИО-1]",
+        entity_type=EntityType.PERSON,
+        canonical_label="[Заказчик Представитель 1]",
+        role_label="ЗАКАЗЧИК",
+    )
+
+    assert minimum_marker_label(contract) == "[Ном. дог.]"
+    assert minimum_marker_label(representative) == "[Зак. 1]"
+
+
 # ── план М1/М4: лестница отступления маркера ────────────────────────────────
 
 
@@ -258,7 +287,7 @@ def test_marker_ladder_full_sequence_with_role_and_number() -> None:
     assert ladder == [
         ("[Поставщик Представитель 1]", ""),
         ("[Ф1]", "compact"),
-        ("[ПП1]", "minimal"),
+        ("[Пост. 1]", "minimal"),
         ("", "blank"),
     ]
 
@@ -275,7 +304,6 @@ def test_marker_ladder_without_role_skips_role_rungs() -> None:
     assert ladder == [
         ("[ИНН]", ""),
         ("[И1]", "compact"),
-        ("[И]", "minimal"),
         ("", "blank"),
     ]
 
@@ -291,7 +319,7 @@ def test_marker_ladder_type_only_rung_dropped_when_equal_to_canonical() -> None:
         canonical_label="[ИНН]",
     )
     ladder = marker_ladder(group)
-    assert ladder == [("[ИНН]", ""), ("[И]", "minimal"), ("", "blank")]
+    assert ladder == [("[ИНН]", ""), ("", "blank")]
 
 
 def test_marker_ladder_has_visible_minimum_for_tight_unknown_font_box() -> None:
@@ -303,7 +331,7 @@ def test_marker_ladder_has_visible_minimum_for_tight_unknown_font_box() -> None:
         compact_label="[Исп.П1]",
         canonical_label="[Исполнитель Представитель 1]",
     )
-    assert marker_ladder(group)[-2] == ("[ИП1]", "minimal")
+    assert marker_ladder(group)[-2] == ("[Исп. 1]", "minimal")
 
 
 def test_marker_ladder_two_roles_never_collapse_to_same_compact_rung() -> None:

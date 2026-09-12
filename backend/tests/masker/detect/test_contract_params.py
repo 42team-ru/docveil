@@ -276,6 +276,12 @@ def test_delivery_period_no_duplicates_same_span() -> None:
     assert len(starts) == len(set(starts)), "Дублирующихся сущностей по одному спану быть не должно"
 
 
+def test_delivery_period_rejects_phrase_longer_than_fact_limit() -> None:
+    """12.09.2026: срок — короткий факт, не захваченный хвост абзаца."""
+    text = "не позднее 5 (" + "очень " * 20 + ") рабочих дней"
+    assert _detect_delivery(text) == []
+
+
 # ---------------------------------------------------------------------------
 # payment_terms
 # ---------------------------------------------------------------------------
@@ -315,6 +321,13 @@ def test_payment_terms_detected_with_context(texts: tuple[str, ...]) -> None:
 def test_payment_terms_detected_by_payment_method(text: str) -> None:
     expected = text[:-1].removesuffix(" за каждые 10 дней")
     assert _detect_payment(text) == [expected]
+
+
+def test_payment_terms_rejects_paragraph_longer_than_fact_limit() -> None:
+    """12.09.2026: 313-символьный абзац не является условием оплаты."""
+    text = "Порядок оплаты. Оплата производится " + ("Заказчиком по факту оказания услуг " * 8)
+    assert len(text[text.index("Оплата") :]) > 160
+    assert _detect_payment(text) == []
 
 
 def test_payment_terms_requires_payment_context() -> None:

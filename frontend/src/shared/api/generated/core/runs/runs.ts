@@ -27,6 +27,7 @@ import type {
   AnswersRequest,
   ArtifactOut,
   AskEnvelopeOut,
+  GetRunEventsApiRunsRunIdEventsGetParams,
   HTTPValidationError,
   ListRunsApiRunsGetParams,
   RegenerateRequest,
@@ -34,6 +35,7 @@ import type {
   ReviewEnvelopeOut,
   ReviewRequest,
   RunCreateRequest,
+  RunEventsResponse,
   RunListResponse,
   RunResponse
 } from '../triemaMaskerAPI.schemas';
@@ -396,6 +398,145 @@ export function useGetRunApiRunsRunIdGet<TData = Awaited<ReturnType<typeof getRu
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetRunApiRunsRunIdGetQueryOptions(runId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type getRunEventsApiRunsRunIdEventsGetResponse200 = {
+  data: RunEventsResponse
+  status: 200
+}
+
+export type getRunEventsApiRunsRunIdEventsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getRunEventsApiRunsRunIdEventsGetResponseSuccess = (getRunEventsApiRunsRunIdEventsGetResponse200) & {
+  headers: Headers;
+};
+export type getRunEventsApiRunsRunIdEventsGetResponseError = (getRunEventsApiRunsRunIdEventsGetResponse422) & {
+  headers: Headers;
+};
+
+export type getRunEventsApiRunsRunIdEventsGetResponse = (getRunEventsApiRunsRunIdEventsGetResponseSuccess | getRunEventsApiRunsRunIdEventsGetResponseError)
+
+export const getGetRunEventsApiRunsRunIdEventsGetUrl = (runId: string,
+    params?: GetRunEventsApiRunsRunIdEventsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/runs/${runId}/events?${stringifiedParams}` : `/runs/${runId}/events`
+}
+
+/**
+ * Вернуть новые события polling-формой, устойчивой к обычным прокси.
+ *
+ * SSE не выбран: фронт уже опрашивает статус, а polling переживает буферы
+ * reverse-proxy и не держит долгие HTTP-соединения. Снимки есть лишь пока
+ * прогон активен и не записываются в БД/отчёт из-за исходных значений PII.
+ * @summary Get Run Events
+ */
+export const getRunEventsApiRunsRunIdEventsGet = async (runId: string,
+    params?: GetRunEventsApiRunsRunIdEventsGetParams, options?: Parameters<typeof authMutator>[1]): Promise<getRunEventsApiRunsRunIdEventsGetResponse> => {
+
+  return authMutator<getRunEventsApiRunsRunIdEventsGetResponse>(getGetRunEventsApiRunsRunIdEventsGetUrl(runId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetRunEventsApiRunsRunIdEventsGetQueryKey = (runId: string,
+    params?: GetRunEventsApiRunsRunIdEventsGetParams,) => {
+    return [
+    `/runs/${runId}/events`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetRunEventsApiRunsRunIdEventsGetQueryOptions = <TData = Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError = ErrorType<HTTPValidationError>>(runId: string,
+    params?: GetRunEventsApiRunsRunIdEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRunEventsApiRunsRunIdEventsGetQueryKey(runId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>> = ({ signal }) => getRunEventsApiRunsRunIdEventsGet(runId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: runId !== null && runId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetRunEventsApiRunsRunIdEventsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>>
+export type GetRunEventsApiRunsRunIdEventsGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useGetRunEventsApiRunsRunIdEventsGet<TData = Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string,
+    params: undefined |  GetRunEventsApiRunsRunIdEventsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRunEventsApiRunsRunIdEventsGet<TData = Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string,
+    params?: GetRunEventsApiRunsRunIdEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRunEventsApiRunsRunIdEventsGet<TData = Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string,
+    params?: GetRunEventsApiRunsRunIdEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Run Events
+ */
+
+export function useGetRunEventsApiRunsRunIdEventsGet<TData = Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError = ErrorType<HTTPValidationError>>(
+ runId: string,
+    params?: GetRunEventsApiRunsRunIdEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunEventsApiRunsRunIdEventsGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetRunEventsApiRunsRunIdEventsGetQueryOptions(runId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

@@ -27,6 +27,7 @@ import {
   isRunPending,
   runKeys,
   useRegenerateReview,
+  useRunProgress,
   useSubmitReview,
 } from "../../features/masking-run/api/masking-run";
 import { useReviewData } from "../../features/pii-review/api/use-review-data";
@@ -45,6 +46,14 @@ type DocumentTab = "review" | "report";
  * же вне зависимости от выбора: это правда то тело, которое таб переключает.
  */
 const CONTENT_PANEL_ID = "document-tab-panel";
+
+/**
+ * Ширина отчёта на широком мониторе: колонки текста и карточек читаются
+ * глазами без прокрутки взглядом через весь экран. Вкладка «Проверка» этот
+ * предел не получает — там документ с боковой панелью честно занимает всю
+ * доступную ширину.
+ */
+const REPORT_CONTENT_WIDTH = 1200;
 
 /**
  * Рабочий стол документа: проверка и отчёт делят одну шапку и панель,
@@ -76,6 +85,7 @@ export function DocumentPage() {
   } = useReviewData(runId);
 
   const [selectedTypesRunId, setSelectedTypesRunId] = useState<string | null>(null);
+  const progress = useRunProgress(runId, isRunPending(status));
   useEffect(() => {
     useReviewStore.setState({ questionAnswers: {} });
   }, [runId]);
@@ -339,6 +349,7 @@ export function DocumentPage() {
         contentId={CONTENT_PANEL_ID}
         contentPadding={tab === "review" ? 0 : 6}
         isContentScrollable={tab !== "review"}
+        contentWidth={tab === "report" ? REPORT_CONTENT_WIDTH : undefined}
         panel={
           tab === "review" ? (
             <ReviewPanel
@@ -365,7 +376,7 @@ export function DocumentPage() {
             onNotFoundChange={setNotFoundIds}
           />
         ) : (
-          <ReportView report={report} />
+          <ReportView report={report} runId={runId} />
         )}
       </ScreenLayout>
       <MaskingSetupDialog
@@ -375,6 +386,8 @@ export function DocumentPage() {
         isSelecting={!chooseUpload && isSelectingTypes}
         isProcessing={!chooseUpload && !isRegenerating && (isRunPending(status) || isLoading)}
         error={chooseUpload ? null : error}
+        progress={progress.events}
+        isProgressUnavailable={progress.isUnavailable}
         onSelected={() => setSelectedTypesRunId(runId)}
         onLeave={() => void navigate(uploadIds.length > 1 ? location.pathname : "/documents", {
           replace: uploadIds.length > 1,

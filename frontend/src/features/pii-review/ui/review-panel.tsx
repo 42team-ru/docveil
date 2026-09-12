@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
 import {
   Layout,
@@ -7,6 +7,7 @@ import {
   LayoutPanel,
 } from "@astryxdesign/core/Layout";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
+import { HStack } from "@astryxdesign/core/Stack";
 
 import type {
   AskEnvelope,
@@ -25,13 +26,6 @@ const PANEL_WIDTH = 400;
  * нижнему краю используем flex-end через отдельный wrapper (перенесено без
  * изменений из старого mask-review/ui/review-panel.tsx).
  */
-const tabWrapperStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-end",
-  paddingTop: 12,
-  width: "100%",
-};
-
 type ReviewPanelProps = {
   extraction: PiiExtraction;
   /** Весь отчёт прогона; `null` — документ показан без отчёта движка. */
@@ -74,7 +68,7 @@ export function ReviewPanel({
         height="fill"
         header={
           <LayoutHeader>
-            <div style={tabWrapperStyle}>
+            <HStack width="100%" vAlign="end" paddingBlockStart={3}>
               <TabList value={tab} onChange={setTab} size="sm" layout="fill" hasDivider>
                 <Tab
                   value="list"
@@ -91,9 +85,9 @@ export function ReviewPanel({
                     ) : undefined
                   }
                 />
-                <Tab value="contract" label="Договор" />
+                <Tab value="contract" label="Содержание" />
               </TabList>
-            </div>
+            </HStack>
           </LayoutHeader>
         }
         content={

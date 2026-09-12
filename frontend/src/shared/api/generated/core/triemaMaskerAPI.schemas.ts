@@ -425,6 +425,26 @@ export interface CompiledTypeOut {
 }
 
 /**
+ * Машиночитаемый код причины отказа компилятора.
+ */
+export type FailReason = typeof FailReason[keyof typeof FailReason];
+
+
+export const FailReason = {
+  empty_description: 'empty_description',
+  too_short: 'too_short',
+  too_long: 'too_long',
+  llm_unavailable: 'llm_unavailable',
+  invalid_regex: 'invalid_regex',
+  redos_pattern: 'redos_pattern',
+  regex_too_long: 'regex_too_long',
+  empty_match: 'empty_match',
+  cannot_compile: 'cannot_compile',
+  ask_rounds_exhausted: 'ask_rounds_exhausted',
+  preview_error: 'preview_error',
+} as const;
+
+/**
  * Элемент `CompileRequest.descriptions`, который компилятор не осилил
  * (после ретрая на невалидном JSON/регулярке или после `MAX_ASK_ROUNDS`).
  */
@@ -432,6 +452,7 @@ export interface FailedTypeOut {
   index: number;
   description: string;
   reason: string;
+  code?: FailReason;
 }
 
 /**
@@ -446,6 +467,50 @@ export interface CompileResponse {
   questions?: CompileQuestionOut[];
 }
 
+export type ContractFactOutStatus = typeof ContractFactOutStatus[keyof typeof ContractFactOutStatus];
+
+
+export const ContractFactOutStatus = {
+  found: 'found',
+  ambiguous: 'ambiguous',
+  not_found: 'not_found',
+  confirmed: 'confirmed',
+} as const;
+
+/**
+ * Ссылка на диапазон в оригинале — внутри `*_fact.anchors[]`.
+ */
+export interface FactAnchorOut {
+  fmt: string;
+  locator: (string | number)[];
+  label?: string;
+  segment_order: number;
+  start: number;
+  end: number;
+}
+
+/**
+ * Не выбранный кандидат факта — `*_fact.alternatives[]`.
+ */
+export interface FactAlternativeOut {
+  value: string;
+  purpose?: string | null;
+  source: string;
+  anchors: FactAnchorOut[];
+}
+
+/**
+ * Один факт карточки с цитатой и якорем — `*_fact`.
+ */
+export interface ContractFactOut {
+  value?: string | null;
+  source_quote?: string | null;
+  anchors?: FactAnchorOut[];
+  source?: string | null;
+  status?: ContractFactOutStatus;
+  alternatives?: FactAlternativeOut[];
+}
+
 /**
  * Сторона в карточке договора — `contract_summary.customer`/`.supplier`.
  */
@@ -456,19 +521,142 @@ export interface ContractPartyOut {
   ogrn: string | null;
 }
 
+export type MoneyFactOutStatus = typeof MoneyFactOutStatus[keyof typeof MoneyFactOutStatus];
+
+
+export const MoneyFactOutStatus = {
+  found: 'found',
+  ambiguous: 'ambiguous',
+  not_found: 'not_found',
+  confirmed: 'confirmed',
+} as const;
+
+/**
+ * Цена договора — `contract_summary.contract_amount_fact`.
+ */
+export interface MoneyFactOut {
+  value?: string | null;
+  source_quote?: string | null;
+  anchors?: FactAnchorOut[];
+  source?: string | null;
+  status?: MoneyFactOutStatus;
+  alternatives?: FactAlternativeOut[];
+  currency?: string | null;
+  vat?: string | null;
+  purpose?: string | null;
+}
+
+export type PaymentFactOutStatus = typeof PaymentFactOutStatus[keyof typeof PaymentFactOutStatus];
+
+
+export const PaymentFactOutStatus = {
+  found: 'found',
+  ambiguous: 'ambiguous',
+  not_found: 'not_found',
+  confirmed: 'confirmed',
+} as const;
+
+/**
+ * Один этап расчётов — `payment_facts[].stages[]`.
+ */
+export interface PaymentStageOut {
+  percentage?: string | null;
+  amount?: string | null;
+  onset_event?: string | null;
+  days?: number | null;
+  day_kind?: string | null;
+}
+
+/**
+ * Условия оплаты — `contract_summary.payment_facts[]`.
+ */
+export interface PaymentFactOut {
+  value?: string | null;
+  source_quote?: string | null;
+  anchors?: FactAnchorOut[];
+  source?: string | null;
+  status?: PaymentFactOutStatus;
+  alternatives?: FactAlternativeOut[];
+  stages?: PaymentStageOut[];
+}
+
+export type DeliveryFactOutStatus = typeof DeliveryFactOutStatus[keyof typeof DeliveryFactOutStatus];
+
+
+export const DeliveryFactOutStatus = {
+  found: 'found',
+  ambiguous: 'ambiguous',
+  not_found: 'not_found',
+  confirmed: 'confirmed',
+} as const;
+
+/**
+ * Срок поставки — `contract_summary.delivery_facts[]`.
+ */
+export interface DeliveryFactOut {
+  value?: string | null;
+  source_quote?: string | null;
+  anchors?: FactAnchorOut[];
+  source?: string | null;
+  status?: DeliveryFactOutStatus;
+  alternatives?: FactAlternativeOut[];
+  object_or_batch?: string | null;
+  onset_event?: string | null;
+  days?: number | null;
+  day_kind?: string | null;
+}
+
+export type DocumentKindOutStatus = typeof DocumentKindOutStatus[keyof typeof DocumentKindOutStatus];
+
+
+export const DocumentKindOutStatus = {
+  contract: 'contract',
+  non_contract: 'non_contract',
+  unknown: 'unknown',
+} as const;
+
+export type DocumentKindOutSource = typeof DocumentKindOutSource[keyof typeof DocumentKindOutSource];
+
+
+export const DocumentKindOutSource = {
+  rule: 'rule',
+  llm: 'llm',
+  unavailable: 'unavailable',
+} as const;
+
+/**
+ * Жанр документа — `contract_summary.document_kind`.
+ */
+export interface DocumentKindOut {
+  status?: DocumentKindOutStatus;
+  genre?: string | null;
+  confidence?: number | null;
+  source?: DocumentKindOutSource;
+}
+
 /**
  * Карточка договора — `report.contract_summary`.
  */
 export interface ContractSummaryOut {
-  customer: ContractPartyOut | null;
-  supplier: ContractPartyOut | null;
-  federal_law: string[];
-  contract_amount: string | null;
-  delivery_periods: string[];
-  payment_terms: string | null;
-  contract_number: string | null;
-  generated_at: string;
-  llm_calls: number;
+  customer?: ContractPartyOut | null;
+  supplier?: ContractPartyOut | null;
+  federal_law?: string[];
+  contract_amount?: string | null;
+  delivery_periods?: string[];
+  payment_terms?: string | null;
+  contract_number?: string | null;
+  generated_at?: string;
+  llm_calls?: number;
+  customer_fact?: ContractFactOut;
+  supplier_fact?: ContractFactOut;
+  federal_law_facts?: ContractFactOut[];
+  procurement_regime?: ContractFactOut;
+  contract_amount_fact?: MoneyFactOut;
+  payment_facts?: PaymentFactOut[];
+  delivery_facts?: DeliveryFactOut[];
+  contract_number_fact?: ContractFactOut;
+  brief_summary?: string | null;
+  document_kind?: DocumentKindOut;
 }
 
 /**
@@ -946,6 +1134,50 @@ export interface ValidationCheckedOut {
 }
 
 /**
+ * Одно событие ленты — `telemetry.events[]`.
+ */
+export interface TelemetryEventOut {
+  sequence: number;
+  node: string;
+  message: string;
+}
+
+export type TelemetryLlmOutByNodeItem = { [key: string]: unknown };
+
+export type TelemetryLlmOutCost = { [key: string]: unknown } | null;
+
+/**
+ * Итог расходов на LLM — `telemetry.llm`.
+ */
+export interface TelemetryLlmOut {
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  status: string;
+  message: string;
+  by_node?: TelemetryLlmOutByNodeItem[];
+  cost?: TelemetryLlmOutCost;
+}
+
+/**
+ * Флаг наличия runtime-метрик — `telemetry.runtime`.
+ */
+export interface TelemetryRuntimeOut {
+  available: boolean;
+  artifact?: string | null;
+  note?: string;
+}
+
+/**
+ * Детерминированная телеметрия прогона — `report.telemetry`.
+ */
+export interface TelemetryOut {
+  events?: TelemetryEventOut[];
+  llm: TelemetryLlmOut;
+  runtime: TelemetryRuntimeOut;
+}
+
+/**
  * `report.json` целиком — то, что отдаёт узел `report` (`masker.graph.nodes`).
  */
 export interface ReportOut {
@@ -974,6 +1206,7 @@ export interface ReportOut {
   layout: LayoutOut[];
   certificate?: CertificateOut | null;
   pages?: PageInfoOut[];
+  telemetry?: TelemetryOut | null;
 }
 
 /**
@@ -1043,6 +1276,25 @@ export interface RunDocument {
   name: string;
   format: string;
   object_name: string;
+}
+
+export type RunProgressEventContent = { [key: string]: unknown };
+
+/**
+ * Краткоживущий снимок завершённого узла; может содержать PII владельца файла.
+ */
+export interface RunProgressEvent {
+  sequence: number;
+  node: string;
+  content: RunProgressEventContent;
+}
+
+/**
+ * Ответ polling-ручки прогресса; `next_after` передаётся следующим запросом.
+ */
+export interface RunEventsResponse {
+  events: RunProgressEvent[];
+  next_after: number;
 }
 
 export type RunListItemStatus = typeof RunListItemStatus[keyof typeof RunListItemStatus];
@@ -1171,4 +1423,11 @@ export const ListRunsApiRunsGetStatus = {
   failed: 'failed',
   leaked: 'leaked',
 } as const;
+
+export type GetRunEventsApiRunsRunIdEventsGetParams = {
+/**
+ * @minimum 0
+ */
+after?: number;
+};
 

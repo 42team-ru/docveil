@@ -33,8 +33,12 @@ type ReportRow = {
   decidedBy: DecisionSource | null;
 };
 
-/** Как подписан источник решения в колонке «Решение». */
-const DECIDED_BY_LABEL: Record<DecisionSource, string> = {
+/**
+ * Как подписан источник решения в колонке «Решение». Экспортируется —
+ * вкладка «Ресурсы» (`report-resources.tsx`) строит по тем же подписям
+ * диаграмму «кем принято решение», чтобы текст не разъезжался между вкладками.
+ */
+export const DECIDED_BY_LABEL: Record<DecisionSource, string> = {
   critical_guard: "гвардия",
   entity: "оператор",
   profile: "по стороне",

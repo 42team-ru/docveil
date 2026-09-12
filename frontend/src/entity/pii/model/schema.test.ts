@@ -181,6 +181,38 @@ describe("parseMaskingReport", () => {
     expect(report.contractSummary).toBeNull();
     expect(report.decisions).toBeNull();
   });
+
+  it("читает жанр, пересказ и телеметрию нового контракта отчёта", () => {
+    const enriched = structuredClone(reportPayload) as Record<string, unknown>;
+    enriched.contract_summary = {
+      document_kind: { status: "non_contract", genre: "технические условия" },
+      brief_summary: "Документ задаёт требования к поставке и контролю качества.",
+    };
+    enriched.telemetry = {
+      events: [{ sequence: 1, node: "extract", message: "разобран DOCX, 3 страниц" }],
+      llm: {
+        calls: 0,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        status: "model_not_needed",
+        message: "Модель не понадобилась для этого документа.",
+        cost: null,
+        by_node: [],
+      },
+      runtime: { available: false, note: "Метрики времени не записаны." },
+    };
+
+    const report = parseMaskingReport(enriched as unknown as ReportOut);
+
+    expect(report.contractSummary?.documentKind).toEqual({
+      status: "non_contract",
+      genre: "технические условия",
+    });
+    expect(report.contractSummary?.briefSummary).toContain("требования");
+    expect(report.telemetry?.events[0]?.message).toContain("DOCX");
+    expect(report.telemetry?.llm.calls).toBe(0);
+    expect(report.telemetry?.llm.byNode).toEqual([]);
+  });
 });
 
 describe("parseAskEnvelope", () => {

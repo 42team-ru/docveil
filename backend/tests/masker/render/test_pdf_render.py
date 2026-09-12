@@ -315,10 +315,10 @@ def test_redacted_form_widget_is_deleted_when_its_planned_text_overlaps(
     assert email not in text
 
 
-def test_marker_is_centered_and_fills_released_space_with_dots(
+def test_marker_is_centered_without_decorative_dot_leaders(
     tmp_path: pathlib.Path,
 ) -> None:
-    """12.09.2026: маркер центрирован, а края заполнены векторными точками."""
+    """12.09.2026: маркер не добавляет точки, похожие на остатки бланка."""
     src = _make_pdf_with_inn(tmp_path)
     dest = tmp_path / "redacted.pdf"
     document = ingest_pdf(src)
@@ -350,20 +350,13 @@ def test_marker_is_centered_and_fills_released_space_with_dots(
             and drawing["items"]
             and all(item[0] == "c" for item in drawing["items"])
         ]
-        assert dot_drawings
+        assert not dot_drawings
     finally:
         result.close()
 
 
 def test_pdf_marker_from_plan(tmp_path: pathlib.Path) -> None:
-    """Ради этого шага всё затевалось: в PDF тоже маркер с ролью, а не
-    латинский тип — человекочитаемой формы (план М4), а не капсом с дефисами.
-
-    Своя (не общая) фикстура — с запасом свободного места после ИНН,
-    доказанно свободным для расширения подписи (план М1, правило 3):
-    `_make_pdf_with_inn` рассчитана впритык под голый ``[ИНН]`` и с полом
-    читаемости 8 pt (план М1, правило 1) не оставляет места для роли.
-    """
+    """Доказанно свободное поле справа вмещает читаемую роль стороны."""
     path = tmp_path / "source.pdf"
     doc = pymupdf.open()
     doc.new_page().insert_text((72, 100), f"ИНН {_INN}          ", fontsize=12)
@@ -866,6 +859,37 @@ def test_same_canonical_label_uses_one_visible_rung_across_plan_groups() -> None
     assert chosen["G1"] == chosen["G2"] == ("[Исп.П1]", "compact")
 
 
+def test_group_with_tiny_occurrence_keeps_label_on_wide_occurrence() -> None:
+    """Узкий дубль не оставляет широкую область группы пустой."""
+    group = MaskGroup(
+        id="G1",
+        key="person",
+        type=EntityType.PERSON,
+        marker="[ИСПОЛНИТЕЛЬ-ФИО-1]",
+        profile_id="P1",
+        role_label="ИСПОЛНИТЕЛЬ",
+        number=1,
+        refs=("E1", "E2"),
+        sample="Иванов",
+        canonical_label="[Исполнитель Представитель 1]",
+        compact_label="[Исп.П1]",
+    )
+    narrow = pymupdf.Rect(0, 0, 10, 20)
+    wide = pymupdf.Rect(0, 0, 100, 20)
+    chosen = _choose_group_rungs(
+        pymupdf.Font(fontfile=_FONT),
+        (group,),
+        {
+            "G1": [
+                [pdf_render_module._LabelCandidate(narrow, narrow, 0.0, 10.0)],
+                [pdf_render_module._LabelCandidate(wide, wide, 0.0, 10.0)],
+            ]
+        },
+    )
+
+    assert chosen["G1"] == ("[Исп.П1]", "compact")
+
+
 def test_marker_words_stay_on_the_source_text_line(tmp_path: pathlib.Path) -> None:
     """12.09.2026: PDF text layer не получает строку из одних меток."""
     src = tmp_path / "source.pdf"
@@ -1144,14 +1168,8 @@ def test_pdf_background_color_changes_artifact_but_remains_deterministic(
     assert first.read_bytes() != other.read_bytes()
 
 
-def test_label_extension_does_not_erase_neighbouring_kept_word(tmp_path: pathlib.Path) -> None:
-    """План М1, правило 3: расширение поля подписи — только в доказанно
-    свободное место своей строки, `erase_regions` не трогается никогда.
-
-    Без разделения регионов (одна и та же геометрия и для удаления, и для
-    подписи) этот тест падает: чтобы вписать канонический маркер, старый
-    код раздвигал сам прямоугольник **удаления**, и `apply_redactions`
-    стирал бы часть соседнего слова, которое в план не входит."""
+def test_label_region_expands_only_through_space_before_kept_word(tmp_path: pathlib.Path) -> None:
+    """Свободный пробел годится для подписи, но слово справа не закрашивается."""
     path = tmp_path / "neighbour.pdf"
     doc = pymupdf.open()
     page = doc.new_page()
@@ -1186,14 +1204,14 @@ def test_label_extension_does_not_erase_neighbouring_kept_word(tmp_path: pathlib
     erase_region = replacement.erase_regions[0]
     label_region = replacement.label_region
     assert label_region is not None
-    # Область удаления одного инициала («И») квантуется вверх ровно до
-    # одного кванта сетки 12 pt (план М1, правило 5) — не дальше, хотя
-    # свободное место после неё тянется до самого «Незыблемовна». Подпись
-    # же имела право расшириться в это свободное место значительно шире —
-    # сама область удаления от этого расширения не растёт ни на пункт.
     assert erase_region.x1 - erase_region.x0 == pytest.approx(12.0)
-    assert label_region.x1 >= erase_region.x1
-    assert label_region.x1 - label_region.x0 > 12.0
+    assert label_region.x1 > erase_region.x1
+
+    source_doc = pymupdf.open(str(path))
+    source_chars = page_chars(source_doc[0])
+    source_doc.close()
+    neighbour_x0 = source_chars.boxes[source_chars.text.index("Н")].x0
+    assert label_region.x1 <= neighbour_x0 + 0.02
 
 
 # ── обрезка прямоугольника по соседней строке (Д10, план T2.2.2, шаг 3) ───────
@@ -1893,16 +1911,8 @@ def test_label_box_candidates_do_not_share_vertical_margin_with_another_mask() -
     assert candidates[0][1].y0 >= other.y1 - 0.01
 
 
-def test_label_box_candidates_uses_post_redaction_chars_not_pre() -> None:
-    """Сердце плана М6-1: свободная граница ищется по ``post_chars``
-    (аргумент функции), а ``pre_line_boxes`` не подмешивает в поиск соседей
-    ничего, кроме собственной строки. Здесь сосед, реально стоявший на
-    границе в ``pre_line_boxes``/до печати, в ``post_chars`` уже стёрт
-    (апостериорная страница) — граница обязана уйти дальше, а не
-    остановиться там, где сосед стоял до редактирования. Старый код (проход
-    один раз, до ``apply_redactions``) в точности этот сосед и видел бы —
-    прямое воспроизведение регресса, который чинит М6-1 (сдвиг хвоста
-    кернингового рана после ``apply_redactions``, план TASKS.md М6)."""
+def test_label_box_candidates_extend_to_first_remaining_neighbour() -> None:
+    """Удалённый сосед освобождает место лишь до первого живого символа."""
     # До редактирования: "W" (сущность) следом "X" (сосед, который на
     # настоящей странице к моменту вставки подписи уже будет стёрт другой
     # заменой того же прогона) следом "Y" (настоящий, непустой сосед).
@@ -1942,9 +1952,8 @@ def test_label_box_candidates_uses_post_redaction_chars_not_pre() -> None:
         f"на «X» (x=10.0), получено {old_label_box.x1:.2f}"
     )
     assert new_label_box.x1 == pytest.approx(20.0), (
-        "план М6-1: поиск по пост-редакционным боксам обязан пройти сквозь "
-        f"уже стёртое место «X» до настоящего соседа «Y» (x=20.0), "
-        f"получено {new_label_box.x1:.2f}"
+        "после redaction поле может пройти по освобождённому месту, но обязано "
+        f"остановиться перед живым «Y» (x=20.0), получено {new_label_box.x1:.2f}"
     )
 
 

@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 
 from masker.graph.nodes import RunDeps, make_summary_node, summary_node
-from masker.graph.serde import entity_to_dict, profiles_to_dicts
+from masker.graph.serde import entity_to_dict, plan_to_dict, profiles_to_dicts
 from masker.llm import FakeProvider
-from masker.model import Anchor, Entity, EntityType, Profile, ProfileMember, Source
+from masker.mask.agent import PlanAgent
+from masker.model import Anchor, Document, Entity, EntityType, Profile, ProfileMember, Segment, Source
 
 _ANCHOR = Anchor(fmt="docx", locator=("body", 0))
 
@@ -90,6 +91,29 @@ def test_summary_node_picks_up_delivery_period() -> None:
     state = _state(segments=[_segment(period.text)], entities=[entity_to_dict(period)])
     result = summary_node(state)
     assert result["contract_summary"]["delivery_periods"] == ["в течение 30 дней"]
+
+
+def test_default_plan_keeps_payment_and_delivery_values_in_contract_summary() -> None:
+    """12.09.2026: видимые условия сделки остаются извлечёнными для карточки."""
+    text = "Оплата производится по факту оказания услуг в течение 5 рабочих дней"
+    payment = _entity(EntityType.PAYMENT_TERMS, text)
+    delivery = _entity(EntityType.DELIVERY_PERIOD, "в течение 5 рабочих дней")
+    document = Document(
+        path="doc.docx",
+        fmt="docx",
+        segments=[Segment(text=text, anchor=_ANCHOR, order=0)],
+    )
+    plan = PlanAgent().plan(document, [payment, delivery])
+    result = summary_node(
+        _state(
+            segments=[_segment(text)],
+            entities=[entity_to_dict(payment), entity_to_dict(delivery)],
+            plan=plan_to_dict(plan),
+        )
+    )
+    summary = result["contract_summary"]
+    assert summary["payment_terms"] == text
+    assert summary["delivery_periods"] == ["в течение 5 рабочих дней"]
 
 
 def test_summary_node_resolves_customer_from_profile() -> None:

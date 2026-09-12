@@ -8,6 +8,7 @@ import { uploadApiFilesUploadPost } from "../../../shared/api/generated/core/fil
 import {
   createRunApiRunsPost,
   getArtifactsApiRunsRunIdArtifactsGet,
+  getRunEventsApiRunsRunIdEventsGet,
   getQuestionsApiRunsRunIdQuestionsGet,
   getReportApiRunsRunIdReportGet,
   getRunApiRunsRunIdGet,
@@ -24,6 +25,7 @@ import type {
   RegenerateRequest,
   ListRunsApiRunsGetParams,
   ReportOut,
+  RunProgressEvent,
   RunListResponse,
   RunResponse,
 } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
@@ -77,6 +79,9 @@ export const runKeys = {
   artifacts: (runId: string) => ["runs", runId, "artifacts"] as const,
 };
 
+/** Безопасная для UI часть живого снимка графа: бэкенд не отдаёт в ней текст документа. */
+export type RunProgress = Pick<RunProgressEvent, "sequence" | "node" | "content">;
+
 export type StartRunInput = {
   source: UploadSource;
   maskStyle: MaskStyle;
@@ -118,6 +123,47 @@ export function useStartRun() {
       void queryClient.invalidateQueries({ queryKey: runKeys.all });
     },
   });
+}
+
+/**
+ * Лента прогресса независима от основного polling `GET /runs/{id}`: ошибка
+ * этого необязательного представления не мешает дождаться финального статуса.
+ */
+export function useRunProgress(runId: string | null, enabled: boolean) {
+  const [events, setEvents] = useState<RunProgress[]>([]);
+  const [isUnavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    if (runId === null || !enabled) return;
+    let cancelled = false;
+    let after = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const response = await getRunEventsApiRunsRunIdEventsGet(runId, { after });
+        if (response.status !== 200) throw new Error("Лента недоступна");
+        if (cancelled) return;
+        after = response.data.next_after;
+        if (response.data.events.length > 0) {
+          setEvents((previous) => [...previous, ...response.data.events]);
+        }
+        timer = setTimeout(() => void poll(), POLL_INTERVAL_MS);
+      } catch {
+        if (!cancelled) setUnavailable(true);
+      }
+    };
+
+    setEvents([]);
+    setUnavailable(false);
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [enabled, runId]);
+
+  return { events, isUnavailable };
 }
 
 /** Состояние прогона; пока он идёт — с опросом, дальше запрос замирает. */
@@ -181,6 +227,35 @@ export function useRunArtifacts(runId: string | null, enabled: boolean) {
         throw new Error("Артефакты недоступны");
       }
       return response.data;
+    },
+  });
+}
+
+export type RuntimeMetrics = {
+  stages: Record<string, { calls: number; duration_ms: number }>;
+  /**
+   * Та же лента, что и `report.telemetry.events`, но с временем от старта
+   * прогона (`elapsed_ms`) — этого поля нет в `report.json`, чтобы отчёт
+   * оставался побайтово детерминированным (`masker.telemetry.runtime_metrics`).
+   * Сшивается с `report.telemetry.events` по `sequence`.
+   */
+  events?: { sequence: number; elapsed_ms: number; node: string; message: string }[];
+};
+
+/** Недетерминированный companion-артефакт с длительностями стадий. */
+export function useRuntimeMetrics(runId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["runs", runId, "runtime-metrics"],
+    enabled: runId !== null && enabled,
+    queryFn: async (): Promise<RuntimeMetrics | null> => {
+      try {
+        const response = await clientApiWithAuth.get<RuntimeMetrics>(
+          `/runs/${runId}/artifacts/runtime_metrics`,
+        );
+        return response.data;
+      } catch {
+        return null;
+      }
     },
   });
 }

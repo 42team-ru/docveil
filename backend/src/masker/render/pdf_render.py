@@ -919,8 +919,20 @@ def compute_label_geometry(
             if not text:
                 continue
             for candidate in candidates:
-                _erase_rect, label_box = candidate
-                size = _fitting_size(font, text, label_box, candidate.source_font_size, reason)
+                erase_rect, label_box = candidate
+                # Рендер выбирает узкую область, если уже выбранная общая
+                # ступень в ней читаема. Расширение справа — резерв для
+                # реального дефицита места, а не часть каждой подсветки.
+                tight_box = pymupdf.Rect(
+                    erase_rect.x0, label_box.y0, erase_rect.x1, label_box.y1
+                )
+                tight_size = _fitting_size(
+                    font, text, tight_box, candidate.source_font_size, reason
+                )
+                if tight_size is not None:
+                    label_box, size = tight_box, tight_size
+                else:
+                    size = _fitting_size(font, text, label_box, candidate.source_font_size, reason)
                 if size is None:
                     continue
                 result[replacement.ref] = (
@@ -966,8 +978,7 @@ def _scratch_marker_boxes(
     *,
     align: int = pymupdf.TEXT_ALIGN_CENTER,
 ) -> list[pymupdf.Rect]:
-    """Настоящие боксы глифов, которые оставит ``insert_textbox(box, text,
-    fontsize=size)`` — план М5, метрика ``count_highlight_overlaps``.
+    """Настоящие боксы глифов, которые оставит ``insert_text`` маркера.
 
     Ни поиск литеральной строки (``page.search_for``), ни сравнение по
     имени шрифта не годятся, чтобы отличить текст маркера от текста
@@ -994,14 +1005,19 @@ def _scratch_marker_boxes(
     try:
         page = scratch.new_page(width=_SCRATCH_PAGE_SIZE, height=_SCRATCH_PAGE_SIZE)
         page.insert_font(fontname=_FONT_NAME, fontfile=str(_FONT_FILE))
-        page.insert_textbox(
-            box,
+        text_width = font.text_length(text, fontsize=size)
+        x0 = box.x0 if align == pymupdf.TEXT_ALIGN_LEFT else box.x0 + (box.width - text_width) / 2
+        # `_try_ladder` вставляет текст по baseline исходной строки. Обычно
+        # label_box начинается на 1pt выше неё; это именно тот безопасный
+        # вертикальный отступ, а не baseline. Воспроизводим его здесь,
+        # иначе край собственного глифа метрика ошибочно считает чужим.
+        page.insert_text(
+            (x0, box.y0 + 1.0 + size * font.ascender),
             text,
             fontname=_FONT_NAME,
             fontfile=str(_FONT_FILE),
             fontsize=size,
             color=_MARKER_TEXT_COLOR,
-            align=align,
         )
         data = page.get_text("rawdict", clip=box)
         boxes: list[pymupdf.Rect] = []
@@ -1609,7 +1625,15 @@ def _marker_dot_counts(
 
     left_free = free_width / 2
     right_free = free_width - left_free
-    total = math.floor((left_free + right_free + _GEOMETRY_EPS) / dot_advance)
+    # 12.09.2026: точки не несут смысла и в узкой ячейке визуально занимали
+    # больше места, чем сама подпись. Ограничиваем их суммарную ширину
+    # шириной метки: при свободном поле уже или равном метке их нет вовсе.
+    if free_width <= marker_width + _GEOMETRY_EPS:
+        return 0, 0
+    total = min(
+        math.floor((left_free + right_free + _GEOMETRY_EPS) / dot_advance),
+        math.floor((marker_width + _GEOMETRY_EPS) / dot_advance),
+    )
     while total:
         left_count = total // 2
         right_count = total - left_count  # лишняя точка детерминированно справа
@@ -1814,20 +1838,21 @@ def _label_box_candidates(
     candidates: list[_LabelCandidate] = []
     for line_id, erase_rect in trimmed_rects:
         own_line = pre_line_boxes[line_id]
-        # Горизонтальная безопасная граница уже доказанно свободна
-        # (``_free_extension_right`` возвращает ``max(limit, erase_rect.x1)``
-        # — никогда не бывает уже эрейз-прямоугольника). Раньше сюда сверху
-        # добавлялось ``+ 2`` — ровно те два пункта, что заезжали на первый
-        # чужой символ, стоящий вплотную к границе (план М5): граница сама
-        # по себе уже воздух, добавлять к ней ничего нельзя, только зажимать.
+        # Поле подписи вправе занять пробелы справа от стёртой сущности,
+        # но только до первого *живого* глифа на странице после redaction.
+        # В предыдущем варианте это расширение отключили полностью: оно
+        # устранило наложение, но сделало четыре широких поля на arkhschool
+        # пустыми. Причиной наложения был не сам доказанно свободный участок,
+        # а добавочные пункты за возвращённой границей. Здесь никаких
+        # арифметических припусков после _free_extension_right нет.
         label_x1 = _free_extension_right(post_chars, _NO_LINE, erase_rect, 0, 0, own_line)
         for other in other_erase_rects:
             if other.y1 <= erase_rect.y0 + _GEOMETRY_EPS or other.y0 >= erase_rect.y1 - (
                 _GEOMETRY_EPS
             ):
-                continue  # не пересекается по вертикали с нашей строкой — не преграда
+                continue
             if other.x0 < erase_rect.x1 - _GEOMETRY_EPS:
-                continue  # чужой эрейз-регион левее нас — не мешает расширению вправо
+                continue
             label_x1 = min(label_x1, other.x0)
         label_x1 = max(label_x1, erase_rect.x1)
         top_limit, bottom_limit = _free_extension_vertical(
@@ -1950,6 +1975,19 @@ def _choose_group_rungs(
                 if _rung_fits_everywhere(font, text, reason, occurrences):
                     chosen = (text, reason)
                     break
+            if not chosen[0]:
+                # Одно экстремально узкое вхождение не должно превращать
+                # широкое и пригодное для чтения вхождение той же группы в
+                # пустую жёлтую полосу. В таком случае сохраняем одну
+                # ступень группы, но печатаем её только там, где она реально
+                # помещается; узкое место остаётся без второй, ложной метки.
+                for text, reason in marker_ladder(first_group_by_canonical[canonical]):
+                    if text and any(
+                        _rung_fits_everywhere(font, text, reason, [occurrence])
+                        for occurrence in occurrences
+                    ):
+                        chosen = (text, reason)
+                        break
         result[group.id] = chosen
         result[canonical] = chosen
         if chosen[0]:
@@ -1980,7 +2018,16 @@ def _place_label_fixed(
         single_rung = [(text, reason)]
         for candidate in candidates:
             erase_rect, label_box = candidate
-            if not _ladder_fits(font, candidate, single_rung):
+            tight_box = pymupdf.Rect(erase_rect.x0, label_box.y0, erase_rect.x1, label_box.y1)
+            tight_candidate = dataclasses.replace(candidate, label_box=tight_box)
+            # Фон в свободных пробелах нужен лишь когда без него выбранная
+            # групповая ступень не помещается. Так безопасное расширение не
+            # раздувает каждую жёлтую полосу и не повышает метрику наложений.
+            candidate_to_draw = (
+                tight_candidate if _ladder_fits(font, tight_candidate, single_rung) else candidate
+            )
+            erase_rect, label_box = candidate_to_draw
+            if not _ladder_fits(font, candidate_to_draw, single_rung):
                 continue
             if fill_color is not None and label_box.x1 > erase_rect.x1 + _GEOMETRY_EPS:
                 # Расширение вправо доказанно свободно
@@ -2006,15 +2053,9 @@ def _place_label_fixed(
             shown_text, fallback_reason, size = outcome
             # 12.09.2026: центрируем метку в освобождённой полосе и тут же
             # возвращаем точки по краям; иначе остаётся визуальная пустота.
-            _draw_marker_dots(
-                page,
-                font,
-                label_box,
-                shown_text,
-                size,
-                dot_shapes,
-                baseline_y0=candidate.line_y0,
-            )
+            # Точки-лидеры не рисуем: это не часть маркера и на реальном
+            # бланке визуально неотличимы от частично стёртых исходных точек.
+            # Единственный видимый текст marker-варианта — сама подпись.
             region = PdfRegion(
                 page=page.number,
                 x0=label_box.x0,
@@ -2030,13 +2071,20 @@ def _place_label_fixed(
                 shown_label=shown_text,
                 fallback_reason=fallback_reason,
             )
-        # Ступень прошла общегрупповую проверку (``_rung_fits_everywhere``)
-        # той же формулой ширины/высоты, что и здесь — если ни один
-        # кандидат этого вхождения её всё же не принял, геометрия версий
-        # разъехалась выше по стеку, а не «место кончилось»: молчать нельзя.
-        raise MarkerDoesNotFitError(
-            f"ступень {text!r}, выбранная для группы {replacement.group_id!r}, "
-            "не поместилась ни в одном кандидате этого вхождения"
+        # Ступень выбрана для широкого вхождения группы, но это конкретное
+        # поле уже минимально и её не вмещает. Не рисуем в нём второй,
+        # другой маркер и не расширяем заливку ради текста.
+        erase_rect, _label_box = candidates[0]
+        region = PdfRegion(
+            page=page.number, x0=erase_rect.x0, y0=erase_rect.y0, x1=erase_rect.x1, y1=erase_rect.y1
+        )
+        return region, MarkerRenderResult(
+            ref=replacement.ref,
+            group_id=replacement.group_id,
+            page=page.number,
+            font_size=0.0,
+            shown_label="",
+            fallback_reason="blank",
         )
 
     erase_rect, _label_box = candidates[0]

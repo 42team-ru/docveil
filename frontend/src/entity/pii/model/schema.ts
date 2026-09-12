@@ -273,15 +273,32 @@ const rawPartySchema = z.object({
 });
 
 const rawContractSummarySchema = z.object({
-  customer: rawPartySchema.nullable(),
-  supplier: rawPartySchema.nullable(),
-  federal_law: z.array(z.string()),
-  contract_amount: z.string().nullable(),
-  delivery_periods: z.array(z.string()),
-  payment_terms: z.string().nullable(),
-  contract_number: z.string().nullable(),
-  generated_at: z.string(),
-  llm_calls: z.number(),
+  customer: rawPartySchema.nullable().optional().default(null),
+  supplier: rawPartySchema.nullable().optional().default(null),
+  federal_law: z.array(z.string()).optional().default([]),
+  contract_amount: z.string().nullable().optional().default(null),
+  delivery_periods: z.array(z.string()).optional().default([]),
+  payment_terms: z.string().nullable().optional().default(null),
+  contract_number: z.string().nullable().optional().default(null),
+  generated_at: z.string().optional().default(""),
+  llm_calls: z.number().optional().default(0),
+  brief_summary: z.string().nullable().optional().default(null),
+  document_kind: z.object({
+    status: z.enum(["contract", "non_contract", "unknown"]).optional().default("unknown"),
+    genre: z.string().nullable().optional().default(null),
+  }).optional().default({ status: "unknown", genre: null }),
+});
+
+const rawTelemetrySchema = z.object({
+  events: z.array(z.object({ sequence: z.number(), node: z.string(), message: z.string() })).optional().default([]),
+  llm: z.object({
+    calls: z.number(), prompt_tokens: z.number(), completion_tokens: z.number(),
+    status: z.string(), message: z.string(), cost: z.record(z.string(), z.unknown()).nullable().optional().default(null),
+    by_node: z.array(z.object({
+      node: z.string(), calls: z.number(), prompt_tokens: z.number(), completion_tokens: z.number(),
+    })).optional().default([]),
+  }),
+  runtime: z.object({ available: z.boolean(), note: z.string().optional().default("") }),
 });
 
 const rawDecisionsSchema = z.object({
@@ -373,6 +390,7 @@ const rawReportSchema = z.object({
   marker_legend: z.array(rawMarkerLegendItemSchema).optional(),
   //: Дубль `validation.certificate` на верхнем уровне report.json (план М3).
   certificate: rawCertificateSchema.nullable().optional(),
+  telemetry: rawTelemetrySchema.nullable().optional(),
   //: Размеры страниц PDF-артефакта (план feat/highlight-coords-edits, К1) —
   //: пусто для docx/xlsx, движок кладёт `[]`, а не опускает ключ вовсе.
   pages: z
@@ -499,6 +517,8 @@ export function parseMaskingReport(payload: ReportOut): MaskingReport {
           contractNumber: raw.contract_summary.contract_number,
           generatedAt: raw.contract_summary.generated_at,
           llmCalls: raw.contract_summary.llm_calls,
+          briefSummary: raw.contract_summary.brief_summary,
+          documentKind: raw.contract_summary.document_kind,
         }
       : null,
     decisions: raw.decisions
@@ -532,6 +552,24 @@ export function parseMaskingReport(payload: ReportOut): MaskingReport {
         }
       : null,
     certificate: toCertificate(raw.certificate),
+    telemetry: raw.telemetry ? {
+      events: raw.telemetry.events.map((event) => ({ sequence: event.sequence, node: event.node, message: event.message })),
+      llm: {
+        calls: raw.telemetry.llm.calls,
+        promptTokens: raw.telemetry.llm.prompt_tokens,
+        completionTokens: raw.telemetry.llm.completion_tokens,
+        status: raw.telemetry.llm.status,
+        message: raw.telemetry.llm.message,
+        cost: raw.telemetry.llm.cost,
+        byNode: raw.telemetry.llm.by_node.map((item) => ({
+          node: item.node,
+          calls: item.calls,
+          promptTokens: item.prompt_tokens,
+          completionTokens: item.completion_tokens,
+        })),
+      },
+      runtime: raw.telemetry.runtime,
+    } : null,
     markerLegend: (raw.marker_legend ?? []).map((item) => ({
       shownLabel: item.shown_label,
       canonicalLabel: item.canonical_label,

@@ -215,7 +215,12 @@ def test_document_condition_never_gets_profile_role_in_marker() -> None:
     index = EntityIndex([condition])
     profile = _profile("P7", "СТОРОНА-7", [condition], index)
 
-    plan = PlanAgent().plan(document, [condition], profiles=[profile])
+    plan = PlanAgent().plan(
+        document,
+        [condition],
+        profiles=[profile],
+        requested_types=frozenset({EntityType.DELIVERY_PERIOD}),
+    )
 
     assert plan.replacements[0].marker == "[СРОК-ПОСТАВКИ]"
     assert plan.groups[0].canonical_label == "[Срок поставки]"
@@ -330,24 +335,28 @@ def test_entity_with_missing_segment_anchor_is_skipped_as_no_anchor() -> None:
     assert plan.skipped[0].reason == "no_anchor"
 
 
-def test_requested_types_none_matches_explicit_full_set() -> None:
-    """Живая проверка решения из шага 4: ``requested_types=None`` и
-    ``--types all`` (который CLI разворачивает в ``frozenset(EntityType)``,
-    см. ``_parse_types``) обязаны давать одинаковый план. Расхождение здесь
-    было бы багом, который в CLI незаметен — там ``--types`` всегда
-    подставляет конкретное множество, `None` через CLI не достижим."""
+def test_default_plan_keeps_contract_terms_but_explicit_types_mask_them() -> None:
+    """12.09.2026: карточка извлекает условия, а обычный текст их не скрывает."""
     org = _entity(EntityType.ORG_NAME, "Ромашка", segment_order=0)
-    date = _entity(EntityType.DATE, "01.01.2024", segment_order=1)
-    entities = [org, date]
+    payment = _entity(EntityType.PAYMENT_TERMS, "оплата по факту", segment_order=1)
+    delivery = _entity(EntityType.DELIVERY_PERIOD, "в течение 5 дней", segment_order=2)
+    entities = [org, payment, delivery]
     document = _document(len(entities))
 
     plan_none = PlanAgent().plan(document, entities, requested_types=None)
     plan_all = PlanAgent().plan(document, entities, requested_types=frozenset(EntityType))
 
-    def dump(plan: object) -> str:
-        return json.dumps(dataclasses.asdict(plan), sort_keys=True, default=str)
-
-    assert dump(plan_none) == dump(plan_all)
+    assert [item.entity.type for item in plan_none.replacements] == [EntityType.ORG_NAME]
+    assert {item.type for item in plan_none.skipped} == {
+        EntityType.PAYMENT_TERMS,
+        EntityType.DELIVERY_PERIOD,
+    }
+    assert {item.reason for item in plan_none.skipped} == {"visible_contract_term"}
+    assert {item.entity.type for item in plan_all.replacements} == {
+        EntityType.ORG_NAME,
+        EntityType.PAYMENT_TERMS,
+        EntityType.DELIVERY_PERIOD,
+    }
 
 
 def test_requested_types_field_defaults_to_all_types_when_none() -> None:

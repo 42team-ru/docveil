@@ -1,4 +1,5 @@
 import { Divider } from "@astryxdesign/core/Divider";
+import { Banner } from "@astryxdesign/core/Banner";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Section } from "@astryxdesign/core/Section";
@@ -89,6 +90,29 @@ export function ContractSummaryTab({ summary }: ContractSummaryTabProps) {
   return (
     <VStack gap={0} isScrollable height="100%">
       <Section padding={4}>
+        {summary.documentKind.status === "unknown" && !summary.briefSummary ? (
+          <Banner
+            status="info"
+            container="section"
+            collapsible={false}
+            title="Тип и краткое содержание недоступны"
+            description="Этот прогон не получил их от API. В локальном режиме с моделью fake жанр и пересказ намеренно не формируются; запустите с настроенным LLM-провайдером."
+          />
+        ) : (
+          <VStack gap={2}>
+            <Heading level={5}>
+              {summary.documentKind.status === "non_contract" ? "Не договор" : "Документ"}
+            </Heading>
+            <SummaryRow label="Жанр" value={summary.documentKind.genre} />
+            <Text textWrap="pretty">
+              {summary.briefSummary ?? "Краткое содержание не получено от API."}
+            </Text>
+          </VStack>
+        )}
+      </Section>
+
+      {summary.documentKind.status === "contract" ? <>
+      <Section padding={4}>
         <VStack gap={4}>
           <PartyBlock party={summary.customer} fallbackRole="Заказчик" />
           <Divider />
@@ -122,6 +146,7 @@ export function ContractSummaryTab({ summary }: ContractSummaryTabProps) {
             : `Обращений к языковой модели: ${summary.llmCalls}.`}
         </Text>
       </Section>
+      </> : null}
     </VStack>
   );
 }

@@ -68,7 +68,7 @@ class GlinerDetector:
         model_path = Path(os.environ.get("MASKER_GLINER_PATH", configured_path))
         if not model_path.is_dir():
             raise RuntimeError(
-                f"Локальные веса GLiNER2 не найдены: {model_path}. "
+                f"Локальные веса gliner2 не найдены: {model_path}. "
                 "Запустите `.venv/bin/python scripts/warm_gliner.py`."
             )
         import warnings

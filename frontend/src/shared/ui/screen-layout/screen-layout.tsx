@@ -6,6 +6,7 @@ import {
   LayoutContent,
   LayoutHeader,
 } from "@astryxdesign/core/Layout";
+import type { SizeValue } from "@astryxdesign/core/Layout";
 import { Toolbar } from "@astryxdesign/core/Toolbar";
 
 type SpacingStep = 0 | 0.5 | 1 | 1.5 | 2 | 3 | 4 | 5 | 6 | 8 | 10;
@@ -31,6 +32,13 @@ type ScreenLayoutProps = {
   /** Правая панель экрана (`LayoutPanel`). */
   panel?: ReactNode;
   /**
+   * Ограничение ширины содержимого шапки и тела (`Layout.contentWidth`):
+   * центрирует контент и не даёт ему растягиваться на весь широкий монитор.
+   * Без значения содержимое остаётся во всю ширину — это нужно экранам,
+   * которые сами занимают её целиком (просмотр документа с боковой панелью).
+   */
+  contentWidth?: SizeValue;
+  /**
    * `id` тела экрана — цель `aria-controls` у `tabs`, когда `TabList` там
    * работает в паттерне `role="tablist"`, а не как навигация.
    */
@@ -51,6 +59,7 @@ export function ScreenLayout({
   tabs,
   actions,
   panel,
+  contentWidth,
   contentId,
   contentPadding = 6,
   isContentScrollable = true,
@@ -66,6 +75,7 @@ export function ScreenLayout({
   return (
     <Layout
       height="fill"
+      contentWidth={contentWidth}
       header={hasHeader ? (
         <LayoutHeader hasDivider>
           <Toolbar

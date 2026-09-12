@@ -28,19 +28,17 @@ afterEach(async () => {
   mutate.mockClear();
 });
 
-it("отправляет снятый чекбокс и продолжает прогон без уточнений", async () => {
+it("подтверждает типы по умолчанию и продолжает прогон без повторного вопроса", async () => {
   await act(async () => root.render(<MaskingSetupDialog runId="run" ask={ask} isSelecting isProcessing={false} error={null} onSelected={() => {}} onLeave={() => {}} />));
-  await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
-  await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Обезличить выбранное"))!.click());
-  expect(mutate).toHaveBeenCalledWith({ schema_version: 1, answers: { "TYPE-phone": KEEP_OPTION } });
+  expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+  expect(mutate).toHaveBeenCalledWith({ schema_version: 1, answers: { "TYPE-phone": MASK_OPTION } });
 });
 
 it("сохраняет типы, но не отвечает за человека на уточнения", async () => {
   const mixed: AskEnvelope = { ...ask, questions: [...ask.questions, { ...ask.questions[0], id: "PROFILE-P1", kind: "profile" }] };
   const onSelected = vi.fn();
   await act(async () => root.render(<MaskingSetupDialog runId="run" ask={mixed} isSelecting isProcessing={false} error={null} onSelected={onSelected} onLeave={() => {}} />));
-  expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
-  await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Продолжить к уточнениям"))!.click());
+  expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
   expect(onSelected).toHaveBeenCalledOnce();
   expect(mutate).not.toHaveBeenCalled();
   expect(useReviewStore.getState().questionAnswers).toEqual({ "TYPE-phone": MASK_OPTION });

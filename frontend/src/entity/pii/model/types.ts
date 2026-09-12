@@ -316,6 +316,25 @@ export type ContractSummary = {
   contractNumber: string | null;
   generatedAt: string;
   llmCalls: number;
+  briefSummary: string | null;
+  documentKind: {
+    status: "contract" | "non_contract" | "unknown";
+    genre: string | null;
+  };
+};
+
+export type Telemetry = {
+  events: { sequence: number; node: string; message: string }[];
+  llm: {
+    calls: number;
+    promptTokens: number;
+    completionTokens: number;
+    status: string;
+    message: string;
+    cost: Record<string, unknown> | null;
+    byNode: { node: string; calls: number; promptTokens: number; completionTokens: number }[];
+  };
+  runtime: { available: boolean; note: string };
 };
 
 /** Решение движка по одной ссылке — `report.decisions.by_ref[]`. */
@@ -408,6 +427,7 @@ export type MaskingReport = {
   validation: ValidationSummary | null;
   /** Дубль `validation.certificate` на верхнем уровне report.json (план М3). */
   certificate: Certificate | null;
+  telemetry: Telemetry | null;
   markerLegend: MarkerLegendItem[];
   detectionCoverage: DetectionCoverage;
   /** Чего движок заведомо не покрывает — показывается оператору дословно. */

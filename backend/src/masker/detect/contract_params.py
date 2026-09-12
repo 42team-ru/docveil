@@ -77,6 +77,17 @@ _AMOUNT_SEG_LOOKAROUND = 2
 
 CONFIDENCE = 0.90
 
+# 12.09.2026: `check_doc.py` на всех 21 PDF из open-contracts дал 48
+# delivery_period длиной 16--41 символ. Предел 80 (почти двойной максимум)
+# оставляет запас для «с даты подписания», но не даёт regex превратить
+# предложение договора в один спан.
+_MAX_DELIVERY_PERIOD_LENGTH = 80
+
+# 12.09.2026: на тех же 21 PDF найдены 8 payment_terms длиной 47, 49, 49,
+# 49, 84, 125, 125 и 204 символа. Предел 160 сохраняет все короткие
+# самостоятельные факты, но отсекает 204- и 313-символьные абзацные захваты.
+_MAX_PAYMENT_TERMS_LENGTH = 160
+
 
 # 11.09.2026: в `arkhschool-68-183.pdf` и `eat-654000009321.pdf` условные
 # ставки ПП РФ №1042 маскировались частично. Условие «если цена …» отличает
@@ -295,6 +306,8 @@ class DeliveryPeriodDetector:
             for pattern in _DELIVERY_PATTERNS:
                 for m in pattern.finditer(seg.text):
                     value = m.group()
+                    if len(value) > _MAX_DELIVERY_PERIOD_LENGTH:
+                        continue
                     if any(
                         e.segment_order == seg.order and e.start < m.end() and m.start() < e.end
                         for e in found
@@ -340,6 +353,8 @@ class PaymentTermsDetector:
                     if not _has_payment_context(context):
                         continue
                     value = m.group()
+                    if len(value) > _MAX_PAYMENT_TERMS_LENGTH:
+                        continue
                     if any(
                         e.segment_order == seg.order and e.start < m.end() and m.start() < e.end
                         for e in found

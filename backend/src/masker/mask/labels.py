@@ -209,6 +209,7 @@ _SHORT_TYPE_LABELS: dict[str, str] = {
     "Дата договора": "Дата дог.",
     "Дата": "Дата",
     "Идентификационный код закупки": "ИКЗ",
+    "Номер договора": "Ном. дог.",
     "Номер лицензии": "Лицензия",
     "Номер доверенности": "Ном. дов.",
     "Представитель": "Предст.",
@@ -284,22 +285,23 @@ def minimum_marker_label(
     group: MaskGroup,
     registry: EntityTypeRegistry | None = None,
 ) -> str:
-    """Вернуть последнюю текстовую ступень, сохраняющую сторону и вид значения.
+    """Вернуть последнюю текстовую ступень, не теряющую смысл группы.
 
-    12.09.2026: узкие ячейки реального PDF (вплоть до 16.6 pt) не вмещают
-    даже ``[№ дов. 1]``. Пустая жёлтая область не объясняет читателю ничего,
-    поэтому перед ``blank`` остаётся короткая, но различимая подпись:
-    ``[ИП1]`` — исполнитель-представитель №1, ``[В1]`` — доверенность №1.
+    В очень узком поле лучше оставить подпись пустой, чем напечатать
+    внутренний буквенный шифр вроде ``[ДТ11]``: он не называет ни сторону,
+    ни реквизит и превращает соседние ступени одной лестницы в разные
+    псевдонимы. Поэтому минимальная форма сохраняет роль стороны, а у
+    неролевого значения — сокращённое человеческое название типа.
     """
-    role = ""
-    if group.role_label and not is_anonymous_role(group.role_label):
-        role = short_role_label(group.role_label)[:1]
-    # Номер печатается только если он есть и в канонической форме: у
-    # единственного номера договора ``[Д]`` не должен притворяться
-    # «договором №1» и ломать связь подписи с легендой.
     number = label_number(group.canonical_label)
-    suffix = str(number) if number is not None else ""
-    return f"[{role}{compact_type_code(group.type, registry)}{suffix}]"
+    suffix = f" {number}" if number is not None else ""
+    if group.role_label and not is_anonymous_role(group.role_label):
+        return f"[{short_role_label(group.role_label)}{suffix}]"
+
+    match = re.fullmatch(r"\[(?P<label>.+?)(?: (?P<number>\d+))?\]", group.canonical_label)
+    if match is not None:
+        return f"[{short_type_label(match.group('label'))}{suffix}]"
+    return f"[{short_type_label(human_type_label(group.type, registry))}{suffix}]"
 
 
 def human_type_label(
@@ -486,7 +488,7 @@ def marker_ladder(
 ) -> list[tuple[str, str]]:
     """Лестница отступления маркера группы (план М1 правило 4, план М4 пункт 2):
 
-    ``[Заказчик Представитель]`` → ``[Заказчик]`` → ``[Ф1]`` → ``[Представитель]`` → ``""``.
+    ``[Заказчик Представитель]`` → ``[Зак.П1]`` → ``[Зак. 1]`` → ``""``.
 
     Пробуем от самой полной человеческой формы (``group.canonical_label``,
     план М4) к самой короткой — первая, что поместится, побеждает
@@ -503,7 +505,10 @@ def marker_ladder(
     if group.compact_label and group.compact_label != steps[-1][0]:
         steps.append((group.compact_label, "compact"))
     minimum = minimum_marker_label(group, registry)
-    if minimum and minimum != steps[-1][0]:
+    # Минимальная форма может совпасть с канонической (например, ``[ИНН]``).
+    # Не пробуем её повторно после компактной ступени: одинаковая подпись не
+    # создаёт нового читаемого варианта и лишь раздувает диагностику fallback.
+    if minimum and all(minimum != text for text, _reason in steps):
         steps.append((minimum, "minimal"))
     steps.append(("", "blank"))
     return steps

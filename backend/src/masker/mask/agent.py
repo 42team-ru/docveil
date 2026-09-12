@@ -50,6 +50,12 @@ _BucketKey = tuple[str, str]
 #: `[ПОСТАВЩИК-ИНН]` — в другой.
 _PairKey = tuple[str, str]  # (role_label, entity_type_id)
 
+# 12.09.2026: два извлечения на 21 PDF open-contracts дали 48 сроков
+# поставки (16--41 символ) и 8 условий оплаты (47--204). Это факты для
+# карточки, а не PII: по умолчанию оставляем их в тексте, иначе договор
+# теряет коммерческий смысл. Явный выбор типа по-прежнему разрешает маску.
+_VISIBLE_CONTRACT_TERMS = frozenset({EntityType.DELIVERY_PERIOD, EntityType.PAYMENT_TERMS})
+
 
 class _PendingEntity:
     """Сущность, прошедшая фильтры и готовая к группировке."""
@@ -83,8 +89,9 @@ class PlanAgent:
 
         ``actions=None`` — маскировать всё найденное (путь простого CLI без
         ``--profile``). ``profiles=None`` — маркеры без ролевого префикса.
-        ``requested_types=None`` — все типы: сущность не может быть отфильтрована
-        по типу, но всё ещё может быть исключена решением ``actions``.
+        ``requested_types=None`` — обычный режим: все PII маскируются, а
+        условия оплаты и сроки остаются в тексте и в карточке. Явный набор
+        типов позволяет оператору замаскировать и их.
         """
         index = EntityIndex(entities)
         anchors_by_order = {segment.order: segment.anchor for segment in document.segments}
@@ -95,6 +102,9 @@ class PlanAgent:
         pending: list[_PendingEntity] = []
         for entity in ordered:
             ref = index.ref(entity)
+            if requested_types is None and entity.type in _VISIBLE_CONTRACT_TERMS:
+                skipped.append(SkippedRef(ref=ref, type=entity.type, reason="visible_contract_term"))
+                continue
             if requested_types is not None and entity.type not in requested_types:
                 skipped.append(SkippedRef(ref=ref, type=entity.type, reason="type_not_requested"))
                 continue

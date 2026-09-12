@@ -23,7 +23,7 @@ application:
 # только profile: стоимость в отчёте останется от выбранной модели, а не от
 # предыдущей. Добавляйте профили для каждой нужной модели.
 llm:
-  profile: gigachat-max
+  profile: fake
   timeout_seconds: 60
   site_url: ""
   title: triema-masker

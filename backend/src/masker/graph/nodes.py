@@ -1419,6 +1419,16 @@ def _build_report_dict(
     )
     report["leaked"] = state.get("leaked", [])
     report["render_degradations"] = state.get("render_degradations", [])
+    # М12: скан-страницы без OCR могут содержать штампы ЭП — предупреждаем
+    # пользователя, не молчим. Мета выставляется `ingest_pdf` в поле
+    # `scan_pages_skipped` (1-based, через запятую).
+    scan_skipped_raw = state.get("meta", {}).get("scan_pages_skipped", "")
+    if isinstance(scan_skipped_raw, str) and scan_skipped_raw:
+        pages_str = scan_skipped_raw
+        report.setdefault("warnings", []).append(
+            f"Страницы {pages_str} определены как сканы, но OCR-провайдер не настроен. "
+            "Изображения (штампы, подписи) на этих страницах не обезличены."
+        )
     # План М1, правило 6: любое сокращение маркера — строка легенды
     # («[Ф1] = [ПОСТАВЩИК-ФИО-1], стр. 3»), а не молчаливая деградация.
     report["marker_legend"] = marker_legend(report["render_degradations"])

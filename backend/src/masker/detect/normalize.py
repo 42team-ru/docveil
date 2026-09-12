@@ -121,6 +121,10 @@ def normalize_value(entity_type: EntityType | str, text: str) -> str:
         return _normalize_org(text)
     if entity is EntityType.PERSON:
         return _normalize_person(text)
+    if entity is EntityType.FEDERAL_LAW:
+        # Р12: «№ 44-ФЗ» и «44-ФЗ» должны давать один нормализованный ключ.
+        stripped = re.sub(r"^[«»\s]*(?:№\s*)?", "", text)
+        return _base(stripped)
     if entity in {EntityType.DATE, EntityType.BIRTH_DATE}:
         return _normalize_date(text)
     return _base(text)

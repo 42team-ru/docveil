@@ -82,19 +82,28 @@ def ingest_pdf(path: str | pathlib.Path, ocr: OCRProvider | None = None) -> Docu
     Без ``ocr``: все страницы трактуются как текстовые (прежнее поведение).
     С ``ocr``: пер-страничный роутинг — скан-страницы идут через OCR,
     текстовые — через существующий ``_walk_page``-путь.
+
+    М12: скан-страницы без OCR-провайдера пропускаются без предупреждения,
+    что создаёт риск утечки (штамп ЭП — картинка, а не текстовый слой).
+    Такие страницы фиксируются в ``meta["scan_pages_skipped"]`` (1-based,
+    через запятую), чтобы отчёт мог предупредить пользователя.
     """
     doc = pymupdf.open(str(path))
     segments: list[Segment] = []
+    scan_pages_skipped: list[int] = []
     for page_num, page in enumerate(doc):
         if ocr is not None and _page_is_scan(page):
             ocr_segs = ocr_segments_for_page(page, page_num, ocr)
             for seg in ocr_segs:
                 segments.append(Segment(seg.text, seg.anchor, len(segments), seg.origin))
         else:
-            text, _, _, segment_ranges = _walk_page(page)
+            # М12: если OCR нет, а страница скан — фиксируем, не молчим.
+            if ocr is None and _page_is_scan(page):
+                scan_pages_skipped.append(page_num + 1)
+            page_text, _, _, segment_ranges = _walk_page(page)
             label = f"стр. {page_num + 1}"
             for char_start, char_end in segment_ranges:
-                segment_text = text[char_start:char_end]
+                segment_text = page_text[char_start:char_end]
                 if not segment_text.strip(_BLANK_CHARS):
                     continue
                 anchor = Anchor(
@@ -102,6 +111,8 @@ def ingest_pdf(path: str | pathlib.Path, ocr: OCRProvider | None = None) -> Docu
                 )
                 segments.append(Segment(text=segment_text, anchor=anchor, order=len(segments)))
     meta = _extract_meta(doc)
+    if scan_pages_skipped:
+        meta["scan_pages_skipped"] = ",".join(str(p) for p in scan_pages_skipped)
     doc.close()
     return Document(path=str(path), fmt="pdf", segments=segments, meta=meta)
 

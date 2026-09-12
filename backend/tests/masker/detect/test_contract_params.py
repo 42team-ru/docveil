@@ -66,6 +66,10 @@ def _detect_payment(*texts: str) -> list[str]:
         ("в соответствии с 223 ФЗ", "223 ФЗ"),
         ("требования 615ФЗ", "615ФЗ"),
         ("согласно 275-ФЗ о гособоронзаказе", "275-ФЗ"),
+        # Р12: ловим законы, которые раньше не ловились на реальных контрактах
+        ("во исполнение 152-ФЗ о персональных данных", "152-ФЗ"),
+        ("требования 436-ФЗ о защите детей", "436-ФЗ"),
+        ("согласно 52-ФЗ", "52-ФЗ"),
     ],
 )
 def test_federal_law_detected(text: str, expected: str) -> None:
@@ -73,9 +77,31 @@ def test_federal_law_detected(text: str, expected: str) -> None:
     assert (EntityType.FEDERAL_LAW, expected) in hits
 
 
-def test_federal_law_not_triggered_by_arbitrary_number() -> None:
-    """Произвольное «99-ФЗ» не попадает в список — фиксированный набор."""
-    hits = _detect_rules("согласно 99-ФЗ о чём-то")
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("во исполнение № 44-ФЗ", "№ 44-ФЗ"),
+        ("в соответствии с №152-ФЗ", "№152-ФЗ"),
+    ],
+)
+def test_federal_law_detected_with_number_prefix(text: str, expected: str) -> None:
+    """Р12: спан включает «№» когда он стоит перед номером."""
+    hits = _detect_rules(text)
+    assert (EntityType.FEDERAL_LAW, expected) in hits
+
+
+def test_federal_law_normalized_key_strips_number_sign() -> None:
+    """Р12: «№ 44-ФЗ» и «44-ФЗ» дают один нормализованный ключ."""
+    from masker.detect.normalize import normalize_value
+
+    assert normalize_value(EntityType.FEDERAL_LAW, "№ 44-ФЗ") == normalize_value(
+        EntityType.FEDERAL_LAW, "44-ФЗ"
+    )
+
+
+def test_federal_law_not_triggered_by_four_digit_number() -> None:
+    """Р12: четырёхзначный номер не ловится — таких ФЗ в реестре РФ нет."""
+    hits = _detect_rules("согласно 1234-ФЗ о чём-то")
     assert not any(t == EntityType.FEDERAL_LAW for t, _ in hits)
 
 

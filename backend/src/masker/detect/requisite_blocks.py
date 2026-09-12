@@ -110,7 +110,12 @@ def _is_target_block(block: object, segment_text_by_order: dict[int, str]) -> bo
     )
 
 
-def find_requisite_block_candidates(document: Document, entities: list[Entity]) -> list[Entity]:
+def find_requisite_block_candidates(
+    document: Document,
+    entities: list[Entity],
+    *,
+    skip_signatory_positions: bool = False,
+) -> list[Entity]:
     """Найти заглавные последовательности внутри блоков реквизитов/подписей,
     не покрытые ни одним из уже найденных `entities` (Р6).
 
@@ -140,8 +145,13 @@ def find_requisite_block_candidates(document: Document, entities: list[Entity]) 
     # сегменты. Неправильные NER-спаны «Старшего Вице-Президента» и вложенное
     # «ПАО „Ростелеком“» заменяем единым большим кандидатом: два наложенных
     # маркера не могут ни сохранить читаемую роль, ни корректно отрендериться.
+    # М11: если морфологический детектор отключён (rules_only), пропускаем
+    # создание подписных групп — инициальная форма «Сидорова А.П.» попадёт в
+    # план, но полную форму в теле документа найти будет нечем, и валидатор
+    # доложит утечку. Честнее не создавать группу вовсе.
     signatory_positions: list[Entity] = []
-    for segment in document.segments:
+    _seg_iter = [] if skip_signatory_positions else document.segments
+    for segment in _seg_iter:
         ranges = occupied.setdefault(segment.order, [])
         for start, end in find_identifying_signatory_positions(segment.text):
             overlapping = [

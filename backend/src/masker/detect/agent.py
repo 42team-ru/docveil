@@ -50,6 +50,22 @@ def _is_generic_person_entity(entity: Entity) -> bool:
     )
 
 
+def _is_abbreviation_person(entity: Entity) -> bool:
+    """Р13: строка только из заглавных букв без пробелов — аббревиатура.
+
+    «МИК», «ГКУ», «НДС» и подобные капс-строки без пробелов и точек не
+    могут быть именем человека. Структурный детектор реквизитов ловит такие
+    обрывки из заглавных блоков; этот фильтр убирает их до профилирования.
+    """
+    if entity.type is not EntityType.PERSON:
+        return False
+    text = entity.text.strip()
+    if " " in text or "." in text:
+        return False
+    letters = [c for c in text if c.isalpha()]
+    return len(letters) >= 2 and all(c.isupper() for c in letters)
+
+
 def _overlaps(first: Entity, second: Entity) -> bool:
     return (
         first.segment_order == second.segment_order
@@ -467,8 +483,11 @@ class DetectAgent:
         # отдельный проход после разрешения перекрытий, ДО простановки
         # уровня уверенности, чтобы новым кандидатам тоже достался обычный
         # путь `classify_level` (Р8), а не отдельная жёстко прибитая метка.
+        _has_morph = any(getattr(d, "name", None) == "morph_person" for d in self._detectors)
         entities = sorted(
-            [*entities, *find_requisite_block_candidates(document, entities)],
+            [*entities, *find_requisite_block_candidates(
+                document, entities, skip_signatory_positions=not _has_morph
+            )],
             key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
         verifier_report: VerifierReport | None = None
@@ -489,6 +508,7 @@ class DetectAgent:
         # Этот общий барьер покрывает любой текущий или будущий детектор до
         # профилирования и планирования масок.
         entities = drop_incomplete_requisites(entities)
+        entities = [entity for entity in entities if not _is_abbreviation_person(entity)]
         entities = [entity for entity in entities if not _is_generic_person_entity(entity)]
         # Р15: повторяющаяся роль стороны может прийти и от NER, и от
         # структурного блока реквизитов. Фильтруем объединённый результат,

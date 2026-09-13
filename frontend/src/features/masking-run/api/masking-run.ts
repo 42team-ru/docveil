@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import type { UploadSource } from "../../../entity/document/model/types";
 import type { MaskStyle } from "../../../entity/rule-profile/model/types";
+import type { CompiledTypeOut } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
 import { clientApiWithAuth } from "../../../shared/api/mutators/authMutator";
 import { uploadApiFilesUploadPost } from "../../../shared/api/generated/core/files/files";
 import {
@@ -87,6 +88,8 @@ export type StartRunInput = {
   maskStyle: MaskStyle;
   /** Типы ПДн для маскирования. Пустой массив = весь реестр. */
   types: string[];
+  /** Кастомные типы, скомпилированные пользователем. */
+  customTypes: CompiledTypeOut[];
 };
 
 /**
@@ -99,7 +102,7 @@ export function useStartRun() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ source, maskStyle, types }: StartRunInput): Promise<RunResponse> => {
+    mutationFn: async ({ source, maskStyle, types, customTypes }: StartRunInput): Promise<RunResponse> => {
       const objectName =
         source.kind === "existing"
           ? source.objectName
@@ -111,10 +114,15 @@ export function useStartRun() {
               return uploaded.data.object_name;
             })();
 
+      const compiledSpecs = customTypes
+        .filter((t) => t.outcome === "compile" && t.spec != null)
+        .map((t) => t.spec as unknown as Record<string, unknown>);
+
       const created = await createRunApiRunsPost({
         object_name: objectName,
         types,
         mask_style: maskStyle,
+        custom_types: compiledSpecs.length > 0 ? compiledSpecs : undefined,
       });
       if (created.status !== 202) {
         throw new Error("Не удалось запустить обезличивание");

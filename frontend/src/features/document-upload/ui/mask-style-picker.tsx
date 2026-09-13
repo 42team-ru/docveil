@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Settings } from "lucide-react";
+import { Plus, Settings, X } from "lucide-react";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { CheckboxList, CheckboxListItem } from "@astryxdesign/core/CheckboxList";
 import { Code } from "@astryxdesign/core/Code";
@@ -12,8 +12,10 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { SelectableCard } from "@astryxdesign/core/SelectableCard";
 import { Section } from "@astryxdesign/core/Section";
+import { Token } from "@astryxdesign/core/Token";
 
 import { piiTypeOptions } from "../../../entity/pii/model/pii-type-dict";
+import { useCustomTypesStore } from "../../custom-types-compiler/model/store";
 import { useRuleProfileStore } from "../../../entity/rule-profile/model/rule-profile-store";
 import type { MaskStyle } from "../../../entity/rule-profile/model/types";
 import { pluralRu } from "../../../shared/lib/plural-ru";
@@ -52,8 +54,15 @@ export const MASK_STYLE_OPTIONS: Array<{
   },
 ];
 
+type MaskStylePickerProps = {
+  /** Вызывается при клике «+ Добавить свой тип» — открытие диалога компилятора. */
+  onAddCustomType?: () => void;
+  /** Идёт загрузка файла для компилятора. */
+  isAddingCustomType?: boolean;
+};
+
 /** Как выглядит маска в выходном документе — независимо от того, что удаляется. */
-export function MaskStylePicker() {
+export function MaskStylePicker({ onAddCustomType, isAddingCustomType = false }: MaskStylePickerProps) {
   const maskStyle = useRuleProfileStore((state) => state.maskStyle);
   const setMaskStyle = useRuleProfileStore((state) => state.setMaskStyle);
 
@@ -71,6 +80,8 @@ export function MaskStylePicker() {
   );
   const enabledTypes = useRuleProfileStore((state) => state.enabledTypes);
   const setEnabledTypes = useRuleProfileStore((state) => state.setEnabledTypes);
+  const customTypes = useCustomTypesStore((state) => state.types);
+  const removeCustomType = useCustomTypesStore((state) => state.removeType);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const selectedOption = MASK_STYLE_OPTIONS.find(
@@ -186,6 +197,51 @@ export function MaskStylePicker() {
                 <CheckboxListItem key={opt.value} value={opt.value} label={opt.label} />
               ))}
             </CheckboxList>
+          )}
+        </VStack>
+      </Section>
+
+      <Section variant="transparent" padding={0} dividers={["top"]}>
+        <VStack gap={3} paddingBlock={4} paddingInline={4}>
+          <HStack gap={2} vAlign="center">
+            <Heading level={4}>Свои типы данных</Heading>
+            <StackItem size="fill" />
+            {onAddCustomType && (
+              <IconButton
+                size="sm"
+                variant="secondary"
+                icon={<Icon icon={Plus} size="sm" />}
+                label="Добавить свой тип"
+                isDisabled={isAddingCustomType}
+                onClick={onAddCustomType}
+              />
+            )}
+          </HStack>
+          {customTypes.length === 0 ? (
+            <Text type="supporting" size="sm" color="secondary">
+              Добавьте тип данных на русском — компилятор составит детектор автоматически.
+            </Text>
+          ) : (
+            <VStack gap={2}>
+              {customTypes.map((t, index) => {
+                const name =
+                  t.outcome === "use_builtin"
+                    ? (t.type_id ?? "встроенный")
+                    : (t.spec?.title ?? `Тип ${index + 1}`);
+                return (
+                  <HStack key={index} gap={2} vAlign="center">
+                    <Token label={name} />
+                    <IconButton
+                      size="sm"
+                      variant="ghost"
+                      icon={<Icon icon={X} size="sm" />}
+                      label={`Удалить тип «${name}»`}
+                      onClick={() => removeCustomType(index)}
+                    />
+                  </HStack>
+                );
+              })}
+            </VStack>
           )}
         </VStack>
       </Section>

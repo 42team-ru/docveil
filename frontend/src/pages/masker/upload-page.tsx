@@ -18,11 +18,14 @@ import { useUploadQueueStore } from "../../entity/document/model/upload-queue-st
 import { useRuleProfileStore } from "../../entity/rule-profile/model/rule-profile-store";
 import { RecentDocuments } from "../../features/document-history/ui/recent-documents";
 import { useStartRun } from "../../features/masking-run/api/masking-run";
+import { CustomTypesCompilerDialog } from "../../features/custom-types-compiler/ui/compiler-dialog";
+import { useCustomTypesStore } from "../../features/custom-types-compiler/model/store";
 import { MaskStylePicker } from "../../features/document-upload/ui/mask-style-picker";
 import { UploadDropzone } from "../../features/document-upload/ui/upload-dropzone";
 import { UploadQueue } from "../../features/document-upload/ui/upload-queue";
 import { pluralRu } from "../../shared/lib/plural-ru";
 import { ScreenLayout } from "../../shared/ui/screen-layout/screen-layout";
+import { uploadApiFilesUploadPost } from "../../shared/api/generated/core/files/files";
 
 /** Ширина правой колонки настроек — структурный размер региона. */
 const SETTINGS_WIDTH = 380;
@@ -41,6 +44,12 @@ export function UploadPage() {
   const maskStyle = useRuleProfileStore((state) => state.maskStyle);
   const enabledTypes = useRuleProfileStore((state) => state.enabledTypes);
 
+  const customTypes = useCustomTypesStore((state) => state.types);
+
+  const [isCompilerOpen, setIsCompilerOpen] = useState(false);
+  const [compilerObjectName, setCompilerObjectName] = useState<string | null>(null);
+  const [isUploadingForCompiler, setIsUploadingForCompiler] = useState(false);
+
   const startRun = useStartRun();
   // Кандидаты на (повторную) отправку: всё, что ещё не заведено прогоном —
   // включая уже упавшие файлы, их можно отправить повторно тем же кликом.
@@ -55,6 +64,37 @@ export function UploadPage() {
   const isStarting =
     isSubmitting || items.some((item) => item.state === "starting");
   const startingRef = useRef(false);
+
+  /**
+   * Загружает первый файл из очереди в MinIO (если ещё не загружен) и открывает
+   * диалог компилятора кастомных типов.
+   */
+  async function handleOpenCompiler() {
+    const item = submittable[0] ?? items[0];
+    if (!item) {
+      showToast({ body: "Сначала добавьте файл в очередь", type: "info" });
+      return;
+    }
+    if (item.source.kind === "existing") {
+      setCompilerObjectName(item.source.objectName);
+      setIsCompilerOpen(true);
+      return;
+    }
+    setIsUploadingForCompiler(true);
+    try {
+      const uploaded = await uploadApiFilesUploadPost({ file: item.source.file });
+      if (uploaded.status === 200) {
+        setCompilerObjectName(uploaded.data.object_name);
+        setIsCompilerOpen(true);
+      } else {
+        showToast({ body: "Не удалось загрузить файл для компилятора", type: "error" });
+      }
+    } catch {
+      showToast({ body: "Не удалось загрузить файл для компилятора", type: "error" });
+    } finally {
+      setIsUploadingForCompiler(false);
+    }
+  }
 
   /**
    * Один прогон на документ: движок принимает файл, а не пачку. Файлы
@@ -75,6 +115,7 @@ export function UploadPage() {
           source: item.source,
           maskStyle,
           types: enabledTypes,
+          customTypes,
         });
         markStarted(item.id, run.id);
         if (firstRunId === null) {
@@ -117,6 +158,7 @@ export function UploadPage() {
   }
 
   return (
+    <>
     <ScreenLayout
       title="Новый документ"
       contentPadding={0}
@@ -200,7 +242,10 @@ export function UploadPage() {
                 <UploadDropzone />
               </Card>
               <Card padding={0}>
-                <MaskStylePicker />
+                <MaskStylePicker
+                  onAddCustomType={() => void handleOpenCompiler()}
+                  isAddingCustomType={isUploadingForCompiler}
+                />
               </Card>
               <Card padding={0}>
                 <RecentDocuments />
@@ -210,5 +255,14 @@ export function UploadPage() {
         }
       />
     </ScreenLayout>
+    <CustomTypesCompilerDialog
+      isOpen={isCompilerOpen}
+      onOpenChange={(open) => {
+        setIsCompilerOpen(open);
+        if (!open) setCompilerObjectName(null);
+      }}
+      objectName={compilerObjectName}
+    />
+    </>
   );
 }

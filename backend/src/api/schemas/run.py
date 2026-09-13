@@ -30,6 +30,7 @@ RunStatus = Literal[
     "done",
     "failed",
     "leaked",
+    "cancelled",
 ]
 
 

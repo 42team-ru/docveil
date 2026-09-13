@@ -455,3 +455,20 @@ export function useArtifactObjectUrl(
 
   return objectUrl;
 }
+
+/** Удалить прогон в любом статусе; если он активен — сервер его остановит. */
+export function useDeleteRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (runId: string): Promise<void> => {
+      const response = await clientApiWithAuth.delete(`/runs/${runId}`);
+      if (response.status !== 204) {
+        throw new Error("Не удалось удалить прогон");
+      }
+    },
+    onSuccess: (_data, runId) => {
+      void queryClient.invalidateQueries({ queryKey: runKeys.all });
+      queryClient.removeQueries({ queryKey: runKeys.detail(runId) });
+    },
+  });
+}

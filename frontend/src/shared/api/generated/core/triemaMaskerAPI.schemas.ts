@@ -1308,6 +1308,7 @@ export const RunListItemStatus = {
   done: 'done',
   failed: 'failed',
   leaked: 'leaked',
+  cancelled: 'cancelled',
 } as const;
 
 /**
@@ -1337,6 +1338,7 @@ export const RunResponseStatus = {
   done: 'done',
   failed: 'failed',
   leaked: 'leaked',
+  cancelled: 'cancelled',
 } as const;
 
 /**
@@ -1422,6 +1424,7 @@ export const ListRunsApiRunsGetStatus = {
   done: 'done',
   failed: 'failed',
   leaked: 'leaked',
+  cancelled: 'cancelled',
 } as const;
 
 export type GetRunEventsApiRunsRunIdEventsGetParams = {

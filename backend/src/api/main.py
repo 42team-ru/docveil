@@ -14,11 +14,13 @@ from starlette.concurrency import run_in_threadpool
 from api.core.config import settings
 from api.core.storage import ensure_bucket
 from api.routers import auth, custom_types, files, ocr, runs, users
+from api.services import run_service
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     await run_in_threadpool(ensure_bucket)
+    await run_service.cleanup_stale_runs()
     yield
 
 

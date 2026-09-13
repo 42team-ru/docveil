@@ -68,10 +68,23 @@ services:
       MINIO_SECURE: "false"
       MINIO_BUCKET: ${MINIO_BUCKET:-documents}
       APP_PORT: ${APP_PORT:-8000}
+      # GigaChat TLS-сертификат. Два варианта — раскомментировать один:
+      #
+      # Вариант A (правильный): сертификат Минцифры.
+      # 1. Раскомментируй volume ниже и пропиши путь к .pem-файлу на хосте.
+      # 2. Раскомментируй MASKER_LLM_GIGACHAT_CA_BUNDLE.
+      # MASKER_LLM_GIGACHAT_CA_BUNDLE: /certs/gigachat-ca.pem
+      #
+      # Вариант Б (небезопасно): полностью отключить TLS-проверку.
+      # Достаточно выставить переменную в backend/.env или передать снаружи:
+      #   MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY=true make up
+      MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY: ${MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY:-false}
     ports:
       - "${APP_PORT:-8000}:${APP_PORT:-8000}"
     volumes:
       - ${HOME}/.paddlex/official_models:/root/.paddlex/official_models:ro
+      # Вариант A: раскомментировать и указать путь к сертификату Минцифры:
+      # - /path/to/ca-bundle-with-russian.pem:/certs/gigachat-ca.pem:ro
 
 volumes:
   pgdata:

@@ -45,8 +45,7 @@ def _is_generic_person_entity(entity: Entity) -> bool:
     """
     return (
         entity.type is EntityType.PERSON
-        and entity.text.strip(" \t\r\n.,:;()[]«»\"'").casefold()
-        == "российская федерация"
+        and entity.text.strip(" \t\r\n.,:;()[]«»\"'").casefold() == "российская федерация"
     )
 
 
@@ -485,9 +484,12 @@ class DetectAgent:
         # путь `classify_level` (Р8), а не отдельная жёстко прибитая метка.
         _has_morph = any(getattr(d, "name", None) == "morph_person" for d in self._detectors)
         entities = sorted(
-            [*entities, *find_requisite_block_candidates(
-                document, entities, skip_signatory_positions=not _has_morph
-            )],
+            [
+                *entities,
+                *find_requisite_block_candidates(
+                    document, entities, skip_signatory_positions=not _has_morph
+                ),
+            ],
             key=lambda item: (item.segment_order, item.start, item.end, item.type),
         )
         verifier_report: VerifierReport | None = None

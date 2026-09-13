@@ -765,6 +765,81 @@ def test_duplicate_marker_count_ignores_exact_match(tmp_path: Path) -> None:
     assert eval_module.duplicate_marker_count(plan, (artifact,)) == 0
 
 
+def test_duplicate_marker_count_sums_refs_of_groups_sharing_one_marker(
+    tmp_path: Path,
+) -> None:
+    """Один человек двумя написаниями — две группы, один маркер, не дубль.
+
+    «Смирнова Олега Викторовича» и «О.В. Смирнов» — разные значения, поэтому
+    у PlanAgent это разные группы, но субъект один и маркер обязан быть
+    общим. Счёт по группе объявлял такой документ дублем (4 ложных
+    срабатывания из 6 на корпусе, 14.09.2026).
+    """
+    artifact = tmp_path / "masked_black.docx"
+    word_doc = WordDocument()
+    word_doc.add_paragraph("[ПОСТАВЩИК-ФИО-1] и он же [ПОСТАВЩИК-ФИО-1]")
+    word_doc.save(artifact)
+    plan = MaskPlan(
+        replacements=(),
+        groups=(
+            MaskGroup(
+                id="G1",
+                key="person:смирнов олег викторович",
+                type=EntityType.PERSON,
+                marker="[ПОСТАВЩИК-ФИО-1]",
+                profile_id="P1",
+                role_label="ПОСТАВЩИК",
+                number=1,
+                refs=("R1",),
+                sample="Смирнова Олега Викторовича",
+            ),
+            MaskGroup(
+                id="G2",
+                key="person:смирнов о.в.",
+                type=EntityType.PERSON,
+                marker="[ПОСТАВЩИК-ФИО-1]",
+                profile_id="P1",
+                role_label="ПОСТАВЩИК",
+                number=1,
+                refs=("R2",),
+                sample="О.В. Смирнов",
+            ),
+        ),
+        skipped=(),
+        requested_types=(),
+    )
+
+    assert eval_module.duplicate_marker_count(plan, (artifact,)) == 0
+
+
+def test_duplicate_marker_count_still_catches_extra_insertion(tmp_path: Path) -> None:
+    """Лишнее вхождение сверх суммы `refs` остаётся дублем — метрика не ослеплена."""
+    artifact = tmp_path / "masked_black.docx"
+    word_doc = WordDocument()
+    word_doc.add_paragraph("[ПОСТАВЩИК-ФИО-1] [ПОСТАВЩИК-ФИО-1] [ПОСТАВЩИК-ФИО-1]")
+    word_doc.save(artifact)
+    plan = MaskPlan(
+        replacements=(),
+        groups=(
+            MaskGroup(
+                id="G1",
+                key="person:смирнов олег викторович",
+                type=EntityType.PERSON,
+                marker="[ПОСТАВЩИК-ФИО-1]",
+                profile_id="P1",
+                role_label="ПОСТАВЩИК",
+                number=1,
+                refs=("R1", "R2"),
+                sample="Смирнова Олега Викторовича",
+            ),
+        ),
+        skipped=(),
+        requested_types=(),
+    )
+
+    assert eval_module.duplicate_marker_count(plan, (artifact,)) == 1
+
+
 def _group_with_ladder(*, refs: tuple[str, ...] = ("R1", "R2")) -> MaskGroup:
     """Группа ФИО с ролью, два вхождения — годится для обеих ступеней лестницы."""
     return MaskGroup(

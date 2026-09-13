@@ -32,9 +32,9 @@ from typing import Any
 from langgraph.checkpoint.memory import InMemorySaver
 
 from masker.graph.nodes import RunDeps
-from masker.graph.serde import plan_from_dict
+from masker.graph.serde import entity_from_dict, plan_from_dict
 from masker.llm.base import LLMProvider
-from masker.model import EntityType, MaskPlan, ValidationReport
+from masker.model import Entity, EntityType, MaskPlan, ValidationReport
 from masker.ocr.provider import OCRProvider
 from masker.run import RunOptions, start_run
 from masker.validate import ValidateAgent
@@ -100,6 +100,11 @@ class MaskResult:
     validation: ValidationReport
     artifacts: tuple[Path, ...]
     render_degradations: tuple[dict[str, Any], ...] = ()
+    #: Всё, что нашёл детектор, включая сущности, которые план намеренно не
+    #: маскирует (условия договора: `mask.agent.VISIBLE_CONTRACT_TERMS`).
+    #: Без этого поля измерить их recall было нечем: в плане их нет по
+    #: замыслу, и `make eval` печатал по ним вечный 0.000.
+    entities: tuple[Entity, ...] = ()
 
 
 @contextmanager
@@ -159,6 +164,7 @@ def mask_and_validate(
             )
 
         plan = plan_from_dict(outcome.state["plan"])
+        entities = tuple(entity_from_dict(item) for item in outcome.state.get("entities", []))
         artifacts = tuple(
             Path(str(item["path"]))
             for item in outcome.state.get("artifacts", [])
@@ -190,6 +196,7 @@ def mask_and_validate(
                 validation=validation,
                 artifacts=artifacts,
                 render_degradations=render_degradations,
+                entities=entities,
             )
         finally:
             # Промежуточный PDF-исходник картинки (`ingest_image`

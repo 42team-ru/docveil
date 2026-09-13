@@ -26,6 +26,7 @@ from masker.ingest.pdf_ingest import ingest_pdf
 from masker.ingest.xlsx_ingest import ingest_xlsx
 from masker.judge import JudgeAgent
 from masker.llm import LLMProvider, get_provider
+from masker.mask.agent import VISIBLE_CONTRACT_TERMS
 from masker.model import Document, EntityType, MaskPlan, is_critical
 from masker.policy.agent import PolicyAgent
 from masker.profile import ProfileAgent
@@ -103,19 +104,29 @@ def _artifact_text(path: pathlib.Path) -> str:
 def duplicate_marker_count(plan: MaskPlan, artifacts: tuple[pathlib.Path, ...]) -> int:
     """Сколько лишних вхождений маркера набралось по всем группам и артефактам.
 
-    Для каждой группы плана маркер обязан встретиться в тексте артефакта
-    ровно столько раз, сколько у неё ``Replacement`` (``len(group.refs)``).
+    Счёт ведётся по СТРОКЕ МАРКЕРА, а не по группе: один маркер законно
+    принадлежит нескольким группам, когда те описывают одного субъекта
+    разными написаниями («Смирнова Олега Викторовича» и «О.В. Смирнов» —
+    разные значения, один человек, один маркер). Подсчёт по группе делил
+    вхождения на каждую группу отдельно и объявлял дублем нормальный
+    документ: 4 из 6 срабатываний 14.09.2026 были ложными.
+
+    Маркер обязан встретиться в тексте артефакта ровно столько раз,
+    сколько ``Replacement`` у всех групп с этим маркером.
     Разница больше нуля — дубль (Д1 плана T2.2.1: маркер вставлен не один
     раз на замену). Отрицательная разница — пропуск вставки, это ловит
     ``leaked_total``/recall, а не эта метрика, поэтому в сумму не идёт.
     """
+    refs_by_marker: dict[str, int] = defaultdict(int)
+    for group in plan.groups:
+        if group.marker:
+            refs_by_marker[group.marker] += len(group.refs)
+
     total = 0
     for artifact in artifacts:
         text = _artifact_text(artifact)
-        for group in plan.groups:
-            if not group.marker:
-                continue
-            diff = text.count(group.marker) - len(group.refs)
+        for marker, refs in refs_by_marker.items():
+            diff = text.count(marker) - refs
             if diff > 0:
                 total += diff
     return total
@@ -471,6 +482,18 @@ def _mask_image_corpus(
                 for repl in result.plan.replacements:
                     key = (path.name, repl.entity.type, _collapse(repl.entity.text))
                     metrics.by_type[repl.entity.type]["found"].add(key)
+                    metrics.by_format[fmt]["found"].add(key)
+                # Условия договора (срок поставки, порядок оплаты) по замыслу
+                # остаются в тексте: это факты для карточки, а не PII
+                # (`mask.agent.VISIBLE_CONTRACT_TERMS`). В плане их нет и не
+                # будет, поэтому recall по ним меряется ДЕТЕКЦИЕЙ — иначе
+                # метрика печатает вечный 0.000 и порог 0.85 недостижим по
+                # построению, а не по качеству (замерено 14.09.2026).
+                for entity in result.entities:
+                    if entity.type not in VISIBLE_CONTRACT_TERMS:
+                        continue
+                    key = (path.name, entity.type, _collapse(entity.text))
+                    metrics.by_type[entity.type]["found"].add(key)
                     metrics.by_format[fmt]["found"].add(key)
                 metrics.leaked_total += len(result.validation.leaked)
         except Exception as error:
@@ -853,6 +876,18 @@ def _mask_corpus(
                 for repl in result.plan.replacements:
                     key = (path.name, repl.entity.type, _collapse(repl.entity.text))
                     metrics.by_type[repl.entity.type]["found"].add(key)
+                    metrics.by_format[fmt]["found"].add(key)
+                # Условия договора (срок поставки, порядок оплаты) по замыслу
+                # остаются в тексте: это факты для карточки, а не PII
+                # (`mask.agent.VISIBLE_CONTRACT_TERMS`). В плане их нет и не
+                # будет, поэтому recall по ним меряется ДЕТЕКЦИЕЙ — иначе
+                # метрика печатает вечный 0.000, и порог 0.85 недостижим по
+                # построению, а не по качеству (замерено 14.09.2026).
+                for entity in result.entities:
+                    if entity.type not in VISIBLE_CONTRACT_TERMS:
+                        continue
+                    key = (path.name, entity.type, _collapse(entity.text))
+                    metrics.by_type[entity.type]["found"].add(key)
                     metrics.by_format[fmt]["found"].add(key)
                 metrics.leaked_total += len(result.validation.leaked)
                 metrics.duplicate_markers += duplicate_marker_count(result.plan, result.artifacts)

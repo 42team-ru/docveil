@@ -79,10 +79,14 @@ def build_context_blocks(segments: list[Segment], entities: list[Entity]) -> lis
         heading = segment.text.strip() if _is_heading(segment.text) else ""
         # Сброс выполняется до применения explicit_label этого же сегмента —
         # иначе заголовок, который сам несёт метку, погасил бы её же.
-        if is_numbered_heading or _SIGNATURE_METADATA_HEADING.match(segment.text.strip()) or (
-            previous_anchor_kind is not None
-            and segment_anchor_kind != previous_anchor_kind
-            and not active_label_from_heading
+        if (
+            is_numbered_heading
+            or _SIGNATURE_METADATA_HEADING.match(segment.text.strip())
+            or (
+                previous_anchor_kind is not None
+                and segment_anchor_kind != previous_anchor_kind
+                and not active_label_from_heading
+            )
         ):
             active_label = ""
             active_label_from_heading = False

@@ -342,15 +342,16 @@ def test_marker_is_centered_without_decorative_dot_leaders(
         assert (marker_box.x0 + marker_box.x1) / 2 == pytest.approx(
             (region.x0 + region.x1) / 2, abs=0.02
         )
+        # Точки-заполнители рисуются ВЕКТОРНО и в текстовый слой не попадают
+        # (М9, требование заказчика: маркер по центру, пустоты заполнены
+        # точками). Проверяемый инвариант — именно это: через copy-paste
+        # точку не вытащить, на проверку утечек она не влияет.
+        #
+        # 14.09.2026: прежняя редакция теста требовала отсутствия точек
+        # вообще и противоречила закрытой М9 — рендер рисует их с 987bf97.
+        # Из двух требований оставлено то, которое пришло от заказчика; если
+        # решение изменится, менять надо рендер, а не только проверку.
         assert "." not in chars.text
-        dot_drawings = [
-            drawing
-            for drawing in result[0].get_drawings()
-            if drawing["type"] == "f"
-            and drawing["items"]
-            and all(item[0] == "c" for item in drawing["items"])
-        ]
-        assert not dot_drawings
     finally:
         result.close()
 
@@ -852,7 +853,9 @@ def test_same_canonical_label_uses_one_visible_rung_across_plan_groups() -> None
         font,
         groups,
         {
-            group.id: [[pdf_render_module._LabelCandidate(box, box, 0.0, 10.0)] for _ref in group.refs]
+            group.id: [
+                [pdf_render_module._LabelCandidate(box, box, 0.0, 10.0)] for _ref in group.refs
+            ]
             for group in groups
         },
     )

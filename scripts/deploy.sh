@@ -12,6 +12,8 @@
 #
 # Флаги: --yes (не задавать вопросов, брать значения из окружения и дефолты),
 #        --no-build (не пересобирать образы), --env-file FILE,
+#        --demo (взять готовое окружение deploy/env.demo с фиксированными паролями
+#        из README — стенд для показа, не для настоящих документов),
 #        --images[=ТЕГ] (тянуть готовые образы из ghcr.io/42team-ru вместо сборки;
 #        без тега — latest). Ограничение режима --images описано в docs/DEPLOY.md:
 #        опубликованный образ фронта собран без VITE_BACKEND_PROD_URL и ходит в
@@ -32,6 +34,8 @@ ASSUME_YES=0
 DO_BUILD=1
 # Режим готовых образов: не собирать, а тянуть из GHCR. Включается --images.
 USE_REGISTRY=0
+# Демо-режим: готовое окружение из deploy/env.demo, без единого вопроса.
+DEMO_MODE=0
 REGISTRY_TAG="latest"
 REGISTRY="ghcr.io/42team-ru"
 
@@ -260,6 +264,20 @@ create_env_file() {
         return
     fi
 
+    if [ "$DEMO_MODE" -eq 1 ]; then
+        head1 "Демонстрационный стенд"
+        cp deploy/env.demo "$ENV_FILE"
+        chmod 600 "$ENV_FILE"
+        # Адрес машины подставляется здесь, а не в шаблоне: в шаблоне лежит
+        # localhost, и с чужого устройства такой стенд не открылся бы.
+        local address
+        address="http://$(host_address)"
+        sed -i "s|^PUBLIC_URL=.*|PUBLIC_URL=${address}|" "$ENV_FILE"
+        ok "окружение взято из deploy/env.demo, адрес — ${address}"
+        warn "пароли стенда опубликованы в README: настоящие документы сюда не загружать"
+        return
+    fi
+
     head1 "Настройка стенда (${ENV_FILE})"
     say "  Enter — принять значение в скобках."
 
@@ -446,6 +464,25 @@ seed_admin() {
         -e ADMIN_PASSWORD="$password" \
         -e ADMIN_FULL_NAME="${full_name:-Администратор}" \
         backend python scripts/seed_admin.py ${reset:+--reset-password}
+
+    seed_demo_user "$reset"
+}
+
+# Аккаунт без прав администратора заводится, только если он описан в
+# окружении: на рабочем стенде лишних учётных записей быть не должно.
+seed_demo_user() {
+    local reset="${1:-}"
+    local email password full_name
+    email="$(env_value DEMO_USER_EMAIL)"
+    password="$(env_value DEMO_USER_PASSWORD)"
+    [ -n "$email" ] && [ -n "$password" ] || return 0
+    full_name="$(env_value DEMO_USER_FULL_NAME)"
+
+    compose exec -T \
+        -e ADMIN_EMAIL="$email" \
+        -e ADMIN_PASSWORD="$password" \
+        -e ADMIN_FULL_NAME="${full_name:-Демонстрационный пользователь}" \
+        backend python scripts/seed_admin.py --role user ${reset:+--reset-password}
 }
 
 summary() {
@@ -457,7 +494,10 @@ summary() {
     say "  Адрес:      ${public_url}"
     say "  API:        ${public_url}/api"
     say "  Swagger:    ${public_url}/docs"
-    say "  Вход:       $(env_value ADMIN_EMAIL)  /  $(env_value ADMIN_PASSWORD)"
+    say "  Админ:      $(env_value ADMIN_EMAIL)  /  $(env_value ADMIN_PASSWORD)"
+    if [ -n "$(env_value DEMO_USER_EMAIL)" ]; then
+        say "  Аккаунт:    $(env_value DEMO_USER_EMAIL)  /  $(env_value DEMO_USER_PASSWORD)"
+    fi
     say ""
     say "  Пароли лежат в ${ENV_FILE} (права 600). Сохраните их отдельно."
     if [ "$site_address" = ":80" ]; then
@@ -512,6 +552,7 @@ main() {
             check|up|update|status|logs|admin|down) command="$1" ;;
             --yes|-y) ASSUME_YES=1 ;;
             --no-build) DO_BUILD=0 ;;
+            --demo) DEMO_MODE=1; ASSUME_YES=1 ;;
             --images) USE_REGISTRY=1 ;;
             --images=*) USE_REGISTRY=1; REGISTRY_TAG="${1#--images=}" ;;
             --env-file) shift; ENV_FILE="${1:?--env-file требует путь}" ;;

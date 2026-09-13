@@ -163,6 +163,21 @@ class RunOptions:
         }
 
 
+def profile_enabled(requested: bool, document_format: str) -> bool:
+    """Единственное место, где решается ``RunOptions.profile`` по формату.
+
+    Без структурного профиля PDF/скан (`("page", …)`, тот же вид якоря у
+    каждого сегмента) не может дать одной стороне один и тот же маркер во
+    всех вхождениях — профиль в этих форматах включается всегда, независимо
+    от запроса. До 13.09.2026 это решение принималось дважды и по-разному:
+    `masker.cli` включал профиль на PDF, а веб-API (`api/services/
+    run_service.py`) его гасил тем же условием наоборот — оператор, загрузивший
+    PDF через API, получал пустую вкладку «Профили», хотя тот же файл через
+    CLI профилировался нормально.
+    """
+    return bool(requested) or document_format.casefold().lstrip(".") == "pdf"
+
+
 @dataclass(frozen=True, slots=True)
 class RunOutcome:
     """Единый результат ``start_run``/``resume_run``."""

@@ -7,10 +7,13 @@ type RuleProfileState = {
   highlightChanges: boolean;
   keepTables: boolean;
   stableMarkers: boolean;
+  /** Выбранные типы ПДн. Пустой массив = всё (бэкенд интерпретирует `types: []` как «весь реестр»). */
+  enabledTypes: string[];
   setMaskStyle: (style: MaskStyle) => void;
   setHighlightChanges: (value: boolean) => void;
   setKeepTables: (value: boolean) => void;
   setStableMarkers: (value: boolean) => void;
+  setEnabledTypes: (types: string[]) => void;
 };
 
 /**
@@ -29,8 +32,10 @@ export const useRuleProfileStore = create<RuleProfileState>((set) => ({
   highlightChanges: true,
   keepTables: true,
   stableMarkers: false,
+  enabledTypes: [],
   setMaskStyle: (maskStyle) => set({ maskStyle }),
   setHighlightChanges: (highlightChanges) => set({ highlightChanges }),
   setKeepTables: (keepTables) => set({ keepTables }),
   setStableMarkers: (stableMarkers) => set({ stableMarkers }),
+  setEnabledTypes: (enabledTypes) => set({ enabledTypes }),
 }));

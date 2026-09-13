@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import type { UploadSource } from "../../../entity/document/model/types";
 import type { MaskStyle } from "../../../entity/rule-profile/model/types";
+import type { CompiledTypeOut } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
 import { clientApiWithAuth } from "../../../shared/api/mutators/authMutator";
 import { uploadApiFilesUploadPost } from "../../../shared/api/generated/core/files/files";
 import {
@@ -85,6 +86,10 @@ export type RunProgress = Pick<RunProgressEvent, "sequence" | "node" | "content"
 export type StartRunInput = {
   source: UploadSource;
   maskStyle: MaskStyle;
+  /** Типы ПДн для маскирования. Пустой массив = весь реестр. */
+  types: string[];
+  /** Кастомные типы, скомпилированные пользователем. */
+  customTypes: CompiledTypeOut[];
 };
 
 /**
@@ -97,7 +102,7 @@ export function useStartRun() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ source, maskStyle }: StartRunInput): Promise<RunResponse> => {
+    mutationFn: async ({ source, maskStyle, types, customTypes }: StartRunInput): Promise<RunResponse> => {
       const objectName =
         source.kind === "existing"
           ? source.objectName
@@ -109,10 +114,23 @@ export function useStartRun() {
               return uploaded.data.object_name;
             })();
 
+      const compiledSpecs = customTypes
+        .filter((t) => t.outcome === "compile" && t.spec != null)
+        .map((t) => t.spec as unknown as Record<string, unknown>);
+
+      // Когда пользователь выбрал конкретные типы (types.length > 0), кастомные
+      // типы не попадают в список автоматически — они не в реестре встроенных.
+      // Добавляем их явно, чтобы план не отфильтровал их с причиной type_not_requested.
+      const customTypeIds = customTypes
+        .filter((t) => t.outcome === "compile" && t.spec != null)
+        .map((t) => t.spec!.id);
+      const typesToSend = types.length > 0 ? [...types, ...customTypeIds] : types;
+
       const created = await createRunApiRunsPost({
         object_name: objectName,
-        types: [],
+        types: typesToSend,
         mask_style: maskStyle,
+        custom_types: compiledSpecs.length > 0 ? compiledSpecs : undefined,
       });
       if (created.status !== 202) {
         throw new Error("Не удалось запустить обезличивание");

@@ -5,7 +5,7 @@ import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { Banner } from "@astryxdesign/core/Banner";
-import { List, ListItem } from "@astryxdesign/core/List";
+import { Step, Stepper } from "@astryxdesign/core/Stepper";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 
@@ -27,6 +27,24 @@ type Props = {
   onSelected: () => void;
   onLeave: () => void;
 };
+
+/** Шаги конвейера в порядке выполнения. */
+const PIPELINE_STEPS: Array<{ id: string; label: string }> = [
+  { id: "extract", label: "Извлечение текста" },
+  { id: "detect", label: "Детекция данных" },
+  { id: "profile", label: "Профилирование сторон" },
+  { id: "judge", label: "Оценка уверенности" },
+  { id: "plan", label: "Формирование плана" },
+  { id: "render", label: "Применение масок" },
+  { id: "report", label: "Сборка отчёта" },
+];
+
+/** Имя узла графа → индекс шага конвейера. */
+function nodeToStepIndex(node: string): number {
+  const normalized = node.replace(/_node$/, "").replace("ask_human", "judge");
+  const index = PIPELINE_STEPS.findIndex((s) => normalized.startsWith(s.id));
+  return index === -1 ? 0 : index;
+}
 
 /**
  * Ожидание обработки поверх рабочего стола документа.
@@ -57,21 +75,59 @@ export function MaskingSetupDialog({ runId, ask, isSelecting, isProcessing, erro
     submit.mutate(buildAnswerEnvelope(ask.questions, selected, ask.schemaVersion));
   }, [answerQuestion, answers, ask, hasClarifications, isSelecting, onSelected, submit, types]);
 
+  const lastEvent = progress[progress.length - 1];
+  const activeStep = lastEvent ? nodeToStepIndex(lastEvent.node) : 0;
+  const lastMessage = lastEvent
+    ? (typeof lastEvent.content.message === "string" ? lastEvent.content.message : null)
+    : null;
+
   return (
     <Dialog isOpen={isSelecting || isProcessing || error !== null} purpose="required" width={560} onOpenChange={() => {}}>
       <Layout
         header={<DialogHeader title={error ? "Не удалось обработать документ" : "Обезличиваем документ"} />}
         content={
           <LayoutContent isScrollable>
-            <VStack gap={4}>
-              {error ? <Banner status="error" title="Прогон завершился с ошибкой" description={error} collapsible={false} /> : <>
-                <Spinner size="xl" label="Обработка документа…" />
-                {progress.length > 0 ? <List density="compact" hasDividers header={<Text weight="semibold">Ход разбора</Text>}>
-                  {progress.map((event) => <ListItem key={event.sequence} label={progressMessage(event)} />)}
-                </List> : <Text color="secondary">Начинаю разбор документа…</Text>}
-                {isProgressUnavailable ? <Text type="supporting" color="secondary">Лента разбора временно недоступна; ожидаем результат прогона.</Text> : null}
-              </>}
-              {!error ? <Text color="secondary">Это может занять несколько минут. Результат появится здесь автоматически.</Text> : null}
+            <VStack gap={5}>
+              {error ? (
+                <Banner status="error" title="Прогон завершился с ошибкой" description={error} collapsible={false} />
+              ) : (
+                <>
+                  <HStack gap={3} vAlign="center">
+                    <Spinner size="md" label="Обработка документа…" />
+                    <Text color="secondary" size="sm">
+                      {lastMessage ?? "Начинаю разбор документа…"}
+                    </Text>
+                  </HStack>
+
+                  <Stepper
+                    activeStep={activeStep}
+                    orientation="vertical"
+                    density="compact"
+                    label="Ход обработки документа"
+                  >
+                    {PIPELINE_STEPS.map((step, index) => (
+                      <Step
+                        key={step.id}
+                        step={index}
+                        label={step.label}
+                        status={index === activeStep ? "accent" : undefined}
+                        indicator={index === activeStep ? <Spinner size="sm" label="" /> : "auto"}
+                      />
+                    ))}
+                  </Stepper>
+
+                  {isProgressUnavailable ? (
+                    <Text type="supporting" color="secondary">
+                      Лента разбора временно недоступна; ожидаем результат прогона.
+                    </Text>
+                  ) : null}
+                </>
+              )}
+              {!error ? (
+                <Text type="supporting" color="secondary">
+                  Это может занять несколько минут. Результат появится здесь автоматически.
+                </Text>
+              ) : null}
               {submit.isError ? <Text>Не удалось отправить выбор. Попробуйте ещё раз.</Text> : null}
             </VStack>
           </LayoutContent>
@@ -86,9 +142,4 @@ export function MaskingSetupDialog({ runId, ask, isSelecting, isProcessing, erro
       />
     </Dialog>
   );
-}
-
-function progressMessage(event: RunProgress): string {
-  const message = event.content.message;
-  return typeof message === "string" ? message : `Выполняю этап «${event.node}».`;
 }

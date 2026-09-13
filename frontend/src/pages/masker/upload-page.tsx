@@ -39,6 +39,7 @@ export function UploadPage() {
   const clearQueue = useUploadQueueStore((state) => state.clear);
 
   const maskStyle = useRuleProfileStore((state) => state.maskStyle);
+  const enabledTypes = useRuleProfileStore((state) => state.enabledTypes);
 
   const startRun = useStartRun();
   // Кандидаты на (повторную) отправку: всё, что ещё не заведено прогоном —
@@ -73,6 +74,7 @@ export function UploadPage() {
         const run = await startRun.mutateAsync({
           source: item.source,
           maskStyle,
+          types: enabledTypes,
         });
         markStarted(item.id, run.id);
         if (firstRunId === null) {

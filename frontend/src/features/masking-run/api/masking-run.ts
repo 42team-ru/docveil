@@ -85,6 +85,8 @@ export type RunProgress = Pick<RunProgressEvent, "sequence" | "node" | "content"
 export type StartRunInput = {
   source: UploadSource;
   maskStyle: MaskStyle;
+  /** Типы ПДн для маскирования. Пустой массив = весь реестр. */
+  types: string[];
 };
 
 /**
@@ -97,7 +99,7 @@ export function useStartRun() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ source, maskStyle }: StartRunInput): Promise<RunResponse> => {
+    mutationFn: async ({ source, maskStyle, types }: StartRunInput): Promise<RunResponse> => {
       const objectName =
         source.kind === "existing"
           ? source.objectName
@@ -111,7 +113,7 @@ export function useStartRun() {
 
       const created = await createRunApiRunsPost({
         object_name: objectName,
-        types: [],
+        types,
         mask_style: maskStyle,
       });
       if (created.status !== 202) {

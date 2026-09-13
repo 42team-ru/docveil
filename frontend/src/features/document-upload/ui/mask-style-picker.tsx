@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Settings } from "lucide-react";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { CheckboxList, CheckboxListItem } from "@astryxdesign/core/CheckboxList";
 import { Code } from "@astryxdesign/core/Code";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -17,8 +18,9 @@ import { useRuleProfileStore } from "../../../entity/rule-profile/model/rule-pro
 import type { MaskStyle } from "../../../entity/rule-profile/model/types";
 import { pluralRu } from "../../../shared/lib/plural-ru";
 
-/** Сколько типов ПДн знает движок — весь реестр маскируется без исключений. */
-const REGISTRY_TYPE_COUNT = piiTypeOptions().length;
+const ALL_TYPE_OPTIONS = piiTypeOptions();
+/** Сколько типов ПДн знает движок. */
+const REGISTRY_TYPE_COUNT = ALL_TYPE_OPTIONS.length;
 
 /**
  * Как «Поставщик»/«ИНН» из примера выглядят в превью каждого стиля маски.
@@ -67,20 +69,32 @@ export function MaskStylePicker() {
   const setStableMarkers = useRuleProfileStore(
     (state) => state.setStableMarkers,
   );
+  const enabledTypes = useRuleProfileStore((state) => state.enabledTypes);
+  const setEnabledTypes = useRuleProfileStore((state) => state.setEnabledTypes);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const selectedOption = MASK_STYLE_OPTIONS.find(
     (option) => option.id === maskStyle,
   );
 
+  // [] = все выбраны (поведение бэкенда), иначе — подмножество
+  const allSelected = enabledTypes.length === 0;
+  const someSelected = !allSelected && enabledTypes.length > 0;
+  const selectAllValue = allSelected
+    ? true
+    : someSelected
+      ? "indeterminate"
+      : false;
+
+  function handleSelectAll() {
+    setEnabledTypes(allSelected ? ALL_TYPE_OPTIONS.map((o) => o.value) : []);
+  }
+
   return (
     <Section padding={0}>
       <VStack gap={3} paddingBlock={4} paddingInline={4}>
         <VStack gap={1}>
           <Heading level={4}>Как выглядит маска</Heading>
-          <Text type="supporting" size="sm" color="secondary">
-            {`Маскируются все ${REGISTRY_TYPE_COUNT} ${pluralRu(REGISTRY_TYPE_COUNT, ["тип", "типа", "типов"])} персональных данных из реестра движка — выбор типов на этом экране недоступен.`}
-          </Text>
         </VStack>
         <Grid columns={2} gap={4} align="start">
           {MASK_STYLE_OPTIONS.map((option) => {
@@ -144,6 +158,37 @@ export function MaskStylePicker() {
           })}
         </Grid>
       </VStack>
+
+      <Section variant="transparent" padding={0} dividers={["top"]}>
+        <VStack gap={3} paddingBlock={4} paddingInline={4}>
+          <VStack gap={1}>
+            <Heading level={4}>Типы персональных данных</Heading>
+            <Text type="supporting" size="sm" color="secondary">
+              {allSelected
+                ? `Маскируются все ${REGISTRY_TYPE_COUNT} ${pluralRu(REGISTRY_TYPE_COUNT, ["тип", "типа", "типов"])} — снимите флажок, чтобы выбрать конкретные`
+                : `Выбрано ${enabledTypes.length} из ${REGISTRY_TYPE_COUNT}`}
+            </Text>
+          </VStack>
+          <CheckboxInput
+            label="Все типы"
+            value={selectAllValue}
+            onChange={handleSelectAll}
+          />
+          {!allSelected && (
+            <CheckboxList
+              label="Типы ПДн"
+              isLabelHidden
+              value={enabledTypes}
+              onChange={setEnabledTypes}
+              density="compact"
+            >
+              {ALL_TYPE_OPTIONS.map((opt) => (
+                <CheckboxListItem key={opt.value} value={opt.value} label={opt.label} />
+              ))}
+            </CheckboxList>
+          )}
+        </VStack>
+      </Section>
 
       <Dialog
         isOpen={isSettingsOpen}

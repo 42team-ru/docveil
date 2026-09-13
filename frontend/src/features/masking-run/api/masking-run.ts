@@ -118,9 +118,17 @@ export function useStartRun() {
         .filter((t) => t.outcome === "compile" && t.spec != null)
         .map((t) => t.spec as unknown as Record<string, unknown>);
 
+      // Когда пользователь выбрал конкретные типы (types.length > 0), кастомные
+      // типы не попадают в список автоматически — они не в реестре встроенных.
+      // Добавляем их явно, чтобы план не отфильтровал их с причиной type_not_requested.
+      const customTypeIds = customTypes
+        .filter((t) => t.outcome === "compile" && t.spec != null)
+        .map((t) => t.spec!.id);
+      const typesToSend = types.length > 0 ? [...types, ...customTypeIds] : types;
+
       const created = await createRunApiRunsPost({
         object_name: objectName,
-        types,
+        types: typesToSend,
         mask_style: maskStyle,
         custom_types: compiledSpecs.length > 0 ? compiledSpecs : undefined,
       });

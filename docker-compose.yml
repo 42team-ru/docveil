@@ -68,17 +68,16 @@ services:
       MINIO_SECURE: "false"
       MINIO_BUCKET: ${MINIO_BUCKET:-documents}
       APP_PORT: ${APP_PORT:-8000}
-      # GigaChat TLS-сертификат. Два варианта — раскомментировать один:
+      # GigaChat TLS-сертификат. Оба варианта настраиваются в backend/.env
+      # (через env_file выше) — не дублируй их здесь, иначе значение из .env
+      # будет перекрыто дефолтом из environment-блока.
       #
-      # Вариант A (правильный): сертификат Минцифры.
-      # 1. Раскомментируй volume ниже и пропиши путь к .pem-файлу на хосте.
-      # 2. Раскомментируй MASKER_LLM_GIGACHAT_CA_BUNDLE.
-      # MASKER_LLM_GIGACHAT_CA_BUNDLE: /certs/gigachat-ca.pem
+      # Вариант A (правильный): добавь в backend/.env:
+      #   MASKER_LLM_GIGACHAT_CA_BUNDLE=/certs/gigachat-ca.pem
+      #   и раскомментируй volume-монтирование ниже.
       #
-      # Вариант Б (небезопасно): полностью отключить TLS-проверку.
-      # Достаточно выставить переменную в backend/.env или передать снаружи:
-      #   MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY=true make up
-      MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY: ${MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY:-false}
+      # Вариант Б (небезопасно): добавь в backend/.env:
+      #   MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY=true
     ports:
       - "${APP_PORT:-8000}:${APP_PORT:-8000}"
     volumes:

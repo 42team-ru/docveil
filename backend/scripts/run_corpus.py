@@ -21,7 +21,7 @@
     python scripts/run_corpus.py fixtures/real/open-contracts --layer gliner
 
     # с живой моделью (нужен ключ в окружении)
-    python scripts/run_corpus.py fixtures/real/open-contracts --llm gigachat-max
+    python scripts/run_corpus.py fixtures/real/open-contracts --llm gigachat
 
 Сравнить два прогона:
 

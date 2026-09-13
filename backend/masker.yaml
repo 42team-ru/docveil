@@ -39,7 +39,7 @@ llm:
     cassette:
       provider: cassette
       pricing: *pricing_unknown
-    gigachat-max:
+    gigachat:
       provider: gigachat
       model: GigaChat-3-Ultra
       api_key_env: GIGACHAT_CREDENTIALS

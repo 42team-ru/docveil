@@ -60,6 +60,12 @@ export function applyHighlights(
     }
 
     const run = resolution.run;
+    if (run.dataset.piiId) {
+      // Этот DOM-элемент уже заявлен другим вхождением (anchor-index должен это
+      // предотвращать, но дополнительная защита нужна для bbox-вьюера).
+      notFoundIds.add(occurrence.id);
+      continue;
+    }
     run.dataset.piiId = occurrence.id;
     run.dataset.piiGroupId = occurrence.groupId;
     const decision = getDecision(occurrence.id, occurrence.groupId);

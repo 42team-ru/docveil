@@ -43,17 +43,39 @@ const STATUS_STYLE: Record<
   },
 };
 
+function applyPaintStyle(
+  el: HTMLElement,
+  style: { background: string; color: string; strike: boolean },
+  isSelected: boolean,
+): void {
+  el.style.backgroundColor = style.background;
+  el.style.color = style.color;
+  el.style.textDecoration = style.strike ? "line-through" : "none";
+  el.style.borderRadius = "2px";
+  el.style.cursor = "pointer";
+  el.style.outline = isSelected ? "3px solid var(--color-border-blue)" : "none";
+  el.style.outlineOffset = "2px";
+}
+
 export function paintRun(
   run: HTMLElement,
   state: PaintState,
   isSelected: boolean,
 ): void {
-  const style = STATUS_STYLE[state];
-  run.style.backgroundColor = style.background;
-  run.style.color = style.color;
-  run.style.textDecoration = style.strike ? "line-through" : "none";
-  run.style.borderRadius = "2px";
-  run.style.cursor = "pointer";
-  run.style.outline = isSelected ? "3px solid var(--color-border-blue)" : "none";
-  run.style.outlineOffset = "2px";
+  // bbox overlay divs sit on top of the PDF canvas — the PDF artifact already
+  // has its own visual highlighting. Only show the selection outline, no fill.
+  const effectiveState: PaintState = run.dataset.piiBbox ? "original" : state;
+  const style = STATUS_STYLE[effectiveState];
+  applyPaintStyle(run, style, isSelected);
+  // Дополнительные region-div'ы для bbox-вьюера (одна сущность → N строк в PDF).
+  // Они хранятся рядом на том же page-контейнере с атрибутом `data-pii-region-of`.
+  const ownId = run.dataset.piiId;
+  if (ownId && run.parentElement) {
+    const extras = run.parentElement.querySelectorAll<HTMLElement>(
+      `[data-pii-region-of="${CSS.escape(ownId)}"]`,
+    );
+    for (const extra of extras) {
+      applyPaintStyle(extra, style, isSelected);
+    }
+  }
 }

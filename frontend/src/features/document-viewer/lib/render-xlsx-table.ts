@@ -103,7 +103,7 @@ function columnLettersToNumber(letters: string): number {
  * v1: рендерит только первый лист книги (`workbook.worksheets[0]`).
  * Многолистовые книги — за пределами этой итерации, как pdf для DocumentViewer.
  */
-export async function renderXlsxTable(host: HTMLElement, data: ArrayBuffer): Promise<void> {
+export async function renderXlsxTable(host: HTMLElement, data: ArrayBuffer, _signal: AbortSignal): Promise<void> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(data);
 

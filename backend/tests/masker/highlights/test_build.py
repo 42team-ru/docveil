@@ -106,8 +106,13 @@ def test_single_region_normalizes_to_page_size(_dims: None, tmp_path: Path) -> N
     }
 
 
-def test_multiline_regions_collapse_into_single_union(_dims: None, tmp_path: Path) -> None:
-    """Многострочная сущность даёт один описывающий прямоугольник на странице."""
+def test_multiline_regions_per_run(_dims: None, tmp_path: Path) -> None:
+    """Многострочная сущность даёт отдельный регион на каждый paint_region (PDF-ран).
+
+    Раньше здесь делался union, что давало bbox высотой в две строки. Теперь
+    фронт получает отдельные прямоугольники и рисует независимый оверлей на
+    каждую строку — так highlight не перекрывает чужой текст между строками.
+    """
     plan = _plan(
         _replacement(
             "R1",
@@ -121,7 +126,10 @@ def test_multiline_regions_collapse_into_single_union(_dims: None, tmp_path: Pat
     result = build_regions_by_ref(plan, tmp_path / "highlight.pdf")
 
     assert result == {
-        "R1": [BboxRegion(page=0, x0=0.1, y0=0.1, x1=0.3, y1=0.225)],
+        "R1": [
+            BboxRegion(page=0, x0=0.1, y0=0.1, x1=0.2, y1=0.15),
+            BboxRegion(page=0, x0=0.15, y0=0.175, x1=0.3, y1=0.225),
+        ],
     }
 
 

@@ -773,7 +773,10 @@ def _fitting_size(
     if box.width <= 0 or box.height <= 0:
         return None
     for size in _font_size_candidates(source_font_size):
-        if font.text_length(text, fontsize=size) <= box.width and box.height >= size * _LABEL_GLYPH_HEIGHT:
+        if (
+            font.text_length(text, fontsize=size) <= box.width
+            and box.height >= size * _LABEL_GLYPH_HEIGHT
+        ):
             return size
     return None
 
@@ -785,7 +788,10 @@ def _font_size_candidates(source_font_size: float) -> tuple[float, ...]:
     способ вписать метку в прямоугольник. Повтор не добавляем, когда
     исходный кегль уже равен одной из ступеней.
     """
-    return (source_font_size, *tuple(size for size in _MARKER_FONT_SIZES if size != source_font_size))
+    return (
+        source_font_size,
+        *tuple(size for size in _MARKER_FONT_SIZES if size != source_font_size),
+    )
 
 
 def compute_label_geometry(
@@ -847,9 +853,7 @@ def compute_label_geometry(
                 _PageJob(replacement=replacement, seg_char_start=seg_start, rects=rects)
             )
 
-        candidates_by_group: dict[str, list[list[_LabelCandidate]]] = defaultdict(
-            list
-        )
+        candidates_by_group: dict[str, list[list[_LabelCandidate]]] = defaultdict(list)
         candidates_by_ref: dict[str, list[_LabelCandidate]] = {}
         page_by_ref: dict[str, int] = {}
 
@@ -923,9 +927,7 @@ def compute_label_geometry(
                 # Рендер выбирает узкую область, если уже выбранная общая
                 # ступень в ней читаема. Расширение справа — резерв для
                 # реального дефицита места, а не часть каждой подсветки.
-                tight_box = pymupdf.Rect(
-                    erase_rect.x0, label_box.y0, erase_rect.x1, label_box.y1
-                )
+                tight_box = pymupdf.Rect(erase_rect.x0, label_box.y0, erase_rect.x1, label_box.y1)
                 tight_size = _fitting_size(
                     font, text, tight_box, candidate.source_font_size, reason
                 )
@@ -1298,12 +1300,8 @@ def render_pdf_redacted(
     # подписи (геометрия, без рисования текста), затем для каждой группы
     # выбирается общая ступень по самому тесному из её вхождений, и только
     # потом эта фиксированная ступень вписывается в каждое вхождение.
-    pending_labels: list[
-        tuple[int, Replacement, tuple[PdfRegion, ...], list[_LabelCandidate]]
-    ] = []
-    candidates_by_group: dict[str, list[list[_LabelCandidate]]] = defaultdict(
-        list
-    )
+    pending_labels: list[tuple[int, Replacement, tuple[PdfRegion, ...], list[_LabelCandidate]]] = []
+    candidates_by_group: dict[str, list[list[_LabelCandidate]]] = defaultdict(list)
     suppressed_label_refs: set[str] = set()
 
     # Явная сортировка по номеру страницы — детерминизм не должен зависеть
@@ -1471,7 +1469,14 @@ def render_pdf_redacted(
             page = doc[page_num]
             group = groups_by_id[replacement.group_id]
             label_region, marker_result = _place_label_fixed(
-                page, font, candidates, replacement, rung_by_group[group.id], fill_color, dot_shapes
+                page,
+                font,
+                candidates,
+                replacement,
+                rung_by_group[group.id],
+                fill_color,
+                dot_shapes,
+                extra_dot_regions=erase_regions,
             )
             markers.append(marker_result)
             paint_regions = (*erase_regions, label_region) if fill_color is not None else ()
@@ -1540,8 +1545,7 @@ def _ladder_fits(
         return False
     return any(
         font.text_length(text, fontsize=size) <= box.width
-        and box.height
-        >= size * _LABEL_GLYPH_HEIGHT
+        and box.height >= size * _LABEL_GLYPH_HEIGHT
         for text, reason in ladder
         if text
         for size in _font_size_candidates(candidate.source_font_size)
@@ -1625,15 +1629,7 @@ def _marker_dot_counts(
 
     left_free = free_width / 2
     right_free = free_width - left_free
-    # 12.09.2026: точки не несут смысла и в узкой ячейке визуально занимали
-    # больше места, чем сама подпись. Ограничиваем их суммарную ширину
-    # шириной метки: при свободном поле уже или равном метке их нет вовсе.
-    if free_width <= marker_width + _GEOMETRY_EPS:
-        return 0, 0
-    total = min(
-        math.floor((left_free + right_free + _GEOMETRY_EPS) / dot_advance),
-        math.floor((marker_width + _GEOMETRY_EPS) / dot_advance),
-    )
+    total = math.floor((left_free + right_free + _GEOMETRY_EPS) / dot_advance)
     while total:
         left_count = total // 2
         right_count = total - left_count  # лишняя точка детерминированно справа
@@ -1722,9 +1718,7 @@ def _other_jobs_erase_rects(
     ]
 
 
-def _redundant_label_refs(
-    jobs: list[_PageJob], groups_by_id: dict[str, MaskGroup]
-) -> set[str]:
+def _redundant_label_refs(jobs: list[_PageJob], groups_by_id: dict[str, MaskGroup]) -> set[str]:
     """Вернуть подписи вложенных фрагментов одного смыслового вхождения.
 
     Все найденные фрагменты всё равно редактируются: это единственный
@@ -1914,9 +1908,7 @@ def _rung_fits_everywhere(
     return all(
         any(
             font.text_length(text, fontsize=size) <= label_box.width
-            and label_box.height
-            >= size
-            * _LABEL_GLYPH_HEIGHT
+            and label_box.height >= size * _LABEL_GLYPH_HEIGHT
             for candidate in occurrence
             for _erase_rect, label_box in (candidate,)
             for size in _font_size_candidates(candidate.source_font_size)
@@ -1947,9 +1939,7 @@ def _choose_group_rungs(
     """
     result: dict[str, tuple[str, str]] = {}
     used_by_label: dict[str, str] = {}
-    occurrences_by_canonical: dict[
-        str, list[list[_LabelCandidate]]
-    ] = defaultdict(list)
+    occurrences_by_canonical: dict[str, list[list[_LabelCandidate]]] = defaultdict(list)
     first_group_by_canonical: dict[str, MaskGroup] = {}
     for group in groups:
         canonical = group.canonical_label
@@ -2003,6 +1993,7 @@ def _place_label_fixed(
     rung: tuple[str, str],
     fill_color: tuple[float, float, float] | None,
     dot_shapes: dict[tuple[int, str], pymupdf.Shape] | None = None,
+    extra_dot_regions: tuple[PdfRegion, ...] = (),
 ) -> tuple[PdfRegion, MarkerRenderResult]:
     """Вписать в это вхождение ступень, уже выбранную для всей группы.
 
@@ -2051,11 +2042,24 @@ def _place_label_fixed(
             if outcome is None:
                 continue
             shown_text, fallback_reason, size = outcome
-            # 12.09.2026: центрируем метку в освобождённой полосе и тут же
-            # возвращаем точки по краям; иначе остаётся визуальная пустота.
-            # Точки-лидеры не рисуем: это не часть маркера и на реальном
-            # бланке визуально неотличимы от частично стёртых исходных точек.
-            # Единственный видимый текст marker-варианта — сама подпись.
+            _draw_marker_dots(
+                page,
+                font,
+                label_box,
+                shown_text,
+                size,
+                dot_shapes=dot_shapes,
+                baseline_y0=candidate.line_y0,
+            )
+            # Точки на остальных строках этой сущности (многострочный случай).
+            # Сравниваем с erase_rect (исходный, до расширения), а не с
+            # label_box: label_box может слегка залезать на соседнюю строку
+            # по вертикали (_free_extension_vertical) и тогда ложно совпадёт.
+            for er in extra_dot_regions:
+                er_box = pymupdf.Rect(er.x0, er.y0, er.x1, er.y1)
+                if not (er_box & erase_rect).is_empty:
+                    continue  # строка метки — точки уже нарисованы выше
+                _draw_marker_dots(page, font, er_box, "", size, dot_shapes=dot_shapes)
             region = PdfRegion(
                 page=page.number,
                 x0=label_box.x0,

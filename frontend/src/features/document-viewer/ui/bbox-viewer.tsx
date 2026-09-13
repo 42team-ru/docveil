@@ -12,7 +12,6 @@ import type { HighlightOccurrence, ResolvedRun } from "../lib/apply-highlights";
 import {
   normalizeDragRect,
   pixelRectToRegion,
-  primaryRegion,
   regionToPixelRect,
   type PixelRect,
 } from "../lib/bbox-geometry";
@@ -62,8 +61,9 @@ function styleCanvas(canvas: HTMLCanvasElement): void {
   canvas.style.border = "1px solid var(--color-border-default)";
 }
 
-async function renderImage(host: HTMLElement, data: ArrayBuffer, mime: string): Promise<void> {
+async function renderImage(host: HTMLElement, data: ArrayBuffer, mime: string, signal: AbortSignal): Promise<void> {
   const bitmap = await createImageBitmap(new Blob([data], { type: mime }));
+  if (signal.aborted) { bitmap.close(); return; }
   const container = createPageContainer(0);
   const canvas = document.createElement("canvas");
   styleCanvas(canvas);
@@ -77,10 +77,11 @@ async function renderImage(host: HTMLElement, data: ArrayBuffer, mime: string): 
   host.appendChild(container);
 }
 
-async function renderPdf(host: HTMLElement, data: ArrayBuffer): Promise<void> {
+async function renderPdf(host: HTMLElement, data: ArrayBuffer, signal: AbortSignal): Promise<void> {
   const doc = await loadPdfDocument(data);
   const scale = 1.5;
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+    if (signal.aborted) return;
     const container = createPageContainer(pageNumber - 1);
     const canvas = document.createElement("canvas");
     styleCanvas(canvas);
@@ -93,13 +94,29 @@ async function renderPdf(host: HTMLElement, data: ArrayBuffer): Promise<void> {
   }
 }
 
-/** Найденные сущности → прямоугольники-метки поверх соответствующей страницы. */
+function createMarkDiv(rectPx: { x: number; y: number; width: number; height: number }): HTMLDivElement {
+  const div = document.createElement("div");
+  div.style.position = "absolute";
+  div.style.left = `${rectPx.x}px`;
+  div.style.top = `${rectPx.y}px`;
+  div.style.width = `${rectPx.width}px`;
+  div.style.height = `${rectPx.height}px`;
+  div.style.lineHeight = "normal";
+  return div;
+}
+
+/**
+ * Найденные сущности → прямоугольники-метки поверх соответствующей страницы.
+ *
+ * Одна сущность может иметь несколько `regions` (перенос текста через строку).
+ * Первый регион — первичная метка, хранится в индексе как `run`; остальные
+ * добавляются рядом с атрибутом `data-pii-region-of` и красятся из `paintRun`
+ * автоматически.
+ */
 function buildBboxIndex(
   host: HTMLElement,
   occurrences: HighlightOccurrence[],
 ): Map<string, ResolvedRun> {
-  // occurrences здесь на деле FlatPiiOccurrence — той же структурной
-  // типизацией, что и в docx/xlsx-вьюерах (см. docx-viewer.tsx).
   const typed = occurrences as unknown as {
     id: string;
     regions: { page: number; x0: number; y0: number; x1: number; y1: number }[];
@@ -107,25 +124,43 @@ function buildBboxIndex(
   const index = new Map<string, ResolvedRun>();
 
   for (const occurrence of typed) {
-    const region = primaryRegion(occurrence.regions);
-    const container = region
-      ? host.querySelector<HTMLElement>(`[${PAGE_ATTR}="${region.page}"]`)
-      : null;
-    const canvas = container?.querySelector("canvas");
-    if (!region || !container || !canvas) {
+    const allRegions = occurrence.regions;
+    if (!allRegions.length) {
       index.set(occurrence.id, { status: "not-found" });
       continue;
     }
-    const rectPx = regionToPixelRect(region, canvas.clientWidth, canvas.clientHeight);
-    const mark = document.createElement("div");
-    mark.style.position = "absolute";
-    mark.style.left = `${rectPx.x}px`;
-    mark.style.top = `${rectPx.y}px`;
-    mark.style.width = `${rectPx.width}px`;
-    mark.style.height = `${rectPx.height}px`;
-    mark.style.lineHeight = "normal";
-    container.appendChild(mark);
-    index.set(occurrence.id, { status: "resolved", run: mark });
+
+    let primaryMark: HTMLDivElement | null = null;
+
+    for (const region of allRegions) {
+      const container = host.querySelector<HTMLElement>(`[${PAGE_ATTR}="${region.page}"]`);
+      const canvas = container?.querySelector("canvas");
+      if (!container || !canvas) continue;
+
+      // getBoundingClientRect forces layout flush — more reliable than clientWidth
+      // when the host was just mounted and CSS hasn't been computed yet.
+      const { width: canvasW, height: canvasH } = canvas.getBoundingClientRect();
+      const pageW = canvasW > 0 ? canvasW : canvas.width;
+      const pageH = canvasH > 0 ? canvasH : canvas.height;
+      if (pageW <= 0 || pageH <= 0) continue;
+
+      const rectPx = regionToPixelRect(region, pageW, pageH);
+      const mark = createMarkDiv(rectPx);
+
+      mark.dataset.piiBbox = "true";
+      if (!primaryMark) {
+        primaryMark = mark;
+      } else {
+        mark.dataset.piiRegionOf = occurrence.id;
+      }
+
+      container.appendChild(mark);
+    }
+
+    index.set(
+      occurrence.id,
+      primaryMark ? { status: "resolved", run: primaryMark } : { status: "not-found" },
+    );
   }
 
   return index;
@@ -244,14 +279,16 @@ export function BboxViewer({
 }: BboxViewerProps) {
   const dragRef = useRef<DragState | null>(null);
 
-  async function render(host: HTMLElement, data: ArrayBuffer): Promise<void> {
+  async function render(host: HTMLElement, data: ArrayBuffer, signal: AbortSignal): Promise<void> {
     const mime = IMAGE_MIME[format];
     if (mime) {
-      await renderImage(host, data, mime);
+      await renderImage(host, data, mime, signal);
     } else {
-      await renderPdf(host, data);
+      await renderPdf(host, data, signal);
     }
-    attachDragHandlers(host, dragRef);
+    if (!signal.aborted) {
+      attachDragHandlers(host, dragRef);
+    }
   }
 
   const { hostRef, status } = useDocumentRender({

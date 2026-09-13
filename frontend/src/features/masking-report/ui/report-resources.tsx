@@ -18,14 +18,23 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
+import { Table, pixel, proportional } from "@astryxdesign/core/Table";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { useTheme } from "@astryxdesign/core/theme";
 
+import { flattenPiiOccurrences } from "../../../entity/pii/model/flatten";
+import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
 import type {
   ConfidenceLevel,
   DecisionSource,
+  MaskGroupRecord,
+  MaskPlanRecord,
   MaskingReport,
+  PiiExtraction,
   PiiSource,
+  RefDecision,
+  ReportDecisions,
   Telemetry,
 } from "../../../entity/pii/model/types";
 import type { RuntimeMetrics } from "../../masking-run/api/masking-run";
@@ -65,9 +74,10 @@ const FALLBACK_ORDER = [
 const MINOR_STAGE_THRESHOLD_MS = 5;
 
 /** Подпись слоя детекции — `PiiSource` из `masker.model.Source`. */
-const SOURCE_LABELS: Record<PiiSource, string> = {
+const SOURCE_LABELS: Record<PiiSource | "gliner", string> = {
   rule: "Правила",
   ner: "Локальный NER (Natasha)",
+  gliner: "GLiNER",
   block: "Блоки реквизитов",
   llm: "Модель",
   user: "Свои типы",
@@ -128,6 +138,26 @@ const CHART_COLOR_TOKENS = [
   "--color-text-cyan",
   "--color-text-pink",
 ] as const;
+
+/** Цвет точки в журнале обработки по имени узла графа. */
+const STAGE_COLORS: Record<string, string> = {
+  extract: "--color-text-secondary",
+  detect: "--color-text-blue",
+  profile: "--color-text-purple",
+  judge: "--color-text-orange",
+  policy: "--color-text-cyan",
+  plan: "--color-text-teal",
+  summary: "--color-text-pink",
+  render: "--color-text-teal",
+  validate: "--color-text-teal",
+  report: "--color-text-teal",
+  finalize: "--color-text-teal",
+  ask_human: "--color-text-orange",
+  apply_answers: "--color-text-orange",
+  ask_review: "--color-text-orange",
+  apply_review_edits: "--color-text-orange",
+  image_export: "--color-text-teal",
+};
 
 type OrderedStage = { name: string; durationMs: number; order: number };
 
@@ -209,6 +239,7 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
   const decidedByData = report.decisions
     ? buildCategoryData(countByDecidedBy(report.decisions.byRef), DECIDED_BY_LABEL)
     : [];
+  const chartRowHeight = Math.max(120, Math.max(sourceData.length, levelData.length, decidedByData.length) * 44);
   const totalSource = Object.values(report.summary.bySource).reduce((sum, count) => sum + count, 0);
   const nonLlmShare = totalSource > 0
     ? Math.round(((totalSource - (report.summary.bySource.llm ?? 0)) / totalSource) * 100)
@@ -297,56 +328,53 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
       ) : null}
 
       <Grid columns={{ minWidth: 260, max: 3, repeat: "fit" }} gap={4}>
-        <Section>
-          <VStack gap={3}>
-            <Heading level={4}>Чем нашли</Heading>
-            <CategoryBarChart
-              data={sourceData}
-              colors={CHART_COLOR_TOKENS.map((name) => token(name))}
-              axisColor={token("--color-text-secondary")}
-              gridColor={token("--color-border")}
-              tooltipBackground={token("--color-background-popover")}
-              tooltipBorder={token("--color-border")}
-              tooltipText={token("--color-text-primary")}
-            />
-            {nonLlmShare !== null ? (
-              <Text type="supporting" color="secondary">
-                {`${nonLlmShare}% сущностей нашли правила и локальный NER без обращения к модели.`}
-              </Text>
-            ) : null}
-          </VStack>
-        </Section>
-        <Section>
-          <VStack gap={3}>
-            <Heading level={4}>С какой уверенностью</Heading>
-            <CategoryBarChart
-              data={levelData}
-              colors={CHART_COLOR_TOKENS.map((name) => token(name))}
-              axisColor={token("--color-text-secondary")}
-              gridColor={token("--color-border")}
-              tooltipBackground={token("--color-background-popover")}
-              tooltipBorder={token("--color-border")}
-              tooltipText={token("--color-text-primary")}
-            />
-          </VStack>
-        </Section>
-        {decidedByData.length > 0 ? (
-          <Section>
-            <VStack gap={3}>
-              <Heading level={4}>Кем принято решение</Heading>
-              <CategoryBarChart
-                data={decidedByData}
-                colors={CHART_COLOR_TOKENS.map((name) => token(name))}
-                axisColor={token("--color-text-secondary")}
-                gridColor={token("--color-border")}
-                tooltipBackground={token("--color-background-popover")}
-                tooltipBorder={token("--color-border")}
-                tooltipText={token("--color-text-primary")}
-              />
-            </VStack>
-          </Section>
-        ) : null}
+        <Heading level={4}>Чем нашли</Heading>
+        <Heading level={4}>С какой уверенностью</Heading>
+        <Heading level={4}>Кем принято решение</Heading>
       </Grid>
+      <Grid columns={{ minWidth: 260, max: 3, repeat: "fit" }} gap={4}>
+        <Section>
+          <CategoryBarChart
+            data={sourceData}
+            colors={CHART_COLOR_TOKENS.map((name) => token(name))}
+            axisColor={token("--color-text-secondary")}
+            gridColor={token("--color-border")}
+            tooltipBackground={token("--color-background-popover")}
+            tooltipBorder={token("--color-border")}
+            tooltipText={token("--color-text-primary")}
+            fixedHeight={chartRowHeight}
+          />
+        </Section>
+        <Section>
+          <CategoryBarChart
+            data={levelData}
+            colors={CHART_COLOR_TOKENS.map((name) => token(name))}
+            axisColor={token("--color-text-secondary")}
+            gridColor={token("--color-border")}
+            tooltipBackground={token("--color-background-popover")}
+            tooltipBorder={token("--color-border")}
+            tooltipText={token("--color-text-primary")}
+            fixedHeight={chartRowHeight}
+          />
+        </Section>
+        <Section>
+          <CategoryBarChart
+            data={decidedByData}
+            colors={CHART_COLOR_TOKENS.map((name) => token(name))}
+            axisColor={token("--color-text-secondary")}
+            gridColor={token("--color-border")}
+            tooltipBackground={token("--color-background-popover")}
+            tooltipBorder={token("--color-border")}
+            tooltipText={token("--color-text-primary")}
+            fixedHeight={chartRowHeight}
+          />
+        </Section>
+      </Grid>
+      {nonLlmShare !== null ? (
+        <Text type="supporting" color="secondary">
+          {`${nonLlmShare}% сущностей нашли правила и локальный NER без обращения к модели.`}
+        </Text>
+      ) : null}
 
       {telemetry.llm.calls === 0 ? (
         <Banner
@@ -387,7 +415,15 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
         </Grid>
       )}
 
-      <ProcessingLog events={telemetry.events} runtime={runtime} unavailableNote={telemetry.runtime.note} />
+      <DetailedLog
+        events={telemetry.events}
+        runtime={runtime}
+        unavailableNote={telemetry.runtime.note}
+        plan={report.plan}
+        extraction={report.extraction}
+        decisions={report.decisions}
+        llmByNode={telemetry.llm.byNode}
+      />
     </VStack>
   );
 }
@@ -413,6 +449,8 @@ type CategoryBarChartProps = {
   tooltipBorder: string;
   tooltipText: string;
   valueFormatter?: (value: number) => string;
+  /** Явно задать высоту контейнера (px) — нужно чтобы несколько чартов стояли ровно. */
+  fixedHeight?: number;
 };
 
 /** Горизонтальная диаграмма по категориям — источник, уверенность, решение. */
@@ -425,14 +463,18 @@ function CategoryBarChart({
   tooltipBorder,
   tooltipText,
   valueFormatter,
+  fixedHeight,
 }: CategoryBarChartProps) {
   if (data.length === 0) {
     return <Text color="secondary">Данных нет.</Text>;
   }
   const format = valueFormatter ?? ((value: number) => value.toLocaleString("ru-RU"));
   const chartData = data.map((item) => ({ name: item.label, count: item.count }));
+  const maxLabelLength = chartData.reduce((max, d) => Math.max(max, d.name.length), 0);
+  const yAxisWidth = Math.min(280, Math.max(120, maxLabelLength * 7));
+  const height = fixedHeight ?? Math.max(96, chartData.length * 44);
   return (
-    <ResponsiveContainer width="100%" height={Math.max(80, chartData.length * 36)}>
+    <ResponsiveContainer width="100%" height={height}>
       <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 4 }}>
         <XAxis
           type="number"
@@ -446,7 +488,8 @@ function CategoryBarChart({
         <YAxis
           type="category"
           dataKey="name"
-          width={170}
+          width={yAxisWidth}
+          interval={0}
           stroke={axisColor}
           tick={{ fill: axisColor, fontSize: 12 }}
           axisLine={{ stroke: gridColor }}
@@ -623,53 +666,232 @@ function NodeCostChart({ telemetry, colors, mutedColor, tooltipBackground, toolt
   );
 }
 
-type ProcessingLogProps = {
+type DetailedLogTab = "log" | "data" | "entities" | "questions" | "llm";
+
+type DetailedLogProps = {
   events: Telemetry["events"];
   runtime: RuntimeMetrics | null | undefined;
-  /** `report.telemetry.runtime.note` — почему времени нет, если его нет. */
   unavailableNote: string;
+  plan: MaskPlanRecord | null;
+  extraction: PiiExtraction;
+  decisions: ReportDecisions | null;
+  llmByNode: Telemetry["llm"]["byNode"];
+};
+
+type GroupRow = MaskGroupRecord & Record<string, unknown>;
+type DecisionRow = RefDecision & Record<string, unknown>;
+type LlmNodeRow = Telemetry["llm"]["byNode"][number] & Record<string, unknown>;
+
+type EntityRow = {
+  id: string;
+  type: string;
+  original: string;
+  marker: string;
+  source: string;
+  confidence: string;
+} & Record<string, unknown>;
+
+const ACTION_LABEL: Record<string, string> = {
+  mask: "маскировать",
+  keep: "оставить",
+  ask: "вопрос",
 };
 
 /**
- * Лента обработки — что, в каком узле и через сколько времени от старта
- * произошло. Сообщения берутся из `report.telemetry.events` (они есть
- * всегда), время от старта — из `runtime.events[].elapsed_ms`, недетерминиро­
- * ванного companion-артефакта; без него лог остаётся без времени, а не
- * выдумывает его.
+ * «Детали выполнения» — пять вкладок: журнал событий, план замен, найденные
+ * сущности, решения по ссылкам, расход модели по узлам.
  */
-function ProcessingLog({ events, runtime, unavailableNote }: ProcessingLogProps) {
-  const elapsedBySequence = new Map(
-    (runtime?.events ?? []).map((event) => [event.sequence, event.elapsed_ms]),
+function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decisions, llmByNode }: DetailedLogProps) {
+  const { token } = useTheme();
+  const [tab, setTab] = useState<DetailedLogTab>("log");
+  const runtimeEventsMap = new Map(
+    (runtime?.events ?? []).map((event) => [event.sequence, event]),
   );
+
+  const groupRows: GroupRow[] = (plan?.groups ?? []) as GroupRow[];
+  const entityRows: EntityRow[] = flattenPiiOccurrences(extraction).map((occ) => ({
+    id: occ.id,
+    type: piiTypeLabel(occ.type),
+    original: occ.originalText,
+    marker: occ.marker,
+    source: SOURCE_LABELS[occ.source] ?? occ.source,
+    confidence: `${Math.round(occ.confidence * 100)}%`,
+  }));
+  const decisionRows: DecisionRow[] = (decisions?.byRef ?? []) as DecisionRow[];
+  const llmRows: LlmNodeRow[] = llmByNode as LlmNodeRow[];
 
   return (
     <Section>
       <VStack gap={3}>
-        <List hasDividers header={<Heading level={4}>Журнал обработки</Heading>}>
-          {events.map((event) => {
-            const elapsed = elapsedBySequence.get(event.sequence);
-            return (
-              <ListItem
-                key={event.sequence}
-                label={event.message}
-                description={stageTitle(event.node)}
-                endContent={
-                  elapsed !== undefined ? (
-                    <Text hasTabularNumbers color="secondary">{formatDuration(elapsed)}</Text>
-                  ) : undefined
-                }
-              />
-            );
-          })}
-        </List>
-        {!runtime ? (
-          <Text type="supporting" color="secondary">
-            {unavailableNote || "Время каждого шага недоступно — движок не записал длительности для этого прогона."}
-          </Text>
+        <Heading level={4}>Детали выполнения</Heading>
+        <TabList value={tab} onChange={(value) => setTab(value as DetailedLogTab)} size="sm">
+          <Tab value="log" label="Логи" />
+          <Tab value="data" label="Данные" />
+          <Tab value="entities" label="Найденные сущности" />
+          <Tab value="questions" label="Вопросы" />
+          <Tab value="llm" label="Запросы к LLM" />
+        </TabList>
+
+        {tab === "log" ? (
+          <>
+            <List hasDividers>
+              {events.map((event) => {
+                const runtimeEvent = runtimeEventsMap.get(event.sequence);
+                const elapsed = runtimeEvent?.elapsed_ms;
+                const nodeForColor = runtimeEvent?.node ?? event.node;
+                const colorVar = STAGE_COLORS[nodeForColor] ?? "--color-text-secondary";
+                return (
+                  <ListItem
+                    key={event.sequence}
+                    label={event.message}
+                    description={stageTitle(event.node)}
+                    startContent={
+                      <svg aria-hidden="true" width="10" height="10" style={{ flexShrink: 0 }}>
+                        <circle cx="5" cy="5" r="4" fill={token(colorVar as Parameters<typeof token>[0])} />
+                      </svg>
+                    }
+                    endContent={
+                      elapsed !== undefined ? (
+                        <Text hasTabularNumbers color="secondary">{formatElapsed(elapsed)}</Text>
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
+            </List>
+            {!runtime ? (
+              <Text type="supporting" color="secondary">
+                {unavailableNote || "Время каждого шага недоступно — движок не записал длительности для этого прогона."}
+              </Text>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "data" ? (
+          groupRows.length > 0 ? (
+            <Table<GroupRow>
+              data={groupRows}
+              idKey="id"
+              textOverflow="truncate"
+              columns={[
+                { key: "marker", header: "Маркер", width: pixel(160) },
+                { key: "typeTitle", header: "Тип", width: pixel(160) },
+                { key: "sample", header: "Пример", width: proportional(3) },
+                {
+                  key: "refCount",
+                  header: "Вхождений",
+                  width: pixel(100),
+                  renderCell: (row: GroupRow) => <Text hasTabularNumbers>{String(row.refCount)}</Text>,
+                },
+                { key: "level", header: "Уверенность", width: pixel(120) },
+              ]}
+            />
+          ) : (
+            <Text color="secondary">Данных нет — план замен не сформирован.</Text>
+          )
+        ) : null}
+
+        {tab === "entities" ? (
+          entityRows.length > 0 ? (
+            <Table<EntityRow>
+              data={entityRows}
+              idKey="id"
+              textOverflow="truncate"
+              columns={[
+                { key: "type", header: "Тип", width: pixel(140) },
+                { key: "original", header: "Исходный текст", width: proportional(3) },
+                { key: "marker", header: "Маркер", width: pixel(160) },
+                { key: "source", header: "Слой", width: pixel(160) },
+                { key: "confidence", header: "Уверенность", width: pixel(100) },
+              ]}
+            />
+          ) : (
+            <Text color="secondary">Сущностей не найдено.</Text>
+          )
+        ) : null}
+
+        {tab === "questions" ? (
+          decisionRows.length > 0 ? (
+            <Table<DecisionRow>
+              data={decisionRows}
+              idKey="ref"
+              textOverflow="truncate"
+              columns={[
+                { key: "ref", header: "Ссылка", width: pixel(80) },
+                {
+                  key: "action",
+                  header: "Действие",
+                  width: pixel(120),
+                  renderCell: (row: DecisionRow) => <Text>{ACTION_LABEL[row.action] ?? String(row.action)}</Text>,
+                },
+                {
+                  key: "decidedBy",
+                  header: "Кем принято",
+                  width: pixel(140),
+                  renderCell: (row: DecisionRow) => (
+                    <Text>{DECIDED_BY_LABEL[row.decidedBy as DecisionSource] ?? String(row.decidedBy)}</Text>
+                  ),
+                },
+                { key: "reason", header: "Причина", width: proportional(3) },
+              ]}
+            />
+          ) : (
+            <Text color="secondary">Решений нет — прогон прошёл без вопросов к оператору.</Text>
+          )
+        ) : null}
+
+        {tab === "llm" ? (
+          llmRows.length > 0 ? (
+            <Table<LlmNodeRow>
+              data={llmRows}
+              idKey="node"
+              columns={[
+                {
+                  key: "node",
+                  header: "Узел",
+                  width: pixel(160),
+                  renderCell: (row: LlmNodeRow) => <Text>{stageTitle(String(row.node))}</Text>,
+                },
+                {
+                  key: "calls",
+                  header: "Вызовов",
+                  width: pixel(80),
+                  renderCell: (row: LlmNodeRow) => <Text hasTabularNumbers>{String(row.calls)}</Text>,
+                },
+                {
+                  key: "promptTokens",
+                  header: "Ввод",
+                  width: pixel(100),
+                  renderCell: (row: LlmNodeRow) => (
+                    <Text hasTabularNumbers>{Number(row.promptTokens).toLocaleString("ru-RU")}</Text>
+                  ),
+                },
+                {
+                  key: "completionTokens",
+                  header: "Вывод",
+                  width: pixel(100),
+                  renderCell: (row: LlmNodeRow) => (
+                    <Text hasTabularNumbers>{Number(row.completionTokens).toLocaleString("ru-RU")}</Text>
+                  ),
+                },
+              ]}
+            />
+          ) : (
+            <Text color="secondary">Вызовов к модели не было.</Text>
+          )
         ) : null}
       </VStack>
     </Section>
   );
+}
+
+/** Форматирует миллисекунды от старта как +ч:мм:сс (например, «+0:41:15»). */
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `+${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function orderedStages(runtime: RuntimeMetrics, events: Telemetry["events"]): OrderedStage[] {

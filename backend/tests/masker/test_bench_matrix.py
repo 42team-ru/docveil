@@ -201,7 +201,7 @@ def test_llm_axis_skip_reason_reports_missing_env_var(monkeypatch: pytest.Monkey
         lambda _name: {
             "profile": "fake",
             "profiles": {
-                "gigachat-max": {
+                "gigachat": {
                     "provider": "gigachat",
                     "model": "GigaChat-Max",
                     "api_key_env": "GIGACHAT_CREDENTIALS",
@@ -227,7 +227,7 @@ def test_llm_axis_skip_reason_reports_broken_pricing_without_raising(
         lambda _name: {
             "profile": "fake",
             "profiles": {
-                "gigachat-max": {
+                "gigachat": {
                     "provider": "gigachat",
                     "model": "GigaChat-Max",
                     "api_key_env": "GIGACHAT_CREDENTIALS",
@@ -254,7 +254,7 @@ def test_llm_axis_cell_skips_live_axis_without_calling_get_provider(
         lambda _name: {
             "profile": "fake",
             "profiles": {
-                "gigachat-max": {
+                "gigachat": {
                     "provider": "gigachat",
                     "model": "GigaChat-Max",
                     "api_key_env": "GIGACHAT_CREDENTIALS",

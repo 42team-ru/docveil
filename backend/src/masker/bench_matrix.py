@@ -74,7 +74,7 @@ from masker.telemetry import LLMPricing, MeteringProvider, report_telemetry
 _LLM_PROFILE_BY_AXIS: dict[str, str] = {
     "none": "fake",
     "cassette": "cassette",
-    "gigachat": "gigachat-max",
+    "gigachat": "gigachat",
     "openrouter": "openrouter-deepseek-flash",
     # Ось-потолок. Нужна не для продакшена, а чтобы отличить «задача уже
     # решена эвристикой» от «эта конкретная модель слаба»: если сильная

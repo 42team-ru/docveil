@@ -327,7 +327,7 @@ def test_load_llm_config_selects_provider_model_and_pricing_as_one_profile(
   profile: openrouter-fast
   timeout_seconds: 15
   profiles:
-    gigachat-max:
+    gigachat:
       provider: gigachat
       model: GigaChat-Max
       api_key_env: GIGACHAT_CREDENTIALS

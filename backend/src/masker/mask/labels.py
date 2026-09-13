@@ -224,15 +224,31 @@ def short_type_label(label: str) -> str:
     return _SHORT_TYPE_LABELS.get(label, label)
 
 
+_SHORT_ROLE_LABELS: dict[str, str] = {
+    "Заказчик": "Зак.",
+    "Исполнитель": "Исп.",
+    "Поставщик": "Пост.",
+    "Покупатель": "Пок.",
+    "Продавец": "Прод.",
+    "Подрядчик": "Подр.",
+    "Субподрядчик": "Субп.",
+    "Арендатор": "Аренд.",
+    "Арендодатель": "Аренд-р.",
+    "Принципал": "Принц.",
+    "Агент": "Аг.",
+    "Комитент": "Ком-т.",
+    "Комиссионер": "Ком-р.",
+    "Лицензиар": "Лиц-р.",
+    "Лицензиат": "Лиц-т.",
+    "Организация": "Орг.",
+}
+
+
 def short_role_label(role_label: str) -> str:
     """Дать роли короткую, но различимую форму для узкой PDF-метки."""
     # 11.09.2026: роль различает стороны сильнее типа; удалять её нельзя.
     role = humanize_role(role_label)
-    if role == "Заказчик":
-        return "Зак."
-    if role == "Исполнитель":
-        return "Исп."
-    return role[:4] + "." if len(role) > 4 else role
+    return _SHORT_ROLE_LABELS.get(role, role[:4] + "." if len(role) > 4 else role)
 
 
 def label_number(label: str) -> int | None:

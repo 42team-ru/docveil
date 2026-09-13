@@ -103,7 +103,9 @@ class PlanAgent:
         for entity in ordered:
             ref = index.ref(entity)
             if requested_types is None and entity.type in _VISIBLE_CONTRACT_TERMS:
-                skipped.append(SkippedRef(ref=ref, type=entity.type, reason="visible_contract_term"))
+                skipped.append(
+                    SkippedRef(ref=ref, type=entity.type, reason="visible_contract_term")
+                )
                 continue
             if requested_types is not None and entity.type not in requested_types:
                 skipped.append(SkippedRef(ref=ref, type=entity.type, reason="type_not_requested"))
@@ -172,10 +174,19 @@ class PlanAgent:
             ):
                 # 11.09.2026: все написания значения из одного профиля
                 # обязаны иметь одну короткую подпись, не свой номер группы.
-                compact_label_by_bucket[bucket] = (
-                    f"[{short_role_label(role_label)}"
-                    f"{compact_type_code(items[0].entity.type, self._registry)}{profile_number}]"
-                )
+                entity_type = items[0].entity.type
+                if entity_type == EntityType.ORG_NAME:
+                    # Каноническая форма для ORG_NAME+роль уже не включает тип
+                    # («Поставщик», а не «Поставщик Организация»); компактная
+                    # форма должна следовать тому же принципу.
+                    compact_label_by_bucket[bucket] = (
+                        f"[{short_role_label(role_label)} {profile_number}]"
+                    )
+                else:
+                    compact_label_by_bucket[bucket] = (
+                        f"[{short_role_label(role_label)}"
+                        f"{compact_type_code(entity_type, self._registry)}{profile_number}]"
+                    )
 
         canonical_by_compact: dict[str, str] = {}
         used_compact_labels: set[str] = set()

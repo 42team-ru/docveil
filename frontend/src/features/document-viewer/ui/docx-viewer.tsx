@@ -21,7 +21,7 @@ type DocxViewerProps = {
   onSelectionCapture?: (capture: SelectionCapture) => void;
 };
 
-async function renderDocx(host: HTMLElement, data: ArrayBuffer): Promise<void> {
+async function renderDocx(host: HTMLElement, data: ArrayBuffer, _signal: AbortSignal): Promise<void> {
   await renderAsync(data, host, undefined, {
     inWrapper: true,
     breakPages: false,

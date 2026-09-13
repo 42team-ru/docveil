@@ -211,7 +211,7 @@ describe("ReportResources", () => {
       runtime: { available: false, note: "Метрики времени не записаны." },
     });
     await act(async () => root.render(<ReportResources report={report} runtime={null} />));
-    expect(host.textContent).toContain("Журнал обработки");
+    expect(host.textContent).toContain("Детали выполнения");
     expect(host.textContent).toContain("разобран DOCX, 3 страницы");
     expect(host.textContent).toContain("Метрики времени не записаны.");
   });
@@ -276,11 +276,13 @@ describe("ReportResources", () => {
   });
 
   it("журнал обработки показывает время от старта, когда есть runtime.events", async () => {
+    // Используем ненулевые секунды — formatElapsed округляет до секунд, значения
+    // < 1000 мс дали бы одинаковый "+0:00:00" и не подтвердили бы, что время передано.
     const runtime: RuntimeMetrics = {
       stages: { extract: { calls: 1, duration_ms: 500 } },
       events: [
-        { sequence: 1, elapsed_ms: 500, node: "extract", message: "разобран DOCX, 3 страницы" },
-        { sequence: 2, elapsed_ms: 620, node: "detect", message: "найдено 8 сущностей" },
+        { sequence: 1, elapsed_ms: 5_000, node: "extract", message: "разобран DOCX, 3 страницы" },
+        { sequence: 2, elapsed_ms: 62_000, node: "detect", message: "найдено 8 сущностей" },
       ],
     };
     const report = withTelemetry({
@@ -290,13 +292,14 @@ describe("ReportResources", () => {
     });
     await act(async () => root.render(<ReportResources report={report} runtime={runtime} />));
     const text = host.textContent ?? "";
-    const logStart = text.indexOf("Журнал обработки");
+    const logStart = text.indexOf("Детали выполнения");
     expect(logStart).toBeGreaterThanOrEqual(0);
     const logText = text.slice(logStart);
     expect(logText).toContain("разобран DOCX, 3 страницы");
-    expect(logText).toContain("500 мс");
+    // formatElapsed(5000) → "+0:00:05"; formatElapsed(62000) → "+0:01:02"
+    expect(logText).toContain("+0:00:05");
     expect(logText).toContain("найдено 8 сущностей");
-    expect(logText).toContain("620 мс");
+    expect(logText).toContain("+0:01:02");
   });
 
   it("журнал обработки без runtime показывает события без времени, а не выдумывает его", async () => {
@@ -307,7 +310,7 @@ describe("ReportResources", () => {
     });
     await act(async () => root.render(<ReportResources report={report} runtime={null} />));
     const text = host.textContent ?? "";
-    const logStart = text.indexOf("Журнал обработки");
+    const logStart = text.indexOf("Детали выполнения");
     expect(logStart).toBeGreaterThanOrEqual(0);
     const logText = text.slice(logStart);
     expect(logText).toContain("разобран DOCX, 3 страницы");

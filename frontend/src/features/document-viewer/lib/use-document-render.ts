@@ -14,8 +14,9 @@ type UseDocumentRenderOptions = {
   extraction: PiiExtraction;
   /** Заполняет host DOM-содержимым документа (docx-preview / рендер таблицы
    * xlsx) и делает любые форматно-специфичные пост-фиксы (напр.
-   * fixTableCellDirection для docx). */
-  render: (host: HTMLElement, data: ArrayBuffer) => Promise<void>;
+   * fixTableCellDirection для docx). Получает сигнал отмены: если он сработал
+   * (cleanup эффекта), рендер должен прекратить добавлять элементы в host. */
+  render: (host: HTMLElement, data: ArrayBuffer, signal: AbortSignal) => Promise<void>;
   /** Строит привязку occurrence → узел DOM после того, как host заполнен. */
   buildIndex: (
     host: HTMLElement,
@@ -60,6 +61,7 @@ export function useDocumentRender({
     if (!host) return;
 
     let cancelled = false;
+    const abortController = new AbortController();
     let cleanupSync: (() => void) | null = null;
     let handleClick: ((event: MouseEvent) => void) | null = null;
     let handleMouseUp: (() => void) | null = null;
@@ -74,7 +76,7 @@ export function useDocumentRender({
         }
         return response.arrayBuffer();
       })
-      .then((buffer) => render(host, buffer))
+      .then((buffer) => render(host, buffer, abortController.signal))
       .then(() => {
         if (cancelled) return;
 
@@ -108,6 +110,13 @@ export function useDocumentRender({
           const run = targetEl.closest<HTMLElement>("[data-pii-id]");
           if (run?.dataset.piiId) {
             select(run.dataset.piiId);
+            return;
+          }
+          // Secondary bbox divs (multi-region occurrences) carry data-pii-region-of
+          // instead of data-pii-id. They should still select the same occurrence.
+          const secondary = targetEl.closest<HTMLElement>("[data-pii-region-of]");
+          if (secondary?.dataset.piiRegionOf) {
+            select(secondary.dataset.piiRegionOf);
           }
         };
         host.addEventListener("click", handleClick);
@@ -126,6 +135,7 @@ export function useDocumentRender({
 
     return () => {
       cancelled = true;
+      abortController.abort();
       cleanupSync?.();
       if (handleClick) host.removeEventListener("click", handleClick);
       if (handleMouseUp) host.removeEventListener("mouseup", handleMouseUp);

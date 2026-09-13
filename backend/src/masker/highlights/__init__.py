@@ -61,30 +61,27 @@ def build_regions_by_ref(
     for replacement in plan.replacements:
         if not replacement.paint_regions:
             continue
-        # Одна сущность — один union-регион на страницу; перенос через
-        # страницу даёт две записи с разными ``page``.
+        # Одна сущность — отдельный регион на каждый PDF-ран (строку текста).
+        # Раньше здесь делался union по странице, что давало bbox высотой в
+        # две строки для длинных сущностей. Фронт принимает regions[] как
+        # список и рисует отдельный оверлей на каждый элемент.
         regions_by_page: dict[int, list[PdfRegion]] = {}
         for region in replacement.paint_regions:
             regions_by_page.setdefault(region.page, []).append(region)
 
         bboxes: list[BboxRegion] = []
         for page in sorted(regions_by_page):
-            page_regions = regions_by_page[page]
-            union = union_regions(page_regions)
-            if union is None:
-                continue
             dims_for_page = dims_by_page.get(page)
             if dims_for_page is None:
-                # Регион ссылается на страницу, которой нет в артефакте —
-                # молча пропускаем, не выдумываем координаты.
                 continue
-            bboxes.append(
-                normalize(
-                    union,
-                    width_pt=dims_for_page.width_pt,
-                    height_pt=dims_for_page.height_pt,
+            for region in regions_by_page[page]:
+                bboxes.append(
+                    normalize(
+                        region,
+                        width_pt=dims_for_page.width_pt,
+                        height_pt=dims_for_page.height_pt,
+                    )
                 )
-            )
         if bboxes:
             result[replacement.ref] = bboxes
     return result

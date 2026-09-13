@@ -31,7 +31,7 @@ from typing import Any
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR / "src"))
 
-DEFAULT_PROFILE = "gigachat-max"
+DEFAULT_PROFILE = "gigachat"
 DEFAULT_DOCUMENTS = (
     BACKEND_DIR / "fixtures/real-contracts/open-contracts/arkhschool-68-183.pdf",
     BACKEND_DIR / "fixtures/real-contracts/open-contracts/brsc-contract.pdf",

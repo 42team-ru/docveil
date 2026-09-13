@@ -69,6 +69,18 @@ cd backend
 .venv/bin/masker contract.docx --out out/check --types all --redact-style both
 ```
 
+Развернуть стенд целиком (фронтенд, API, база, хранилище, TLS) на сервере —
+одной командой:
+
+```bash
+./scripts/deploy.sh up     # или: make deploy
+```
+
+Скрипт сам проверяет окружение (Docker, порты, память, диск), генерирует
+секреты, собирает образы, дожидается здоровья сервисов и заводит
+администратора. Требования к машине и эксплуатация —
+[`docs/DEPLOY.md`](docs/DEPLOY.md).
+
 Что доустановить (tesseract, uv) и что делать при сбое установки —
 [`docs/SETUP.md`](docs/SETUP.md). Карта всех настроек, YAML-профиля LLM и
 секретов — [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md). Полный разбор

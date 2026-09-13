@@ -5,6 +5,28 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health",
+        "description": "Ответить, что процесс поднят и обслуживает запросы.",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/login": {
       "post": {
         "tags": [
@@ -824,6 +846,66 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/events": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Run Events",
+        "description": "Вернуть новые события polling-формой, устойчивой к обычным прокси.\n\nSSE не выбран: фронт уже опрашивает статус, а polling переживает буферы\nreverse-proxy и не держит долгие HTTP-соединения. Снимки есть лишь пока\nпрогон активен и не записываются в БД/отчёт из-за исходных значений PII.",
+        "operationId": "get_run_events_api_runs__run_id__events_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEventsResponse"
                 }
               }
             }
@@ -2781,6 +2863,24 @@
         "title": "FactAnchorOut",
         "description": "Ссылка на диапазон в оригинале — внутри `*_fact.anchors[]`."
       },
+      "FailReason": {
+        "type": "string",
+        "enum": [
+          "empty_description",
+          "too_short",
+          "too_long",
+          "llm_unavailable",
+          "invalid_regex",
+          "redos_pattern",
+          "regex_too_long",
+          "empty_match",
+          "cannot_compile",
+          "ask_rounds_exhausted",
+          "preview_error"
+        ],
+        "title": "FailReason",
+        "description": "Машиночитаемый код причины отказа компилятора."
+      },
       "FailedTypeOut": {
         "properties": {
           "index": {
@@ -2794,6 +2894,10 @@
           "reason": {
             "type": "string",
             "title": "Reason"
+          },
+          "code": {
+            "$ref": "#/components/schemas/FailReason",
+            "default": "cannot_compile"
           }
         },
         "type": "object",
@@ -2969,6 +3073,20 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HealthOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthOut",
+        "description": "Ответ проверки живости."
       },
       "JudgeQuestionOut": {
         "properties": {
@@ -4690,6 +4808,28 @@
         "title": "RunDocument",
         "description": "Документ прогона — то, что нужно вьюеру и журналу."
       },
+      "RunEventsResponse": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/RunProgressEvent"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "next_after": {
+            "type": "integer",
+            "title": "Next After"
+          }
+        },
+        "type": "object",
+        "required": [
+          "events",
+          "next_after"
+        ],
+        "title": "RunEventsResponse",
+        "description": "Ответ polling-ручки прогресса; `next_after` передаётся следующим запросом."
+      },
       "RunListItem": {
         "properties": {
           "id": {
@@ -4761,6 +4901,31 @@
           "total"
         ],
         "title": "RunListResponse"
+      },
+      "RunProgressEvent": {
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "content": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sequence",
+          "node",
+          "content"
+        ],
+        "title": "RunProgressEvent",
+        "description": "Краткоживущий снимок завершённого узла; может содержать PII владельца файла."
       },
       "RunResponse": {
         "properties": {

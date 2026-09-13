@@ -152,7 +152,6 @@ class SignatureCVDetector:
         dpi: int,
         text_masks: Iterable[tuple[float, float, float, float]] = (),
     ) -> tuple[SignatureCandidate, ...]:
-        del dpi  # DPI сейчас не используется — пороги пиксельные
         try:
             import cv2
         except ImportError as error:
@@ -171,6 +170,18 @@ class SignatureCVDetector:
         if page_area <= 0:
             return ()
 
+        # Физически одинаковые размеры при любом DPI: калибровка при 300 DPI.
+        _REF_DPI = 300
+        scale = max(dpi, 1) / _REF_DPI
+        # block_size адаптивного порога: нечётное, минимум 3.
+        block_size = max(3, round(21 * scale))
+        if block_size % 2 == 0:
+            block_size += 1
+        # Ядро морфологии закрытия: нечётное, минимум 3.
+        kernel_px = max(3, round(self._close_kernel_px * scale))
+        if kernel_px % 2 == 0:
+            kernel_px += 1
+
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         # Адаптивная бинаризация: чёрные штрихи → 255, фон → 0.
         binary = cv2.adaptiveThreshold(
@@ -178,7 +189,7 @@ class SignatureCVDetector:
             255,
             cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
             cv2.THRESH_BINARY_INV,
-            21,
+            block_size,
             10,
         )
         # Занулить текстовые регионы, чтобы текст не порождал кандидатов.
@@ -190,7 +201,7 @@ class SignatureCVDetector:
             if ix0 < ix1 and iy0 < iy1:
                 binary[iy0:iy1, ix0:ix1] = 0
 
-        kernel_size = max(3, self._close_kernel_px | 1)  # нечётное >= 3
+        kernel_size = kernel_px
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
         closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
 

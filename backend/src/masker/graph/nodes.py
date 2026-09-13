@@ -277,6 +277,7 @@ def make_extract_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """
 
     def _node(state: State) -> dict[str, object]:
+        deps.notify_progress("extract_node", {"message": "Извлекаю текст из документа…"})
         return _extract(state, ocr=deps.ocr)
 
     return _node
@@ -300,6 +301,7 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     def detect_node(state: State) -> dict[str, object]:
         """Трёхслойная детекция без фильтра по ``options.types`` — фильтр применяет план.
 
+
         ``options.types`` сужает только ``detection_coverage`` (что реально
         покрыто активными детекторами из запрошенного) и позже — ``PlanAgent``
         (T1.6, шаг 6). Сама детекция ничего не выбрасывает: незапрошенный
@@ -308,6 +310,7 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         человек не просил маскировать, но которые всё равно не должны
         читаться.
         """
+        deps.notify_progress("detect_node", {"message": "Ищу персональные данные…"})
         document = _document(state)
         options = state.get("options", {})
         registry, specs = _registry_and_specs(state)
@@ -395,7 +398,10 @@ def _detect_signatures_pdf(
 
     from masker.model import Anchor, ConfidenceLevel, EntityType
 
-    _DPI = 300
+    # 150 DPI: A4 → 1240×1754 px (~6 MB) vs 2480×3508 px (~26 MB) at 300 DPI.
+    # CV-детектор контуров не требует высокого разрешения; физические размеры
+    # block_size и ядра морфологии масштабируются по DPI внутри детектора.
+    _DPI = 150
     _PT_PER_PX = 72.0 / _DPI
 
     segments: list[Segment] = []
@@ -473,6 +479,7 @@ def make_profile_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """Собрать ``profile_node``, использующий LLM из ``deps`` (не теряется)."""
 
     def profile_node(state: State) -> dict[str, object]:
+        deps.notify_progress("profile_node", {"message": "Определяю роли сторон…"})
         options = state.get("options", {})
         if not bool(options.get("profile", True)):
             # ``options.profile`` ложно (PDF-путь, R5 плана T1.10) — ни один
@@ -522,6 +529,7 @@ def make_judge_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """
 
     def judge_node(state: State) -> dict[str, object]:
+        deps.notify_progress("judge_node", {"message": "Оцениваю уверенность и формирую вопросы…"})
         options = state.get("options", {})
         if not bool(options.get("profile", True)):
             return {"verdicts": [], "questions": []}
@@ -1068,6 +1076,7 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """
 
     def render_node(state: State) -> dict[str, object]:
+        deps.notify_progress("render_node", {"message": "Применяю маски и собираю документ…"})
         if deps.artifact_dir is None:
             # Явный провал, не тихий пропуск — «граф отработал, файлов нет, а
             # никто не заметил» (риск R6 плана T1.10) хуже, чем падение узла.
@@ -1396,6 +1405,7 @@ def make_report_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """
 
     def report_node(state: State) -> dict[str, object]:
+        deps.notify_progress("report_node", {"message": "Собираю отчёт о заменах…"})
         result = _build_report_dict(
             state,
             llm_trace=deps.tracer is not None,

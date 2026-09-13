@@ -3,9 +3,6 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from api.core.db import get_db
-from api.main import app
-
 # Тесты не должны требовать рабочие PostgreSQL и MinIO: реальные зависимости
 # заменяются fixture-ами/моками до первого обращения к ним.
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/test")
@@ -13,6 +10,18 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret-key-32-bytes!!!!")
 os.environ.setdefault("MINIO_ENDPOINT", "localhost:9000")
 os.environ.setdefault("MINIO_ACCESS_KEY", "test-access-key")
 os.environ.setdefault("MINIO_SECRET_KEY", "test-secret-key")
+
+# ВНИМАНИЕ: эти два импорта обязаны стоять ПОСЛЕ блока выше. `api.core.config`
+# строит `Settings()` прямо на импорте, и без переменных окружения он падает
+# пятью ValidationError. На машине разработчика это незаметно — значения
+# приезжают из `backend/.env`, — а в CI файла нет, и сбор тестов падает
+# целиком (прогон Tests #133, 14.09.2026). `ruff --fix` (isort) однажды уже
+# поднял их наверх, поэтому здесь стоит `noqa`, а не просто порядок строк.
+# isort: off
+from api.core.db import get_db
+from api.main import app
+
+# isort: on
 
 
 #: Нейтральный профиль LLM для веб-тестов. Без него `get_provider()` читает

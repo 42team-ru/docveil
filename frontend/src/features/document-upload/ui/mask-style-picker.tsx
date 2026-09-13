@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Settings } from "lucide-react";
+import { Plus, Settings, X } from "lucide-react";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { CheckboxList, CheckboxListItem } from "@astryxdesign/core/CheckboxList";
 import { Code } from "@astryxdesign/core/Code";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -11,14 +12,17 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { SelectableCard } from "@astryxdesign/core/SelectableCard";
 import { Section } from "@astryxdesign/core/Section";
+import { Token } from "@astryxdesign/core/Token";
 
 import { piiTypeOptions } from "../../../entity/pii/model/pii-type-dict";
+import { useCustomTypesStore } from "../../custom-types-compiler/model/store";
 import { useRuleProfileStore } from "../../../entity/rule-profile/model/rule-profile-store";
 import type { MaskStyle } from "../../../entity/rule-profile/model/types";
 import { pluralRu } from "../../../shared/lib/plural-ru";
 
-/** Сколько типов ПДн знает движок — весь реестр маскируется без исключений. */
-const REGISTRY_TYPE_COUNT = piiTypeOptions().length;
+const ALL_TYPE_OPTIONS = piiTypeOptions();
+/** Сколько типов ПДн знает движок. */
+const REGISTRY_TYPE_COUNT = ALL_TYPE_OPTIONS.length;
 
 /**
  * Как «Поставщик»/«ИНН» из примера выглядят в превью каждого стиля маски.
@@ -50,8 +54,15 @@ export const MASK_STYLE_OPTIONS: Array<{
   },
 ];
 
+type MaskStylePickerProps = {
+  /** Вызывается при клике «+ Добавить свой тип» — открытие диалога компилятора. */
+  onAddCustomType?: () => void;
+  /** Идёт загрузка файла для компилятора. */
+  isAddingCustomType?: boolean;
+};
+
 /** Как выглядит маска в выходном документе — независимо от того, что удаляется. */
-export function MaskStylePicker() {
+export function MaskStylePicker({ onAddCustomType, isAddingCustomType = false }: MaskStylePickerProps) {
   const maskStyle = useRuleProfileStore((state) => state.maskStyle);
   const setMaskStyle = useRuleProfileStore((state) => state.setMaskStyle);
 
@@ -67,20 +78,34 @@ export function MaskStylePicker() {
   const setStableMarkers = useRuleProfileStore(
     (state) => state.setStableMarkers,
   );
+  const enabledTypes = useRuleProfileStore((state) => state.enabledTypes);
+  const setEnabledTypes = useRuleProfileStore((state) => state.setEnabledTypes);
+  const customTypes = useCustomTypesStore((state) => state.types);
+  const removeCustomType = useCustomTypesStore((state) => state.removeType);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const selectedOption = MASK_STYLE_OPTIONS.find(
     (option) => option.id === maskStyle,
   );
 
+  // [] = все выбраны (поведение бэкенда), иначе — подмножество
+  const allSelected = enabledTypes.length === 0;
+  const someSelected = !allSelected && enabledTypes.length > 0;
+  const selectAllValue = allSelected
+    ? true
+    : someSelected
+      ? "indeterminate"
+      : false;
+
+  function handleSelectAll() {
+    setEnabledTypes(allSelected ? ALL_TYPE_OPTIONS.map((o) => o.value) : []);
+  }
+
   return (
     <Section padding={0}>
       <VStack gap={3} paddingBlock={4} paddingInline={4}>
         <VStack gap={1}>
           <Heading level={4}>Как выглядит маска</Heading>
-          <Text type="supporting" size="sm" color="secondary">
-            {`Маскируются все ${REGISTRY_TYPE_COUNT} ${pluralRu(REGISTRY_TYPE_COUNT, ["тип", "типа", "типов"])} персональных данных из реестра движка — выбор типов на этом экране недоступен.`}
-          </Text>
         </VStack>
         <Grid columns={2} gap={4} align="start">
           {MASK_STYLE_OPTIONS.map((option) => {
@@ -144,6 +169,82 @@ export function MaskStylePicker() {
           })}
         </Grid>
       </VStack>
+
+      <Section variant="transparent" padding={0} dividers={["top"]}>
+        <VStack gap={3} paddingBlock={4} paddingInline={4}>
+          <VStack gap={1}>
+            <Heading level={4}>Типы персональных данных</Heading>
+            <Text type="supporting" size="sm" color="secondary">
+              {allSelected
+                ? `Маскируются все ${REGISTRY_TYPE_COUNT} ${pluralRu(REGISTRY_TYPE_COUNT, ["тип", "типа", "типов"])} — снимите флажок, чтобы выбрать конкретные`
+                : `Выбрано ${enabledTypes.length} из ${REGISTRY_TYPE_COUNT}`}
+            </Text>
+          </VStack>
+          <CheckboxInput
+            label="Все типы"
+            value={selectAllValue}
+            onChange={handleSelectAll}
+          />
+          {!allSelected && (
+            <CheckboxList
+              label="Типы ПДн"
+              isLabelHidden
+              value={enabledTypes}
+              onChange={setEnabledTypes}
+              density="compact"
+            >
+              {ALL_TYPE_OPTIONS.map((opt) => (
+                <CheckboxListItem key={opt.value} value={opt.value} label={opt.label} />
+              ))}
+            </CheckboxList>
+          )}
+        </VStack>
+      </Section>
+
+      <Section variant="transparent" padding={0} dividers={["top"]}>
+        <VStack gap={3} paddingBlock={4} paddingInline={4}>
+          <HStack gap={2} vAlign="center">
+            <Heading level={4}>Свои типы данных</Heading>
+            <StackItem size="fill" />
+            {onAddCustomType && (
+              <IconButton
+                size="sm"
+                variant="secondary"
+                icon={<Icon icon={Plus} size="sm" />}
+                label="Добавить свой тип"
+                isDisabled={isAddingCustomType}
+                onClick={onAddCustomType}
+              />
+            )}
+          </HStack>
+          {customTypes.length === 0 ? (
+            <Text type="supporting" size="sm" color="secondary">
+              Добавьте тип данных на русском — компилятор составит детектор автоматически.
+            </Text>
+          ) : (
+            <VStack gap={2}>
+              {customTypes.map((t, index) => {
+                const name =
+                  t.outcome === "use_builtin"
+                    ? (t.type_id ?? "встроенный")
+                    : (t.spec?.title ?? `Тип ${index + 1}`);
+                return (
+                  <HStack key={index} gap={2} vAlign="center">
+                    <Token label={name} />
+                    <IconButton
+                      size="sm"
+                      variant="ghost"
+                      icon={<Icon icon={X} size="sm" />}
+                      label={`Удалить тип «${name}»`}
+                      onClick={() => removeCustomType(index)}
+                    />
+                  </HStack>
+                );
+              })}
+            </VStack>
+          )}
+        </VStack>
+      </Section>
 
       <Dialog
         isOpen={isSettingsOpen}

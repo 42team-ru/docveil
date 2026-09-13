@@ -5,7 +5,6 @@ import { Icon } from "@astryxdesign/core/Icon";
 
 import { useAuthSession } from "../../../shared/model/use-auth-session";
 import { AccountTrigger } from "../../../features/account/ui/account-trigger";
-import { ProcessMonitor } from "../../../features/document-processing/ui/process-monitor";
 import {
   PanelShell,
   type PanelNavGroup,
@@ -52,7 +51,6 @@ export default function MaskerLayout() {
           href="/"
         />
       }
-      navEndContent={<ProcessMonitor />}
       accountTrigger={<AccountTrigger />}
     >
       <Outlet />

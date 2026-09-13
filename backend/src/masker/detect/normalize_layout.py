@@ -134,6 +134,15 @@ _EMAIL_CHAIN_BOUNDARY_RE = re.compile(r"(?<=\.ru)(?=[a-z0-9._+-]+@)", re.IGNOREC
 #: можно разделить без догадки о произвольном цифровом значении; контекст
 #: «ИНН»/«КПП» обязателен, чтобы это правило не работало на обычном тексте.
 _KPP_INN_RUN_RE = re.compile(r"\d{19}(?!\d)")
+#: Метка должна стоять НЕПОСРЕДСТВЕННО перед слипшимся хвостом, а не просто
+#: где-то в сегменте: проверка контрольной суммы одна не спасает — casino-
+#: шанс ~1/10, что случайные 10 цифр внутри чужого числа (казначейский
+#: счёт, 20 разрядов) пройдут её. На `ipklh-2022-01-11.pdf` 14.09.2026
+#: «ИНН/КПП» party'и стоит за ~200 символов до «Единого казначейского
+#: счёта» — совпадение контрольной суммы вырезало из счёта мнимый второй
+#: ИНН и приписывало казначейство профилю стороны.
+_KPP_INN_LABEL_WINDOW = 40
+_KPP_INN_LABEL_NEAR_RE = re.compile(r"инн|кпп", re.IGNORECASE)
 
 #: Два БИК, записанные одним 18-разрядным хвостом, можно разделить только
 #: после метки и только если каждая девятка проходит форматную проверку БИК.
@@ -435,11 +444,13 @@ def _split_concatenated_kpp_inn(
     text = "".join(chars)
     if "инн" not in text.casefold() and "кпп" not in text.casefold():
         return chars, idx_map
-    boundaries = {
-        match.start() + 9
-        for match in _KPP_INN_RUN_RE.finditer(text)
-        if is_valid_inn(match.group()[9:])
-    }
+    boundaries = set()
+    for match in _KPP_INN_RUN_RE.finditer(text):
+        window_start = max(0, match.start() - _KPP_INN_LABEL_WINDOW)
+        if not _KPP_INN_LABEL_NEAR_RE.search(text, window_start, match.start()):
+            continue
+        if is_valid_inn(match.group()[9:]):
+            boundaries.add(match.start() + 9)
     if not boundaries:
         return chars, idx_map
     out: list[str] = []

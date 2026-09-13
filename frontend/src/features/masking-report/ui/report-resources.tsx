@@ -11,7 +11,6 @@ import {
   YAxis,
 } from "recharts";
 import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -65,9 +64,22 @@ const STAGE_LABELS: Record<string, string> = {
   apply_review_edits: "Применение правок",
 };
 const FALLBACK_ORDER = [
-  "extract", "detect", "profile", "judge", "ask_human", "apply_answers",
-  "policy", "plan", "summary", "image_export", "render", "validate",
-  "report", "ask_review", "apply_review_edits", "finalize",
+  "extract",
+  "detect",
+  "profile",
+  "judge",
+  "ask_human",
+  "apply_answers",
+  "policy",
+  "plan",
+  "summary",
+  "image_export",
+  "render",
+  "validate",
+  "report",
+  "ask_review",
+  "apply_review_edits",
+  "finalize",
 ];
 
 /** Стадии короче этого порога сворачиваются в одну строку — это шум, а не сигнал. */
@@ -109,8 +121,14 @@ const STAGE_LAYERS: { key: string; label: string; nodes: string[] }[] = [
     key: "decisions",
     label: "Профили, вопросы и план",
     nodes: [
-      "profile", "judge", "policy", "ask_human", "apply_answers",
-      "plan", "ask_review", "apply_review_edits",
+      "profile",
+      "judge",
+      "policy",
+      "ask_human",
+      "apply_answers",
+      "plan",
+      "ask_review",
+      "apply_review_edits",
     ],
   },
   { key: "summary", label: "Содержание (модель)", nodes: ["summary"] },
@@ -127,9 +145,6 @@ const STAGE_LAYERS: { key: string; label: string; nodes: string[] }[] = [
  * посчитанную им сумму между узлами графа; когда тариф не задан (`cost === null`),
  * эта оценка не считается вовсе — деньги не показываем.
  */
-const PROMPT_RUB_PER_1K = 0.096;
-const COMPLETION_RUB_PER_1K = 0.289;
-
 const CHART_COLOR_TOKENS = [
   "--color-text-blue",
   "--color-text-teal",
@@ -138,6 +153,9 @@ const CHART_COLOR_TOKENS = [
   "--color-text-cyan",
   "--color-text-pink",
 ] as const;
+
+const PROMPT_RUB_PER_1K = 0.096;
+const COMPLETION_RUB_PER_1K = 0.289;
 
 /** Цвет точки в журнале обработки по имени узла графа. */
 const STAGE_COLORS: Record<string, string> = {
@@ -185,7 +203,9 @@ function buildCategoryData(
 }
 
 /** Сколько ссылок решил каждый источник (`report.decisions.byRef[].decidedBy`). */
-function countByDecidedBy(byRef: { decidedBy: DecisionSource }[]): Record<string, number> {
+function countByDecidedBy(
+  byRef: { decidedBy: DecisionSource }[],
+): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const decision of byRef) {
     counts[decision.decidedBy] = (counts[decision.decidedBy] ?? 0) + 1;
@@ -199,12 +219,22 @@ function buildLayerData(runtime: RuntimeMetrics): CategoryDatum[] {
   const layers = STAGE_LAYERS.map((layer) => ({
     key: layer.key,
     label: layer.label,
-    count: layer.nodes.reduce((sum, node) => sum + (runtime.stages[node]?.duration_ms ?? 0), 0),
+    count: layer.nodes.reduce(
+      (sum, node) => sum + (runtime.stages[node]?.duration_ms ?? 0),
+      0,
+    ),
   }));
-  const leftoverNodes = Object.keys(runtime.stages).filter((node) => !covered.has(node));
-  const leftover = leftoverNodes.reduce((sum, node) => sum + (runtime.stages[node]?.duration_ms ?? 0), 0);
+  const leftoverNodes = Object.keys(runtime.stages).filter(
+    (node) => !covered.has(node),
+  );
+  const leftover = leftoverNodes.reduce(
+    (sum, node) => sum + (runtime.stages[node]?.duration_ms ?? 0),
+    0,
+  );
   return leftover > 0
-    ? [...layers, { key: "other", label: "Прочее", count: leftover }].filter((item) => item.count > 0)
+    ? [...layers, { key: "other", label: "Прочее", count: leftover }].filter(
+        (item) => item.count > 0,
+      )
     : layers.filter((item) => item.count > 0);
 }
 
@@ -212,7 +242,6 @@ function buildLayerData(runtime: RuntimeMetrics): CategoryDatum[] {
 export function ReportResources({ report, runtime }: ReportResourcesProps) {
   const telemetry = report.telemetry;
   const { token } = useTheme();
-  const [showMinor, setShowMinor] = useState(false);
 
   if (!telemetry) {
     return (
@@ -223,32 +252,58 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
     );
   }
 
-  const totalTokens = telemetry.llm.promptTokens + telemetry.llm.completionTokens;
+  const totalTokens =
+    telemetry.llm.promptTokens + telemetry.llm.completionTokens;
   const stages = runtime ? orderedStages(runtime, telemetry.events) : [];
-  const visibleStages = stages.filter((stage) => stage.durationMs >= MINOR_STAGE_THRESHOLD_MS);
-  const minorStages = stages.filter((stage) => stage.durationMs < MINOR_STAGE_THRESHOLD_MS);
-  const totalDuration = stages.reduce((sum, stage) => sum + stage.durationMs, 0);
+  const visibleStages = stages.filter(
+    (stage) => stage.durationMs >= MINOR_STAGE_THRESHOLD_MS,
+  );
+  const totalDuration = stages.reduce(
+    (sum, stage) => sum + stage.durationMs,
+    0,
+  );
   const longest = visibleStages.reduce<OrderedStage | null>(
-    (best, stage) => (!best || stage.durationMs > best.durationMs ? stage : best),
+    (best, stage) =>
+      !best || stage.durationMs > best.durationMs ? stage : best,
     null,
   );
   const cost = formatCost(telemetry.llm.cost);
 
   const sourceData = buildCategoryData(report.summary.bySource, SOURCE_LABELS);
-  const levelData = buildCategoryData(report.summary.byLevel, LEVEL_LABELS, LEVEL_ORDER);
+  const levelData = buildCategoryData(
+    report.summary.byLevel,
+    LEVEL_LABELS,
+    LEVEL_ORDER,
+  );
   const decidedByData = report.decisions
-    ? buildCategoryData(countByDecidedBy(report.decisions.byRef), DECIDED_BY_LABEL)
+    ? buildCategoryData(
+        countByDecidedBy(report.decisions.byRef),
+        DECIDED_BY_LABEL,
+      )
     : [];
-  const chartRowHeight = Math.max(120, Math.max(sourceData.length, levelData.length, decidedByData.length) * 44);
-  const totalSource = Object.values(report.summary.bySource).reduce((sum, count) => sum + count, 0);
-  const nonLlmShare = totalSource > 0
-    ? Math.round(((totalSource - (report.summary.bySource.llm ?? 0)) / totalSource) * 100)
-    : null;
+  const chartRowHeight = Math.max(
+    120,
+    Math.max(sourceData.length, levelData.length, decidedByData.length) * 44,
+  );
+  const totalSource = Object.values(report.summary.bySource).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
+  const nonLlmShare =
+    totalSource > 0
+      ? Math.round(
+          ((totalSource - (report.summary.bySource.llm ?? 0)) / totalSource) *
+            100,
+        )
+      : null;
 
   return (
     <VStack gap={5}>
       <Grid columns={{ minWidth: 180, max: 4, repeat: "fit" }} gap={3}>
-        <MetricCard label="Общее время" value={runtime ? formatDuration(totalDuration) : "—"} />
+        <MetricCard
+          label="Общее время"
+          value={runtime ? formatDuration(totalDuration) : "—"}
+        />
         <MetricCard
           label="Дольше всего"
           value={longest ? stageTitle(longest.name) : "—"}
@@ -257,7 +312,9 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
         <MetricCard
           label="Вызовов модели"
           value={String(telemetry.llm.calls)}
-          note={telemetry.llm.calls === 0 ? "модель не понадобилась" : undefined}
+          note={
+            telemetry.llm.calls === 0 ? "модель не понадобилась" : undefined
+          }
         />
         {cost ? (
           <MetricCard label="Стоимость" value={cost} />
@@ -281,54 +338,17 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
               valueFormatter={formatDuration}
             />
             <Text type="supporting" color="secondary">
-              Поиск данных показан одним слоем: узел «detect» считает правила, локальный NER,
-              GLiNER и LLM-арбитраж одним замером времени. Разбивку по этим слоям должен дать
-              бэкенд отдельной задачей — сейчас таких данных в телеметрии нет.
+              Поиск данных показан одним слоем: узел «detect» считает правила,
+              локальный NER, GLiNER и LLM-арбитраж одним замером времени.
+              Разбивку по этим слоям должен дать бэкенд отдельной задачей —
+              сейчас таких данных в телеметрии нет.
             </Text>
           </VStack>
         </Section>
       ) : null}
 
-      {runtime ? (
-        <Section>
-          <VStack gap={3}>
-            <Heading level={4}>По узлам графа</Heading>
-            <PipelineChart
-              stages={visibleStages}
-              accentColor={token("--color-text-blue")}
-              axisColor={token("--color-text-secondary")}
-              gridColor={token("--color-border")}
-              tooltipBackground={token("--color-background-popover")}
-              tooltipBorder={token("--color-border")}
-              tooltipText={token("--color-text-primary")}
-            />
-            {minorStages.length > 0 ? (
-              <VStack gap={2}>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  label={`${showMinor ? "Скрыть" : "Показать"} ещё ${minorStages.length} стадий, меньше ${MINOR_STAGE_THRESHOLD_MS} мс`}
-                  onClick={() => setShowMinor((value) => !value)}
-                />
-                {showMinor ? (
-                  <List hasDividers density="compact">
-                    {minorStages.map((stage) => (
-                      <ListItem
-                        key={stage.name}
-                        label={stageTitle(stage.name)}
-                        endContent={<Text color="secondary">{formatDuration(stage.durationMs)}</Text>}
-                      />
-                    ))}
-                  </List>
-                ) : null}
-              </VStack>
-            ) : null}
-          </VStack>
-        </Section>
-      ) : null}
-
       <Grid columns={{ minWidth: 260, max: 3, repeat: "fit" }} gap={4}>
-        <Heading level={4}>Чем нашли</Heading>
+        <Heading level={4}>Сколько PII обнаружил каждый детектор</Heading>
         <Heading level={4}>С какой уверенностью</Heading>
         <Heading level={4}>Кем принято решение</Heading>
       </Grid>
@@ -401,14 +421,9 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
                   label={`Токены: ${totalTokens.toLocaleString("ru-RU")}`}
                   description={`Ввод: ${telemetry.llm.promptTokens.toLocaleString("ru-RU")}; вывод: ${telemetry.llm.completionTokens.toLocaleString("ru-RU")}`}
                 />
-                {/*
-                  Диагностическое сообщение движка полезно, только пока нет
-                  готовой суммы (например, объясняет, почему тариф не задан).
-                  Когда сумма уже есть, оно лишь дублирует её с шестью знаками
-                  после запятой и кодом валюты — карточка «Стоимость» выше уже
-                  показывает то же число аккуратно.
-                */}
-                {telemetry.llm.cost === null ? <ListItem label={telemetry.llm.message} /> : null}
+                {telemetry.llm.cost === null ? (
+                  <ListItem label={telemetry.llm.message} />
+                ) : null}
               </List>
             </VStack>
           </Section>
@@ -428,13 +443,25 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
   );
 }
 
-function MetricCard({ label, value, note }: { label: string; value: string; note?: string }) {
+function MetricCard({
+  label,
+  value,
+  note,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+}) {
   return (
     <Card padding={4}>
       <VStack gap={1}>
         <Text type="supporting">{label}</Text>
         <Heading level={3}>{value}</Heading>
-        {note ? <Text type="supporting" color="secondary">{note}</Text> : null}
+        {note ? (
+          <Text type="supporting" color="secondary">
+            {note}
+          </Text>
+        ) : null}
       </VStack>
     </Card>
   );
@@ -468,14 +495,25 @@ function CategoryBarChart({
   if (data.length === 0) {
     return <Text color="secondary">Данных нет.</Text>;
   }
-  const format = valueFormatter ?? ((value: number) => value.toLocaleString("ru-RU"));
-  const chartData = data.map((item) => ({ name: item.label, count: item.count }));
-  const maxLabelLength = chartData.reduce((max, d) => Math.max(max, d.name.length), 0);
+  const format =
+    valueFormatter ?? ((value: number) => value.toLocaleString("ru-RU"));
+  const chartData = data.map((item) => ({
+    name: item.label,
+    count: item.count,
+  }));
+  const maxLabelLength = chartData.reduce(
+    (max, d) => Math.max(max, d.name.length),
+    0,
+  );
   const yAxisWidth = Math.min(280, Math.max(120, maxLabelLength * 7));
   const height = fixedHeight ?? Math.max(96, chartData.length * 44);
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 4 }}>
+      <BarChart
+        data={chartData}
+        layout="vertical"
+        margin={{ top: 4, right: 24, bottom: 4, left: 4 }}
+      >
         <XAxis
           type="number"
           allowDecimals={false}
@@ -497,7 +535,11 @@ function CategoryBarChart({
         />
         <Tooltip
           formatter={(value) => format(Number(value))}
-          contentStyle={{ background: tooltipBackground, border: `1px solid ${tooltipBorder}`, borderRadius: 8 }}
+          contentStyle={{
+            background: tooltipBackground,
+            border: `1px solid ${tooltipBorder}`,
+            borderRadius: 8,
+          }}
           labelStyle={{ color: tooltipText }}
           itemStyle={{ color: tooltipText }}
           cursor={{ fill: gridColor, opacity: 0.4 }}
@@ -512,63 +554,6 @@ function CategoryBarChart({
   );
 }
 
-type PipelineChartProps = {
-  stages: OrderedStage[];
-  accentColor: string;
-  axisColor: string;
-  gridColor: string;
-  tooltipBackground: string;
-  tooltipBorder: string;
-  tooltipText: string;
-};
-
-/** Горизонтальный «водопад» по стадиям графа — доля времени видна на глаз. */
-function PipelineChart({
-  stages,
-  accentColor,
-  axisColor,
-  gridColor,
-  tooltipBackground,
-  tooltipBorder,
-  tooltipText,
-}: PipelineChartProps) {
-  if (stages.length === 0) {
-    return <Text color="secondary">Заметных по времени стадий нет.</Text>;
-  }
-  const data = stages.map((stage) => ({ name: stageTitle(stage.name), durationMs: stage.durationMs }));
-  return (
-    <ResponsiveContainer width="100%" height={Math.max(120, data.length * 40)}>
-      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 4 }}>
-        <XAxis
-          type="number"
-          tickFormatter={(value: number) => formatDuration(value)}
-          stroke={axisColor}
-          tick={{ fill: axisColor, fontSize: 12 }}
-          axisLine={{ stroke: gridColor }}
-          tickLine={{ stroke: gridColor }}
-        />
-        <YAxis
-          type="category"
-          dataKey="name"
-          width={140}
-          stroke={axisColor}
-          tick={{ fill: axisColor, fontSize: 12 }}
-          axisLine={{ stroke: gridColor }}
-          tickLine={false}
-        />
-        <Tooltip
-          formatter={(value) => formatDuration(Number(value))}
-          contentStyle={{ background: tooltipBackground, border: `1px solid ${tooltipBorder}`, borderRadius: 8 }}
-          labelStyle={{ color: tooltipText }}
-          itemStyle={{ color: tooltipText }}
-          cursor={{ fill: gridColor, opacity: 0.4 }}
-        />
-        <Bar dataKey="durationMs" fill={accentColor} radius={[0, 4, 4, 0]} maxBarSize={24} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
 type NodeCostChartProps = {
   telemetry: Telemetry;
   colors: string[];
@@ -578,15 +563,24 @@ type NodeCostChartProps = {
   tooltipText: string;
 };
 
-type NodeSlice = { node: string; label: string; value: number; calls: number; promptTokens: number; completionTokens: number };
+type NodeSlice = {
+  node: string;
+  label: string;
+  value: number;
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+};
 
-/**
- * Круговая по узлам графа. Когда тариф известен, откладываем оценённую
- * стоимость узла (в ₽, по ставкам движка) — так видно, какой узел ест деньги,
- * а не просто какой шлёт больше запросов. Без тарифа — честно откладываем
- * токены, деньги не придумываем.
- */
-function NodeCostChart({ telemetry, colors, mutedColor, tooltipBackground, tooltipBorder, tooltipText }: NodeCostChartProps) {
+/** Круговая диаграмма стоимости или токенов LLM по узлам графа. */
+function NodeCostChart({
+  telemetry,
+  colors,
+  mutedColor,
+  tooltipBackground,
+  tooltipBorder,
+  tooltipText,
+}: NodeCostChartProps) {
   const byCost = telemetry.llm.cost !== null;
   const data: NodeSlice[] = telemetry.llm.byNode
     .map((item) => ({
@@ -616,7 +610,9 @@ function NodeCostChart({ telemetry, colors, mutedColor, tooltipBackground, toolt
   return (
     <Section>
       <VStack gap={3}>
-        <Heading level={4}>{byCost ? "Стоимость по узлам" : "Токены по узлам"}</Heading>
+        <Heading level={4}>
+          {byCost ? "Стоимость по узлам" : "Токены по узлам"}
+        </Heading>
         <HStack gap={4} wrap="wrap" vAlign="center">
           <ResponsiveContainer width={180} height={180}>
             <PieChart>
@@ -636,9 +632,15 @@ function NodeCostChart({ telemetry, colors, mutedColor, tooltipBackground, toolt
               <Tooltip
                 formatter={(value) => {
                   const numeric = Number(value);
-                  return byCost ? formatRub(numeric) : numeric.toLocaleString("ru-RU");
+                  return byCost
+                    ? formatRub(numeric)
+                    : numeric.toLocaleString("ru-RU");
                 }}
-                contentStyle={{ background: tooltipBackground, border: `1px solid ${tooltipBorder}`, borderRadius: 8 }}
+                contentStyle={{
+                  background: tooltipBackground,
+                  border: `1px solid ${tooltipBorder}`,
+                  borderRadius: 8,
+                }}
                 labelStyle={{ color: tooltipText }}
                 itemStyle={{ color: tooltipText }}
               />
@@ -653,7 +655,12 @@ function NodeCostChart({ telemetry, colors, mutedColor, tooltipBackground, toolt
                   description={`${item.calls} выз. · ввод ${item.promptTokens.toLocaleString("ru-RU")}, вывод ${item.completionTokens.toLocaleString("ru-RU")}`}
                   startContent={
                     <svg aria-hidden="true" width="12" height="12">
-                      <circle cx="6" cy="6" r="5" fill={colors[index % colors.length]} />
+                      <circle
+                        cx="6"
+                        cy="6"
+                        r="5"
+                        fill={colors[index % colors.length]}
+                      />
                     </svg>
                   }
                 />
@@ -701,7 +708,15 @@ const ACTION_LABEL: Record<string, string> = {
  * «Детали выполнения» — пять вкладок: журнал событий, план замен, найденные
  * сущности, решения по ссылкам, расход модели по узлам.
  */
-function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decisions, llmByNode }: DetailedLogProps) {
+function DetailedLog({
+  events,
+  runtime,
+  unavailableNote,
+  plan,
+  extraction,
+  decisions,
+  llmByNode,
+}: DetailedLogProps) {
   const { token } = useTheme();
   const [tab, setTab] = useState<DetailedLogTab>("log");
   const runtimeEventsMap = new Map(
@@ -709,14 +724,16 @@ function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decis
   );
 
   const groupRows: GroupRow[] = (plan?.groups ?? []) as GroupRow[];
-  const entityRows: EntityRow[] = flattenPiiOccurrences(extraction).map((occ) => ({
-    id: occ.id,
-    type: piiTypeLabel(occ.type),
-    original: occ.originalText,
-    marker: occ.marker,
-    source: SOURCE_LABELS[occ.source] ?? occ.source,
-    confidence: `${Math.round(occ.confidence * 100)}%`,
-  }));
+  const entityRows: EntityRow[] = flattenPiiOccurrences(extraction).map(
+    (occ) => ({
+      id: occ.id,
+      type: piiTypeLabel(occ.type),
+      original: occ.originalText,
+      marker: occ.marker,
+      source: SOURCE_LABELS[occ.source] ?? occ.source,
+      confidence: `${Math.round(occ.confidence * 100)}%`,
+    }),
+  );
   const decisionRows: DecisionRow[] = (decisions?.byRef ?? []) as DecisionRow[];
   const llmRows: LlmNodeRow[] = llmByNode as LlmNodeRow[];
 
@@ -724,7 +741,11 @@ function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decis
     <Section>
       <VStack gap={3}>
         <Heading level={4}>Детали выполнения</Heading>
-        <TabList value={tab} onChange={(value) => setTab(value as DetailedLogTab)} size="sm">
+        <TabList
+          value={tab}
+          onChange={(value) => setTab(value as DetailedLogTab)}
+          size="sm"
+        >
           <Tab value="log" label="Логи" />
           <Tab value="data" label="Данные" />
           <Tab value="entities" label="Найденные сущности" />
@@ -739,20 +760,33 @@ function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decis
                 const runtimeEvent = runtimeEventsMap.get(event.sequence);
                 const elapsed = runtimeEvent?.elapsed_ms;
                 const nodeForColor = runtimeEvent?.node ?? event.node;
-                const colorVar = STAGE_COLORS[nodeForColor] ?? "--color-text-secondary";
+                const colorVar =
+                  STAGE_COLORS[nodeForColor] ?? "--color-text-secondary";
                 return (
                   <ListItem
                     key={event.sequence}
                     label={event.message}
                     description={stageTitle(event.node)}
                     startContent={
-                      <svg aria-hidden="true" width="10" height="10" style={{ flexShrink: 0 }}>
-                        <circle cx="5" cy="5" r="4" fill={token(colorVar as Parameters<typeof token>[0])} />
+                      <svg
+                        aria-hidden="true"
+                        width="10"
+                        height="10"
+                        style={{ flexShrink: 0 }}
+                      >
+                        <circle
+                          cx="5"
+                          cy="5"
+                          r="4"
+                          fill={token(colorVar as Parameters<typeof token>[0])}
+                        />
                       </svg>
                     }
                     endContent={
                       elapsed !== undefined ? (
-                        <Text hasTabularNumbers color="secondary">{formatElapsed(elapsed)}</Text>
+                        <Text hasTabularNumbers color="secondary">
+                          {formatElapsed(elapsed)}
+                        </Text>
                       ) : undefined
                     }
                   />
@@ -761,7 +795,8 @@ function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decis
             </List>
             {!runtime ? (
               <Text type="supporting" color="secondary">
-                {unavailableNote || "Время каждого шага недоступно — движок не записал длительности для этого прогона."}
+                {unavailableNote ||
+                  "Время каждого шага недоступно — движок не записал длительности для этого прогона."}
               </Text>
             ) : null}
           </>
@@ -781,13 +816,17 @@ function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decis
                   key: "refCount",
                   header: "Вхождений",
                   width: pixel(100),
-                  renderCell: (row: GroupRow) => <Text hasTabularNumbers>{String(row.refCount)}</Text>,
+                  renderCell: (row: GroupRow) => (
+                    <Text hasTabularNumbers>{String(row.refCount)}</Text>
+                  ),
                 },
                 { key: "level", header: "Уверенность", width: pixel(120) },
               ]}
             />
           ) : (
-            <Text color="secondary">Данных нет — план замен не сформирован.</Text>
+            <Text color="secondary">
+              Данных нет — план замен не сформирован.
+            </Text>
           )
         ) : null}
 
@@ -799,7 +838,11 @@ function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decis
               textOverflow="truncate"
               columns={[
                 { key: "type", header: "Тип", width: pixel(140) },
-                { key: "original", header: "Исходный текст", width: proportional(3) },
+                {
+                  key: "original",
+                  header: "Исходный текст",
+                  width: proportional(3),
+                },
                 { key: "marker", header: "Маркер", width: pixel(160) },
                 { key: "source", header: "Слой", width: pixel(160) },
                 { key: "confidence", header: "Уверенность", width: pixel(100) },
@@ -822,21 +865,30 @@ function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decis
                   key: "action",
                   header: "Действие",
                   width: pixel(120),
-                  renderCell: (row: DecisionRow) => <Text>{ACTION_LABEL[row.action] ?? String(row.action)}</Text>,
+                  renderCell: (row: DecisionRow) => (
+                    <Text>
+                      {ACTION_LABEL[row.action] ?? String(row.action)}
+                    </Text>
+                  ),
                 },
                 {
                   key: "decidedBy",
                   header: "Кем принято",
                   width: pixel(140),
                   renderCell: (row: DecisionRow) => (
-                    <Text>{DECIDED_BY_LABEL[row.decidedBy as DecisionSource] ?? String(row.decidedBy)}</Text>
+                    <Text>
+                      {DECIDED_BY_LABEL[row.decidedBy as DecisionSource] ??
+                        String(row.decidedBy)}
+                    </Text>
                   ),
                 },
                 { key: "reason", header: "Причина", width: proportional(3) },
               ]}
             />
           ) : (
-            <Text color="secondary">Решений нет — прогон прошёл без вопросов к оператору.</Text>
+            <Text color="secondary">
+              Решений нет — прогон прошёл без вопросов к оператору.
+            </Text>
           )
         ) : null}
 
@@ -850,20 +902,26 @@ function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decis
                   key: "node",
                   header: "Узел",
                   width: pixel(160),
-                  renderCell: (row: LlmNodeRow) => <Text>{stageTitle(String(row.node))}</Text>,
+                  renderCell: (row: LlmNodeRow) => (
+                    <Text>{stageTitle(String(row.node))}</Text>
+                  ),
                 },
                 {
                   key: "calls",
                   header: "Вызовов",
                   width: pixel(80),
-                  renderCell: (row: LlmNodeRow) => <Text hasTabularNumbers>{String(row.calls)}</Text>,
+                  renderCell: (row: LlmNodeRow) => (
+                    <Text hasTabularNumbers>{String(row.calls)}</Text>
+                  ),
                 },
                 {
                   key: "promptTokens",
                   header: "Ввод",
                   width: pixel(100),
                   renderCell: (row: LlmNodeRow) => (
-                    <Text hasTabularNumbers>{Number(row.promptTokens).toLocaleString("ru-RU")}</Text>
+                    <Text hasTabularNumbers>
+                      {Number(row.promptTokens).toLocaleString("ru-RU")}
+                    </Text>
                   ),
                 },
                 {
@@ -871,7 +929,9 @@ function DetailedLog({ events, runtime, unavailableNote, plan, extraction, decis
                   header: "Вывод",
                   width: pixel(100),
                   renderCell: (row: LlmNodeRow) => (
-                    <Text hasTabularNumbers>{Number(row.completionTokens).toLocaleString("ru-RU")}</Text>
+                    <Text hasTabularNumbers>
+                      {Number(row.completionTokens).toLocaleString("ru-RU")}
+                    </Text>
                   ),
                 },
               ]}
@@ -894,13 +954,20 @@ function formatElapsed(ms: number): string {
   return `+${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function orderedStages(runtime: RuntimeMetrics, events: Telemetry["events"]): OrderedStage[] {
-  const eventOrder = new Map(events.map((event) => [event.node, event.sequence]));
+function orderedStages(
+  runtime: RuntimeMetrics,
+  events: Telemetry["events"],
+): OrderedStage[] {
+  const eventOrder = new Map(
+    events.map((event) => [event.node, event.sequence]),
+  );
   return Object.entries(runtime.stages)
     .map(([name, value]) => ({
       name,
       durationMs: value.duration_ms,
-      order: eventOrder.get(name) ?? 10_000 + Math.max(0, FALLBACK_ORDER.indexOf(name)),
+      order:
+        eventOrder.get(name) ??
+        10_000 + Math.max(0, FALLBACK_ORDER.indexOf(name)),
     }))
     .sort((left, right) => left.order - right.order);
 }
@@ -909,9 +976,14 @@ function stageTitle(stage: string): string {
   return STAGE_LABELS[stage] ?? stage;
 }
 
-/** Оценка стоимости узла в рублях по ставкам `llm.pricing` из `masker.yaml`. */
-function estimateNodeCostRub(promptTokens: number, completionTokens: number): number {
-  return (promptTokens / 1000) * PROMPT_RUB_PER_1K + (completionTokens / 1000) * COMPLETION_RUB_PER_1K;
+function estimateNodeCostRub(
+  promptTokens: number,
+  completionTokens: number,
+): number {
+  return (
+    (promptTokens / 1000) * PROMPT_RUB_PER_1K +
+    (completionTokens / 1000) * COMPLETION_RUB_PER_1K
+  );
 }
 
 function formatRub(amount: number): string {
@@ -927,5 +999,7 @@ function formatCost(cost: Record<string, unknown> | null): string | null {
 }
 
 function formatDuration(milliseconds: number): string {
-  return milliseconds >= 1000 ? `${(milliseconds / 1000).toFixed(1)} с` : `${Math.round(milliseconds)} мс`;
+  return milliseconds >= 1000
+    ? `${(milliseconds / 1000).toFixed(1)} с`
+    : `${Math.round(milliseconds)} мс`;
 }

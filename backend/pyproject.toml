@@ -79,6 +79,17 @@ ocr = [
     # Веса скачиваются в ~/.EasyOCR/model/.
     "easyocr>=1.7",
 ]
+signature = [
+    # CV-детектор подписей использует только OpenCV (без весов, без сети).
+    # headless-вариант не тянет GUI-зависимости (Qt/Gtk), достаточен для сервера.
+    # MASKER_SIGNATURE=cv (дефолт). Устанавливать: uv pip install ".[signature]"
+    "opencv-python-headless>=4.9",
+    # DETR-детектор (опционально, MASKER_SIGNATURE=detr): ML-слой поверх CV.
+    # tech4humans/conditional-detr-50-signature-detector (Apache-2.0).
+    # Ленивый импорт — без этого extra процесс не падает, но DETR недоступен.
+    "transformers>=4.40",
+    "torch>=2.0",
+]
 
 [project.scripts]
 # `docveil` — имя продукта и основная команда. `masker` оставлен рабочим

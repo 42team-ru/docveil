@@ -179,6 +179,7 @@ def _start(
         tracer=tracer,
         artifact_dir=artifact_dir,
         ocr=select_ocr(),
+        signature=select_signature(),
         pricing=pricing,
         stage_observer=presenter.observe,
     )

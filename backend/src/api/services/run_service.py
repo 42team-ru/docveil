@@ -315,6 +315,7 @@ def _execute(
         artifact_dir=artifact_dir,
         pricing=resolve_llm_config().pricing,
         ocr=select_ocr(),
+        signature=select_signature(),
         progress_observer=lambda node, content: run_events.publish(run_id, node, content),
     )
     try:

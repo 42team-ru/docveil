@@ -164,7 +164,7 @@ _NO_LINE = -1
 #: feat/highlight-coords-edits, К2). Обе формы несут готовый прямоугольник
 #: вместо символьного диапазона и обрабатываются рендером одинаково —
 #: у сегмента bbox-правки нет текстового слоя PDF, который можно искать.
-_BBOX_LOCATOR_TAGS = frozenset({"ocr", "user"})
+_BBOX_LOCATOR_TAGS = frozenset({"ocr", "user", "signature"})
 
 
 def _is_ocr_locator(locator: tuple[str | int | float, ...]) -> bool:

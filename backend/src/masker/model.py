@@ -38,6 +38,7 @@ class EntityType(StrEnum):
     CONTRACT_AMOUNT = "contract_amount"
     DELIVERY_PERIOD = "delivery_period"
     PAYMENT_TERMS = "payment_terms"
+    SIGNATURE = "signature"
 
 
 #: Типы, пропуск которых — утечка персональных/платёжных данных.
@@ -67,6 +68,8 @@ class Source(StrEnum):
     LLM = "llm"  # арбитр
     USER = "user"  # пользовательский детектор (custom types, T1.13)
     BLOCK = "block"  # структурный признак: блок реквизитов или подписной (Р6)
+    CV = "cv"  # классический CV-детектор (подписи, S1)
+    ML = "ml"  # ML-детектор (DETR, подписи, S1)
 
 
 class ConfidenceLevel(StrEnum):

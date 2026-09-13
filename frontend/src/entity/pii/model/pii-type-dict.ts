@@ -38,6 +38,7 @@ const PII_TYPE_DICT: Record<PiiType, PiiTypeInfo> = {
   contract_amount: { label: "Сумма договора", markerPrefix: "СУММА-ДОГОВОРА", critical: false },
   delivery_period: { label: "Срок поставки", markerPrefix: "СРОК-ПОСТАВКИ", critical: false },
   payment_terms: { label: "Условия оплаты", markerPrefix: "УСЛОВИЯ-ОПЛАТЫ", critical: false },
+  signature: { label: "Подпись", markerPrefix: "ПОДПИСЬ", critical: false },
 };
 
 /** Русская подпись типа. Неизвестный бэкенду тип подписывается как есть. */

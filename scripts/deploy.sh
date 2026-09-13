@@ -114,19 +114,38 @@ check_resources() {
     fi
 
     # MemAvailable честнее MemFree: учитывает кэш, который ядро отдаст.
-    local mem_mb=0
+    # Своп считается вместе с ней: пик приходится на СБОРКУ (yarn/vite), а
+    # сборке своп годится — она переживает страничный обмен, в отличие от
+    # прогона документа. Без учёта свопа проверка блокировала машину 2/4,
+    # на которой стенд работает (замер 14.09.2026: MemAvailable 3462 МиБ,
+    # то есть отказ был из-за 38 МиБ разницы с порогом).
+    local mem_mb=0 swap_mb=0
     if [ -r /proc/meminfo ]; then
         mem_mb=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
+        swap_mb=$(awk '/SwapTotal/ {print int($2/1024)}' /proc/meminfo)
     fi
+    local total_mb=$((mem_mb + swap_mb))
+    local swap_note=""
+    [ "$swap_mb" -gt 0 ] && swap_note=" (+${swap_mb} МиБ свопа)"
+
     if [ "$mem_mb" -eq 0 ]; then
         warn "не удалось прочитать объём памяти — пропускаю проверку"
     elif [ "$mem_mb" -ge 7000 ]; then
-        ok "ОЗУ доступно: ${mem_mb} МиБ"
-    elif [ "$mem_mb" -ge 3500 ]; then
-        warn "ОЗУ доступно: ${mem_mb} МиБ — стенд поднимется, но держите 1–2 прогона одновременно"
+        ok "ОЗУ доступно: ${mem_mb} МиБ${swap_note}"
+    elif [ "$total_mb" -ge 3000 ]; then
+        warn "ОЗУ доступно: ${mem_mb} МиБ${swap_note} — стенд поднимется, но держите 1–2 прогона одновременно"
+        if [ "$mem_mb" -lt 4000 ] && [ "$swap_mb" -lt 2000 ] && [ "$USE_REGISTRY" -eq 0 ]; then
+            say "    Сборка фронта тут будет впритык. Готовые образы: --images"
+            say "    Либо добавьте своп на время сборки:"
+            say "      sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile"
+            say "      sudo mkswap /swapfile && sudo swapon /swapfile"
+        fi
     else
-        bad "ОЗУ доступно: ${mem_mb} МиБ — мало даже для одного прогона (нужно от 3,5 ГиБ)"
-        say "    Один прогон занимает около 0,55 ГиБ, плюс Postgres, MinIO и сборка фронта."
+        bad "ОЗУ доступно: ${mem_mb} МиБ${swap_note} — мало даже для одного прогона"
+        say "    Один прогон занимает около 0,55 ГиБ, плюс Postgres, MinIO и Caddy."
+        say "    Добавьте своп и повторите:"
+        say "      sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile"
+        say "      sudo mkswap /swapfile && sudo swapon /swapfile"
         PREFLIGHT_FAILED=1
     fi
 

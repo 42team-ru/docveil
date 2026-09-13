@@ -161,8 +161,13 @@ services:
       - "443:443/udp"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      # Сертификаты и ключ аккаунта ACME лежат на ХОСТЕ, а не в томе docker.
+      # Причина не в удобстве: у Let's Encrypt лимит 5 сертификатов на домен
+      # в неделю, и `docker compose down -v` (или чистка томов) сжигает
+      # попытку каждый раз. С каталогом рядом с репозиторием сертификат
+      # переживает и снос томов, и пересоздание стека.
+      - ./deploy/caddy/data:/data
+      - ./deploy/caddy/config:/config
     deploy:
       resources:
         limits:
@@ -172,5 +177,3 @@ volumes:
   pgdata:
   miniodata:
   backend_state:
-  caddy_data:
-  caddy_config:

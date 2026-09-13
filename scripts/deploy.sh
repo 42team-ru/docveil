@@ -438,6 +438,10 @@ build_images() {
 
 start_stack() {
     head1 "Запуск"
+    # Каталог состояния Caddy создаём заранее и от своего пользователя:
+    # docker поднимает отсутствующий путь bind-mount'а от root, и тогда
+    # сертификаты пишутся в чужой по правам каталог.
+    mkdir -p deploy/caddy/data deploy/caddy/config
     compose up -d
 }
 

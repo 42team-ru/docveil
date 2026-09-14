@@ -151,6 +151,18 @@ async def get_run(
     return _run_response(await _require_run(session, user, run_id))
 
 
+@router.delete("/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_run(
+    run_id: uuid.UUID,
+    user: UserORM = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> None:
+    """Удалить прогон в любом статусе; если он активен — сначала отменить."""
+    deleted = await run_service.delete_run(session, user.id, run_id)
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"прогон {run_id} не найден")
+
+
 @router.get("/{run_id}/events", response_model=RunEventsResponse)
 async def get_run_events(
     run_id: uuid.UUID,

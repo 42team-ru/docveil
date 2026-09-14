@@ -182,11 +182,17 @@ def xlsx_coverage(source: Path, document: Document) -> dict[str, Any]:
 
 
 def detection_coverage(
-    selected_types: frozenset[str], detector: DetectAgent
+    selected_types: frozenset[str],
+    detector: DetectAgent,
+    extra_covered_types: frozenset[str] = frozenset(),
 ) -> dict[str, list[str]]:
-    """Какие из запрошенных типов реально покрыты активными детекторами."""
+    """Какие из запрошенных типов реально покрыты активными детекторами.
+
+    ``extra_covered_types`` — типы, детектируемые вне ``detector`` (например,
+    ``{"signature"}`` когда подключён отдельный детектор подписей).
+    """
     active_types = {entity_type for item in detector.detectors for entity_type in item.types}
-    available_types = active_types | NatashaDetector.types
+    available_types = active_types | NatashaDetector.types | extra_covered_types
     return {
         "requested_types": sorted(str(entity_type) for entity_type in selected_types),
         "active_detector_types": sorted(str(entity_type) for entity_type in active_types),

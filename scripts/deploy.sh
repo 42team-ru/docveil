@@ -379,6 +379,47 @@ env_value() {
 
 # -------------------------------------------------------------- развёртывание --
 
+# Лимиты ресурсов бэкенда обязаны помещаться в машину. Docker отвергает
+# `cpus` больше числа ядер целиком: «range of CPUs is from 0.01 to 2.00, as
+# there are only 2 CPUs available» — стенд не поднимался вовсе (сервер
+# стенда, 14.09.2026, дефолт 4 при двух ядрах). Шаблоны окружения рассчитаны
+# на рекомендованную машину 4/8, поэтому на меньшей их надо подогнать, а не
+# требовать этого от человека.
+tune_resource_limits() {
+    local cores mem_mb cpu_limit mem_limit
+    cores="$(nproc 2>/dev/null || echo 2)"
+    mem_mb=0
+    [ -r /proc/meminfo ] && mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+
+    cpu_limit="$(env_value BACKEND_CPU_LIMIT)"
+    [ -n "$cpu_limit" ] || cpu_limit=4
+    # Ядра оставляем все: прогон CPU-bound, а лимит здесь — потолок, а не
+    # резервирование. Единственное требование docker — не больше, чем есть.
+    if [ "${cpu_limit%%.*}" -gt "$cores" ] 2>/dev/null; then
+        set_env_value BACKEND_CPU_LIMIT "$cores"
+        warn "BACKEND_CPU_LIMIT ${cpu_limit} -> ${cores}: столько ядер у машины"
+    fi
+
+    mem_limit="$(env_value BACKEND_MEMORY_LIMIT)"
+    # Половина физической памяти: остальное нужно Postgres, MinIO, Caddy и
+    # самой системе. При 4 ГиБ это 2g вместо шаблонных 3g.
+    if [ "$mem_mb" -gt 0 ] && [ "$mem_mb" -lt 6000 ] && [ "$mem_limit" = "3g" ]; then
+        set_env_value BACKEND_MEMORY_LIMIT "2g"
+        warn "BACKEND_MEMORY_LIMIT 3g -> 2g: у машины ${mem_mb} МиБ памяти"
+    fi
+}
+
+set_env_value() {
+    # Меняем существующую строку или дописываем новую: файл мог прийти из
+    # шаблона, где переменной нет вовсе.
+    local key="$1" value="$2"
+    if grep -q "^${key}=" "$ENV_FILE"; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+    else
+        printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+    fi
+}
+
 compose() {
     # BACKEND_IMAGE/FRONTEND_IMAGE приходят из окружения (режим --images) и
     # перекрывают дефолты `:local` в compose-файле.
@@ -542,6 +583,7 @@ summary() {
 cmd_up() {
     preflight
     create_env_file
+    tune_resource_limits
     build_images
     start_stack
     # Порядок ожидания — снизу вверх по зависимостям: бессмысленно ждать
@@ -557,6 +599,7 @@ cmd_up() {
 cmd_update() {
     [ -f "$ENV_FILE" ] || die "нет ${ENV_FILE} — сначала ./scripts/deploy.sh up"
     preflight
+    tune_resource_limits
     build_images
     start_stack
     wait_for_health backend 300 || die "бэкенд не поднялся после обновления"

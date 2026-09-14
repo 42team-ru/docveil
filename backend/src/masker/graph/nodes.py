@@ -138,6 +138,7 @@ class RunDeps:
     tracer: TracingProvider | None = None
     artifact_dir: Path | None = None
     ocr: OCRProvider | None = None
+    signature: SignatureDetector | None = None
     pricing: LLMPricing | None = None
     stage_observer: StageObserver | None = field(default=None, compare=False, repr=False)
     progress_observer: ProgressObserver | None = field(default=None, compare=False, repr=False)
@@ -276,6 +277,7 @@ def make_extract_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """
 
     def _node(state: State) -> dict[str, object]:
+        deps.notify_progress("extract_node", {"message": "Извлекаю текст из документа…"})
         return _extract(state, ocr=deps.ocr)
 
     return _node
@@ -299,6 +301,7 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     def detect_node(state: State) -> dict[str, object]:
         """Трёхслойная детекция без фильтра по ``options.types`` — фильтр применяет план.
 
+
         ``options.types`` сужает только ``detection_coverage`` (что реально
         покрыто активными детекторами из запрошенного) и позже — ``PlanAgent``
         (T1.6, шаг 6). Сама детекция ничего не выбрасывает: незапрошенный
@@ -307,6 +310,7 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         человек не просил маскировать, но которые всё равно не должны
         читаться.
         """
+        deps.notify_progress("detect_node", {"message": "Ищу персональные данные…"})
         document = _document(state)
         options = state.get("options", {})
         registry, specs = _registry_and_specs(state)
@@ -335,12 +339,23 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                 tuple(str(value) for value in raw_types) if raw_types else ("all",), registry
             )
             detection = detector.detect(document)
-            entities = detection.entities
+            entities = list(detection.entities)
+        extra_segments: list[dict[str, object]] = []
+        # S1: детекция рукописных подписей на растре страниц PDF.
+        if deps.signature is not None and state.get("fmt") == "pdf" and state.get("path"):
+            sig_segs, sig_ents = _detect_signatures_pdf(
+                state["path"],
+                deps.signature,
+                base_segment_order=len(document.segments),
+            )
+            extra_segments = [_segment_to_dict(s) for s in sig_segs]
+            entities.extend(sig_ents)
+        sig_covered = frozenset({"signature"}) if deps.signature is not None else frozenset()
         result: dict[str, object] = {
             "entities": [entity_to_dict(entity) for entity in entities],
             # Тот же ``detector``, которым только что детектировали — второй
             # DetectAgent() поднял бы Natasha ещё раз ради двух списков строк.
-            "detection_coverage": detection_coverage(selected_types, detector),
+            "detection_coverage": detection_coverage(selected_types, detector, sig_covered),
         }
         # Р7-2: сводка верификатора доезжает до `report.json`. В ``State``
         # кладём уже сериализованную запись, а не ``VerifierReport``:
@@ -350,15 +365,123 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
         # нет, и остаётся `None` — «не измерен», а не «измерен и равен нулю».
         if detection.verifier is not None:
             result["verifier"] = verifier_record(detection.verifier)
+        if extra_segments:
+            result["segments"] = list(state.get("segments", [])) + extra_segments
         return result
 
     return detect_node
+
+
+def _segment_to_dict(seg: Segment) -> dict[str, object]:
+    return {
+        "text": seg.text,
+        "anchor": anchor_to_dict(seg.anchor),
+        "order": seg.order,
+        "origin": seg.origin,
+    }
+
+
+def _detect_signatures_pdf(
+    path: str,
+    detector: SignatureDetector,
+    *,
+    base_segment_order: int,
+) -> tuple[list[Segment], list[Entity]]:
+    """Прогнать детектор подписей по всем страницам PDF, вернуть синтетические
+    Segment-ы и Entity (confidence >= 0.5).
+
+    Локатор: ``("page", page_num, "signature", x0_centipt, y0_centipt, x1_centipt, y1_centipt)``
+    — тот же 7-элементный формат, что у OCR; рендер обрабатывает их единым
+    путём через ``_is_ocr_locator`` (``_BBOX_LOCATOR_TAGS`` включает "signature").
+    """
+    import numpy as np
+    import pymupdf
+
+    from masker.model import Anchor, ConfidenceLevel, EntityType
+
+    # 150 DPI: A4 → 1240×1754 px (~6 MB) vs 2480×3508 px (~26 MB) at 300 DPI.
+    # CV-детектор контуров не требует высокого разрешения; физические размеры
+    # block_size и ядра морфологии масштабируются по DPI внутри детектора.
+    _DPI = 150
+    _PT_PER_PX = 72.0 / _DPI
+
+    segments: list[Segment] = []
+    entities: list[Entity] = []
+
+    try:
+        doc = pymupdf.open(path)
+    except Exception:
+        return [], []
+
+    try:
+        for page_num, page in enumerate(doc):
+            pix = page.get_pixmap(dpi=_DPI, colorspace=pymupdf.csRGB)
+            img_rgb = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
+            img_bgr: np.ndarray = img_rgb[:, :, ::-1].copy()
+
+            px_per_pt = _DPI / 72.0
+            # get_text("blocks") → tuple (x0,y0,x1,y1,text,block_no,block_type)
+            px_masks = [
+                (
+                    float(b[0]) * px_per_pt,
+                    float(b[1]) * px_per_pt,
+                    float(b[2]) * px_per_pt,
+                    float(b[3]) * px_per_pt,
+                )
+                for b in page.get_text("blocks")
+                if b[6] == 0
+            ]
+
+            try:
+                candidates = detector.detect(img_bgr, dpi=_DPI, text_masks=px_masks)
+            except Exception:
+                continue
+
+            for cand in candidates:
+                if cand.confidence < 0.35:
+                    continue
+                x0_px, y0_px, x1_px, y1_px = cand.bbox
+                x0 = round(x0_px * _PT_PER_PX * 100)
+                y0 = round(y0_px * _PT_PER_PX * 100)
+                x1 = round(x1_px * _PT_PER_PX * 100)
+                y1 = round(y1_px * _PT_PER_PX * 100)
+                seg_order = base_segment_order + len(segments)
+                anchor = Anchor(
+                    fmt="pdf",
+                    locator=("page", page_num, "signature", x0, y0, x1, y1),
+                    label=f"стр. {page_num + 1} (подпись)",
+                )
+                seg = Segment(text="", anchor=anchor, order=seg_order, origin="signature")
+                level = (
+                    ConfidenceLevel.CONFIRMED
+                    if cand.confidence >= 0.8
+                    else ConfidenceLevel.PROBABLE
+                )
+                src = Source.ML if cand.source in ("detr", "ml") else Source.CV
+                ent = Entity(
+                    type=EntityType.SIGNATURE,
+                    text="",
+                    segment_order=seg_order,
+                    start=0,
+                    end=0,
+                    source=src,
+                    confidence=cand.confidence,
+                    normalized="",
+                    level=level,
+                )
+                segments.append(seg)
+                entities.append(ent)
+    finally:
+        doc.close()
+
+    return segments, entities
 
 
 def make_profile_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """Собрать ``profile_node``, использующий LLM из ``deps`` (не теряется)."""
 
     def profile_node(state: State) -> dict[str, object]:
+        deps.notify_progress("profile_node", {"message": "Определяю роли сторон…"})
         options = state.get("options", {})
         if not bool(options.get("profile", True)):
             # ``options.profile`` ложно (PDF-путь, R5 плана T1.10) — ни один
@@ -408,6 +531,7 @@ def make_judge_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """
 
     def judge_node(state: State) -> dict[str, object]:
+        deps.notify_progress("judge_node", {"message": "Оцениваю уверенность и формирую вопросы…"})
         options = state.get("options", {})
         if not bool(options.get("profile", True)):
             return {"verdicts": [], "questions": []}
@@ -954,6 +1078,7 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """
 
     def render_node(state: State) -> dict[str, object]:
+        deps.notify_progress("render_node", {"message": "Применяю маски и собираю документ…"})
         if deps.artifact_dir is None:
             # Явный провал, не тихий пропуск — «граф отработал, файлов нет, а
             # никто не заметил» (риск R6 плана T1.10) хуже, чем падение узла.
@@ -1282,6 +1407,7 @@ def make_report_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
     """
 
     def report_node(state: State) -> dict[str, object]:
+        deps.notify_progress("report_node", {"message": "Собираю отчёт о заменах…"})
         result = _build_report_dict(
             state,
             llm_trace=deps.tracer is not None,

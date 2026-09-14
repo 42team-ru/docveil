@@ -112,6 +112,11 @@ function createMarkDiv(rectPx: { x: number; y: number; width: number; height: nu
  * Первый регион — первичная метка, хранится в индексе как `run`; остальные
  * добавляются рядом с атрибутом `data-pii-region-of` и красятся из `paintRun`
  * автоматически.
+ *
+ * Три прохода, чтобы избежать layout thrashing:
+ *   1. Читаем getBoundingClientRect всех страниц разом (один layout flush).
+ *   2. Создаём div-ы и считаем пиксельные координаты (чистый JS, без DOM).
+ *   3. Записываем все div-ы в DOM (только записи, без промежуточных чтений).
  */
 function buildBboxIndex(
   host: HTMLElement,
@@ -121,7 +126,23 @@ function buildBboxIndex(
     id: string;
     regions: { page: number; x0: number; y0: number; x1: number; y1: number }[];
   }[];
+
+  // Проход 1: один layout flush — читаем размеры всех канвасов страниц сразу.
+  type PageDims = { container: HTMLElement; pageW: number; pageH: number };
+  const pageDims = new Map<number, PageDims>();
+  for (const el of host.querySelectorAll<HTMLElement>(`[${PAGE_ATTR}]`)) {
+    const page = Number(el.getAttribute(PAGE_ATTR));
+    const canvas = el.querySelector("canvas");
+    if (!canvas) continue;
+    const { width: canvasW, height: canvasH } = canvas.getBoundingClientRect();
+    const pageW = canvasW > 0 ? canvasW : canvas.width;
+    const pageH = canvasH > 0 ? canvasH : canvas.height;
+    if (pageW > 0 && pageH > 0) pageDims.set(page, { container: el, pageW, pageH });
+  }
+
+  // Проход 2: создаём div-ы (нет чтений из DOM).
   const index = new Map<string, ResolvedRun>();
+  const pending: { container: HTMLElement; mark: HTMLDivElement }[] = [];
 
   for (const occurrence of typed) {
     const allRegions = occurrence.regions;
@@ -133,34 +154,29 @@ function buildBboxIndex(
     let primaryMark: HTMLDivElement | null = null;
 
     for (const region of allRegions) {
-      const container = host.querySelector<HTMLElement>(`[${PAGE_ATTR}="${region.page}"]`);
-      const canvas = container?.querySelector("canvas");
-      if (!container || !canvas) continue;
+      const dims = pageDims.get(region.page);
+      if (!dims) continue;
 
-      // getBoundingClientRect forces layout flush — more reliable than clientWidth
-      // when the host was just mounted and CSS hasn't been computed yet.
-      const { width: canvasW, height: canvasH } = canvas.getBoundingClientRect();
-      const pageW = canvasW > 0 ? canvasW : canvas.width;
-      const pageH = canvasH > 0 ? canvasH : canvas.height;
-      if (pageW <= 0 || pageH <= 0) continue;
-
-      const rectPx = regionToPixelRect(region, pageW, pageH);
+      const rectPx = regionToPixelRect(region, dims.pageW, dims.pageH);
       const mark = createMarkDiv(rectPx);
-
       mark.dataset.piiBbox = "true";
       if (!primaryMark) {
         primaryMark = mark;
       } else {
         mark.dataset.piiRegionOf = occurrence.id;
       }
-
-      container.appendChild(mark);
+      pending.push({ container: dims.container, mark });
     }
 
     index.set(
       occurrence.id,
       primaryMark ? { status: "resolved", run: primaryMark } : { status: "not-found" },
     );
+  }
+
+  // Проход 3: батчевая запись в DOM (нет чтений → нет дополнительных reflow).
+  for (const { container, mark } of pending) {
+    container.appendChild(mark);
   }
 
   return index;

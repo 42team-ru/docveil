@@ -16,6 +16,7 @@ from typing import Any
 
 from masker.cli_args import build_parser, parse_types
 from masker.cli_ui import CliPresenter, ensure_utf8_output
+from masker.detect.signature_select import select_signature
 from masker.graph.build import compile_graph
 from masker.graph.nodes import RunDeps
 from masker.graph.questions import parse_answers
@@ -179,6 +180,7 @@ def _start(
         tracer=tracer,
         artifact_dir=artifact_dir,
         ocr=select_ocr(),
+        signature=select_signature(),
         pricing=pricing,
         stage_observer=presenter.observe,
     )

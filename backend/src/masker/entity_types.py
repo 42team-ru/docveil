@@ -52,6 +52,7 @@ def builtin_specs() -> list[EntityTypeSpec]:
         EntityType.CONTRACT_AMOUNT: ("Сумма договора", "СУММА-ДОГОВОРА"),
         EntityType.DELIVERY_PERIOD: ("Срок поставки", "СРОК-ПОСТАВКИ"),
         EntityType.PAYMENT_TERMS: ("Условия оплаты", "УСЛОВИЯ-ОПЛАТЫ"),
+        EntityType.SIGNATURE: ("Подпись", "ПОДПИСЬ"),
     }
     return [
         EntityTypeSpec(

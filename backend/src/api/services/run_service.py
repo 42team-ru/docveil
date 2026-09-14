@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -27,6 +27,8 @@ from api.core.storage import minio_client
 from api.models.run import RunORM
 from api.schemas.run import RunCreateRequest
 from api.services.run_events import run_events
+from api.services.run_guard import run_guard
+from masker.detect.signature_select import select_signature
 from masker.graph.nodes import RunDeps
 from masker.ingest import SUPPORTED_SUFFIXES as ENGINE_SUFFIXES
 from masker.llm import LLMProvider, get_provider, resolve_llm_config
@@ -34,9 +36,12 @@ from masker.ocr.select import select_ocr
 from masker.run import (
     AlreadyFinishedError,
     CheckpointerFactory,
+    RunCancelledError,
     RunFailedError,
+    RunInterrupt,
     RunOptions,
     RunOutcome,
+    RunTimedOutError,
     UnknownThreadError,
     artifacts_of,
     postgres_checkpointer_factory,
@@ -55,7 +60,10 @@ __all__ = [
     "UnknownThreadError",
     "UnsupportedFormatError",
     "artifact_bytes",
+    "cancel_run",
+    "cleanup_stale_runs",
     "create_run",
+    "delete_run",
     "execute_run",
     "get_llm_provider",
     "get_run_checkpointer_factory",
@@ -310,41 +318,51 @@ def _execute(
     Возвращает `(статус, node_hint, текст ошибки, префикс артефактов)` — всё,
     что фоновой задаче нужно записать в `runs`.
     """
-    document = _ensure_document(run_id, object_name)
-    artifact_dir = _work_dir(run_id) / "artifacts"
-    deps = RunDeps(
-        llm=llm,
-        artifact_dir=artifact_dir,
-        pricing=resolve_llm_config().pricing,
-        ocr=select_ocr(),
-        progress_observer=lambda node, content: run_events.publish(run_id, node, content),
-    )
+    run_guard.start(run_id)
     try:
-        if options is not None:
-            outcome = start_run(
-                document,
-                options,
-                checkpointer_factory=checkpointer_factory,
-                deps=deps,
-                thread_id=thread_id,
-            )
-        elif edits is not None:
-            outcome = resume_review(
-                thread_id,
-                edits,
-                finalize=finalize_review,
-                checkpointer_factory=checkpointer_factory,
-                deps=deps,
-            )
-        else:
-            outcome = resume_run(
-                thread_id,
-                answers or {},
-                checkpointer_factory=checkpointer_factory,
-                deps=deps,
-            )
-    except RunFailedError as error:
-        return "failed", error.node_hint, str(error), None
+        document = _ensure_document(run_id, object_name)
+        artifact_dir = _work_dir(run_id) / "artifacts"
+        deps = RunDeps(
+            llm=llm,
+            artifact_dir=artifact_dir,
+            pricing=resolve_llm_config().pricing,
+            ocr=select_ocr(),
+            signature=select_signature(),
+            progress_observer=lambda node, content: (
+                run_guard.check(run_id),
+                run_events.publish(run_id, node, content),
+            )[-1],
+        )
+        try:
+            if options is not None:
+                outcome = start_run(
+                    document,
+                    options,
+                    checkpointer_factory=checkpointer_factory,
+                    deps=deps,
+                    thread_id=thread_id,
+                )
+            elif edits is not None:
+                outcome = resume_review(
+                    thread_id,
+                    edits,
+                    finalize=finalize_review,
+                    checkpointer_factory=checkpointer_factory,
+                    deps=deps,
+                )
+            else:
+                outcome = resume_run(
+                    thread_id,
+                    answers or {},
+                    checkpointer_factory=checkpointer_factory,
+                    deps=deps,
+                )
+        except RunInterrupt:
+            raise
+        except RunFailedError as error:
+            return "failed", error.node_hint, str(error), None
+    finally:
+        run_guard.close(run_id)
 
     artifacts = artifacts_of(outcome)
     prefix = _upload_artifacts(run_id, artifacts, artifact_revision) if artifacts else None
@@ -400,6 +418,10 @@ async def execute_run(
                 llm=llm,
                 checkpointer_factory=checkpointer_factory,
             )
+        except RunCancelledError:
+            status, node_hint, error_text, prefix = "cancelled", None, None, None
+        except RunTimedOutError as exc:
+            status, node_hint, error_text, prefix = "failed", None, str(exc), None
         except (OSError, ValueError, UnknownThreadError, AlreadyFinishedError) as exc:
             # Прогон падает целиком, а не оставляет строку в `running`
             # навсегда: оператор обязан увидеть причину в журнале.
@@ -421,6 +443,78 @@ async def execute_run(
             )
         run.finished_at = None if status in _WAITING_STATUSES else datetime.now(UTC)
         await session.commit()
+
+
+async def cancel_run(session: AsyncSession, user_id: uuid.UUID, run_id: uuid.UUID) -> RunORM | None:
+    """Запросить отмену активного прогона.
+
+    Устанавливает флаг отмены в `run_guard`; фоновый поток поднимет
+    `RunCancelledError` на следующей границе узла. Статус меняется там же,
+    а не здесь — чтобы не было гонки с фоновой задачей.
+    Если прогон уже завершён (не `running`/`queued`) — возвращает `None`.
+    """
+    run: RunORM | None = await session.scalar(
+        select(RunORM).where(RunORM.id == run_id, RunORM.user_id == user_id)
+    )
+    if run is None:
+        return None
+    if run.status not in ("running", "queued"):
+        return None
+    run_guard.cancel(run_id)
+    return run
+
+
+async def delete_run(session: AsyncSession, user_id: uuid.UUID, run_id: uuid.UUID) -> bool:
+    """Удалить прогон в любом статусе, остановив его если он активен.
+
+    Возвращает `True` если прогон найден и удалён, `False` если не найден.
+    """
+    run: RunORM | None = await session.scalar(
+        select(RunORM).where(RunORM.id == run_id, RunORM.user_id == user_id)
+    )
+    if run is None:
+        return False
+
+    # Если прогон ещё активен — запросить отмену, чтобы поток завершился.
+    if run.status in ("running", "queued"):
+        run_guard.cancel(run_id)
+
+    # Очистить рабочий каталог и SSE-брокер.
+    shutil.rmtree(_work_dir(run_id), ignore_errors=True)
+    run_events.close(run_id)
+
+    await session.delete(run)
+    await session.commit()
+    return True
+
+
+async def cleanup_stale_runs(session: AsyncSession | None = None) -> None:
+    """Пометить зависшие прогоны как `failed` при старте сервера.
+
+    При перезапуске процесса прогоны в `running`/`queued` остались без
+    фоновой задачи — они никогда не завершатся сами. Переводим их в `failed`
+    с пояснением, чтобы оператор не ждал вечно.
+    """
+    error_msg = "Прогон прерван перезапуском сервера"
+    now = datetime.now(UTC)
+
+    async def _do_cleanup(s: AsyncSession) -> None:
+        await s.execute(
+            update(RunORM)
+            .where(RunORM.status.in_(["running", "queued"]))
+            .values(
+                status="failed",
+                error=error_msg,
+                finished_at=now,
+            )
+        )
+        await s.commit()
+
+    if session is not None:
+        await _do_cleanup(session)
+    else:
+        async with async_session_maker() as s:
+            await _do_cleanup(s)
 
 
 async def resume_with_answers(

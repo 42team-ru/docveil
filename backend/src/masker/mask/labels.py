@@ -50,6 +50,7 @@ MARKER_TYPE_LABELS: dict[str, str] = {
     EntityType.CONTRACT_AMOUNT: "СУММА-ДОГОВОРА",
     EntityType.DELIVERY_PERIOD: "СРОК-ПОСТАВКИ",
     EntityType.PAYMENT_TERMS: "УСЛОВИЯ-ОПЛАТЫ",
+    EntityType.SIGNATURE: "ПОДПИСЬ",
 }
 
 
@@ -102,6 +103,7 @@ HUMAN_TYPE_LABELS: dict[str, str] = {
     EntityType.CONTRACT_AMOUNT: "Сумма договора",
     EntityType.DELIVERY_PERIOD: "Срок поставки",
     EntityType.PAYMENT_TERMS: "Условия оплаты",
+    EntityType.SIGNATURE: "Подпись",
 }
 
 #: Типы условий описывают сам договор, а не одну из его сторон. 11.09.2026:

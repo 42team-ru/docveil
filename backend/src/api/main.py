@@ -15,11 +15,13 @@ from api.core.config import settings
 from api.core.storage import ensure_bucket
 from api.core.warmup import warm_up
 from api.routers import admin, auth, custom_types, files, health, ocr, runs, users
+from api.services import run_service
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     await run_in_threadpool(ensure_bucket)
+    await run_service.cleanup_stale_runs()
     # Прогрев выключен по умолчанию: тесты и локальный `make api` не должны
     # платить за загрузку Natasha на каждом старте. На стенде включается
     # переменной WARMUP_ON_START (см. docker-compose.prod.yml).

@@ -3519,6 +3519,22 @@ wheels = [
 ]
 
 [[package]]
+name = "timm"
+version = "1.0.29"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "pyyaml" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "torchvision" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cf/72/58b8363e22508418d5fac897ac68e2c33f01f84d9d471edc38cbb6523dc6/timm-1.0.29.tar.gz", hash = "sha256:1af8d12bb7e15c5f96e98d60b7b8319cd7f31730778bf1af58e912a7ce171576", size = 2497559, upload-time = "2026-08-28T15:07:31.007Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/b7/19267ec60740ef1899d265272bff3623f19fe7f7bf1022fb098766db2134/timm-1.0.29-py3-none-any.whl", hash = "sha256:4266486e355c9beb9432e689de580d09e2efe7fa92a9a79e76c03e7763eac724", size = 2633555, upload-time = "2026-08-28T15:07:29.348Z" },
+]
+
+[[package]]
 name = "tokenizers"
 version = "0.22.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3696,6 +3712,12 @@ ocr = [
     { name = "easyocr" },
     { name = "paddleocr" },
 ]
+signature = [
+    { name = "opencv-python-headless" },
+    { name = "timm" },
+    { name = "torch" },
+    { name = "transformers" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -3715,6 +3737,7 @@ requires-dist = [
     { name = "minio", specifier = ">=7.2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19" },
     { name = "natasha", specifier = ">=1.6" },
+    { name = "opencv-python-headless", marker = "extra == 'signature'", specifier = ">=4.9" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "paddleocr", marker = "extra == 'ocr'", specifier = ">=3.0" },
     { name = "peft", marker = "extra == 'gliner'", specifier = ">=0.17" },
@@ -3741,11 +3764,14 @@ requires-dist = [
     { name = "setuptools", specifier = "<81" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "textual", specifier = ">=6.6" },
+    { name = "timm", marker = "extra == 'signature'", specifier = ">=1.0" },
     { name = "torch", marker = "extra == 'gliner'", specifier = "==2.14.0+cpu", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torch", marker = "extra == 'signature'", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "transformers", marker = "extra == 'gliner'", specifier = "==4.57.6" },
+    { name = "transformers", marker = "extra == 'signature'", specifier = ">=4.40" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]
-provides-extras = ["build", "dev", "gliner", "ocr"]
+provides-extras = ["build", "dev", "gliner", "ocr", "signature"]
 
 [[package]]
 name = "truststore"

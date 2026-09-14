@@ -2,11 +2,13 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { AnimatePresence } from "motion/react";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
-import { FileClock, SearchX } from "lucide-react";
+import { FileClock, SearchX, Trash2 } from "lucide-react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { List } from "@astryxdesign/core/List";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { Section } from "@astryxdesign/core/Section";
@@ -14,11 +16,13 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Table, pixel, proportional } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
+import { useToast } from "@astryxdesign/core/Toast";
 
 import type { DocumentFormat } from "../../../entity/document/model/types";
 import { FormatToken } from "../../../entity/document/ui/format-token";
 import { RunStatusToken } from "../../../entity/document/ui/run-status-token";
 import type { useRunList } from "../../masking-run/api/masking-run";
+import { useDeleteRun } from "../../masking-run/api/masking-run";
 import type { RunListItem } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
 import { formatMoment } from "../../../shared/lib/format-moment";
 import { MotionListItem, listItemMotion } from "../../../shared/ui/motion/motion-astryx";
@@ -60,6 +64,67 @@ export function HistoryTable({
   const navigate = useNavigate();
   const isMobile = useMediaQuery("(max-width: 768px)", false);
   const [detailsRunId, setDetailsRunId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RunListItem | null>(null);
+  const deleteRun = useDeleteRun();
+  const showToast = useToast();
+
+  function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    deleteRun.mutate(deleteTarget.id, {
+      onSuccess: () => {
+        setDeleteTarget(null);
+        showToast({ body: "Прогон удалён", type: "info" });
+      },
+      onError: () => {
+        showToast({ body: "Не удалось удалить прогон", type: "error" });
+      },
+    });
+  }
+
+  const deleteDialog = (
+    <Dialog
+      isOpen={deleteTarget !== null}
+      onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+      purpose="info"
+      width={480}
+    >
+      <Layout
+        header={
+          <DialogHeader
+            title="Удалить прогон?"
+            onOpenChange={() => setDeleteTarget(null)}
+          />
+        }
+        content={
+          <LayoutContent>
+            <Text color="secondary">
+              Прогон «{deleteTarget?.document.name}» будет удалён безвозвратно.
+              Если он сейчас обрабатывается — будет остановлен.
+            </Text>
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter>
+            <HStack gap={2} hAlign="end">
+              <Button
+                size="sm"
+                variant="secondary"
+                label="Отмена"
+                onClick={() => setDeleteTarget(null)}
+              />
+              <Button
+                size="sm"
+                variant="destructive"
+                label="Удалить"
+                isLoading={deleteRun.isPending}
+                onClick={handleDeleteConfirm}
+              />
+            </HStack>
+          </LayoutFooter>
+        }
+      />
+    </Dialog>
+  );
 
   const detailsDialog = (
     <RunDetailsDialog
@@ -76,6 +141,7 @@ export function HistoryTable({
       <Section padding={4}>
         <Skeleton height={240} width="100%" />
         {detailsDialog}
+        {deleteDialog}
       </Section>
     );
   }
@@ -94,6 +160,7 @@ export function HistoryTable({
           }
         />
         {detailsDialog}
+        {deleteDialog}
       </Section>
     );
   }
@@ -121,6 +188,7 @@ export function HistoryTable({
             />
           )}
           {detailsDialog}
+          {deleteDialog}
         </Section>
       </VStack>
     );
@@ -231,7 +299,7 @@ export function HistoryTable({
               {
                 key: "actions",
                 header: "",
-                width: pixel(320),
+                width: pixel(380),
                 align: "end",
                 renderCell: (run) => (
                   <HStack gap={1.5} hAlign="end">
@@ -253,6 +321,13 @@ export function HistoryTable({
                       label="Детали"
                       onClick={() => setDetailsRunId(run.id)}
                     />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<Icon icon={Trash2} size="sm" color="secondary" />}
+                      label=""
+                      onClick={() => setDeleteTarget(run as RunListItem)}
+                    />
                   </HStack>
                 ),
               },
@@ -266,6 +341,7 @@ export function HistoryTable({
         ) : null}
       </VStack>
       {detailsDialog}
+      {deleteDialog}
     </Section>
   );
 }

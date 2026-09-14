@@ -419,15 +419,16 @@ def _detect_signatures_pdf(
             img_bgr: np.ndarray = img_rgb[:, :, ::-1].copy()
 
             px_per_pt = _DPI / 72.0
+            # get_text("blocks") → tuple (x0,y0,x1,y1,text,block_no,block_type)
             px_masks = [
                 (
-                    float(b["bbox"][0]) * px_per_pt,
-                    float(b["bbox"][1]) * px_per_pt,
-                    float(b["bbox"][2]) * px_per_pt,
-                    float(b["bbox"][3]) * px_per_pt,
+                    float(b[0]) * px_per_pt,
+                    float(b[1]) * px_per_pt,
+                    float(b[2]) * px_per_pt,
+                    float(b[3]) * px_per_pt,
                 )
                 for b in page.get_text("blocks")
-                if b["type"] == 0
+                if b[6] == 0
             ]
 
             try:

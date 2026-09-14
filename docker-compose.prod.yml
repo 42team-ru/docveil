@@ -17,7 +17,10 @@ name: docveil
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # Все базовые образы вынесены в переменные: на части машин Docker Hub
+    # недоступен или ограничен по частоте, и тогда стенд не поднимается вовсе.
+    # Переопределяются в .env.prod на своё зеркало.
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER обязателен, заполните .env}
@@ -36,7 +39,11 @@ services:
           memory: ${POSTGRES_MEMORY_LIMIT:-1g}
 
   minio:
-    image: minio/minio:latest
+    # quay.io, а не Docker Hub: это официальный реестр MinIO (их же
+    # документация ставит оттуда), и он отдаёт образ там, где Docker Hub
+    # отвечает `pull access denied for minio/minio` — воспроизведено на
+    # сервере стенда 14.09.2026, при том что ghcr.io работал нормально.
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:latest}
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -147,7 +154,7 @@ services:
           memory: ${FRONTEND_MEMORY_LIMIT:-256m}
 
   caddy:
-    image: caddy:2-alpine
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
     restart: unless-stopped
     depends_on:
       - backend

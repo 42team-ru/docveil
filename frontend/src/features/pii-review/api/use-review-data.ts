@@ -144,5 +144,9 @@ export function useReviewData(runId: string | null): ReviewData {
 
 function errorTextOf(error: unknown): string | null {
   if (error === null || error === undefined) return null;
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    const detail = (error as { detail?: unknown }).detail;
+    return typeof detail === "string" && detail ? detail : error.message;
+  }
+  return String(error);
 }

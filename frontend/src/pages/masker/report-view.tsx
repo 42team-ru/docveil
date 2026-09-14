@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { AnimatePresence } from "motion/react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { Section } from "@astryxdesign/core/Section";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { Heading, Text } from "@astryxdesign/core/Text";
@@ -13,6 +15,7 @@ import { ReportResources } from "../../features/masking-report/ui/report-resourc
 import { ReportStats } from "../../features/masking-report/ui/report-stats";
 import { ReportTable } from "../../features/masking-report/ui/report-table";
 import { useRuntimeMetrics } from "../../features/masking-run/api/masking-run";
+import { MotionSection, fadeSwapMotion } from "../../shared/ui/motion/motion-astryx";
 
 type ReportViewProps = {
   /** `null` — граф ещё не досчитал `report.json` для этого прогона. */
@@ -41,25 +44,41 @@ export function ReportView({ report, runId }: ReportViewProps) {
         <Tab value="resources" label="Ресурсы" panelId="report-content" />
       </TabList>
 
-      {tab === "certificate" ? <Certificate report={report} /> : null}
-      {tab === "resources" ? <ReportResources report={report} runtime={runtime.data} /> : null}
-      {tab === "report" ? <>
-      <ReportStats report={report} />
+      <AnimatePresence mode="wait" initial={false}>
+        {tab === "certificate" ? (
+          <MotionSection key="certificate" variant="transparent" padding={0} {...fadeSwapMotion}>
+            <Certificate report={report} />
+          </MotionSection>
+        ) : tab === "resources" ? (
+          <MotionSection key="resources" variant="transparent" padding={0} {...fadeSwapMotion}>
+            {runtime.isLoading ? (
+              <Skeleton height={360} width="100%" />
+            ) : (
+              <ReportResources report={report} runtime={runtime.data} />
+            )}
+          </MotionSection>
+        ) : (
+          <MotionSection key="report" variant="transparent" padding={0} {...fadeSwapMotion}>
+            <VStack gap={5}>
+              <ReportStats report={report} />
 
-      {report.detectionCoverage.requestedWithoutDetector.length > 0 ? (
-        <Banner
-          status="info"
-          container="section"
-          collapsible={false}
-          title="Не все запрошенные типы ищутся"
-          description={`Детектора пока нет: ${report.detectionCoverage.requestedWithoutDetector.join(", ")}. Замен по этим типам в документе не будет.`}
-        />
-      ) : null}
+              {report.detectionCoverage.requestedWithoutDetector.length > 0 ? (
+                <Banner
+                  status="info"
+                  container="section"
+                  collapsible={false}
+                  title="Не все запрошенные типы ищутся"
+                  description={`Детектора пока нет: ${report.detectionCoverage.requestedWithoutDetector.join(", ")}. Замен по этим типам в документе не будет.`}
+                />
+              ) : null}
 
-      <ReportTable report={report} />
+              <ReportTable report={report} />
 
-      <ReportLimitations report={report} />
-      </> : null}
+              <ReportLimitations report={report} />
+            </VStack>
+          </MotionSection>
+        )}
+      </AnimatePresence>
     </VStack>
   );
 }

@@ -1,22 +1,10 @@
 import { useState } from "react";
-import {
-  Bar,
-  BarChart,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { Banner } from "@astryxdesign/core/Banner";
-import { Card } from "@astryxdesign/core/Card";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Grid } from "@astryxdesign/core/Grid";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { Section } from "@astryxdesign/core/Section";
-import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { Table, pixel, proportional } from "@astryxdesign/core/Table";
 import { Heading, Text } from "@astryxdesign/core/Text";
@@ -36,6 +24,13 @@ import type {
   ReportDecisions,
   Telemetry,
 } from "../../../entity/pii/model/types";
+import {
+  buildCategoryData,
+  CategoryBarChart,
+  type CategoryDatum,
+} from "../../../shared/ui/charts/category-bar-chart";
+import { DonutChart } from "../../../shared/ui/charts/donut-chart";
+import { MetricCard } from "../../../shared/ui/charts/metric-card";
 import type { RuntimeMetrics } from "../../masking-run/api/masking-run";
 import { DECIDED_BY_LABEL } from "./report-table";
 
@@ -145,15 +140,6 @@ const STAGE_LAYERS: { key: string; label: string; nodes: string[] }[] = [
  * посчитанную им сумму между узлами графа; когда тариф не задан (`cost === null`),
  * эта оценка не считается вовсе — деньги не показываем.
  */
-const CHART_COLOR_TOKENS = [
-  "--color-text-blue",
-  "--color-text-teal",
-  "--color-text-purple",
-  "--color-text-orange",
-  "--color-text-cyan",
-  "--color-text-pink",
-] as const;
-
 const PROMPT_RUB_PER_1K = 0.096;
 const COMPLETION_RUB_PER_1K = 0.289;
 
@@ -178,29 +164,6 @@ const STAGE_COLORS: Record<string, string> = {
 };
 
 type OrderedStage = { name: string; durationMs: number; order: number };
-
-/** Один столбец категорийной диаграммы (источник / уровень / решение). */
-type CategoryDatum = { key: string; label: string; count: number };
-
-/**
- * Группирует счётчик по словарю подписей. С `order` держит заданный порядок
- * категорий (нужно для уровней уверенности — от надёжного к спорному) и
- * дописывает в конец всё, чего в порядке не было, а не молчит про него.
- * Без `order` сортирует по убыванию — так на диаграмме сверху самый частый
- * случай.
- */
-function buildCategoryData(
-  counts: Record<string, number>,
-  labels: Record<string, string>,
-  order?: string[],
-): CategoryDatum[] {
-  const keys = order
-    ? [...order, ...Object.keys(counts).filter((key) => !order.includes(key))]
-    : Object.keys(counts).sort((a, b) => (counts[b] ?? 0) - (counts[a] ?? 0));
-  return keys
-    .map((key) => ({ key, label: labels[key] ?? key, count: counts[key] ?? 0 }))
-    .filter((item) => item.count > 0);
-}
 
 /** Сколько ссылок решил каждый источник (`report.decisions.byRef[].decidedBy`). */
 function countByDecidedBy(
@@ -241,7 +204,6 @@ function buildLayerData(runtime: RuntimeMetrics): CategoryDatum[] {
 /** Тело вкладки «Ресурсы»: сколько времени и денег стоил прогон и на что они ушли. */
 export function ReportResources({ report, runtime }: ReportResourcesProps) {
   const telemetry = report.telemetry;
-  const { token } = useTheme();
 
   if (!telemetry) {
     return (
@@ -329,12 +291,6 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
             <Heading level={4}>Конвейер по слоям</Heading>
             <CategoryBarChart
               data={buildLayerData(runtime)}
-              colors={CHART_COLOR_TOKENS.map((name) => token(name))}
-              axisColor={token("--color-text-secondary")}
-              gridColor={token("--color-border")}
-              tooltipBackground={token("--color-background-popover")}
-              tooltipBorder={token("--color-border")}
-              tooltipText={token("--color-text-primary")}
               valueFormatter={formatDuration}
             />
             <Text type="supporting" color="secondary">
@@ -354,40 +310,13 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
       </Grid>
       <Grid columns={{ minWidth: 260, max: 3, repeat: "fit" }} gap={4}>
         <Section>
-          <CategoryBarChart
-            data={sourceData}
-            colors={CHART_COLOR_TOKENS.map((name) => token(name))}
-            axisColor={token("--color-text-secondary")}
-            gridColor={token("--color-border")}
-            tooltipBackground={token("--color-background-popover")}
-            tooltipBorder={token("--color-border")}
-            tooltipText={token("--color-text-primary")}
-            fixedHeight={chartRowHeight}
-          />
+          <CategoryBarChart data={sourceData} fixedHeight={chartRowHeight} />
         </Section>
         <Section>
-          <CategoryBarChart
-            data={levelData}
-            colors={CHART_COLOR_TOKENS.map((name) => token(name))}
-            axisColor={token("--color-text-secondary")}
-            gridColor={token("--color-border")}
-            tooltipBackground={token("--color-background-popover")}
-            tooltipBorder={token("--color-border")}
-            tooltipText={token("--color-text-primary")}
-            fixedHeight={chartRowHeight}
-          />
+          <CategoryBarChart data={levelData} fixedHeight={chartRowHeight} />
         </Section>
         <Section>
-          <CategoryBarChart
-            data={decidedByData}
-            colors={CHART_COLOR_TOKENS.map((name) => token(name))}
-            axisColor={token("--color-text-secondary")}
-            gridColor={token("--color-border")}
-            tooltipBackground={token("--color-background-popover")}
-            tooltipBorder={token("--color-border")}
-            tooltipText={token("--color-text-primary")}
-            fixedHeight={chartRowHeight}
-          />
+          <CategoryBarChart data={decidedByData} fixedHeight={chartRowHeight} />
         </Section>
       </Grid>
       {nonLlmShare !== null ? (
@@ -405,14 +334,7 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
         />
       ) : (
         <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={4}>
-          <NodeCostChart
-            telemetry={telemetry}
-            colors={CHART_COLOR_TOKENS.map((name) => token(name))}
-            mutedColor={token("--color-background-muted")}
-            tooltipBackground={token("--color-background-popover")}
-            tooltipBorder={token("--color-border")}
-            tooltipText={token("--color-text-primary")}
-          />
+          <NodeCostChart telemetry={telemetry} />
           <Section>
             <VStack gap={3}>
               <Heading level={4}>Расход модели</Heading>
@@ -443,156 +365,28 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  note,
-}: {
-  label: string;
-  value: string;
-  note?: string;
-}) {
-  return (
-    <Card padding={4}>
-      <VStack gap={1}>
-        <Text type="supporting">{label}</Text>
-        <Heading level={3}>{value}</Heading>
-        {note ? (
-          <Text type="supporting" color="secondary">
-            {note}
-          </Text>
-        ) : null}
-      </VStack>
-    </Card>
-  );
-}
-
-type CategoryBarChartProps = {
-  data: CategoryDatum[];
-  colors: string[];
-  axisColor: string;
-  gridColor: string;
-  tooltipBackground: string;
-  tooltipBorder: string;
-  tooltipText: string;
-  valueFormatter?: (value: number) => string;
-  /** Явно задать высоту контейнера (px) — нужно чтобы несколько чартов стояли ровно. */
-  fixedHeight?: number;
-};
-
-/** Горизонтальная диаграмма по категориям — источник, уверенность, решение. */
-function CategoryBarChart({
-  data,
-  colors,
-  axisColor,
-  gridColor,
-  tooltipBackground,
-  tooltipBorder,
-  tooltipText,
-  valueFormatter,
-  fixedHeight,
-}: CategoryBarChartProps) {
-  if (data.length === 0) {
-    return <Text color="secondary">Данных нет.</Text>;
-  }
-  const format =
-    valueFormatter ?? ((value: number) => value.toLocaleString("ru-RU"));
-  const chartData = data.map((item) => ({
-    name: item.label,
-    count: item.count,
-  }));
-  const maxLabelLength = chartData.reduce(
-    (max, d) => Math.max(max, d.name.length),
-    0,
-  );
-  const yAxisWidth = Math.min(280, Math.max(120, maxLabelLength * 7));
-  const height = fixedHeight ?? Math.max(96, chartData.length * 44);
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <BarChart
-        data={chartData}
-        layout="vertical"
-        margin={{ top: 4, right: 24, bottom: 4, left: 4 }}
-      >
-        <XAxis
-          type="number"
-          allowDecimals={false}
-          tickFormatter={format}
-          stroke={axisColor}
-          tick={{ fill: axisColor, fontSize: 12 }}
-          axisLine={{ stroke: gridColor }}
-          tickLine={{ stroke: gridColor }}
-        />
-        <YAxis
-          type="category"
-          dataKey="name"
-          width={yAxisWidth}
-          interval={0}
-          stroke={axisColor}
-          tick={{ fill: axisColor, fontSize: 12 }}
-          axisLine={{ stroke: gridColor }}
-          tickLine={false}
-        />
-        <Tooltip
-          formatter={(value) => format(Number(value))}
-          contentStyle={{
-            background: tooltipBackground,
-            border: `1px solid ${tooltipBorder}`,
-            borderRadius: 8,
-          }}
-          labelStyle={{ color: tooltipText }}
-          itemStyle={{ color: tooltipText }}
-          cursor={{ fill: gridColor, opacity: 0.4 }}
-        />
-        <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={22}>
-          {chartData.map((entry, index) => (
-            <Cell key={entry.name} fill={colors[index % colors.length]} />
-          ))}
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
 type NodeCostChartProps = {
   telemetry: Telemetry;
-  colors: string[];
-  mutedColor: string;
-  tooltipBackground: string;
-  tooltipBorder: string;
-  tooltipText: string;
 };
 
-type NodeSlice = {
-  node: string;
-  label: string;
-  value: number;
-  calls: number;
-  promptTokens: number;
-  completionTokens: number;
-};
-
-/** Круговая диаграмма стоимости или токенов LLM по узлам графа. */
-function NodeCostChart({
-  telemetry,
-  colors,
-  mutedColor,
-  tooltipBackground,
-  tooltipBorder,
-  tooltipText,
-}: NodeCostChartProps) {
+/** Кольцевая диаграмма стоимости или токенов LLM по узлам графа. */
+function NodeCostChart({ telemetry }: NodeCostChartProps) {
   const byCost = telemetry.llm.cost !== null;
-  const data: NodeSlice[] = telemetry.llm.byNode
-    .map((item) => ({
-      node: item.node,
-      label: stageTitle(item.node),
-      calls: item.calls,
-      promptTokens: item.promptTokens,
-      completionTokens: item.completionTokens,
-      value: byCost
+  const format = byCost
+    ? formatRub
+    : (value: number) => `${value.toLocaleString("ru-RU")} ток.`;
+  const data = telemetry.llm.byNode
+    .map((item) => {
+      const value = byCost
         ? estimateNodeCostRub(item.promptTokens, item.completionTokens)
-        : item.promptTokens + item.completionTokens,
-    }))
+        : item.promptTokens + item.completionTokens;
+      return {
+        key: item.node,
+        label: stageTitle(item.node),
+        value,
+        description: `${item.calls} выз. · ввод ${item.promptTokens.toLocaleString("ru-RU")}, вывод ${item.completionTokens.toLocaleString("ru-RU")}`,
+      };
+    })
     .filter((item) => item.value > 0);
   const total = data.reduce((sum, item) => sum + item.value, 0);
 
@@ -613,61 +407,7 @@ function NodeCostChart({
         <Heading level={4}>
           {byCost ? "Стоимость по узлам" : "Токены по узлам"}
         </Heading>
-        <HStack gap={4} wrap="wrap" vAlign="center">
-          <ResponsiveContainer width={180} height={180}>
-            <PieChart>
-              <Pie
-                data={data}
-                dataKey="value"
-                nameKey="label"
-                innerRadius={48}
-                outerRadius={80}
-                paddingAngle={data.length > 1 ? 2 : 0}
-                stroke={mutedColor}
-              >
-                {data.map((item, index) => (
-                  <Cell key={item.node} fill={colors[index % colors.length]} />
-                ))}
-              </Pie>
-              <Tooltip
-                formatter={(value) => {
-                  const numeric = Number(value);
-                  return byCost
-                    ? formatRub(numeric)
-                    : numeric.toLocaleString("ru-RU");
-                }}
-                contentStyle={{
-                  background: tooltipBackground,
-                  border: `1px solid ${tooltipBorder}`,
-                  borderRadius: 8,
-                }}
-                labelStyle={{ color: tooltipText }}
-                itemStyle={{ color: tooltipText }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <StackItem size="fill">
-            <List density="compact">
-              {data.map((item, index) => (
-                <ListItem
-                  key={item.node}
-                  label={`${item.label} · ${byCost ? formatRub(item.value) : `${item.value.toLocaleString("ru-RU")} ток.`}`}
-                  description={`${item.calls} выз. · ввод ${item.promptTokens.toLocaleString("ru-RU")}, вывод ${item.completionTokens.toLocaleString("ru-RU")}`}
-                  startContent={
-                    <svg aria-hidden="true" width="12" height="12">
-                      <circle
-                        cx="6"
-                        cy="6"
-                        r="5"
-                        fill={colors[index % colors.length]}
-                      />
-                    </svg>
-                  }
-                />
-              ))}
-            </List>
-          </StackItem>
-        </HStack>
+        <DonutChart data={data} valueFormatter={format} />
       </VStack>
     </Section>
   );

@@ -94,6 +94,7 @@ export function DocumentPage() {
   const [notFoundIds, setNotFoundIds] = useState<Set<string>>(new Set());
   const [isConfirmApproveOpen, setIsConfirmApproveOpen] = useState(false);
   const [regenerationRevision, setRegenerationRevision] = useState<number | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const setDocumentGroups = useReviewStore((state) => state.setDocumentGroups);
   const hasUnappliedChanges = useReviewStore((state) =>
@@ -227,11 +228,14 @@ export function DocumentPage() {
   /** Скачивает подсвеченный вариант — тот же файл, что открыт во вьюере. */
   async function handleDownload() {
     if (runId === null) return;
+    setIsDownloading(true);
     try {
       await downloadArtifact(runId, "masked_highlight", reviewedDocument.name);
       showToast({ body: "Обезличенный документ скачан", type: "info" });
     } catch {
       showToast({ body: "Не удалось скачать обезличенный документ", type: "error" });
+    } finally {
+      setIsDownloading(false);
     }
   }
 
@@ -245,7 +249,7 @@ export function DocumentPage() {
             <Button
               variant="primary"
               label="К документам"
-              onClick={() => navigate("/documents")}
+              onClick={() => navigate("/documents", { viewTransition: true })}
             />
           }
         />
@@ -320,7 +324,8 @@ export function DocumentPage() {
                 variant={ready ? "primary" : "secondary"}
                 label="Скачать обезличенный документ"
                 icon={<Icon icon={Download} size="sm" />}
-                isDisabled={!ready || hasUnappliedChanges || isRegenerating}
+                isDisabled={!ready || hasUnappliedChanges || isRegenerating || isDownloading}
+                isLoading={isDownloading}
                 onClick={() => void handleDownload()}
               />
               <Button
@@ -392,6 +397,10 @@ export function DocumentPage() {
         onLeave={() => void navigate(uploadIds.length > 1 ? location.pathname : "/documents", {
           replace: uploadIds.length > 1,
           state: uploadIds.length > 1 ? { uploadIds, chooseUpload: true } : undefined,
+          // Настоящий переход только когда уходим на /documents — открытие
+          // диалога выбора файла на том же пути не должно триггерить снимок
+          // всей страницы.
+          viewTransition: uploadIds.length <= 1,
         })}
       />
       <UploadSelectionDialog
@@ -400,8 +409,9 @@ export function DocumentPage() {
         onSelect={(id) => void navigate(`/documents/${id}`, {
           replace: true,
           state: { uploadIds, chooseUpload: false },
+          viewTransition: true,
         })}
-        onLeave={() => void navigate("/")}
+        onLeave={() => void navigate("/", { viewTransition: true })}
       />
       <AlertDialog
         isOpen={isConfirmApproveOpen}

@@ -17,6 +17,175 @@ export const Action = {
 } as const;
 
 /**
+ * Строка топа падающих узлов графа — где именно система ломается чаще всего.
+ */
+export interface AdminFailureOut {
+  node_hint: string | null;
+  count: number;
+  last_error: string | null;
+  last_at: string | null;
+}
+
+export type AdminOptionsStatsOutByMaskStyle = {[key: string]: number};
+
+/**
+ * Разбор `RunORM.options` (JSONB тела `RunCreateRequest`) за окно `days`.
+ *
+ * `mask_style` — единственное поле опций с более чем двумя значениями
+ * (`marker`/`blackbox`/`both`), поэтому только оно — распределение; прочие
+ * булевы флаги — просто счётчик прогонов, где флаг включён.
+ */
+export interface AdminOptionsStatsOut {
+  by_mask_style?: AdminOptionsStatsOutByMaskStyle;
+  profile_enabled: number;
+  rules_only: number;
+  unmask_critical: number;
+  review: number;
+  with_custom_types: number;
+}
+
+/**
+ * Одна точка временного ряда «событий за день».
+ */
+export interface DayCountOut {
+  date: string;
+  count: number;
+}
+
+/**
+ * Сводка по таблице `users`.
+ */
+export interface AdminUsersStatsOut {
+  total: number;
+  active: number;
+  inactive: number;
+  admins: number;
+  never_logged_in: number;
+  active_last_7d: number;
+  active_last_30d: number;
+  with_avatar: number;
+  signups_by_day?: DayCountOut[];
+}
+
+export type AdminRunsStatsOutByStatus = {[key: string]: number};
+
+export type AdminRunsStatsOutByFormat = {[key: string]: number};
+
+/**
+ * Сводка по таблице `runs` за окно `days` (см. `AdminOverviewOut.window_days`).
+ */
+export interface AdminRunsStatsOut {
+  total: number;
+  by_status?: AdminRunsStatsOutByStatus;
+  by_format?: AdminRunsStatsOutByFormat;
+  by_day?: DayCountOut[];
+  succeeded: number;
+  failed: number;
+  leaked: number;
+  in_progress: number;
+  success_rate?: number | null;
+  avg_duration_seconds?: number | null;
+  median_duration_seconds?: number | null;
+}
+
+export type AdminSessionsOutByDevice = {[key: string]: number};
+
+/**
+ * Сводка по `refresh_tokens` — активные сессии/устройства прямо сейчас.
+ */
+export interface AdminSessionsOut {
+  active: number;
+  by_device?: AdminSessionsOutByDevice;
+  revoked: number;
+  expired: number;
+}
+
+export type Role = typeof Role[keyof typeof Role];
+
+
+export const Role = {
+  admin: 'admin',
+  user: 'user',
+} as const;
+
+/**
+ * Строка таблицы пользователей в админке — профиль плюс его активность.
+ */
+export interface AdminUserRowOut {
+  id: string;
+  email: string;
+  full_name: string;
+  roles: Role[];
+  is_active: boolean;
+  created_at: string;
+  last_login_at?: string | null;
+  timezone?: string | null;
+  has_avatar?: boolean;
+  runs_total?: number;
+  runs_failed?: number;
+  last_run_at?: string | null;
+  active_sessions?: number;
+}
+
+/**
+ * Единый ответ `GET /admin/overview` — всё для сводного экрана одним запросом.
+ */
+export interface AdminOverviewOut {
+  generated_at: string;
+  window_days: number;
+  users: AdminUsersStatsOut;
+  runs: AdminRunsStatsOut;
+  options: AdminOptionsStatsOut;
+  failures?: AdminFailureOut[];
+  sessions: AdminSessionsOut;
+  top_users?: AdminUserRowOut[];
+}
+
+export type AdminRunRowOutStatus = typeof AdminRunRowOutStatus[keyof typeof AdminRunRowOutStatus];
+
+
+export const AdminRunRowOutStatus = {
+  queued: 'queued',
+  running: 'running',
+  awaiting_answers: 'awaiting_answers',
+  awaiting_review: 'awaiting_review',
+  done: 'done',
+  failed: 'failed',
+  leaked: 'leaked',
+} as const;
+
+/**
+ * Документ прогона — то, что нужно вьюеру и журналу.
+ */
+export interface RunDocument {
+  name: string;
+  format: string;
+  object_name: string;
+}
+
+/**
+ * Строка журнала прогонов всех пользователей (в отличие от `RunListItem` —
+ * журнала одного пользователя).
+ */
+export interface AdminRunRowOut {
+  id: string;
+  status: AdminRunRowOutStatus;
+  document: RunDocument;
+  created_at: string;
+  finished_at?: string | null;
+  node_hint?: string | null;
+  error?: string | null;
+  user_id: string;
+  user_email?: string | null;
+  user_full_name?: string | null;
+}
+
+export interface AdminRunListResponse {
+  items: AdminRunRowOut[];
+  total: number;
+}
+
+/**
  * Адресация фрагмента в документ — `entities[]`/`chunks[]`.
  */
 export interface AnchorOut {
@@ -1227,14 +1396,6 @@ export interface ReviewRequest {
   edits?: ReviewEdits;
 }
 
-export type Role = typeof Role[keyof typeof Role];
-
-
-export const Role = {
-  admin: 'admin',
-  user: 'user',
-} as const;
-
 export type RunCreateRequestMaskStyle = typeof RunCreateRequestMaskStyle[keyof typeof RunCreateRequestMaskStyle];
 
 
@@ -1267,15 +1428,6 @@ export interface RunCreateRequest {
   review?: boolean;
   custom_types?: RunCreateRequestCustomTypesItem[];
   image_output_format?: RunCreateRequestImageOutputFormat;
-}
-
-/**
- * Документ прогона — то, что нужно вьюеру и журналу.
- */
-export interface RunDocument {
-  name: string;
-  format: string;
-  object_name: string;
 }
 
 export type RunProgressEventContent = { [key: string]: unknown };
@@ -1429,5 +1581,28 @@ export type GetRunEventsApiRunsRunIdEventsGetParams = {
  * @minimum 0
  */
 after?: number;
+};
+
+export type GetOverviewApiAdminOverviewGetParams = {
+/**
+ * @minimum 1
+ * @maximum 365
+ */
+days?: number;
+};
+
+export type GetRunsApiAdminRunsGetParams = {
+query?: string | null;
+status?: string | null;
+user_id?: string | null;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
 };
 

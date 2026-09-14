@@ -127,7 +127,9 @@ def _run_options(request: RunCreateRequest, document_format: str) -> RunOptions:
         # Решение по формату — общее с CLI (`masker.cli`), см. `profile_enabled`.
         profile=profile_enabled(request.profile, document_format),
         unmask_critical=request.unmask_critical,
-        interactive=True,
+        # Веб-прогон не останавливается на неоднозначных сущностях: default
+        # каждого вопроса — безопасное решение «маскировать».
+        interactive=False,
         styles=_STYLES_BY_MASK_STYLE[request.mask_style],
         preview=True,
         review=request.review,

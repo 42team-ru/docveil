@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -119,6 +121,11 @@ export function ClarificationTab({ ask, runId }: ClarificationTabProps) {
   const answerQuestion = useReviewStore((state) => state.answerQuestion);
   const submit = useSubmitAnswers(runId);
   const questions = ask?.questions.filter((question) => question.kind !== "type") ?? [];
+  // Клик и React-рендер асинхронны: `submit.isPending` дизейблит кнопку
+  // только со следующего рендера, а физический двойной клик успевает
+  // выстрелить обоими onClick раньше — второй запрос ловит 409, потому что
+  // граф уже возобновлён первым. Ref синхронен внутри одного клика.
+  const submittedThreadRef = useRef<string | null>(null);
 
   if (!ask || questions.length === 0) {
     return (
@@ -168,9 +175,13 @@ export function ClarificationTab({ ask, runId }: ClarificationTabProps) {
             label="Продолжить обезличивание"
             isDisabled={runId === null || submit.isPending}
             isLoading={submit.isPending}
-            onClick={() =>
-              submit.mutate(buildAnswerEnvelope(ask.questions, answers, ask.schemaVersion))
-            }
+            onClick={() => {
+              // `isError` пускает повторный клик: неудачная попытка не
+              // должна навсегда запереть кнопку для того же треда вопросов.
+              if (submittedThreadRef.current === ask.threadId && !submit.isError) return;
+              submittedThreadRef.current = ask.threadId;
+              submit.mutate(buildAnswerEnvelope(ask.questions, answers, ask.schemaVersion));
+            }}
           />
           {unanswered > 0 ? (
             <Text type="supporting" color="secondary" textWrap="pretty">

@@ -9,6 +9,7 @@ import {
 
 import { useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { MotionConfig } from "motion/react";
 
 import type { Route } from "./+types/root";
 import "./styles/app.css";
@@ -81,7 +82,11 @@ export default function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      {/* reducedMotion="user" — все motion-компоненты сами уважают
+          prefers-reduced-motion, без ручных проверок в каждом месте. */}
+      <MotionConfig reducedMotion="user">
+        <Outlet />
+      </MotionConfig>
     </QueryClientProvider>
   );
 }

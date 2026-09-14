@@ -11,13 +11,9 @@ import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import { useToast } from "@astryxdesign/core/Toast";
 
+import { ROLE_LABEL } from "../../../entity/user/model/roles";
 import type { UserPublic } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
 import { useAvatarUrl, useDeleteAvatar, useUploadAvatar } from "../api/use-account";
-
-const ROLE_LABEL: Record<string, string> = {
-  admin: "Администратор",
-  user: "Пользователь",
-};
 
 type AccountIdentityProps = {
   user: UserPublic;

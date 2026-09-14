@@ -165,7 +165,7 @@ export default function LoginPage() {
         return;
       }
       setAccessToken(response.data.access_token);
-      navigate("/");
+      navigate("/", { viewTransition: true });
     } catch {
       setLoginFailed(true);
     } finally {

@@ -1,10 +1,12 @@
-import { FilePlus2, FileText } from "lucide-react";
+import { FilePlus2, FileText, ShieldCheck } from "lucide-react";
 import { Outlet, useLocation } from "react-router";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 
+import { isAdmin } from "../../../entity/user/model/roles";
 import { useAuthSession } from "../../../shared/model/use-auth-session";
 import { AccountTrigger } from "../../../features/account/ui/account-trigger";
+import { useAccount } from "../../../features/account/api/use-account";
 import {
   PanelShell,
   type PanelNavGroup,
@@ -15,19 +17,30 @@ import {
  * Роут-модуль знает только состав меню, всю верстку держит `PanelShell`.
  *
  * В меню одна вкладка — «Документы»: вход в проверку и отчёт идёт только
- * через журнал, отдельных пунктов для них больше нет.
+ * через журнал, отдельных пунктов для них больше нет. Вторая группа —
+ * «Администрирование» — появляется только у роли `admin` (`entity/user/model/roles`);
+ * настоящая защита самого раздела — на бэкенде, здесь только видимость пункта меню.
  */
 export default function MaskerLayout() {
   const { pathname } = useLocation();
   // Все экраны под этим каркасом ходят в закрытый API: без действующей сессии
   // показывать их незачем — хук уводит на вход.
   useAuthSession();
+  const { data: account } = useAccount();
 
   const groups: PanelNavGroup[] = [
     {
       title: "Работа",
       items: [{ to: "/documents", label: "Документы", icon: FileText }],
     },
+    ...(isAdmin(account)
+      ? [
+          {
+            title: "Администрирование",
+            items: [{ to: "/admin", label: "Админка", icon: ShieldCheck }],
+          },
+        ]
+      : []),
   ];
 
   return (

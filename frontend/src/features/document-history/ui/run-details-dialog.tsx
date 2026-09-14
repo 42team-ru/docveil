@@ -95,7 +95,7 @@ export function RunDetailsDialog({
       format: run.document.format.toUpperCase() as DocumentFormat,
     });
     onClose();
-    navigate("/");
+    navigate("/", { viewTransition: true });
   }
 
   return (

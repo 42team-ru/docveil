@@ -1,9 +1,12 @@
 import { useNavigate } from "react-router";
+import { AnimatePresence } from "motion/react";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Files } from "lucide-react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
+import { List } from "@astryxdesign/core/List";
 import { Section } from "@astryxdesign/core/Section";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -16,6 +19,7 @@ import { RunStatusToken } from "../../../entity/document/ui/run-status-token";
 import { formatMoment } from "../../../shared/lib/format-moment";
 import { useRunList } from "../../masking-run/api/masking-run";
 import type { RunListItem } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
+import { MotionListItem, listItemMotion } from "../../../shared/ui/motion/motion-astryx";
 import { recentRuns } from "../lib/recent-runs";
 
 /**
@@ -27,6 +31,7 @@ type RecentRunRow = RunListItem & Record<string, unknown>;
 /** Последние пять запусков на экране создания новой задачи. */
 export function RecentDocuments() {
   const navigate = useNavigate();
+  const isMobile = useMediaQuery("(max-width: 768px)", false);
   const runs = useRunList({ limit: 5 });
 
   if (runs.isLoading) {
@@ -73,70 +78,109 @@ export function RecentDocuments() {
       <VStack gap={4} paddingBlock={4} paddingInline={4}>
         <Heading level={4}>Последние документы</Heading>
 
-        <Table<RecentRunRow>
-          data={documents}
-          idKey="id"
-          density="balanced"
-          hasHover
-          textOverflow="truncate"
-          columns={[
-            {
-              key: "name",
-              header: "Документ",
-              width: proportional(2),
-              renderCell: (run) => (
-                <Text weight="medium" maxLines={1}>
-                  {run.document.name}
-                </Text>
-              ),
-            },
-            {
-              key: "format",
-              header: "Формат",
-              width: pixel(90),
-              renderCell: (run) => (
-                <FormatToken
-                  format={run.document.format.toUpperCase() as DocumentFormat}
+        {isMobile ? (
+          <List hasDividers>
+            <AnimatePresence initial={false}>
+              {documents.map((run) => (
+                <MotionListItem
+                  key={run.id}
+                  {...listItemMotion}
+                  label={run.document.name}
+                  startContent={
+                    <FormatToken
+                      format={run.document.format.toUpperCase() as DocumentFormat}
+                    />
+                  }
+                  description={
+                    <VStack gap={1}>
+                      <RunStatusToken status={run.status} />
+                      <Text type="supporting" color="secondary" size="sm">
+                        {formatMoment(run.created_at)}
+                      </Text>
+                    </VStack>
+                  }
+                  endContent={
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      label="Открыть"
+                      onClick={() =>
+                        navigate(`/documents/${run.id}`, { viewTransition: true })
+                      }
+                    />
+                  }
                 />
-              ),
-            },
-            {
-              key: "created_at",
-              header: "Запущен",
-              width: pixel(130),
-              renderCell: (run) => (
-                <Text color="secondary">{formatMoment(run.created_at)}</Text>
-              ),
-            },
-            {
-              key: "status",
-              header: "Статус",
-              width: pixel(150),
-              renderCell: (run) => <RunStatusToken status={run.status} />,
-            },
-            {
-              key: "actions",
-              header: "",
-              width: pixel(100),
-              align: "end",
-              renderCell: (run) => (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  label="Открыть"
-                  onClick={() => navigate(`/documents/${run.id}`)}
-                />
-              ),
-            },
-          ]}
-        />
+              ))}
+            </AnimatePresence>
+          </List>
+        ) : (
+          <Table<RecentRunRow>
+            data={documents}
+            idKey="id"
+            density="balanced"
+            hasHover
+            textOverflow="truncate"
+            columns={[
+              {
+                key: "name",
+                header: "Документ",
+                width: proportional(2),
+                renderCell: (run) => (
+                  <Text weight="medium" maxLines={1}>
+                    {run.document.name}
+                  </Text>
+                ),
+              },
+              {
+                key: "format",
+                header: "Формат",
+                width: pixel(90),
+                renderCell: (run) => (
+                  <FormatToken
+                    format={run.document.format.toUpperCase() as DocumentFormat}
+                  />
+                ),
+              },
+              {
+                key: "created_at",
+                header: "Запущен",
+                width: pixel(130),
+                renderCell: (run) => (
+                  <Text color="secondary">{formatMoment(run.created_at)}</Text>
+                ),
+              },
+              {
+                key: "status",
+                header: "Статус",
+                width: pixel(150),
+                renderCell: (run) => <RunStatusToken status={run.status} />,
+              },
+              {
+                key: "actions",
+                header: "",
+                width: pixel(100),
+                align: "end",
+                renderCell: (run) => (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    label="Открыть"
+                    onClick={() =>
+                      navigate(`/documents/${run.id}`, { viewTransition: true })
+                    }
+                  />
+                ),
+              },
+            ]}
+          />
+        )}
 
         <HStack hAlign="end">
           <Button
             size="sm"
             variant="secondary"
             label="Все документы"
-            onClick={() => navigate("/documents")}
+            onClick={() => navigate("/documents", { viewTransition: true })}
           />
         </HStack>
       </VStack>

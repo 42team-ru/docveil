@@ -13,7 +13,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.core.config import settings
 from api.core.storage import ensure_bucket
-from api.routers import auth, custom_types, files, ocr, runs, users
+from api.routers import admin, auth, custom_types, files, ocr, runs, users
 
 
 @asynccontextmanager
@@ -45,6 +45,7 @@ api_router.include_router(files.router)
 api_router.include_router(custom_types.router)
 api_router.include_router(ocr.router)
 api_router.include_router(runs.router)
+api_router.include_router(admin.router)
 app.include_router(api_router)
 
 

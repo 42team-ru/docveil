@@ -350,11 +350,12 @@ def make_detect_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
             )
             extra_segments = [_segment_to_dict(s) for s in sig_segs]
             entities.extend(sig_ents)
+        sig_covered = frozenset({"signature"}) if deps.signature is not None else frozenset()
         result: dict[str, object] = {
             "entities": [entity_to_dict(entity) for entity in entities],
             # Тот же ``detector``, которым только что детектировали — второй
             # DetectAgent() поднял бы Natasha ещё раз ради двух списков строк.
-            "detection_coverage": detection_coverage(selected_types, detector),
+            "detection_coverage": detection_coverage(selected_types, detector, sig_covered),
         }
         # Р7-2: сводка верификатора доезжает до `report.json`. В ``State``
         # кладём уже сериализованную запись, а не ``VerifierReport``:

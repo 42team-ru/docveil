@@ -484,6 +484,28 @@ start_stack() {
     # сертификаты пишутся в чужой по правам каталог.
     mkdir -p deploy/caddy/data deploy/caddy/config
     compose up -d
+    reload_caddy
+}
+
+# Caddyfile примонтирован файлом, а не встроен в образ: спецификация
+# контейнера от правки конфига не меняется, и `compose up -d` оставляет
+# Caddy работать со СТАРЫМ конфигом, загруженным в память. Снаружи это
+# выглядит как «обновил, а ничего не поменялось» — поймано на стенде
+# 14.09.2026, когда правка MIME для .mjs не доехала после update.
+#
+# `caddy reload` применяет конфиг без разрыва соединений и без потери
+# сертификатов. Падение перезагрузки не роняет развёртывание: стенд
+# продолжает работать на прежнем конфиге, но об этом сказано вслух.
+reload_caddy() {
+    local cid
+    cid="$(compose ps -q caddy 2>/dev/null || true)"
+    [ -n "$cid" ] || return 0
+    if compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+        ok "конфиг Caddy перечитан"
+    else
+        warn "не удалось перечитать конфиг Caddy — перезапускаю контейнер"
+        compose restart caddy >/dev/null 2>&1 || warn "перезапуск Caddy тоже не удался"
+    fi
 }
 
 wait_for_health() {

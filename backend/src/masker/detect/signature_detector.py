@@ -99,9 +99,11 @@ class SignatureDetector(Protocol):
 #: подпись обычно > 1 см = ~120 px по большей стороне; 40 px оставляет
 #: запас на инициалы и мелкие подписи. Ниже — шум.
 _MIN_BBOX_SIDE_PX: int = 40
-#: Минимальная площадь bbox относительно площади страницы (0.1%).
-#: Подпись 1×1 см = 120×120 px = 14 400 px на A4@300dpi (~3.5 млн px) → 0.004.
-_MIN_AREA_RATIO: float = 0.001
+#: Минимальная площадь bbox относительно площади страницы.
+#: Мелкая подпись 2×1 см @150 DPI ≈ 120×60 px, density~0.10 → ~720 fg px
+#: / ~2M px страницы = 0.00036. Порог 0.0003 оставляет запас на ещё более
+#: мелкие росчерки; шум и отдельные точки уходят через _MIN_BBOX_SIDE_PX.
+_MIN_AREA_RATIO: float = 0.0003
 #: Максимальная площадь bbox относительно площади страницы (25%).
 _MAX_AREA_RATIO: float = 0.25
 #: Диапазон плотности тёмных пикселей внутри bbox (доля от площади).
@@ -113,27 +115,30 @@ _MAX_DENSITY: float = 0.55
 _MIN_ASPECT: float = 0.25
 _MAX_ASPECT: float = 10.0
 #: Минимальная «извилистость» контура: отношение периметра контура к
-#: периметру bbox. У штампа-прямоугольника ≈ 1, у подписи > 1.0 (есть
-#: изгибы). Порог низкий, чтобы простые росчерки тоже проходили; штампы
-#: отбраковываются дополнительно комбинацией низкой density + низкой
-#: perimeter_ratio в скоринге confidence.
-_MIN_PERIMETER_RATIO: float = 1.05
+#: периметру bbox. Простые волнистые подписи без петель дают ~0.9;
+#: штампы-прямоугольники бракуются отдельным условием (high density +
+#: low perimeter_ratio), поэтому порог можно опустить ниже 1.0.
+_MIN_PERIMETER_RATIO: float = 0.85
+#: Максимальная ширина bbox относительно ширины страницы. Подписи не
+#: занимают всю ширину листа; широкие компоненты — обычно горизонтальные
+#: линии таблиц, морфологически слившиеся со штрихами подписи.
+_MAX_WIDTH_RATIO: float = 0.65
 
 
 class SignatureCVDetector:
     """Классический CV-детектор рукописных подписей.
 
     Пайплайн:
-    1. Grayscale → адаптивная бинаризация (``cv2.adaptiveThreshold``) с
-       инвертированием (штрихи чёрные на белом → чёрные пиксели фона).
-    2. Морфология ``MORPH_CLOSE`` небольшим ядром — соединяет разорванные
-       штрихи одной подписи в один компонент.
-    3. Маскирование текстовых регионов ``text_masks`` — bbox-ы OCR-строк
-       или блоков ``page.get_text("blocks")``, эти пиксели зануляются
-       на бинарном изображении, чтобы текст не порождал кандидатов.
-    4. ``cv2.connectedComponentsWithStats`` → фильтры (площадь, плотность,
-       соотношение сторон, извилистость).
-    5. ``confidence`` из эвристики: чем ближе к «идеальным» диапазонам,
+    1. Grayscale → CLAHE (улучшает контраст бледных/мелких чернил).
+    2. Адаптивная бинаризация (``cv2.adaptiveThreshold``) с инвертированием
+       (штрихи чёрные на белом → чёрные пиксели фона).
+    3. Морфология ``MORPH_CLOSE`` ядром 5 px @ 300 DPI (дефолт) —
+       соединяет разорванные штрихи одной подписи в один компонент,
+       но не склеивает соседние подписи с плотной вертикальной кладкой.
+    4. Маскирование текстовых регионов ``text_masks``.
+    5. ``cv2.connectedComponentsWithStats`` → фильтры (площадь, плотность,
+       соотношение сторон, извилистость, ширина / ширина страницы).
+    6. ``confidence`` из эвристики: чем ближе к «идеальным» диапазонам,
        тем выше (0.3–0.7 для CV — DETR потом может поднять выше).
 
     Импорт ``cv2`` — ленивый, потому что тест-слой ``masker.detect`` не
@@ -143,7 +148,7 @@ class SignatureCVDetector:
     name: str = "signature_cv"
     source_key: str = "cv"
 
-    def __init__(self, close_kernel_px: int = 9) -> None:
+    def __init__(self, close_kernel_px: int = 5) -> None:
         self._close_kernel_px = int(close_kernel_px)
 
     def detect(
@@ -177,12 +182,16 @@ class SignatureCVDetector:
         block_size = max(3, round(21 * scale))
         if block_size % 2 == 0:
             block_size += 1
-        # Ядро морфологии закрытия: нечётное, минимум 3.
-        kernel_px = max(3, round(self._close_kernel_px * scale))
+        # Ядро морфологии закрытия: нечётное, минимум 5 (при мелком ядре
+        # штрихи одной подписи не сшиваются и bbox выходит неполным).
+        kernel_px = max(5, round(self._close_kernel_px * scale))
         if kernel_px % 2 == 0:
             kernel_px += 1
 
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # CLAHE: повышает контраст мелких/бледных чернил, не раздувая шум.
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray = clahe.apply(gray)
         # Адаптивная бинаризация: чёрные штрихи → 255, фон → 0.
         binary = cv2.adaptiveThreshold(
             gray,
@@ -215,6 +224,8 @@ class SignatureCVDetector:
             area_ratio = float(area) / page_area
             if not (_MIN_AREA_RATIO <= area_ratio <= _MAX_AREA_RATIO):
                 continue
+            if float(w) / float(width) > _MAX_WIDTH_RATIO:
+                continue
             aspect = float(w) / float(h)
             if not (_MIN_ASPECT <= aspect <= _MAX_ASPECT):
                 continue
@@ -237,10 +248,11 @@ class SignatureCVDetector:
             if perimeter_ratio < _MIN_PERIMETER_RATIO:
                 continue
 
-            # Штамп-прямоугольник: контур однажды по границе (perim_ratio ~1),
-            # но иногда двойной (внешний+внутренний) → perim_ratio ~2 при
-            # очень низкой density (пустой прямоугольник). Отбраковываем
-            # такие «рамки»: низкая density и низкая perimeter_ratio.
+            # Штамп-прямоугольник: plотный (density > 0.35) и почти прямоугольный
+            # (perimeter_ratio < 1.3) — отбраковываем. Второе условие:
+            # пустая рамка (очень низкая density + perimeter_ratio ~1).
+            if density > 0.35 and perimeter_ratio < 1.3:
+                continue
             if density < 0.08 and perimeter_ratio < 1.5:
                 continue
 
@@ -300,7 +312,7 @@ def _cv_confidence(
 _DETR_MODEL_ID: str = "tech4humans/conditional-detr-50-signature-detector"
 #: Минимальная уверенность DETR-кандидата — ниже отбрасываем на уровне
 #: реализации, не тащим шум в ``resolve_signature_candidates``.
-_DETR_MIN_CONFIDENCE: float = 0.5
+_DETR_MIN_CONFIDENCE: float = 0.35
 
 
 class SignatureDETRDetector:
@@ -378,6 +390,8 @@ class SignatureDETRDetector:
         candidates: list[SignatureCandidate] = []
         for score, box in zip(results["scores"].tolist(), results["boxes"].tolist(), strict=True):
             x0, y0, x1, y1 = box
+            if width > 0 and (x1 - x0) / float(width) > _MAX_WIDTH_RATIO:
+                continue
             candidates.append(
                 SignatureCandidate(
                     bbox=(float(x0), float(y0), float(x1), float(y1)),
@@ -439,6 +453,20 @@ class FakeSignatureDetector:
 # ----------------------------------------------------------------------
 # Гибрид DETR + CV
 # ----------------------------------------------------------------------
+
+
+def _dedup(
+    candidates: tuple[SignatureCandidate, ...],
+    iou_threshold: float = 0.2,
+) -> tuple[SignatureCandidate, ...]:
+    """NMS внутри одного списка: при IoU >= threshold оставляем с max confidence."""
+    sorted_cands = sorted(candidates, key=lambda c: -c.confidence)
+    kept: list[SignatureCandidate] = []
+    for cand in sorted_cands:
+        if not any(_iou(cand.bbox, k.bbox) >= iou_threshold for k in kept):
+            kept.append(cand)
+    kept.sort(key=lambda c: (c.bbox[1], c.bbox[0], c.bbox[2], c.bbox[3]))
+    return tuple(kept)
 
 
 def merge_candidates(
@@ -528,7 +556,7 @@ class SignatureHybridDetector:
         dpi: int,
         text_masks: Iterable[tuple[float, float, float, float]] = (),
     ) -> tuple[SignatureCandidate, ...]:
-        detr = self._detr.detect(image, dpi, text_masks)
+        detr = _dedup(self._detr.detect(image, dpi, text_masks))
         cv = self._cv.detect(image, dpi, text_masks)
         return merge_candidates(detr, cv)
 

@@ -438,7 +438,7 @@ def _detect_signatures_pdf(
                 continue
 
             for cand in candidates:
-                if cand.confidence < 0.4:
+                if cand.confidence < 0.35:
                     continue
                 x0_px, y0_px, x1_px, y1_px = cand.bbox
                 x0 = round(x0_px * _PT_PER_PX * 100)

@@ -120,6 +120,52 @@ def test_cv_detector_rejects_solid_rectangle() -> None:
     assert not high, f"прямоугольный штамп не подпись, есть: {high!r}"
 
 
+def test_cv_detector_finds_small_simple_signature() -> None:
+    """Маленький простой росчерк (без петель) должен детектироваться.
+
+    Воспроизводит сценарий «Протокол_рассмотрения» p4: подписи ~130×70 px,
+    без замкнутых контуров, были отброшены до снижения _MIN_AREA_RATIO и
+    _MIN_PERIMETER_RATIO.
+    """
+    image = _blank_page(width=1200, height=1700)
+    # Компактный волнистый росчерк без петель (~130×50 px внутри страницы).
+    pts = np.array(
+        [
+            [700, 900],
+            [730, 870],
+            [760, 910],
+            [790, 875],
+            [820, 912],
+            [830, 900],
+        ],
+        dtype=np.int32,
+    )
+    cv2.polylines(image, [pts.reshape(-1, 1, 2)], False, (20, 20, 20), thickness=3)
+    # Короткий хвост-подчёркивание.
+    cv2.line(image, (700, 920), (830, 925), (25, 25, 25), thickness=2)
+
+    detector = SignatureCVDetector()
+    candidates = detector.detect(image, dpi=300)
+
+    assert candidates, f"маленький простой росчерк не детектирован: {candidates!r}"
+    in_area = [c for c in candidates if 650 < c.bbox[0] < 900 and 850 < c.bbox[1] < 960]
+    assert in_area, f"кандидат должен быть в зоне росчерка; получил: {candidates!r}"
+
+
+def test_cv_detector_rejects_full_width_table_row() -> None:
+    """Горизонтальная линия на полную ширину страницы — строка таблицы, не подпись."""
+    image = _blank_page(width=1200, height=1600)
+    # Горизонтальная черта на 90% ширины страницы — как линия в таблице.
+    cv2.line(image, (60, 800), (1140, 800), (0, 0, 0), thickness=8)
+    detector = SignatureCVDetector()
+
+    candidates = detector.detect(image, dpi=300)
+
+    assert not candidates, (
+        f"строка таблицы не должна детектиться как подпись; получил: {candidates!r}"
+    )
+
+
 def test_fake_detector_returns_predefined_candidates() -> None:
     image = _blank_page()
     key = (int(image.shape[1]), int(image.shape[0]))

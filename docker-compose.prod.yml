@@ -104,7 +104,14 @@ services:
       MASKER_OCR: ${MASKER_OCR:-tesseract}
       # Путь к весам GLiNER внутри контейнера; пусто — слой не используется.
       MASKER_GLINER_PATH: ${MASKER_GLINER_PATH:-}
+      # Профиль из `masker.yaml` целиком: провайдер, модель, scope, тариф.
+      # Это правильный способ включить живую модель. `MASKER_LLM` ниже
+      # оставлен для совместимости, но он подменяет ТОЛЬКО провайдера и
+      # требует отдельного MASKER_LLM_MODEL.
+      MASKER_LLM_PROFILE: ${MASKER_LLM_PROFILE:-}
       MASKER_LLM: ${MASKER_LLM:-fake}
+      MASKER_LLM_MODEL: ${MASKER_LLM_MODEL:-}
+      MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY: ${MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY:-}
       GIGACHAT_CREDENTIALS: ${GIGACHAT_CREDENTIALS:-}
       MASKER_LLM_GIGACHAT_SCOPE: ${MASKER_LLM_GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
       # Сертификат Минцифры монтируется ниже. Пустое значение означает

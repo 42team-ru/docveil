@@ -503,3 +503,54 @@ def test_openrouter_without_pinned_provider_lets_openrouter_route() -> None:
     body = captured["body"]
     assert isinstance(body, dict)
     assert "provider" not in body
+
+
+def test_profile_is_selected_by_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`MASKER_LLM_PROFILE` перекрывает `llm.profile` из YAML.
+
+    В контейнере `masker.yaml` приезжает вместе с образом, и переключение
+    профиля правкой файла означало бы пересборку. `MASKER_LLM` для этого не
+    годится: он подменяет только провайдера и оставляет модель пустой —
+    развёртывание падало с «для GigaChat задайте модель» при готовом
+    профиле в том же файле.
+    """
+    config_path = tmp_path / "masker.yaml"
+    config_path.write_text(
+        "llm:\n"
+        "  profile: fake\n"
+        "  profiles:\n"
+        "    fake:\n"
+        "      provider: fake\n"
+        "    gigachat:\n"
+        "      provider: gigachat\n"
+        "      model: GigaChat-3-Ultra\n"
+        "      api_key_env: GIGACHAT_CREDENTIALS\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MASKER_CONFIG", str(config_path))
+    monkeypatch.setenv("MASKER_LLM_PROFILE", "gigachat")
+    monkeypatch.delenv("MASKER_LLM", raising=False)
+    monkeypatch.delenv("MASKER_LLM_MODEL", raising=False)
+
+    config = resolve_llm_config()
+
+    assert config.provider == "gigachat"
+    assert config.model == "GigaChat-3-Ultra"
+
+
+def test_yaml_profile_wins_without_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Без переменной действует профиль из файла — прежнее поведение."""
+    config_path = tmp_path / "masker.yaml"
+    config_path.write_text(
+        "llm:\n  profile: fake\n  profiles:\n    fake:\n      provider: fake\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MASKER_CONFIG", str(config_path))
+    monkeypatch.delenv("MASKER_LLM_PROFILE", raising=False)
+    monkeypatch.delenv("MASKER_LLM", raising=False)
+
+    assert resolve_llm_config().provider == "fake"

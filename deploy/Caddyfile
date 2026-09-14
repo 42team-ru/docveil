@@ -42,6 +42,22 @@
 		reverse_proxy backend:8000
 	}
 
+	# ES-модули: принудительно правильный тип. nginx внутри образа фронта не
+	# знает расширение `.mjs` и отдаёт воркер pdf.js как
+	# `application/octet-stream`; браузер по спецификации такой модуль не
+	# исполняет, и просмотрщик молча откатывается на «fake worker».
+	#
+	# Сам образ уже исправлен (frontend/nginx.conf), но стенд тянет готовый
+	# образ из GHCR, и правка доедет только со следующим релизом. Эта строка
+	# чинит стенд сразу и остаётся безвредной после релиза: она выставляет
+	# тот же тип, который к тому времени придёт снизу.
+	@mjs path *.mjs
+	handle @mjs {
+		reverse_proxy frontend:80 {
+			header_down Content-Type text/javascript
+		}
+	}
+
 	# Всё остальное — статика React Router, собранная в образ frontend.
 	handle {
 		reverse_proxy frontend:80

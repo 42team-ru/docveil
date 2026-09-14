@@ -136,6 +136,46 @@ PEM в `deploy/gigachat-ca.pem`, раскомментируйте монтиро
 сертификата (`MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY`) — для
 локальной отладки, не для стенда.
 
+## GLiNER на стенде
+
+Локальный детектор своих типов. В базовый образ не входит: `--images` его не
+привезёт, нужна своя сборка.
+
+Замер 14.09.2026, чтобы решение было осознанным: пакеты **865 МБ** (из них
+torch 707 МБ), веса модели **1,2 ГБ**, **3058 МиБ RSS** на загрузку, 4,4 с
+на старт. Машина от 8 ГБ, иначе OOM на первом прогоне.
+
+```bash
+# 1. Веса на хост (1,2 ГБ, качаются один раз)
+cd backend
+uv run --extra gliner python scripts/warm_gliner.py --output ../models/gliner
+cd ..
+
+# 2. Раскомментировать монтирование в docker-compose.prod.yml:
+#      - ./models/gliner:/app/models/gliner:ro
+
+# 3. В .env.prod
+BACKEND_EXTRAS=gliner
+MASKER_GLINER_PATH=/app/models/gliner
+BACKEND_MEMORY_LIMIT=5g
+
+# 4. Пересобрать бэкенд СВОЙ, без --images
+./scripts/deploy.sh update
+```
+
+Проверка, что слой поднялся:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod \
+  exec backend python -c "from gliner2 import GLiNER2; print('ok')"
+```
+
+**Что известно до установки.** На корпусе GLiNER возвращает ноль
+предсказаний: F1 = 0.000 на обоих типах при пороге приёмки 0.9
+(`docs/BENCH-MATRIX.md`, задача Р10 в `TASKS.md`). Пользовательские типы
+сейчас работают без него — через компилятор описаний на русском
+(`/api/custom_types/compile`), это отдельный путь, GLiNER ему не нужен.
+
 ## Домен и TLS
 
 Скрипт спрашивает домен. Если A-запись уже смотрит на сервер, Caddy выпустит

@@ -67,6 +67,10 @@ services:
     image: ${BACKEND_IMAGE:-docveil-backend:local}
     build:
       context: ./backend
+      args:
+        # Опциональные extras питона. `EXTRAS=gliner` добавляет в образ torch
+        # и локальный детектор своих типов — см. docs/DEPLOY.md, раздел GLiNER.
+        EXTRAS: ${BACKEND_EXTRAS:-}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -98,6 +102,8 @@ services:
       # первый пользователь стенда (api/core/warmup.py).
       WARMUP_ON_START: "true"
       MASKER_OCR: ${MASKER_OCR:-tesseract}
+      # Путь к весам GLiNER внутри контейнера; пусто — слой не используется.
+      MASKER_GLINER_PATH: ${MASKER_GLINER_PATH:-}
       MASKER_LLM: ${MASKER_LLM:-fake}
       GIGACHAT_CREDENTIALS: ${GIGACHAT_CREDENTIALS:-}
       MASKER_LLM_GIGACHAT_SCOPE: ${MASKER_LLM_GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
@@ -121,6 +127,11 @@ services:
       # Вариант А из docs/DEPLOY.md: положите PEM рядом и раскомментируйте.
       # - ./deploy/gigachat-ca.pem:/certs/gigachat-ca.pem:ro
       - backend_state:/app/data
+      # Веса GLiNER (1,2 ГБ) в образ не кладём: их место — на диске хоста.
+      # Каталог создаётся `scripts/warm_gliner.py`; пока его нет, строка
+      # ничего не монтирует только если её закомментировать — docker создал
+      # бы пустой каталог и модель «нашлась» бы пустой.
+      # - ./models/gliner:/app/models/gliner:ro
     deploy:
       resources:
         limits:

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Play } from "lucide-react";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { useToast } from "@astryxdesign/core/Toast";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
@@ -65,6 +66,11 @@ export function UploadPage() {
     isSubmitting || items.some((item) => item.state === "starting");
   const startingRef = useRef(false);
 
+  // Ниже 1024px фиксированная боковая панель настроек сжимает основной
+  // столбец до нечитаемой ширины — на таких экранах очередь и кнопка
+  // отправки переезжают под основной контент, без бокового региона.
+  const isNarrow = useMediaQuery("(max-width: 1024px)", false);
+
   /**
    * Загружает первый файл из очереди в MinIO (если ещё не загружен) и открывает
    * диалог компилятора кастомных типов.
@@ -125,6 +131,7 @@ export function UploadPage() {
               uploadIds: submittable.map((upload) => upload.id),
               chooseUpload: submittable.length > 1,
             },
+            viewTransition: true,
           });
         }
       } catch (error) {
@@ -157,6 +164,44 @@ export function UploadPage() {
     }
   }
 
+  const queueHeader = (
+    <HStack gap={2} vAlign="center" paddingInline={3} paddingBlock={3}>
+      <Text type="label" weight="semibold">
+        Очередь файлов
+      </Text>
+      <StackItem size="fill" />
+      <Text type="supporting" color="secondary" size="sm">
+        {`${readyCount} готово`}
+      </Text>
+      {items.length > 0 ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          label="Очистить"
+          isDisabled={isStarting}
+          onClick={clearQueue}
+        />
+      ) : null}
+    </HStack>
+  );
+
+  const submitButton = (
+    <Button
+      variant="primary"
+      size="lg"
+      width="100%"
+      icon={<Icon icon={Play} size="sm" />}
+      label={
+        submittable.length === 1
+          ? "Обезличить документ"
+          : `Обезличить ${submittable.length} ${pluralRu(submittable.length, ["документ", "документа", "документов"])}`
+      }
+      isDisabled={submittable.length === 0 || isStarting}
+      isLoading={isStarting}
+      onClick={() => void handleStart()}
+    />
+  );
+
   return (
     <>
     <ScreenLayout
@@ -164,69 +209,30 @@ export function UploadPage() {
       contentPadding={0}
       isContentScrollable={false}
       panel={
-        <LayoutPanel
-          width={SETTINGS_WIDTH}
-          hasDivider
-          padding={0}
-          isScrollable={false}
-          label="Настройки задачи"
-        >
-          <Layout
-            height="fill"
-            header={
-              <LayoutHeader hasDivider padding={0}>
-                <HStack
-                  gap={2}
-                  vAlign="center"
-                  paddingInline={3}
-                  paddingBlock={3}
-                >
-                  <Text type="label" weight="semibold">
-                    Очередь файлов
-                  </Text>
-                  <StackItem size="fill" />
-                  <Text type="supporting" color="secondary" size="sm">
-                    {`${readyCount} готово`}
-                  </Text>
-                  {items.length > 0 ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      label="Очистить"
-                      isDisabled={isStarting}
-                      onClick={clearQueue}
-                    />
-                  ) : null}
-                </HStack>
-              </LayoutHeader>
-            }
-            content={
-              <LayoutContent padding={4} isScrollable label="Очередь">
-                <VStack gap={4} height="100%">
-                  <StackItem size="fill">
-                    <UploadQueue />
-                  </StackItem>
-                  <VStack gap={3}>
-                    <Button
-                      variant="primary"
-                      size="lg"
-                      width="100%"
-                      icon={<Icon icon={Play} size="sm" />}
-                      label={
-                        submittable.length === 1
-                          ? "Обезличить документ"
-                          : `Обезличить ${submittable.length} ${pluralRu(submittable.length, ["документ", "документа", "документов"])}`
-                      }
-                      isDisabled={submittable.length === 0 || isStarting}
-                      isLoading={isStarting}
-                      onClick={() => void handleStart()}
-                    />
+        isNarrow ? undefined : (
+          <LayoutPanel
+            width={SETTINGS_WIDTH}
+            hasDivider
+            padding={0}
+            isScrollable={false}
+            label="Настройки задачи"
+          >
+            <Layout
+              height="fill"
+              header={<LayoutHeader hasDivider padding={0}>{queueHeader}</LayoutHeader>}
+              content={
+                <LayoutContent padding={4} isScrollable label="Очередь">
+                  <VStack gap={4} height="100%">
+                    <StackItem size="fill">
+                      <UploadQueue />
+                    </StackItem>
+                    <VStack gap={3}>{submitButton}</VStack>
                   </VStack>
-                </VStack>
-              </LayoutContent>
-            }
-          />
-        </LayoutPanel>
+                </LayoutContent>
+              }
+            />
+          </LayoutPanel>
+        )
       }
     >
       <Layout
@@ -247,6 +253,17 @@ export function UploadPage() {
                   isAddingCustomType={isUploadingForCompiler}
                 />
               </Card>
+              {isNarrow ? (
+                <Card padding={0}>
+                  <VStack gap={0}>
+                    {queueHeader}
+                    <VStack gap={4} padding={4} minHeight={200}>
+                      <UploadQueue />
+                      {submitButton}
+                    </VStack>
+                  </VStack>
+                </Card>
+              ) : null}
               <Card padding={0}>
                 <RecentDocuments />
               </Card>

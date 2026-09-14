@@ -2,7 +2,9 @@ import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { List, ListItem } from "@astryxdesign/core/List";
+import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
 import { useUploadQueueStore } from "../../../entity/document/model/upload-queue-store";
 import { FormatToken } from "../../../entity/document/ui/format-token";
 
@@ -24,7 +26,7 @@ export function UploadSelectionDialog({ isOpen, uploadIds, onSelect, onLeave }: 
         content={<LayoutContent isScrollable>
           <List hasDividers>
             {uploads.map((item) => <ListItem key={item.id} label={item.name}
-              description={item.state === "failed" ? item.error ?? "Не удалось загрузить" : item.state === "started" ? "Можно открыть" : "Загружается…"}
+              description={item.state === "failed" ? item.error ?? "Не удалось загрузить" : item.state === "started" ? "Можно открыть" : <HStack gap={1.5} vAlign="center"><Spinner size="sm" /><Text type="supporting">Загружается…</Text></HStack>}
               startContent={<FormatToken format={item.format} />}
               endContent={<Button label="Открыть" size="sm" isDisabled={item.runId === null}
                 onClick={() => { if (item.runId) onSelect(item.runId); }} />} />)}

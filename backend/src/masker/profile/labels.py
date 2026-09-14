@@ -62,6 +62,15 @@ REPRESENTATIVE = re.compile(
 # у `SIGNATURE`, а не хардкод: пара валидна только если ОБА слова в ней —
 # известные роли стороны, и это разные роли (не повтор одного слова).
 ROLE_PAIR = re.compile(r"\b([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)\b")
+# 13.09.2026: двухколоночные реквизиты обеих сторон, расплющенные PDF-
+# экстракцией в один блок (`ipklh-2022-01-11.pdf`), заголовуют каждую
+# колонку голым словом роли в кавычках — «ЗАКАЗЧИК» Учреждение… «ПОСТАВЩИК»
+# ООО…» — без двоеточия (SIGNATURE его требует) и без «именуемое в
+# дальнейшем» (PREAMBLE ищет только этот оборот). Без метки на границе
+# реквизиты обеих сторон попадают в один безымянный блок и склеиваются по
+# ОГРН/ИНН в один профиль. Как и у SIGNATURE, находка проверяется списком
+# ролей стороны — не хардкод, а тот же `data/party_roles.yaml`.
+QUOTED_HEADER = re.compile(r"[«\"]([А-ЯЁ][а-яёА-ЯЁ\- ]{1,40})[»\"]\s*(?=[А-ЯЁ])")
 
 
 @functools.lru_cache(maxsize=1)
@@ -219,6 +228,10 @@ def find_labels(text: str) -> list[tuple[int, str]]:
         ):
             found.append((match.start(1), first))
             found.append((match.start(2), second))
+    for match in QUOTED_HEADER.finditer(text):
+        label = normalize_label(match.group(1))
+        if label and not _is_collective(label) and _is_known_party_role(label):
+            found.append((match.start(1), label))
     return sorted(set(found), key=lambda item: item[0])
 
 

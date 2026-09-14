@@ -221,6 +221,11 @@ async def post_answers(
             f"прогон {run_id} в состоянии {run.status!r}, ответы сейчас не принимаются",
         )
 
+    # Резервируем тред до фоновой задачи: фронтенд должен продолжить polling,
+    # а второй клик не должен запустить тот же resume параллельно.
+    run.status = "running"
+    run.error = None
+    await session.commit()
     background.add_task(
         run_service.resume_with_answers,
         run.id,

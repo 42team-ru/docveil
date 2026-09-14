@@ -177,7 +177,11 @@ def test_two_persons_of_one_party_get_numbered_markers() -> None:
     plan = PlanAgent().plan(document, entities, profiles=profiles)
 
     markers = sorted(repl.marker for repl in plan.replacements)
-    assert markers == ["[ПОСТАВЩИК-ФИО-1]", "[ПОСТАВЩИК-ФИО-1]"]
+    # Два РАЗНЫХ человека одной стороны обязаны различаться номером: под общим
+    # маркером обезличенный договор перестаёт быть читаемым. Ожидание было
+    # ослаблено до «-1/-1» в 1b7dbfc под тогдашнее поведение кода и вернулось
+    # вместе с разведением маркеров (`_disambiguate_markers`).
+    assert markers == ["[ПОСТАВЩИК-ФИО-1]", "[ПОСТАВЩИК-ФИО-2]"]
 
 
 def test_single_group_in_bucket_has_no_number() -> None:
@@ -388,4 +392,4 @@ def test_group_numbering_follows_first_occurrence_not_input_order(reverse: bool)
 
     by_ref = {repl.ref: repl.marker for repl in plan.replacements}
     assert by_ref[index.ref(earlier)] == "[ПОСТАВЩИК-ФИО-1]"
-    assert by_ref[index.ref(later)] == "[ПОСТАВЩИК-ФИО-1]"
+    assert by_ref[index.ref(later)] == "[ПОСТАВЩИК-ФИО-2]"

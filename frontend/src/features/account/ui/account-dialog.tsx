@@ -81,7 +81,7 @@ export function AccountDialog({ isOpen, onOpenChange }: AccountDialogProps) {
                     isLoading={logout.isPending}
                     onClick={() => {
                       logout.mutate(undefined, {
-                        onSuccess: () => navigate("/login"),
+                        onSuccess: () => navigate("/login", { viewTransition: true }),
                       });
                     }}
                   />

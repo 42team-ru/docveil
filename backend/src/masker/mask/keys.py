@@ -17,8 +17,10 @@
 
 from __future__ import annotations
 
+import re
+
 from masker.detect.normalize import normalize_value
-from masker.model import Entity
+from masker.model import Entity, EntityType
 
 #: Префикс сырого ключа при пустой нормализации — см. докстринг `group_key`.
 _RAW_PREFIX = "~"
@@ -43,3 +45,46 @@ def group_key(entity: Entity) -> str:
     if not normalized:
         normalized = f"{_RAW_PREFIX}{entity.text.casefold()}"
     return f"{entity.type}:{normalized}"
+
+
+#: Инициалы в нормализованном ФИО: «и.и.» или «и.».
+_INITIALS = re.compile(r"^[а-яё]\.(?:[а-яё]\.)?$")
+
+
+def subject_identity(entity: Entity) -> str:
+    """Вернуть ключ СУБЪЕКТА: разные субъекты обязаны различаться маркером.
+
+    Встречный ключ к `group_key`. `group_key` отвечает на вопрос «одно ли
+    это значение» и держит первую половину инварианта согласованности
+    («одна сущность — один маркер»). Этот — на вопрос «один ли это
+    человек», и держит вторую половину: разные люди обязаны получить
+    разные маркеры, иначе обезличенный договор нечитаем.
+
+    Разница видна ровно на ФИО. `normalize_value` снимает падеж
+    («Сидоровой Анны Петровны» и «Сидорова Анна Петровна» дают один ключ),
+    но не сводит инициальную форму к полной: «Иванов И.И.» и «Иванов Иван
+    Иванович» — разные значения одного человека, и общий маркер у них
+    правильный. А «Сидорова» и «Кузнецов» в одном профиле — разные люди,
+    и общий маркер у них был дефектом (`duplicate_markers 6`, 14.09.2026).
+
+    Для остальных типов субъект — это само значение: два адреса, два ИНН,
+    две организации всегда различимы по `group_key`.
+    """
+    if entity.type != EntityType.PERSON:
+        return group_key(entity)
+
+    normalized = normalize_value(entity.type, entity.text) or entity.text.casefold()
+    words = normalized.split()
+    if not words:
+        return group_key(entity)
+
+    initials = [word for word in words if _INITIALS.fullmatch(word)]
+    names = [word for word in words if not _INITIALS.fullmatch(word)]
+    if not names:
+        return group_key(entity)
+
+    surname = names[0]
+    # Инициал берётся из сокращённой формы, если она есть; иначе — первая
+    # буква имени, идущего следом за фамилией.
+    first = initials[0][0] if initials else (names[1][:1] if len(names) > 1 else "")
+    return f"{entity.type}:{surname}:{first}"

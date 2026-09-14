@@ -141,23 +141,20 @@ def test_create_run_rejects_unsupported_format(client: TestClient) -> None:
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
-def test_run_pauses_on_questions_and_exposes_envelope(client: TestClient, storage: Path) -> None:
-    """Прогон доходит до `ask_human`, и конверт вопросов виден по HTTP как есть."""
+def test_run_skips_questions_and_exposes_preview(client: TestClient, storage: Path) -> None:
+    """Веб-прогон маскирует неоднозначное автоматически и сразу готовит превью."""
     created = _create_run(client)
     assert created["status"] == "queued"
 
     state = client.get(f"/api/runs/{created['id']}").json()
-    assert state["status"] == "awaiting_answers"
+    assert state["status"] == "awaiting_review"
     assert state["document"] == {
         "name": "contract_01.docx",
         "format": "docx",
         "object_name": "documents/contract_01.docx",
     }
 
-    questions = client.get(f"/api/runs/{created['id']}/questions").json()
-    assert questions["schema_version"] == 1
-    assert questions["questions"]
-    assert {"id", "kind", "target", "options", "default"} <= set(questions["questions"][0])
+    assert client.get(f"/api/runs/{created['id']}/questions").status_code == status.HTTP_404_NOT_FOUND
 
 
 def test_progress_events_are_available_with_cursor(client: TestClient, storage: Path) -> None:
@@ -178,19 +175,12 @@ def test_progress_events_are_available_with_cursor(client: TestClient, storage: 
     )
 
 
-def test_report_and_artifacts_appear_only_after_answers(client: TestClient, storage: Path) -> None:
-    """Пока граф стоит на вопросах, узлы `render`/`report` не выполнялись."""
+def test_report_and_artifacts_appear_without_answers(client: TestClient, storage: Path) -> None:
+    """Веб-прогон собирает отчёт и артефакты без паузы на вопросах."""
     created = _create_run(client)
     run_id = created["id"]
 
-    assert client.get(f"/api/runs/{run_id}/report").status_code == status.HTTP_404_NOT_FOUND
-    assert client.get(f"/api/runs/{run_id}/artifacts").json() == []
-
-    answers = client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
-    assert answers.status_code == status.HTTP_202_ACCEPTED
-
-    # После ответов граф доходит до отчёта и встаёт на втором прерывании —
-    # ждёт правок оператора. Отчёт и артефакты на этот момент уже есть.
+    # Граф сразу доходит до второго прерывания и ждёт только проверки превью.
     assert client.get(f"/api/runs/{run_id}").json()["status"] == "awaiting_review"
 
     report = client.get(f"/api/runs/{run_id}/report").json()
@@ -209,7 +199,6 @@ def test_review_edits_finish_the_run(client: TestClient, storage: Path) -> None:
     """Утверждение документа применяет правки вторым кругом графа и завершает прогон."""
     created = _create_run(client)
     run_id = created["id"]
-    client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
 
     payload = client.get(f"/api/runs/{run_id}/review").json()
     assert payload["schema_version"] == 1
@@ -232,7 +221,6 @@ def test_regenerate_returns_to_review_with_next_artifact_revision(
     """Перегенерация не завершает тред и публикует следующий комплект файлов."""
     created = _create_run(client)
     run_id = created["id"]
-    client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
 
     regenerated = client.post(
         f"/api/runs/{run_id}/regenerate",
@@ -297,21 +285,22 @@ def test_review_manual_region_requires_non_empty_text(client: TestClient, storag
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
-def test_review_edits_before_report_are_rejected(client: TestClient, storage: Path) -> None:
-    """Пока прогон стоит на вопросах, правок он не ждёт — 409, а не молча в граф."""
+def test_review_edits_are_available_after_automatic_answers(
+    client: TestClient, storage: Path
+) -> None:
+    """После автоматического выбора «маскировать» прогон сразу ждёт проверки."""
     created = _create_run(client)
 
     response = client.post(f"/api/runs/{created['id']}/review", json={"edits": {}})
 
-    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.status_code == status.HTTP_202_ACCEPTED
 
 
 def test_questions_endpoint_does_not_serve_review_payload(
     client: TestClient, storage: Path
 ) -> None:
-    """Два прерывания — два конверта: на паузе правок вопросов нет."""
+    """После автоматического ответа endpoint вопросов не выдаёт конверт правок."""
     created = _create_run(client)
-    client.post(f"/api/runs/{created['id']}/answers", json={"answers": {}})
 
     response = client.get(f"/api/runs/{created['id']}/questions")
 
@@ -321,7 +310,6 @@ def test_questions_endpoint_does_not_serve_review_payload(
 def test_artifact_download_returns_docx_bytes(client: TestClient, storage: Path) -> None:
     created = _create_run(client)
     run_id = created["id"]
-    client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
 
     response = client.get(f"/api/runs/{run_id}/artifacts/masked_highlight")
 
@@ -379,7 +367,6 @@ def test_artifact_download_returns_image_content_type(
     response = client.post("/api/runs", json={**_BODY, "object_name": "documents/contract.jpg"})
     assert response.status_code == status.HTTP_202_ACCEPTED
     run_id = response.json()["id"]
-    client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
 
     download = client.get(f"/api/runs/{run_id}/artifacts/masked_highlight")
 
@@ -390,7 +377,6 @@ def test_artifact_download_returns_image_content_type(
 
 def test_unknown_artifact_role_is_404(client: TestClient, storage: Path) -> None:
     created = _create_run(client)
-    client.post(f"/api/runs/{created['id']}/answers", json={"answers": {}})
 
     response = client.get(f"/api/runs/{created['id']}/artifacts/masked_gold")
 
@@ -401,7 +387,6 @@ def test_answers_on_finished_run_are_rejected(client: TestClient, storage: Path)
     """Повторные ответы прогону, который их уже не ждёт, — 409, а не новый прогон молча."""
     created = _create_run(client)
     run_id = created["id"]
-    client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
 
     repeated = client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
 

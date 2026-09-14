@@ -138,7 +138,6 @@ def test_report_carries_regions_and_pages_for_pdf(client: TestClient, storage: P
     """
     created = _create_run(client)
     run_id = created["id"]
-    client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
 
     report = client.get(f"/api/runs/{run_id}/report").json()
 
@@ -179,7 +178,6 @@ def test_docx_run_has_empty_regions_and_pages(client: TestClient, storage: Path,
     )
     assert response.status_code == status.HTTP_202_ACCEPTED
     run_id = response.json()["id"]
-    client.post(f"/api/runs/{run_id}/answers", json={"answers": {}})
 
     report = client.get(f"/api/runs/{run_id}/report").json()
 

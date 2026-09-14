@@ -147,6 +147,33 @@ class TestNormalizeForDetection:
         normalized, _ = normalize_for_detection(text)
         assert normalized == text
 
+    def test_glued_kpp_inn_splits_when_label_is_directly_before(self) -> None:
+        """Метка сразу перед слипшимся хвостом — обычный случай ячейки таблицы."""
+        text = f"Реквизиты: ИНН/КПП 595911001{VALID_INN}."
+        normalized, _ = normalize_for_detection(text)
+        assert normalized == f"Реквизиты: ИНН/КПП 595911001 {VALID_INN}."
+
+    def test_glued_digit_run_far_from_kpp_inn_label_is_not_split(self) -> None:
+        """Совпадение контрольной суммы ИНН на чужом числе — не повод резать.
+
+        14.09.2026, `ipklh-2022-01-11.pdf`: «ИНН/КПП» party'и стоит в начале
+        сегмента, а за ~200 символов дальше — 20-значный «Единый
+        казначейский счёт», чей случайный хвост из 10 цифр прошёл проверку
+        контрольной суммы ИНН. Метка где-то в сегменте (старая проверка)
+        резала счёт пополам и подсовывала профилю стороны чужой ИНН
+        казначейства. Метка обязана стоять рядом (`_KPP_INN_LABEL_WINDOW`),
+        иначе слипшийся хвост остаётся целым 19-значным числом — детектор
+        ИНН его не видит (нет границы не-цифры с обеих сторон)."""
+        kpp_like_prefix = "595911001"
+        filler = "х" * 50
+        text = (
+            "ИНН присвоен по месту постановки на учет."
+            f"{filler} Казначейский счет {kpp_like_prefix}{VALID_INN}."
+        )
+        normalized, _ = normalize_for_detection(text)
+        assert normalized == text
+        assert VALID_INN not in _detect_inn(text)
+
     def test_pure_latin_website_is_not_mangled_by_homoglyph_folding(self) -> None:
         """Регрессия: гомоглифы не должны трогать токен без единой
         кириллической буквы — `www`/`triema`/`ru` целиком латинские."""

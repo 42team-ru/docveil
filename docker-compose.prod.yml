@@ -1,0 +1,204 @@
+# Стенд: тот же код, что в docker-compose.yml, но собранный для публичного
+# доступа. Отличия от дев-стека перечислены явно, потому что каждое из них
+# когда-то было дефектом:
+#
+#   1. фронтенд здесь ЕСТЬ (в дев-compose его нет вовсе);
+#   2. Postgres и MinIO не публикуют портов наружу — доступ только внутри
+#      сети compose, снаружи открыт один Caddy;
+#   3. каталог весов PaddleOCR с хоста не монтируется: на чистом сервере его
+#      не существует, и `docker compose up` падал бы до старта. Образ несёт
+#      системный tesseract и переменную MASKER_OCR=tesseract;
+#   4. секреты обязаны прийти из .env — дефолтов `change-me` здесь нет.
+#
+# Поднимать через ./scripts/deploy.sh, а не руками: скрипт проверяет
+# окружение, генерирует секреты и заводит администратора.
+
+name: docveil
+
+services:
+  postgres:
+    # Все базовые образы вынесены в переменные: на части машин Docker Hub
+    # недоступен или ограничен по частоте, и тогда стенд не поднимается вовсе.
+    # Переопределяются в .env.prod на своё зеркало.
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER обязателен, заполните .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD обязателен, заполните .env}
+      POSTGRES_DB: ${POSTGRES_DB:-masker}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-masker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEMORY_LIMIT:-1g}
+
+  minio:
+    # quay.io, а не Docker Hub: это официальный реестр MinIO (их же
+    # документация ставит оттуда), и он отдаёт образ там, где Docker Hub
+    # отвечает `pull access denied for minio/minio` — воспроизведено на
+    # сервере стенда 14.09.2026, при том что ghcr.io работал нормально.
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:latest}
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER обязателен, заполните .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD обязателен, заполните .env}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: ${MINIO_MEMORY_LIMIT:-1g}
+
+  backend:
+    # Образ можно собрать локально (по умолчанию) или взять готовый из GHCR:
+    # BACKEND_IMAGE=ghcr.io/42team-ru/docveil-backend:0.6.1, см. deploy.sh --images.
+    image: ${BACKEND_IMAGE:-docveil-backend:local}
+    build:
+      context: ./backend
+      args:
+        # Опциональные extras питона. `EXTRAS=gliner` добавляет в образ torch
+        # и локальный детектор своих типов — см. docs/DEPLOY.md, раздел GLiNER.
+        EXTRAS: ${BACKEND_EXTRAS:-}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-masker}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET обязателен, сгенерируйте через ./scripts/deploy.sh}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      # За TLS отвечает Caddy, поэтому браузер общается по https и cookie
+      # обязана быть Secure. Без домена (SITE_ADDRESS=:80) скрипт ставит false.
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # Фронт и API живут на одном origin за Caddy, но список держим явным:
+      # он же используется, когда фронт временно поднимают отдельно.
+      CORS_ORIGINS: ${PUBLIC_URL:-http://localhost}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_SECURE: "false"
+      MINIO_BUCKET: ${MINIO_BUCKET:-documents}
+      APP_PORT: "8000"
+      # Состояние графа — в Postgres: SqliteSaver однопоточный и под
+      # параллельные прогоны не годится (см. run_service.get_run_checkpointer_factory).
+      RUN_CHECKPOINTER: postgres
+      # Греем Natasha и провайдер OCR на старте, чтобы за загрузку не платил
+      # первый пользователь стенда (api/core/warmup.py).
+      WARMUP_ON_START: "true"
+      MASKER_OCR: ${MASKER_OCR:-tesseract}
+      # Путь к весам GLiNER внутри контейнера; пусто — слой не используется.
+      MASKER_GLINER_PATH: ${MASKER_GLINER_PATH:-}
+      # Профиль из `masker.yaml` целиком: провайдер, модель, scope, тариф.
+      # Это правильный способ включить живую модель. `MASKER_LLM` ниже
+      # оставлен для совместимости, но он подменяет ТОЛЬКО провайдера и
+      # требует отдельного MASKER_LLM_MODEL.
+      MASKER_LLM_PROFILE: ${MASKER_LLM_PROFILE:-}
+      MASKER_LLM: ${MASKER_LLM:-fake}
+      MASKER_LLM_MODEL: ${MASKER_LLM_MODEL:-}
+      MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY: ${MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY:-}
+      GIGACHAT_CREDENTIALS: ${GIGACHAT_CREDENTIALS:-}
+      MASKER_LLM_GIGACHAT_SCOPE: ${MASKER_LLM_GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      # Сертификат Минцифры монтируется ниже. Пустое значение означает
+      # «проверять по системному хранилищу».
+      MASKER_LLM_GIGACHAT_CA_BUNDLE: ${MASKER_LLM_GIGACHAT_CA_BUNDLE:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    healthcheck:
+      # В образе нет curl (python:3.13-slim), поэтому проверка своим же
+      # интерпретатором. start_period покрывает миграции и прогрев моделей.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).status == 200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
+    volumes:
+      # Вариант А из docs/DEPLOY.md: положите PEM рядом и раскомментируйте.
+      # - ./deploy/gigachat-ca.pem:/certs/gigachat-ca.pem:ro
+      - backend_state:/app/data
+      # Веса GLiNER (1,2 ГБ) в образ не кладём: их место — на диске хоста.
+      # Каталог создаётся `scripts/warm_gliner.py`; пока его нет, строка
+      # ничего не монтирует только если её закомментировать — docker создал
+      # бы пустой каталог и модель «нашлась» бы пустой.
+      # - ./models/gliner:/app/models/gliner:ro
+    deploy:
+      resources:
+        limits:
+          # Один прогон — около 0,55 ГиБ пикового RSS (README, `make bench`).
+          # Лимит по умолчанию рассчитан на 4 параллельных прогона плюс запас.
+          memory: ${BACKEND_MEMORY_LIMIT:-3g}
+          cpus: ${BACKEND_CPU_LIMIT:-4}
+
+  frontend:
+    # ВНИМАНИЕ при использовании готового образа из GHCR: адрес API вшивается
+    # в бандл на сборке, а релизный workflow собирает фронт БЕЗ
+    # VITE_BACKEND_PROD_URL — значит, опубликованный образ ходит в
+    # https://42team.ru (дефолт из authMutator.ts). На своём домене такой
+    # образ работать не будет: фронт нужно собрать локально.
+    image: ${FRONTEND_IMAGE:-docveil-frontend:local}
+    build:
+      context: ./frontend
+      args:
+        # Абсолютный адрес API вшивается в бандл на сборке (authMutator.ts),
+        # поэтому пересборка фронта обязательна при смене домена.
+        VITE_BACKEND_PROD_URL: ${PUBLIC_URL:-http://localhost}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: ${FRONTEND_MEMORY_LIMIT:-256m}
+
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Сертификаты и ключ аккаунта ACME лежат на ХОСТЕ, а не в томе docker.
+      # Причина не в удобстве: у Let's Encrypt лимит 5 сертификатов на домен
+      # в неделю, и `docker compose down -v` (или чистка томов) сжигает
+      # попытку каждый раз. С каталогом рядом с репозиторием сертификат
+      # переживает и снос томов, и пересоздание стека.
+      - ./deploy/caddy/data:/data
+      - ./deploy/caddy/config:/config
+    deploy:
+      resources:
+        limits:
+          memory: ${CADDY_MEMORY_LIMIT:-256m}
+
+volumes:
+  pgdata:
+  miniodata:
+  backend_state:

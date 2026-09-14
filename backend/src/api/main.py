@@ -13,7 +13,8 @@ from starlette.concurrency import run_in_threadpool
 
 from api.core.config import settings
 from api.core.storage import ensure_bucket
-from api.routers import auth, custom_types, files, ocr, runs, users
+from api.core.warmup import warm_up
+from api.routers import admin, auth, custom_types, files, health, ocr, runs, users
 from api.services import run_service
 
 
@@ -21,6 +22,11 @@ from api.services import run_service
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     await run_in_threadpool(ensure_bucket)
     await run_service.cleanup_stale_runs()
+    # Прогрев выключен по умолчанию: тесты и локальный `make api` не должны
+    # платить за загрузку Natasha на каждом старте. На стенде включается
+    # переменной WARMUP_ON_START (см. docker-compose.prod.yml).
+    if settings.warmup_on_start:
+        await run_in_threadpool(warm_up)
     yield
 
 
@@ -41,12 +47,14 @@ app.add_middleware(
 )
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(files.router)
 api_router.include_router(custom_types.router)
 api_router.include_router(ocr.router)
 api_router.include_router(runs.router)
+api_router.include_router(admin.router)
 app.include_router(api_router)
 
 

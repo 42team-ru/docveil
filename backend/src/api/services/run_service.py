@@ -45,6 +45,7 @@ from masker.run import (
     UnknownThreadError,
     artifacts_of,
     postgres_checkpointer_factory,
+    profile_enabled,
     read_run,
     report_of,
     resume_review,
@@ -131,11 +132,12 @@ def _run_options(request: RunCreateRequest, document_format: str) -> RunOptions:
     return RunOptions(
         types=tuple(request.types) if request.types else None,
         rules_only=request.rules_only,
-        # Профили и человек-в-цикле для PDF не реализованы (см. `masker.cli`):
-        # запрошенный профиль на pdf молча не включаем, а гасим здесь явно.
-        profile=request.profile and document_format != "pdf",
+        # Решение по формату — общее с CLI (`masker.cli`), см. `profile_enabled`.
+        profile=profile_enabled(request.profile, document_format),
         unmask_critical=request.unmask_critical,
-        interactive=True,
+        # Веб-прогон не останавливается на неоднозначных сущностях: default
+        # каждого вопроса — безопасное решение «маскировать».
+        interactive=False,
         styles=_STYLES_BY_MASK_STYLE[request.mask_style],
         preview=True,
         review=request.review,

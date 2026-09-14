@@ -103,7 +103,6 @@ def test_real_name_not_filtered_as_abbreviation() -> None:
 
 def test_signatory_positions_skipped_when_morph_disabled() -> None:
     """М11: skip_signatory_positions=True не создаёт кандидатов из подписных строк."""
-    from masker.model import EntityType
 
     text = (
         "от Исполнителя: Старший Вице-Президент по работе с корпоративным и "

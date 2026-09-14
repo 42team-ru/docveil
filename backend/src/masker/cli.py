@@ -31,6 +31,7 @@ from masker.run import (
     ThreadExistsError,
     UnknownThreadError,
     artifacts_of,
+    profile_enabled,
     report_of,
     resume_run,
     sqlite_checkpointer_factory,
@@ -66,10 +67,9 @@ def _run_options_from_args(
         if selected_types == frozenset(EntityType)
         else tuple(sorted(entity_type.value for entity_type in selected_types))
     )
-    # 11.09.2026: без структурного профиля PDF не может дать стороне один
-    # номер во всех вхождениях. Это офлайн-кластеризация, а не отправка
-    # документа в LLM; `--profile` по-прежнему нужен только для судьи/LLM.
-    profile = args.profile or source.suffix.casefold() == ".pdf"
+    # `--profile` по-прежнему нужен только для судьи/LLM; сам структурный
+    # профиль на PDF включается независимо от флага — см. `profile_enabled`.
+    profile = profile_enabled(args.profile, source.suffix)
     return RunOptions(
         types=types_tuple,
         rules_only=args.rules_only,

@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     run_checkpointer: Literal["postgres", "sqlite"] = "postgres"
     run_state_db: Path = Path("data/runs.sqlite")
 
+    #: Греть ли локальные модели (Natasha, провайдер OCR) на старте процесса.
+    #: Выключено по умолчанию: тесты и локальный `make api` иначе платят
+    #: секундами за загрузку на каждом запуске. На стенде включается
+    #: (`docker-compose.prod.yml`), чтобы за прогрев не платил первый
+    #: пользователь. См. `api/core/warmup.py`.
+    warmup_on_start: bool = False
+
     #: Источники, которым браузер разрешит ходить в API. Список явный, а не
     #: `*`: запросы идут с `credentials` (refresh-токен в cookie), а с
     #: подстановочным источником браузер такие запросы блокирует. По

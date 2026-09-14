@@ -41,6 +41,7 @@ from masker.customtypes.graph import (
 )
 from masker.llm import LLMProvider, get_provider
 from masker.run import sqlite_checkpointer_factory
+from masker.typeconfig import normalize_detect_kind
 
 __all__ = [
     "CompileAlreadyFinishedError",
@@ -189,9 +190,30 @@ def _compiled_out(item: dict[str, Any]) -> CompiledTypeOut:
         )
     return CompiledTypeOut(
         outcome="compile",
-        spec=CustomTypeSpecIn.model_validate(item["spec"]),
+        spec=CustomTypeSpecIn.model_validate(_normalized_spec(item["spec"])),
         preview=preview_out,
     )
+
+
+def _normalized_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    """Привести `detect.kind` спеки к тому виду, который знает схема ответа.
+
+    Компилятор пропускает наружу имя исполнителя, которое вернула модель
+    (`regex_context`), а схема ответа — дискриминированный union по `kind` и
+    такого тега не знает. Движок это же значение нормализует у себя
+    (`masker.typeconfig.normalize_detect_kind`), поэтому спека работала, а
+    ответ API падал валидацией.
+    """
+    detect = spec.get("detect")
+    if not isinstance(detect, dict):
+        return spec
+    raw_kind = detect.get("kind")
+    if not isinstance(raw_kind, str):
+        return spec
+    normalized = normalize_detect_kind(raw_kind)
+    if normalized == raw_kind:
+        return spec
+    return {**spec, "detect": {**detect, "kind": normalized}}
 
 
 def _preview_out(raw: dict[str, Any] | None) -> PreviewOut | None:

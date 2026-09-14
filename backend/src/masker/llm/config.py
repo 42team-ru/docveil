@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -57,7 +58,14 @@ def llm_config_from_mapping(settings: Any) -> LLMConfig:
     if not isinstance(settings, dict):
         raise ValueError("секция llm должна быть YAML-объектом")
 
-    profile = _required_text(settings, "profile", default="")
+    # Профиль выбирается окружением сильнее, чем YAML: в контейнере файл
+    # приезжает вместе с образом, и поменять в нём строку — значит пересобрать
+    # образ. `MASKER_LLM` при этом подменяет только ПРОВАЙДЕРА, оставляя
+    # модель пустой, и развёртывание падало с «для GigaChat задайте модель»
+    # при готовом профиле `gigachat` в том же файле (стенд, 14.09.2026).
+    profile = os.environ.get("MASKER_LLM_PROFILE", "").strip() or _required_text(
+        settings, "profile", default=""
+    )
     selected = _profile_settings(settings, profile) if profile else settings
     provider = _required_text(selected, "provider", default="fake").casefold()
     model = _required_text(selected, "model", default="")

@@ -69,14 +69,21 @@ export function useDocumentRender({
     setStatus("loading");
     host.innerHTML = "";
 
-    fetch(fileUrl)
+    fetch(fileUrl, { signal: abortController.signal })
       .then((response) => {
         if (!response.ok) {
           throw new Error(`Не удалось загрузить документ: ${response.status}`);
         }
         return response.arrayBuffer();
       })
-      .then((buffer) => render(host, buffer, abortController.signal))
+      .then((buffer) => {
+        // Эффект уже пересоздан (в т.ч. двойной mount StrictMode в dev):
+        // `render` пишет в host напрямую и сам сигнал не проверяет, поэтому
+        // устаревший запуск не должен доходить до него — иначе в host
+        // остаётся осиротевшая таблица без подсветки поверх свежей.
+        if (cancelled) return undefined;
+        return render(host, buffer, abortController.signal);
+      })
       .then(() => {
         if (cancelled) return;
 

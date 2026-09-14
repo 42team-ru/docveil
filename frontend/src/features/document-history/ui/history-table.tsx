@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import { AnimatePresence } from "motion/react";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { FileClock, SearchX, Trash2 } from "lucide-react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -7,6 +9,7 @@ import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
+import { List } from "@astryxdesign/core/List";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { Section } from "@astryxdesign/core/Section";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
@@ -22,6 +25,7 @@ import type { useRunList } from "../../masking-run/api/masking-run";
 import { useDeleteRun } from "../../masking-run/api/masking-run";
 import type { RunListItem } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
 import { formatMoment } from "../../../shared/lib/format-moment";
+import { MotionListItem, listItemMotion } from "../../../shared/ui/motion/motion-astryx";
 import { RunDetailsDialog } from "./run-details-dialog";
 
 /**
@@ -58,6 +62,7 @@ export function HistoryTable({
   onResetFilters,
 }: HistoryTableProps) {
   const navigate = useNavigate();
+  const isMobile = useMediaQuery("(max-width: 768px)", false);
   const [detailsRunId, setDetailsRunId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RunListItem | null>(null);
   const deleteRun = useDeleteRun();
@@ -125,7 +130,9 @@ export function HistoryTable({
     <RunDetailsDialog
       runId={detailsRunId}
       onClose={() => setDetailsRunId(null)}
-      onOpenReview={(runId) => navigate(`/documents/${runId}`)}
+      onOpenReview={(runId) =>
+        navigate(`/documents/${runId}`, { viewTransition: true })
+      }
     />
   );
 
@@ -177,7 +184,7 @@ export function HistoryTable({
               icon={<Icon icon={FileClock} size="lg" color="secondary" />}
               title="Здесь пока нет прогонов"
               description="Загрузите первый документ, чтобы начать обработку."
-              actions={<Button size="sm" variant="primary" label="Новый документ" onClick={() => navigate("/")} />}
+              actions={<Button size="sm" variant="primary" label="Новый документ" onClick={() => navigate("/", { viewTransition: true })} />}
             />
           )}
           {detailsDialog}
@@ -189,93 +196,144 @@ export function HistoryTable({
 
   return (
     <Section padding={0}>
-      <VStack gap={0} paddingInline={4}>
-        <Table<RunRow>
-          data={rows}
-          idKey="id"
-          density="balanced"
-          hasHover
-          textOverflow="truncate"
-          rowIndexStart={(page - 1) * pageSize + 1}
-          rowCount={total}
-          columns={[
-            {
-              key: "name",
-              header: "Документ",
-              width: proportional(2),
-              renderCell: (run) => (
-                <Text weight="medium" maxLines={1}>
-                  {run.document.name}
-                </Text>
-              ),
-            },
-            {
-              key: "format",
-              header: "Формат",
-              width: pixel(96),
-              renderCell: (run) => (
-                <FormatToken
-                  format={run.document.format.toUpperCase() as DocumentFormat}
+      <VStack gap={0} paddingInline={isMobile ? 0 : 4}>
+        {isMobile ? (
+          <List hasDividers>
+            <AnimatePresence initial={false}>
+              {rows.map((run) => (
+                <MotionListItem
+                  key={run.id}
+                  {...listItemMotion}
+                  label={run.document.name}
+                  startContent={
+                    <FormatToken
+                      format={run.document.format.toUpperCase() as DocumentFormat}
+                    />
+                  }
+                  description={
+                    <VStack gap={1}>
+                      <RunStatusToken status={run.status} />
+                      <Text type="supporting" color="secondary" size="sm">
+                        {formatMoment(run.created_at)}
+                      </Text>
+                    </VStack>
+                  }
+                  endContent={
+                    <VStack gap={1.5} hAlign="end">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        label={
+                          run.status === "awaiting_review" || run.status === "done"
+                            ? "Проверить"
+                            : "Открыть"
+                        }
+                        onClick={() =>
+                          navigate(`/documents/${run.id}`, { viewTransition: true })
+                        }
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        label="Детали"
+                        onClick={() => setDetailsRunId(run.id)}
+                      />
+                    </VStack>
+                  }
                 />
-              ),
-            },
-            {
-              key: "created_at",
-              header: "Запущен",
-              width: pixel(140),
-              renderCell: (run) => (
-                <Text color="secondary">{formatMoment(run.created_at)}</Text>
-              ),
-            },
-            {
-              key: "finished_at",
-              header: "Завершён",
-              width: pixel(140),
-              renderCell: (run) => (
-                <Text color="secondary">{formatMoment(run.finished_at)}</Text>
-              ),
-            },
-            {
-              key: "status",
-              header: "Статус",
-              width: pixel(180),
-              renderCell: (run) => <RunStatusToken status={run.status} />,
-            },
-            {
-              key: "actions",
-              header: "",
-              width: pixel(320),
-              align: "end",
-              renderCell: (run) => (
-                <HStack gap={1.5} hAlign="end">
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    label={
-                      run.status === "awaiting_review" || run.status === "done"
-                        ? "Проверить результат"
-                        : "Открыть документ"
-                    }
-                    onClick={() => navigate(`/documents/${run.id}`)}
+              ))}
+            </AnimatePresence>
+          </List>
+        ) : (
+          <Table<RunRow>
+            data={rows}
+            idKey="id"
+            density="balanced"
+            hasHover
+            textOverflow="truncate"
+            rowIndexStart={(page - 1) * pageSize + 1}
+            rowCount={total}
+            columns={[
+              {
+                key: "name",
+                header: "Документ",
+                width: proportional(2),
+                renderCell: (run) => (
+                  <Text weight="medium" maxLines={1}>
+                    {run.document.name}
+                  </Text>
+                ),
+              },
+              {
+                key: "format",
+                header: "Формат",
+                width: pixel(96),
+                renderCell: (run) => (
+                  <FormatToken
+                    format={run.document.format.toUpperCase() as DocumentFormat}
                   />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    label="Детали"
-                    onClick={() => setDetailsRunId(run.id)}
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon={<Icon icon={Trash2} size="sm" color="secondary" />}
-                    label=""
-                    onClick={() => setDeleteTarget(run as RunListItem)}
-                  />
-                </HStack>
-              ),
-            },
-          ]}
-        />
+                ),
+              },
+              {
+                key: "created_at",
+                header: "Запущен",
+                width: pixel(140),
+                renderCell: (run) => (
+                  <Text color="secondary">{formatMoment(run.created_at)}</Text>
+                ),
+              },
+              {
+                key: "finished_at",
+                header: "Завершён",
+                width: pixel(140),
+                renderCell: (run) => (
+                  <Text color="secondary">{formatMoment(run.finished_at)}</Text>
+                ),
+              },
+              {
+                key: "status",
+                header: "Статус",
+                width: pixel(180),
+                renderCell: (run) => <RunStatusToken status={run.status} />,
+              },
+              {
+                key: "actions",
+                header: "",
+                width: pixel(320),
+                align: "end",
+                renderCell: (run) => (
+                  <HStack gap={1.5} hAlign="end">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      label={
+                        run.status === "awaiting_review" || run.status === "done"
+                          ? "Проверить результат"
+                          : "Открыть документ"
+                      }
+                      onClick={() =>
+                        navigate(`/documents/${run.id}`, { viewTransition: true })
+                      }
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      label="Детали"
+                      onClick={() => setDetailsRunId(run.id)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<Icon icon={Trash2} size="sm" color="secondary" />}
+                      label=""
+                      onClick={() => setDeleteTarget(run as RunListItem)}
+                    />
+                  </HStack>
+                ),
+              },
+            ]}
+          />
+        )}
         {total > pageSize ? (
           <HStack hAlign="center" paddingBlock={3}>
             <Pagination page={page} onChange={onPageChange} totalItems={total} pageSize={pageSize} size="sm" />

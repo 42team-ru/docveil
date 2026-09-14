@@ -163,7 +163,10 @@ class NatashaDetector:
                     bounds = expand_person_left(segment.text, *bounds)
                 start, end = bounds
                 value = segment.text[start:end]
-                if entity_type is EntityType.PERSON and value.strip(" \t,.").casefold() in _GENERIC_PERSON_TERMS:
+                if (
+                    entity_type is EntityType.PERSON
+                    and value.strip(" \t,.").casefold() in _GENERIC_PERSON_TERMS
+                ):
                     # 12.09.2026: географическое название в адресе не лицо;
                     # его соседний адрес уже закрывается AddressDetector.
                     continue

@@ -11,5 +11,6 @@ export default [
     index("routes/masker/upload.tsx"),
     route("documents", "routes/masker/documents.tsx"),
     route("documents/:runId", "routes/masker/document.tsx"),
+    route("admin", "routes/masker/admin.tsx"),
   ]),
 ] satisfies RouteConfig;

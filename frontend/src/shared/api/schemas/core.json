@@ -5,6 +5,28 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health",
+        "description": "Ответить, что процесс поднят и обслуживает запросы.",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/login": {
       "post": {
         "tags": [
@@ -841,6 +863,66 @@
         }
       }
     },
+    "/runs/{run_id}/events": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Run Events",
+        "description": "Вернуть новые события polling-формой, устойчивой к обычным прокси.\n\nSSE не выбран: фронт уже опрашивает статус, а polling переживает буферы\nreverse-proxy и не держит долгие HTTP-соединения. Снимки есть лишь пока\nпрогон активен и не записываются в БД/отчёт из-за исходных значений PII.",
+        "operationId": "get_run_events_api_runs__run_id__events_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEventsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/runs/{run_id}/questions": {
       "get": {
         "tags": [
@@ -1271,6 +1353,196 @@
           }
         }
       }
+    },
+    "/admin/overview": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Overview",
+        "operationId": "get_overview_api_admin_overview_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminOverviewOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/users": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Users",
+        "operationId": "get_users_api_admin_users_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdminUserRowOut"
+                  },
+                  "type": "array",
+                  "title": "Response Get Users Api Admin Users Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/admin/runs": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Runs",
+        "operationId": "get_runs_api_admin_runs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminRunListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1284,6 +1556,544 @@
         ],
         "title": "Action",
         "description": "Действие судьи над сущностью."
+      },
+      "AdminFailureOut": {
+        "properties": {
+          "node_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Hint"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_hint",
+          "count",
+          "last_error",
+          "last_at"
+        ],
+        "title": "AdminFailureOut",
+        "description": "Строка топа падающих узлов графа — где именно система ломается чаще всего."
+      },
+      "AdminOptionsStatsOut": {
+        "properties": {
+          "by_mask_style": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Mask Style"
+          },
+          "profile_enabled": {
+            "type": "integer",
+            "title": "Profile Enabled"
+          },
+          "rules_only": {
+            "type": "integer",
+            "title": "Rules Only"
+          },
+          "unmask_critical": {
+            "type": "integer",
+            "title": "Unmask Critical"
+          },
+          "review": {
+            "type": "integer",
+            "title": "Review"
+          },
+          "with_custom_types": {
+            "type": "integer",
+            "title": "With Custom Types"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_enabled",
+          "rules_only",
+          "unmask_critical",
+          "review",
+          "with_custom_types"
+        ],
+        "title": "AdminOptionsStatsOut",
+        "description": "Разбор `RunORM.options` (JSONB тела `RunCreateRequest`) за окно `days`.\n\n`mask_style` — единственное поле опций с более чем двумя значениями\n(`marker`/`blackbox`/`both`), поэтому только оно — распределение; прочие\nбулевы флаги — просто счётчик прогонов, где флаг включён."
+      },
+      "AdminOverviewOut": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "users": {
+            "$ref": "#/components/schemas/AdminUsersStatsOut"
+          },
+          "runs": {
+            "$ref": "#/components/schemas/AdminRunsStatsOut"
+          },
+          "options": {
+            "$ref": "#/components/schemas/AdminOptionsStatsOut"
+          },
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/AdminFailureOut"
+            },
+            "type": "array",
+            "title": "Failures"
+          },
+          "sessions": {
+            "$ref": "#/components/schemas/AdminSessionsOut"
+          },
+          "top_users": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserRowOut"
+            },
+            "type": "array",
+            "title": "Top Users"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "window_days",
+          "users",
+          "runs",
+          "options",
+          "sessions"
+        ],
+        "title": "AdminOverviewOut",
+        "description": "Единый ответ `GET /admin/overview` — всё для сводного экрана одним запросом."
+      },
+      "AdminRunListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminRunRowOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "AdminRunListResponse"
+      },
+      "AdminRunRowOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_answers",
+              "awaiting_review",
+              "done",
+              "failed",
+              "leaked"
+            ],
+            "title": "Status"
+          },
+          "document": {
+            "$ref": "#/components/schemas/RunDocument"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "node_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Hint"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "user_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Email"
+          },
+          "user_full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Full Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "document",
+          "created_at",
+          "user_id"
+        ],
+        "title": "AdminRunRowOut",
+        "description": "Строка журнала прогонов всех пользователей (в отличие от `RunListItem` —\nжурнала одного пользователя)."
+      },
+      "AdminRunsStatsOut": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Status"
+          },
+          "by_format": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Format"
+          },
+          "by_day": {
+            "items": {
+              "$ref": "#/components/schemas/DayCountOut"
+            },
+            "type": "array",
+            "title": "By Day"
+          },
+          "succeeded": {
+            "type": "integer",
+            "title": "Succeeded"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "leaked": {
+            "type": "integer",
+            "title": "Leaked"
+          },
+          "in_progress": {
+            "type": "integer",
+            "title": "In Progress"
+          },
+          "success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate"
+          },
+          "avg_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Duration Seconds"
+          },
+          "median_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Duration Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "succeeded",
+          "failed",
+          "leaked",
+          "in_progress"
+        ],
+        "title": "AdminRunsStatsOut",
+        "description": "Сводка по таблице `runs` за окно `days` (см. `AdminOverviewOut.window_days`)."
+      },
+      "AdminSessionsOut": {
+        "properties": {
+          "active": {
+            "type": "integer",
+            "title": "Active"
+          },
+          "by_device": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Device"
+          },
+          "revoked": {
+            "type": "integer",
+            "title": "Revoked"
+          },
+          "expired": {
+            "type": "integer",
+            "title": "Expired"
+          }
+        },
+        "type": "object",
+        "required": [
+          "active",
+          "revoked",
+          "expired"
+        ],
+        "title": "AdminSessionsOut",
+        "description": "Сводка по `refresh_tokens` — активные сессии/устройства прямо сейчас."
+      },
+      "AdminUserRowOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login At"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "has_avatar": {
+            "type": "boolean",
+            "title": "Has Avatar",
+            "default": false
+          },
+          "runs_total": {
+            "type": "integer",
+            "title": "Runs Total",
+            "default": 0
+          },
+          "runs_failed": {
+            "type": "integer",
+            "title": "Runs Failed",
+            "default": 0
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "active_sessions": {
+            "type": "integer",
+            "title": "Active Sessions",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "full_name",
+          "roles",
+          "is_active",
+          "created_at"
+        ],
+        "title": "AdminUserRowOut",
+        "description": "Строка таблицы пользователей в админке — профиль плюс его активность."
+      },
+      "AdminUsersStatsOut": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "active": {
+            "type": "integer",
+            "title": "Active"
+          },
+          "inactive": {
+            "type": "integer",
+            "title": "Inactive"
+          },
+          "admins": {
+            "type": "integer",
+            "title": "Admins"
+          },
+          "never_logged_in": {
+            "type": "integer",
+            "title": "Never Logged In"
+          },
+          "active_last_7d": {
+            "type": "integer",
+            "title": "Active Last 7D"
+          },
+          "active_last_30d": {
+            "type": "integer",
+            "title": "Active Last 30D"
+          },
+          "with_avatar": {
+            "type": "integer",
+            "title": "With Avatar"
+          },
+          "signups_by_day": {
+            "items": {
+              "$ref": "#/components/schemas/DayCountOut"
+            },
+            "type": "array",
+            "title": "Signups By Day"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "active",
+          "inactive",
+          "admins",
+          "never_logged_in",
+          "active_last_7d",
+          "active_last_30d",
+          "with_avatar"
+        ],
+        "title": "AdminUsersStatsOut",
+        "description": "Сводка по таблице `users`."
       },
       "AnchorOut": {
         "properties": {
@@ -2173,6 +2983,26 @@
         "title": "CustomTypeSpecIn",
         "description": "Пользовательский тип из тела REST-запроса — вход `load_type_config`.\n\nПолей меньше, чем проверяет `load_type_config` (например, формат\n`id` и плейсхолдер в `marker` здесь не проверяются намеренно —\n«тонкий фронт», раздел докстринга модуля)."
       },
+      "DayCountOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "count"
+        ],
+        "title": "DayCountOut",
+        "description": "Одна точка временного ряда «событий за день»."
+      },
       "DecisionOverriddenOut": {
         "properties": {
           "action": {
@@ -2781,6 +3611,24 @@
         "title": "FactAnchorOut",
         "description": "Ссылка на диапазон в оригинале — внутри `*_fact.anchors[]`."
       },
+      "FailReason": {
+        "type": "string",
+        "enum": [
+          "empty_description",
+          "too_short",
+          "too_long",
+          "llm_unavailable",
+          "invalid_regex",
+          "redos_pattern",
+          "regex_too_long",
+          "empty_match",
+          "cannot_compile",
+          "ask_rounds_exhausted",
+          "preview_error"
+        ],
+        "title": "FailReason",
+        "description": "Машиночитаемый код причины отказа компилятора."
+      },
       "FailedTypeOut": {
         "properties": {
           "index": {
@@ -2794,6 +3642,10 @@
           "reason": {
             "type": "string",
             "title": "Reason"
+          },
+          "code": {
+            "$ref": "#/components/schemas/FailReason",
+            "default": "cannot_compile"
           }
         },
         "type": "object",
@@ -2969,6 +3821,20 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HealthOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthOut",
+        "description": "Ответ проверки живости."
       },
       "JudgeQuestionOut": {
         "properties": {
@@ -4690,6 +5556,28 @@
         "title": "RunDocument",
         "description": "Документ прогона — то, что нужно вьюеру и журналу."
       },
+      "RunEventsResponse": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/RunProgressEvent"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "next_after": {
+            "type": "integer",
+            "title": "Next After"
+          }
+        },
+        "type": "object",
+        "required": [
+          "events",
+          "next_after"
+        ],
+        "title": "RunEventsResponse",
+        "description": "Ответ polling-ручки прогресса; `next_after` передаётся следующим запросом."
+      },
       "RunListItem": {
         "properties": {
           "id": {
@@ -4761,6 +5649,31 @@
           "total"
         ],
         "title": "RunListResponse"
+      },
+      "RunProgressEvent": {
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "content": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sequence",
+          "node",
+          "content"
+        ],
+        "title": "RunProgressEvent",
+        "description": "Краткоживущий снимок завершённого узла; может содержать PII владельца файла."
       },
       "RunResponse": {
         "properties": {

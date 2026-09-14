@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Plus, Settings, X } from "lucide-react";
+import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
-import { CheckboxList, CheckboxListItem } from "@astryxdesign/core/CheckboxList";
 import { Code } from "@astryxdesign/core/Code";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -62,7 +62,10 @@ type MaskStylePickerProps = {
 };
 
 /** Как выглядит маска в выходном документе — независимо от того, что удаляется. */
-export function MaskStylePicker({ onAddCustomType, isAddingCustomType = false }: MaskStylePickerProps) {
+export function MaskStylePicker({
+  onAddCustomType,
+  isAddingCustomType = false,
+}: MaskStylePickerProps) {
   const maskStyle = useRuleProfileStore((state) => state.maskStyle);
   const setMaskStyle = useRuleProfileStore((state) => state.setMaskStyle);
 
@@ -180,23 +183,38 @@ export function MaskStylePicker({ onAddCustomType, isAddingCustomType = false }:
                 : `Выбрано ${enabledTypes.length} из ${REGISTRY_TYPE_COUNT}`}
             </Text>
           </VStack>
-          <CheckboxInput
-            label="Все типы"
-            value={selectAllValue}
-            onChange={handleSelectAll}
-          />
+          <HStack gap={2} vAlign="center">
+            <CheckboxInput
+              label="Все типы"
+              value={selectAllValue}
+              onChange={handleSelectAll}
+            />
+          </HStack>
           {!allSelected && (
-            <CheckboxList
-              label="Типы ПДн"
-              isLabelHidden
-              value={enabledTypes}
-              onChange={setEnabledTypes}
-              density="compact"
-            >
-              {ALL_TYPE_OPTIONS.map((opt) => (
-                <CheckboxListItem key={opt.value} value={opt.value} label={opt.label} />
-              ))}
-            </CheckboxList>
+            <VStack gap={2}>
+              <Button
+                size="sm"
+                variant="ghost"
+                label="Убрать все"
+                onClick={() => setEnabledTypes([])}
+              />
+              <Grid columns={4} gap={2}>
+                {ALL_TYPE_OPTIONS.map((opt) => (
+                  <CheckboxInput
+                    key={opt.value}
+                    label={opt.label}
+                    value={enabledTypes.includes(opt.value)}
+                    onChange={(checked) => {
+                      setEnabledTypes(
+                        checked
+                          ? [...enabledTypes, opt.value]
+                          : enabledTypes.filter((value) => value !== opt.value),
+                      );
+                    }}
+                  />
+                ))}
+              </Grid>
+            </VStack>
           )}
         </VStack>
       </Section>
@@ -219,7 +237,8 @@ export function MaskStylePicker({ onAddCustomType, isAddingCustomType = false }:
           </HStack>
           {customTypes.length === 0 ? (
             <Text type="supporting" size="sm" color="secondary">
-              Добавьте тип данных на русском — компилятор составит детектор автоматически.
+              Добавьте тип данных на русском — компилятор составит детектор
+              автоматически.
             </Text>
           ) : (
             <VStack gap={2}>

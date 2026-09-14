@@ -2,6 +2,7 @@ import re
 
 import pytest
 
+from masker.entity_types import EntityTypeRegistry, EntityTypeSpec
 from masker.mask.labels import (
     HUMAN_TYPE_LABELS,
     MARKER_TYPE_LABELS,
@@ -397,3 +398,31 @@ def test_contextual_type_label_preserves_meaning(
 ) -> None:
     start = text.index(value)
     assert contextual_type_label(entity_type, text, start, start + len(value)) == expected
+
+
+def test_contextual_type_label_knows_custom_type_through_registry() -> None:
+    """Пользовательский тип берёт подпись из реестра, а не падает KeyError.
+
+    Без реестра узел plan строил маркер для своего типа и валился на
+    `human_type_label` — воспроизводилось на `product_code`
+    (tests/masker/test_bench.py).
+    """
+    spec = EntityTypeSpec(
+        id="product_code",
+        title="Код товара",
+        marker_label="КОД-ТОВАРА",
+        critical=True,
+        builtin=False,
+    )
+    registry = EntityTypeRegistry.builtin().extend([spec])
+    text = "Код товара: ABC-123"
+
+    label = contextual_type_label("product_code", text, text.index("ABC-123"), len(text), registry)
+
+    assert label == "Код товара"
+
+
+def test_contextual_type_label_without_registry_still_fails_loudly() -> None:
+    """Неизвестный тип остаётся ошибкой: молчаливая заглушка спрятала бы его."""
+    with pytest.raises(KeyError):
+        contextual_type_label("product_code", "Код товара: ABC-123", 12, 19)

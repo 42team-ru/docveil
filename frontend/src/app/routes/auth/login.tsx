@@ -1,37 +1,32 @@
 "use client";
 
 /**
- * THESIS: Корпоративный вход в TriemaMasker — строгий, операционный,
- * без социальных провайдеров. Два пути: логин/пароль AD и LDAP SSO.
+ * THESIS: Вход в DocVeil — строгий, операционный, без социальных
+ * провайдеров. Один путь: логин и пароль учётной записи DocVeil.
  * Отказывается от hero-карточки посередине пустого экрана.
  *
  * OWN-WORLD: Нейтральная тема Astryx, Figtree, нейтральный поверхностный
  * фон с мутной левой панелью-брендингом (Section muted), строгий Card
  * справа. Lucide-иконки, нет произвольных hex/px.
  *
- * STORY: Юрист или менеджер по compliance вводит корпоративные учётные
- * данные и попадает в TriemaMasker за один шаг. LDAP SSO — предпочтительный
- * путь; пароль — резервный.
+ * STORY: Юрист или менеджер по compliance вводит логин и пароль и попадает
+ * в DocVeil за один шаг.
  *
  * FIRST VIEWPORT: двухколоночный сплит 50/50 на md+. Левая колонка —
- * брендинг и маркеры доверия. Правая — форма входа и кнопка LDAP SSO.
+ * брендинг и маркеры доверия. Правая — форма входа.
  * На мобильных форма единственная.
  *
- * FORM: SSO-first корпоративный вход с паролем как резервом.
+ * FORM: одна форма входа, без промежуточного экрана выбора способа.
+ *
+ * 14.09.2026: убран блок «Корпоративный вход (LDAP)» вместе с экраном
+ * редиректа. Он был макетом: `handleLdapLogin` показывал таймер на 1,5 с и
+ * переключал экран, никакого LDAP за ним не стояло — ни на фронте, ни в
+ * API. Кнопка обещала вход, которого нет.
  */
 
 import { useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router";
-import {
-  Building2,
-  LogIn,
-  Network,
-  KeyRound,
-  ArrowLeft,
-  FileCheck2,
-  Users,
-  Lock,
-} from "lucide-react";
+import { FileCheck2, Users, Lock } from "lucide-react";
 import { VStack } from "@astryxdesign/core/Stack";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Center } from "@astryxdesign/core/Center";
@@ -40,7 +35,6 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { Link } from "@astryxdesign/core/Link";
-import { Divider } from "@astryxdesign/core/Divider";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Section } from "@astryxdesign/core/Section";
 
@@ -48,8 +42,6 @@ import { loginApiAuthLoginPost } from "../../../shared/api/generated/core/auth/a
 import { setAccessToken } from "../../../shared/api/auth-token";
 
 // ─── constants ───────────────────────────────────────────────────────────────
-
-const LDAP_DOMAIN = "corp.triema.ru";
 
 const TRUST_ITEMS = [
   {
@@ -70,8 +62,6 @@ const TRUST_ITEMS = [
 ] as const;
 
 // ─── types ───────────────────────────────────────────────────────────────────
-
-type Step = "main" | "ldap-redirect" | "password";
 
 // ─── styles ──────────────────────────────────────────────────────────────────
 
@@ -127,20 +117,10 @@ const LOGIN_CSS = `
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const [step, setStep] = useState<Step>("main");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [loginFailed, setLoginFailed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-
-  const handleLdapLogin = () => {
-    setIsLoading(true);
-    // Имитация редиректа на LDAP SSO
-    setTimeout(() => {
-      setIsLoading(false);
-      setStep("ldap-redirect");
-    }, 1500);
-  };
 
   /**
    * Вход логином и паролем. Access-токен кладётся в память вкладки, refresh
@@ -171,13 +151,6 @@ export default function LoginPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleBack = () => {
-    setStep("main");
-    setLoginFailed(false);
-    setIsLoading(false);
-    setPassword("");
   };
 
   return (
@@ -244,121 +217,13 @@ export default function LoginPage() {
                 </VStack>
               </div>
 
-              {/* ── Шаг: главный экран (LDAP + пароль) ── */}
-              {step === "main" && (
-                <VStack gap={6} hAlign="stretch" width="100%">
-                  <VStack gap={1} hAlign="center">
-                    <Heading level={1}>Вход в систему</Heading>
-                    <Text type="body" color="secondary" size="sm">
-                      Войдите, чтобы начать с учебного договора без рабочих данных
-                    </Text>
-                  </VStack>
-
-                  {/* Корпоративный вход LDAP */}
-                  <Card padding={6} width="100%">
-                    <VStack gap={4} hAlign="stretch">
-                      <HStack gap={2} vAlign="center">
-                        <Icon icon={Network} size="sm" color="secondary" />
-                        <Text type="label" weight="medium">
-                          Корпоративный вход (LDAP)
-                        </Text>
-                      </HStack>
-                      <Text type="supporting" color="secondary">
-                        Единый вход через корпоративный каталог организации. Не
-                        требует отдельного пароля — используются ваши доменные
-                        учётные данные.
-                      </Text>
-                      <Button
-                        label="Войти через LDAP"
-                        variant="secondary"
-                        size="lg"
-                        icon={<Icon icon={LogIn} size="sm" />}
-                        isLoading={isLoading}
-                        onClick={handleLdapLogin}
-                      />
-                    </VStack>
-                  </Card>
-
-                  <Divider label="или войдите с паролем" />
-
-                  {/* Ссылка на вход с паролем */}
-                  <VStack gap={2} hAlign="stretch">
-                    <Button
-                      label="Войти с логином и паролем"
-                      variant="primary"
-                      size="lg"
-                      icon={<Icon icon={KeyRound} size="sm" />}
-                      onClick={() => setStep("password")}
-                    />
-                  </VStack>
-
-                  <VStack hAlign="center">
-                    <Text type="supporting" color="secondary">
-                      Нет доступа?{" "}
-                      <Link href="mailto:it@triema.ru" type="supporting">
-                        Обратитесь в IT-отдел
-                      </Link>
-                    </Text>
-                  </VStack>
-                </VStack>
-              )}
-
-              {/* ── Шаг: LDAP редирект (имитация) ── */}
-              {step === "ldap-redirect" && (
-                <VStack gap={6} hAlign="stretch" width="100%">
-                  <VStack gap={3} hAlign="center">
-                    <Icon icon={Network} size="lg" color="primary" />
-                    <VStack gap={1} hAlign="center">
-                      <Heading level={2}>Перенаправление…</Heading>
-                      <Text type="body" color="secondary" size="sm" justify="center">
-                        Вы будете перенаправлены на корпоративный портал{" "}
-                        <Text type="body" weight="medium" as="span">
-                          {LDAP_DOMAIN}
-                        </Text>
-                      </Text>
-                    </VStack>
-                  </VStack>
-
-                  <Card padding={6} width="100%">
-                    <Section variant="muted" padding={4}>
-                      <HStack gap={3} vAlign="center">
-                        <Icon icon={Building2} color="secondary" />
-                        <VStack gap={0}>
-                          <Text type="label">LDAP / Active Directory</Text>
-                          <Text type="supporting" color="secondary">
-                            {LDAP_DOMAIN}
-                          </Text>
-                        </VStack>
-                      </HStack>
-                    </Section>
-                  </Card>
-
-                  <VStack gap={3} hAlign="stretch" width="100%">
-                    <Button
-                      label="Перейти к корпоративному входу"
-                      variant="primary"
-                      size="lg"
-                      isLoading
-                      onClick={() => {}}
-                    />
-                    <Button
-                      label="Назад"
-                      variant="ghost"
-                      size="lg"
-                      icon={<Icon icon={ArrowLeft} size="sm" />}
-                      onClick={handleBack}
-                    />
-                  </VStack>
-                </VStack>
-              )}
-
               {/* ── Шаг: вход с паролем ── */}
-              {step === "password" && (
+              {(
                 <VStack gap={6} hAlign="stretch" width="100%">
                   <VStack gap={1} hAlign="center">
-                    <Heading level={2}>Вход с паролем</Heading>
+                    <Heading level={2}>Вход в систему</Heading>
                     <Text type="body" color="secondary" size="sm">
-                      Введите корпоративный логин и пароль
+                      Введите логин и пароль
                     </Text>
                   </VStack>
 
@@ -378,7 +243,7 @@ export default function LoginPage() {
                       <TextInput
                         label="Пароль"
                         type="password"
-                        placeholder="Корпоративный пароль"
+                        placeholder="Пароль"
                         value={password}
                         onChange={(v: string) => {
                           setPassword(v);
@@ -416,30 +281,6 @@ export default function LoginPage() {
                       isLoading={isLoading}
                       onClick={() => void handlePasswordLogin()}
                     />
-
-                    <Button
-                      label="Назад"
-                      variant="ghost"
-                      size="lg"
-                      icon={<Icon icon={ArrowLeft} size="sm" />}
-                      onClick={handleBack}
-                    />
-                  </VStack>
-
-                  <VStack hAlign="center">
-                    <Text type="supporting" color="secondary" justify="center">
-                      Рекомендуем использовать{" "}
-                      <Link
-                        href="#"
-                        type="supporting"
-                        onClick={(e: React.MouseEvent) => {
-                          e.preventDefault();
-                          handleBack();
-                        }}
-                      >
-                        корпоративный LDAP-вход
-                      </Link>
-                    </Text>
                   </VStack>
                 </VStack>
               )}

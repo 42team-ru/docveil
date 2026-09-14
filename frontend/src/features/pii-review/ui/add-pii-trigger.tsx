@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plus } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
@@ -15,6 +15,7 @@ type AddPiiTriggerProps = {
 };
 
 const TRIGGER_OFFSET = 8;
+const AUTO_DISMISS_MS = 6000;
 
 /**
  * Кнопка «Добавить как ПДн», всплывающая рядом с выделенным текстом (не в
@@ -28,9 +29,38 @@ const TRIGGER_OFFSET = 8;
  *
  * Клик по кнопке не добавляет тип напрямую (как в прежнем `AddPiiPopover`),
  * а открывает `AddPiiDialog` с поиском по справочнику типов.
+ *
+ * Кнопка сбрасывается при: скролле превью, клике мимо кнопки, и автоматически
+ * через AUTO_DISMISS_MS мс — чтобы не висеть поверх документа бесконечно.
  */
 export function AddPiiTrigger({ capture, onAdd, onDismiss }: AddPiiTriggerProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const buttonRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!capture || isDialogOpen) return;
+
+    const timer = setTimeout(onDismiss, AUTO_DISMISS_MS);
+
+    function handleScroll() {
+      onDismiss();
+    }
+
+    function handleMouseDown(event: MouseEvent) {
+      if (buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
+        onDismiss();
+      }
+    }
+
+    window.addEventListener("scroll", handleScroll, { capture: true, passive: true });
+    document.addEventListener("mousedown", handleMouseDown);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("scroll", handleScroll, { capture: true });
+      document.removeEventListener("mousedown", handleMouseDown);
+    };
+  }, [capture, isDialogOpen, onDismiss]);
 
   if (!capture) return null;
 
@@ -44,7 +74,7 @@ export function AddPiiTrigger({ capture, onAdd, onDismiss }: AddPiiTriggerProps)
   return (
     <>
       {createPortal(
-        <div style={{ position: "fixed", top, left, zIndex: 30 }}>
+        <div ref={buttonRef} style={{ position: "fixed", top, left, zIndex: 30 }}>
           <Button
             size="sm"
             variant="primary"

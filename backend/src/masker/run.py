@@ -58,6 +58,24 @@ class AlreadyFinishedError(Exception):
     """Прогон уже завершён; повторные ответы или повторный старт не приняты."""
 
 
+class RunInterrupt(BaseException):
+    """Запрошенная остановка прогона — не ошибка движка.
+
+    Наследует ``BaseException`` (а не ``Exception``), чтобы обходить
+    ``except Exception`` в ``RunDeps.notify_progress`` и во внутренних
+    catch-блоках LangGraph. Потребитель (``run_service._execute``) ловит
+    именно ``RunInterrupt``.
+    """
+
+
+class RunCancelledError(RunInterrupt):
+    """Оператор явно отменил прогон через ``DELETE /api/runs/{id}``."""
+
+
+class RunTimedOutError(RunInterrupt):
+    """Прогон превысил лимит времени выполнения."""
+
+
 class ThreadExistsError(Exception):
     """Явно заданный ``thread_id`` уже занят прогоном другого файла/опций."""
 

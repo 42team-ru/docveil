@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
-import { CheckCircle2, Download, FileBarChart2, ListChecks, Sheet } from "lucide-react";
+import { CheckCircle2, Download, FileBarChart2, ListChecks } from "lucide-react";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
@@ -338,18 +338,7 @@ export function DocumentPage() {
                 onClick={() => setIsConfirmApproveOpen(true)}
               />
             </HStack>
-          ) : (
-            <HStack gap={2}>
-              <Button size="sm" variant="ghost" label="CSV" icon={<Icon icon={Sheet} size="sm" />} />
-              <Button size="sm" variant="ghost" label="XLSX" icon={<Icon icon={Sheet} size="sm" />} />
-              <Button
-                size="sm"
-                variant="primary"
-                label="PDF-отчёт"
-                icon={<Icon icon={Download} size="sm" />}
-              />
-            </HStack>
-          )
+          ) : null
         }
         contentId={CONTENT_PANEL_ID}
         contentPadding={tab === "review" ? 0 : 6}

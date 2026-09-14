@@ -5,7 +5,8 @@ from __future__ import annotations
 import io
 import uuid
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
+from minio.error import S3Error
 from starlette.concurrency import run_in_threadpool
 
 from api.core.config import settings
@@ -26,7 +27,15 @@ async def upload_file(file: UploadFile) -> tuple[str, int]:
             content_type=file.content_type or "application/octet-stream",
         )
 
-    await run_in_threadpool(_put)
+    try:
+        await run_in_threadpool(_put)
+    except S3Error as exc:
+        if exc.code == "XMinioStorageFull":
+            raise HTTPException(
+                status_code=507,
+                detail="Хранилище заполнено. Освободите место и повторите попытку.",
+            ) from exc
+        raise HTTPException(status_code=503, detail=f"Ошибка хранилища: {exc.code}") from exc
     return object_name, len(content)
 
 

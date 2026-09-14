@@ -12,6 +12,7 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   done: "готов",
   leaked: "утечка",
   failed: "ошибка",
+  cancelled: "отменён",
 };
 
 const STATUS_COLOR: Record<RunStatus, "green" | "yellow" | "red" | "gray" | "blue"> = {
@@ -24,6 +25,7 @@ const STATUS_COLOR: Record<RunStatus, "green" | "yellow" | "red" | "gray" | "blu
   // результата: она обязана быть видна в журнале так же ясно, как отказ.
   leaked: "red",
   failed: "red",
+  cancelled: "gray",
 };
 
 /** Состояние прогона. У идущего рядом пульсирует точка. */

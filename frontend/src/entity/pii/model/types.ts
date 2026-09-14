@@ -50,7 +50,8 @@ export type PiiType =
   | "federal_law"
   | "contract_amount"
   | "delivery_period"
-  | "payment_terms";
+  | "payment_terms"
+  | "signature";
 
 /**
  * Слой детекции, выдавший сущность (`Source` в `model.py`).
@@ -60,7 +61,7 @@ export type PiiType =
  * `rule` нельзя: оператор перестаёт отличать правило с контрольной суммой от
  * решения модели.
  */
-export type PiiSource = "rule" | "ner" | "llm" | "user" | "block";
+export type PiiSource = "rule" | "ner" | "llm" | "user" | "block" | "cv" | "ml";
 
 /** Решение движка по сущности (`Action` в `model.py`). */
 export type EntityAction = "mask" | "keep" | "ask";

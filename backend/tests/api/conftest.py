@@ -48,6 +48,17 @@ def neutral_project_config(
     monkeypatch.setenv("MASKER_CONFIG", str(config))
 
 
+@pytest.fixture(autouse=True)
+def _mock_startup_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Заглушить DB-вызов при старте lifespan — cleanup_stale_runs требует
+    живого Postgres, которого нет ни в CI, ни в юнит-прогоне."""
+
+    async def _noop() -> None:
+        pass
+
+    monkeypatch.setattr("api.main.run_service.cleanup_stale_runs", _noop)
+
+
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch):
     async def mock_get_db():

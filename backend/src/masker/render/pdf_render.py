@@ -164,7 +164,7 @@ _NO_LINE = -1
 #: feat/highlight-coords-edits, К2). Обе формы несут готовый прямоугольник
 #: вместо символьного диапазона и обрабатываются рендером одинаково —
 #: у сегмента bbox-правки нет текстового слоя PDF, который можно искать.
-_BBOX_LOCATOR_TAGS = frozenset({"ocr", "user"})
+_BBOX_LOCATOR_TAGS = frozenset({"ocr", "user", "signature"})
 
 
 def _is_ocr_locator(locator: tuple[str | int | float, ...]) -> bool:
@@ -1421,7 +1421,7 @@ def render_pdf_redacted(
         for job in ocr_jobs:
             e = job.entity_rect
             e_regions = (PdfRegion(page=page_num, x0=e.x0, y0=e.y0, x1=e.x1, y1=e.y1),)
-            label_box = pymupdf.Rect(e.x0, e.y0, job.seg_rect.x1, e.y1)
+            label_box = pymupdf.Rect(e.x0, e.y0, e.x1, e.y1)
             candidates = [_LabelCandidate(e, label_box, e.y0, max(8.0, e.height))]
             candidates_by_group[job.replacement.group_id].append(candidates)
             pending_labels.append((page_num, job.replacement, e_regions, candidates))

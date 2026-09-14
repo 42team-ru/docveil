@@ -16,7 +16,7 @@ schema_version», задел на будущее хранение пресето
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -146,7 +146,7 @@ class CompiledTypeOut(BaseModel):
     preview: PreviewOut | None = None
 
 
-class FailReason(str, Enum):
+class FailReason(StrEnum):
     """Машиночитаемый код причины отказа компилятора."""
 
     empty_description = "empty_description"

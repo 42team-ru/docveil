@@ -1,7 +1,10 @@
-"""Создать первого администратора напрямую в БД.
+"""Создать пользователя напрямую в БД.
 
 Нужен, потому что POST /users сам требует уже авторизованного админа —
-взять первого пользователя иначе неоткуда.
+взять первого пользователя иначе неоткуда. По умолчанию заводит
+администратора; `--role user` даёт обычную учётную запись — так стенд
+получает демонстрационный аккаунт без прав администратора, не открывая
+никому настоящие ключи от стенда.
 """
 
 from __future__ import annotations
@@ -24,6 +27,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--email", default=os.environ.get("ADMIN_EMAIL"))
     parser.add_argument("--password", default=os.environ.get("ADMIN_PASSWORD"))
     parser.add_argument("--full-name", default=os.environ.get("ADMIN_FULL_NAME", "Admin"))
+    parser.add_argument(
+        "--role",
+        default=os.environ.get("SEED_ROLE", Role.ADMIN.value),
+        choices=[role.value for role in Role],
+        help="роль создаваемого пользователя (по умолчанию admin)",
+    )
     parser.add_argument(
         "--reset-password",
         action="store_true",
@@ -50,14 +59,15 @@ async def main() -> None:
                 raise RuntimeError(f"Пользователь {args.email} исчез во время смены пароля")
             print(f"Пароль существующего администратора {user.email} изменён.")
             return
+        role = Role(args.role)
         payload = UserCreate(
             email=args.email,
             password=args.password,
             full_name=args.full_name,
-            roles=[Role.ADMIN],
+            roles=[role],
         )
         user = await create_user(session, payload)
-        print(f"Создан администратор {user.email} (id={user.id}).")
+        print(f"Создан пользователь {user.email} с ролью {role.value} (id={user.id}).")
 
 
 if __name__ == "__main__":

@@ -128,7 +128,13 @@ def is_anonymous_role(role_label: str) -> bool:
     return role_label.startswith("СТОРОНА-")
 
 
-def contextual_type_label(entity_type: str, text: str, start: int, end: int) -> str:
+def contextual_type_label(
+    entity_type: str,
+    text: str,
+    start: int,
+    end: int,
+    registry: EntityTypeRegistry | None = None,
+) -> str:
     """Вернуть смысловую подпись реквизита по ближайшему контексту.
 
     Тип ``date`` намеренно остаётся общим контрактом детектора: один и тот
@@ -196,7 +202,10 @@ def contextual_type_label(entity_type: str, text: str, start: int, end: int) -> 
             or re.search(r"Л\d{3}-\d{5}-\d{2}/\d{8}", before, re.I)
         ):
             return "Номер лицензии"
-    return human_type_label(entity_type)
+    # Реестр обязателен для пользовательских типов: без него `human_type_label`
+    # падает KeyError на первом же своём типе — воспроизведено на product_code
+    # (tests/masker/test_bench.py), где маркер строился уже в узле plan.
+    return human_type_label(entity_type, registry)
 
 
 _SHORT_TYPE_LABELS: dict[str, str] = {

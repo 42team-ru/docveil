@@ -1008,6 +1008,13 @@ export interface HTTPValidationError {
 }
 
 /**
+ * Ответ проверки живости.
+ */
+export interface HealthOut {
+  status: string;
+}
+
+/**
  * Тот же якорь, но с именем поля `fmt` — так его кладёт `graph/serde.py`
  * внутри `profile_judge` (историческое расхождение, не переименовывать
  * без синхронной правки обеих сторон).

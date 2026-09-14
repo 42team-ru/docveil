@@ -67,6 +67,7 @@ async def test_existing_admin_requires_explicit_password_reset(
             email="admin@example.com",
             password="new-password",
             full_name="Admin",
+            role="admin",
             reset_password=False,
         ),
     )
@@ -96,6 +97,7 @@ async def test_existing_admin_password_is_reset_with_flag(
             email="admin@example.com",
             password="new-password",
             full_name="Admin",
+            role="admin",
             reset_password=True,
         ),
     )
@@ -115,3 +117,53 @@ async def test_existing_admin_password_is_reset_with_flag(
     assert (
         "Пароль существующего администратора admin@example.com изменён" in capsys.readouterr().out
     )
+
+
+def test_role_defaults_to_admin(
+    seed_admin_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Без `--role` скрипт остаётся тем, чем был: заводит администратора."""
+    monkeypatch.delenv("SEED_ROLE", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["seed_admin.py", "--email", "admin@example.com", "--password", "secret"],
+    )
+
+    args = seed_admin_module.parse_args()
+
+    assert args.role == "admin"
+
+
+@pytest.mark.asyncio
+async def test_role_user_creates_account_without_admin_rights(
+    seed_admin_module: ModuleType, mocker: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--role user` заводит демонстрационный аккаунт, а не второго админа."""
+    session = object()
+    mocker.patch.object(
+        seed_admin_module,
+        "parse_args",
+        return_value=Namespace(
+            email="demo@example.com",
+            password="demo-password",
+            full_name="Demo",
+            role="user",
+            reset_password=False,
+        ),
+    )
+    mocker.patch.object(
+        seed_admin_module, "async_session_maker", return_value=_SessionContext(session)
+    )
+    mocker.patch.object(seed_admin_module, "email_exists", new=AsyncMock(return_value=False))
+    create_user = mocker.patch.object(
+        seed_admin_module,
+        "create_user",
+        new=AsyncMock(return_value=SimpleNamespace(email="demo@example.com", id="uuid")),
+    )
+
+    await seed_admin_module.main()
+
+    payload = create_user.await_args.args[1]
+    assert payload.roles == [seed_admin_module.Role.USER]
+    assert "с ролью user" in capsys.readouterr().out

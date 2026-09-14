@@ -15,8 +15,56 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  decide:
+    name: Decide whether to run checks
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      # Аварийный выход для срочной выкатки: `--no-tests` в сообщении
+      # ЕДИНСТВЕННОГО коммита пуша пропускает тесты и фронт-проверки.
+      #
+      # Два ограничения намеренные. Только push в master: в PR проверки
+      # обязаны идти всегда, иначе непроверенный код въезжает в базовую
+      # ветку. Только один коммит в пуше: пометка на пачке коммитов означала
+      # бы «не проверять всё, что накопилось» — ровно тот случай, когда
+      # проверка нужнее всего.
+      #
+      # Значения приходят через env, а не подстановкой в тело скрипта:
+      # сообщение коммита — это произвольный текст от пользователя, и
+      # кавычка в нём сломала бы скрипт, а подобранная строка выполнила бы
+      # чужую команду в раннере.
+      - id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          # Число коммитов считается здесь, а не выражением: функции
+          # `length()` в выражениях GitHub Actions не существует, и такая
+          # запись молча даёт пустую строку — метка не сработала бы никогда,
+          # причём без единой ошибки в логе.
+          COMMITS_JSON: ${{ github.event_name == 'push' && toJSON(github.event.commits) || '[]' }}
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          skip=false
+          count=$(printf '%s' "$COMMITS_JSON" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')
+          echo "Коммитов в пуше: $count"
+          if [ "$EVENT_NAME" = "push" ] &&
+             [ "$REF" = "refs/heads/master" ] &&
+             [ "$count" = "1" ] &&
+             printf '%s' "$HEAD_MESSAGE" | grep -qF -- '--no-tests'; then
+            skip=true
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          if [ "$skip" = "true" ]; then
+            echo "::warning::Тесты и фронт-проверки ПРОПУЩЕНЫ по метке --no-tests в сообщении единственного коммита"
+          else
+            echo "Проверки выполняются штатно."
+          fi
+
   test:
     name: Python tests
+    needs: decide
+    if: needs.decide.outputs.skip != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -38,6 +86,8 @@ jobs:
 
   frontend:
     name: Frontend checks
+    needs: decide
+    if: needs.decide.outputs.skip != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -237,7 +287,16 @@ jobs:
     name: Build DocVeil CLI (${{ matrix.platform }})
     needs: [test, frontend, release_plan]
     # Нет релизного conventional commit — нет и дорогой сборки трёх больших файлов.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.release_plan.outputs.release == 'true'
+    #
+    # `always()` и явные результаты нужны из-за метки `--no-tests` (job
+    # `decide`): у пропущенного job результат `skipped`, и без этого GitHub
+    # отменил бы всю цепочку следом, вместе с публикацией образов. Упавшие
+    # проверки сборку по-прежнему останавливают.
+    if: >-
+      always() && github.event_name == 'push' && github.ref == 'refs/heads/master' &&
+      needs.test.result != 'failure' && needs.frontend.result != 'failure' &&
+      needs.test.result != 'cancelled' && needs.frontend.result != 'cancelled' &&
+      needs.release_plan.result == 'success' && needs.release_plan.outputs.release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -317,9 +376,17 @@ jobs:
     # Публиковать может только уже проверенный merge в master, никогда PR или ветка.
     # always() не даёт GitHub молча пропустить этот job из-за намеренно
     # пропущенной сборки, когда conventional commit не требует релиза.
+    #
+    # `!= 'failure'` вместо `== 'success'` — из-за метки `--no-tests` (см. job
+    # `decide`): пропущенный job приходит сюда как `skipped`, и строгое
+    # равенство отменяло бы публикацию образов вместе с тестами, то есть
+    # метка ломала бы ровно то, ради чего её просили. Провал проверок
+    # публикацию по-прежнему останавливает — `skipped` и `failure` здесь
+    # разные вещи.
     if: >-
       always() && github.event_name == 'push' && github.ref == 'refs/heads/master' &&
-      needs.test.result == 'success' && needs.frontend.result == 'success' &&
+      needs.test.result != 'failure' && needs.frontend.result != 'failure' &&
+      needs.test.result != 'cancelled' && needs.frontend.result != 'cancelled' &&
       needs.release_plan.result == 'success' && needs.cli_binary.result == 'success' &&
       needs.release_plan.outputs.release == 'true'
     runs-on: ubuntu-latest

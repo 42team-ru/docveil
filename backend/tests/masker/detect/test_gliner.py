@@ -242,24 +242,6 @@ def test_missing_gliner_package_has_actionable_error(monkeypatch: pytest.MonkeyP
     assert "ожидается 2.0.0" in str(exc_info.value)
 
 
-def test_missing_gliner_package_has_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Р10: отсутствие GLiNER2 останавливает детекцию с понятным действием."""
-
-    def missing_gliner2(package: str) -> str:
-        if package == "gliner2":
-            from importlib.metadata import PackageNotFoundError
-
-            raise PackageNotFoundError(package)
-        return "2.0.0"
-
-    monkeypatch.setattr("masker.detect.gliner.version", missing_gliner2)
-
-    with pytest.raises(RuntimeError, match=r"пакет 'gliner2' не установлен") as exc_info:
-        verify_runtime_versions()
-
-    assert "ожидается 2.0.0" in str(exc_info.value)
-
-
 def test_incompatible_model_type_raises_runtime_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

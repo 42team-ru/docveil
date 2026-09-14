@@ -8,7 +8,16 @@ from masker.graph.nodes import RunDeps, make_summary_node, summary_node
 from masker.graph.serde import entity_to_dict, plan_to_dict, profiles_to_dicts
 from masker.llm import FakeProvider
 from masker.mask.agent import PlanAgent
-from masker.model import Anchor, Document, Entity, EntityType, Profile, ProfileMember, Segment, Source
+from masker.model import (
+    Anchor,
+    Document,
+    Entity,
+    EntityType,
+    Profile,
+    ProfileMember,
+    Segment,
+    Source,
+)
 
 _ANCHOR = Anchor(fmt="docx", locator=("body", 0))
 

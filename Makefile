@@ -11,7 +11,7 @@
 
 BACKEND_TARGETS := gate tasks test eval bench bench-matrix demo fmt install gate-selftest migrate migration api seed-admin
 
-.PHONY: $(BACKEND_TARGETS) up down logs db-shell front help
+.PHONY: $(BACKEND_TARGETS) up down logs db-shell front deploy deploy-check prod-logs prod-status prod-down help
 
 $(BACKEND_TARGETS):
 	$(MAKE) -C backend $@
@@ -34,6 +34,24 @@ db-shell:
 front:
 	cd frontend && yarn install --frozen-lockfile && yarn typecheck && yarn test
 
+# Стенд: отдельный compose-файл и свой .env.prod, чтобы дев-окружение и
+# публичный стенд не делили ни секреты, ни тома. Подробности — docs/DEPLOY.md.
+deploy:
+	./scripts/deploy.sh up
+
+deploy-check:
+	./scripts/deploy.sh check
+
+prod-status:
+	./scripts/deploy.sh status
+
+prod-logs:
+	./scripts/deploy.sh logs
+
+prod-down:
+	./scripts/deploy.sh down
+
 help:
 	@echo "Питон-цели (уходят в backend/): $(BACKEND_TARGETS)"
 	@echo "Инфраструктура (docker compose): up down logs db-shell"
+	@echo "Стенд (docker-compose.prod.yml): deploy deploy-check prod-status prod-logs prod-down"

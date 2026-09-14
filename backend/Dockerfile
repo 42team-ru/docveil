@@ -9,6 +9,12 @@ FROM python:3.13-slim AS runtime
 # Релизный workflow передаёт сюда версию, вычисленную из тега и истории коммитов.
 ARG DOCVEIL_VERSION
 
+# Опциональные extras питона в образе. Пусто по умолчанию: базовый образ и
+# так 4 ГБ, а `[gliner]` тянет torch (707 МБ пакетов) и требует 3 ГиБ RSS на
+# загрузку модели — замер 14.09.2026. Включается сборкой:
+#   docker compose -f docker-compose.prod.yml build --build-arg EXTRAS=gliner backend
+ARG EXTRAS=
+
 # tesseract — внешний бинарь для pytesseract (OCR сканов) с русским пакетом.
 # libgl/libglib — рантайм PyMuPDF при рендере страниц.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -42,11 +48,11 @@ WORKDIR /app
 # Слой зависимостей кешируется отдельно от исходников: меняется реже.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-install-project
+    uv sync --locked --no-install-project ${EXTRAS:+--extra $EXTRAS}
 
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked
+    uv sync --locked ${EXTRAS:+--extra $EXTRAS}
 
 # Порт по умолчанию совпадает с дефолтом Settings.app_port (src/api/core/config.py);
 # переопределяется переменной окружения APP_PORT (см. .env.example).

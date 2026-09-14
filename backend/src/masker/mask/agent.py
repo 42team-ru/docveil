@@ -13,7 +13,7 @@ import re
 from collections.abc import Mapping
 
 from masker.entity_types import EntityTypeRegistry
-from masker.mask.keys import group_key
+from masker.mask.keys import group_key, subject_identity
 from masker.mask.labels import (
     align_compact_label_number,
     assign_compact_labels,
@@ -54,7 +54,7 @@ _PairKey = tuple[str, str]  # (role_label, entity_type_id)
 # поставки (16--41 символ) и 8 условий оплаты (47--204). Это факты для
 # карточки, а не PII: по умолчанию оставляем их в тексте, иначе договор
 # теряет коммерческий смысл. Явный выбор типа по-прежнему разрешает маску.
-_VISIBLE_CONTRACT_TERMS = frozenset({EntityType.DELIVERY_PERIOD, EntityType.PAYMENT_TERMS})
+VISIBLE_CONTRACT_TERMS = frozenset({EntityType.DELIVERY_PERIOD, EntityType.PAYMENT_TERMS})
 
 
 class _PendingEntity:
@@ -102,7 +102,7 @@ class PlanAgent:
         pending: list[_PendingEntity] = []
         for entity in ordered:
             ref = index.ref(entity)
-            if requested_types is None and entity.type in _VISIBLE_CONTRACT_TERMS:
+            if requested_types is None and entity.type in VISIBLE_CONTRACT_TERMS:
                 skipped.append(
                     SkippedRef(ref=ref, type=entity.type, reason="visible_contract_term")
                 )
@@ -130,6 +130,7 @@ class PlanAgent:
                 segments_by_order[items[0].entity.segment_order].text,
                 items[0].entity.start,
                 items[0].entity.end,
+                self._registry,
             )
             for bucket, items in buckets.items()
         }
@@ -187,6 +188,14 @@ class PlanAgent:
                         f"[{short_role_label(role_label)}"
                         f"{compact_type_code(entity_type, self._registry)}{profile_number}]"
                     )
+                # Номер профиля — не последнее слово: если две группы одного
+                # профиля пришлось развести разными номерами
+                # (`_disambiguate_markers`), канонический номер новее, и
+                # узел report справедливо падает на расхождении видимой и
+                # канонической метки.
+                compact_label_by_bucket[bucket] = align_compact_label_number(
+                    compact_label_by_bucket[bucket], canonical_by_bucket[bucket]
+                )
 
         canonical_by_compact: dict[str, str] = {}
         used_compact_labels: set[str] = set()
@@ -437,4 +446,89 @@ def _assign_markers(
                 registry,
                 display_type_label=display_label_by_bucket[bucket],
             )
+
+    _disambiguate_markers(
+        buckets,
+        marker_by_bucket,
+        canonical_by_bucket,
+        role_label_by_profile_id,
+        display_label_by_bucket,
+        registry,
+    )
     return marker_by_bucket, number_by_bucket, canonical_by_bucket
+
+
+def _disambiguate_markers(
+    buckets: dict[_BucketKey, list[_PendingEntity]],
+    marker_by_bucket: dict[_BucketKey, str],
+    canonical_by_bucket: dict[_BucketKey, str],
+    role_label_by_profile_id: dict[str, str],
+    display_label_by_bucket: dict[_BucketKey, str],
+    registry: EntityTypeRegistry,
+) -> None:
+    """Развести группы РАЗНЫХ значений, которым досталась одна строка маркера.
+
+    Инвариант согласованности псевдонимов двусторонний. «Одна сущность —
+    один маркер» уже держится профилем; здесь держится вторая половина:
+    разные сущности — разные маркеры. Под общим `[ПРОДАВЕЦ-ФИО-1]` два
+    разных человека неразличимы, и обезличенный договор перестаёт быть
+    читаемым — а ради читаемости всё это и делается.
+
+    Что считать одной сущностью, решает не бакет, а ``merge_key``: тот же
+    ключ связывает полную, падежную и инициальную формы («Иванов Иван
+    Иванович» и «Иванов И.И.»), и такие группы обязаны сохранить общий
+    маркер, даже если лежат в разных бакетах.
+
+    Замерено 14.09.2026 на корпусе: шесть пар с общим маркером
+    (`duplicate_markers 6`), две причины, обе видны в суффиксе:
+
+    - субъектные метки нумеруются номером ПРОФИЛЯ, и два разных человека
+      одного профиля получали один маркер (`contract_04`: Сидорова и
+      Кузнецов — оба `[ПРОДАВЕЦ-ФИО-1]`);
+    - у анонимной роли суффикс не показывается, если внутри пары
+      (роль, тип) одна группа, а `СТОРОНА-3` и `СТОРОНА-4` — разные пары,
+      поэтому оба адреса выходили голым `[АДРЕС]` (`contract_06`).
+
+    Порядок обхода — порядок первого появления группы в документе: первый
+    маркер сохраняется, следующий получает номер. Прогон остаётся
+    детерминированным (инвариант «два прогона дают побайтово одинаковый
+    отчёт»).
+    """
+    #: Какая сущность уже заняла эту строку маркера.
+    identity_by_marker: dict[str, str] = {}
+    for bucket in buckets:
+        marker = marker_by_bucket[bucket]
+        identity = subject_identity(buckets[bucket][0].entity)
+        occupant = identity_by_marker.get(marker)
+        if occupant is None or occupant == identity:
+            identity_by_marker.setdefault(marker, identity)
+            continue
+
+        entity_type = buckets[bucket][0].entity.type
+        profile_id = buckets[bucket][0].profile_id
+        role_label = role_label_by_profile_id.get(profile_id, "") if profile_id else ""
+        marker_role = (
+            role_label
+            if belongs_to_subject(entity_type) and not is_anonymous_role(role_label)
+            else ""
+        )
+        type_label = type_marker_label(entity_type, registry)
+
+        suffix = 2
+        candidate = compose_marker(marker_role, type_label, suffix)
+        while identity_by_marker.get(candidate, identity) != identity:
+            suffix += 1
+            candidate = compose_marker(marker_role, type_label, suffix)
+
+        marker_by_bucket[bucket] = candidate
+        # Каноническая метка нумеруется тем же суффиксом: «номер показан в
+        # машинном маркере, но не в человеческом» — отдельное, никем не
+        # проверяемое рассогласование (см. докстринг `_assign_markers`).
+        canonical_by_bucket[bucket] = compose_canonical_label(
+            role_label,
+            entity_type,
+            suffix,
+            registry,
+            display_type_label=display_label_by_bucket[bucket],
+        )
+        identity_by_marker[candidate] = identity

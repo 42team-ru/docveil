@@ -3696,11 +3696,6 @@ ocr = [
     { name = "easyocr" },
     { name = "paddleocr" },
 ]
-signature = [
-    { name = "opencv-python-headless" },
-    { name = "torch" },
-    { name = "transformers" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -3720,7 +3715,6 @@ requires-dist = [
     { name = "minio", specifier = ">=7.2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19" },
     { name = "natasha", specifier = ">=1.6" },
-    { name = "opencv-python-headless", marker = "extra == 'signature'", specifier = ">=4.9" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "paddleocr", marker = "extra == 'ocr'", specifier = ">=3.0" },
     { name = "peft", marker = "extra == 'gliner'", specifier = ">=0.17" },
@@ -3748,12 +3742,10 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "textual", specifier = ">=6.6" },
     { name = "torch", marker = "extra == 'gliner'", specifier = "==2.14.0+cpu", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "torch", marker = "extra == 'signature'", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "transformers", marker = "extra == 'gliner'", specifier = "==4.57.6" },
-    { name = "transformers", marker = "extra == 'signature'", specifier = ">=4.40" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]
-provides-extras = ["build", "dev", "gliner", "ocr", "signature"]
+provides-extras = ["build", "dev", "gliner", "ocr"]
 
 [[package]]
 name = "truststore"

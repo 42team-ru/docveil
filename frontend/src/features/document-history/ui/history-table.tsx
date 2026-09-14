@@ -299,7 +299,7 @@ export function HistoryTable({
               {
                 key: "actions",
                 header: "",
-                width: pixel(320),
+                width: pixel(380),
                 align: "end",
                 renderCell: (run) => (
                   <HStack gap={1.5} hAlign="end">

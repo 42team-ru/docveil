@@ -92,13 +92,6 @@ export function MaskingSetupDialog({ runId, ask, isSelecting, isProcessing, erro
                 <Banner status="error" title="Прогон завершился с ошибкой" description={error} collapsible={false} />
               ) : (
                 <>
-                  <HStack gap={3} vAlign="center">
-                    <Spinner size="md" label="Обработка документа…" />
-                    <Text color="secondary" size="sm">
-                      {lastMessage ?? "Начинаю разбор документа…"}
-                    </Text>
-                  </HStack>
-
                   <Stepper
                     activeStep={activeStep}
                     orientation="vertical"
@@ -111,10 +104,16 @@ export function MaskingSetupDialog({ runId, ask, isSelecting, isProcessing, erro
                         step={index}
                         label={step.label}
                         status={index === activeStep ? "accent" : undefined}
+                        // Единственный спиннер на весь диалог — у активного шага; раньше
+                        // рядом был ещё один общий сверху, оба крутились независимо и
+                        // никак не были связаны друг с другом на вид.
                         indicator={index === activeStep ? <Spinner size="sm" label="" /> : "auto"}
                       />
                     ))}
                   </Stepper>
+                  <Text color="secondary" size="sm">
+                    {lastMessage ?? "Начинаю разбор документа…"}
+                  </Text>
 
                   {isProgressUnavailable ? (
                     <Text type="supporting" color="secondary">

@@ -5,16 +5,20 @@
  * OpenAPI spec version: 0.1.0
  */
 import {
+  useMutation,
   useQuery
 } from '@tanstack/react-query';
 import type {
   DataTag,
   DefinedInitialDataOptions,
   DefinedUseQueryResult,
+  MutationFunction,
   QueryClient,
   QueryFunction,
   QueryKey,
   UndefinedInitialDataOptions,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult
 } from '@tanstack/react-query';
@@ -25,7 +29,11 @@ import type {
   AdminUserRowOut,
   GetOverviewApiAdminOverviewGetParams,
   GetRunsApiAdminRunsGetParams,
-  HTTPValidationError
+  HTTPValidationError,
+  LLMActivateRequest,
+  LLMProfileCreate,
+  LLMProfileOut,
+  LLMProfileUpdate
 } from '../triemaMaskerAPI.schemas';
 
 import { authMutator } from '../../../mutators/authMutator';
@@ -415,3 +423,502 @@ export function useGetRunsApiAdminRunsGet<TData = Awaited<ReturnType<typeof getR
 
 
 
+export type listLlmProfilesEndpointApiAdminLlmProfilesGetResponse200 = {
+  data: LLMProfileOut[]
+  status: 200
+}
+
+export type listLlmProfilesEndpointApiAdminLlmProfilesGetResponseSuccess = (listLlmProfilesEndpointApiAdminLlmProfilesGetResponse200) & {
+  headers: Headers;
+};
+;
+
+export type listLlmProfilesEndpointApiAdminLlmProfilesGetResponse = (listLlmProfilesEndpointApiAdminLlmProfilesGetResponseSuccess)
+
+export const getListLlmProfilesEndpointApiAdminLlmProfilesGetUrl = () => {
+
+
+
+
+  return `/admin/llm-profiles`
+}
+
+/**
+ * @summary List Llm Profiles Endpoint
+ */
+export const listLlmProfilesEndpointApiAdminLlmProfilesGet = async ( options?: Parameters<typeof authMutator>[1]): Promise<listLlmProfilesEndpointApiAdminLlmProfilesGetResponse> => {
+
+  return authMutator<listLlmProfilesEndpointApiAdminLlmProfilesGetResponse>(getListLlmProfilesEndpointApiAdminLlmProfilesGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLlmProfilesEndpointApiAdminLlmProfilesGetQueryKey = () => {
+    return [
+    `/admin/llm-profiles`
+    ] as const;
+    }
+
+
+export const getListLlmProfilesEndpointApiAdminLlmProfilesGetQueryOptions = <TData = Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLlmProfilesEndpointApiAdminLlmProfilesGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>> = ({ signal }) => listLlmProfilesEndpointApiAdminLlmProfilesGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListLlmProfilesEndpointApiAdminLlmProfilesGetQueryResult = NonNullable<Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>>
+export type ListLlmProfilesEndpointApiAdminLlmProfilesGetQueryError = ErrorType<unknown>
+
+
+export function useListLlmProfilesEndpointApiAdminLlmProfilesGet<TData = Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>,
+          TError,
+          Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListLlmProfilesEndpointApiAdminLlmProfilesGet<TData = Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>,
+          TError,
+          Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListLlmProfilesEndpointApiAdminLlmProfilesGet<TData = Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Llm Profiles Endpoint
+ */
+
+export function useListLlmProfilesEndpointApiAdminLlmProfilesGet<TData = Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLlmProfilesEndpointApiAdminLlmProfilesGet>>, TError, TData>>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListLlmProfilesEndpointApiAdminLlmProfilesGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type createLlmProfileEndpointApiAdminLlmProfilesPostResponse201 = {
+  data: LLMProfileOut
+  status: 201
+}
+
+export type createLlmProfileEndpointApiAdminLlmProfilesPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type createLlmProfileEndpointApiAdminLlmProfilesPostResponseSuccess = (createLlmProfileEndpointApiAdminLlmProfilesPostResponse201) & {
+  headers: Headers;
+};
+export type createLlmProfileEndpointApiAdminLlmProfilesPostResponseError = (createLlmProfileEndpointApiAdminLlmProfilesPostResponse422) & {
+  headers: Headers;
+};
+
+export type createLlmProfileEndpointApiAdminLlmProfilesPostResponse = (createLlmProfileEndpointApiAdminLlmProfilesPostResponseSuccess | createLlmProfileEndpointApiAdminLlmProfilesPostResponseError)
+
+export const getCreateLlmProfileEndpointApiAdminLlmProfilesPostUrl = () => {
+
+
+
+
+  return `/admin/llm-profiles`
+}
+
+/**
+ * @summary Create Llm Profile Endpoint
+ */
+export const createLlmProfileEndpointApiAdminLlmProfilesPost = async (lLMProfileCreate: LLMProfileCreate, options?: Parameters<typeof authMutator>[1]): Promise<createLlmProfileEndpointApiAdminLlmProfilesPostResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return authMutator<createLlmProfileEndpointApiAdminLlmProfilesPostResponse>(getCreateLlmProfileEndpointApiAdminLlmProfilesPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(lLMProfileCreate)
+  }
+);}
+
+
+
+
+
+export const getCreateLlmProfileEndpointApiAdminLlmProfilesPostMutationKey = () => ['createLlmProfileEndpointApiAdminLlmProfilesPost'] as const;
+
+export const getCreateLlmProfileEndpointApiAdminLlmProfilesPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLlmProfileEndpointApiAdminLlmProfilesPost>>, TError,CreateLlmProfileEndpointApiAdminLlmProfilesPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof createLlmProfileEndpointApiAdminLlmProfilesPost>>, TError,CreateLlmProfileEndpointApiAdminLlmProfilesPostMutationVariables, TContext> => {
+
+const mutationKey = getCreateLlmProfileEndpointApiAdminLlmProfilesPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createLlmProfileEndpointApiAdminLlmProfilesPost>>, CreateLlmProfileEndpointApiAdminLlmProfilesPostMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createLlmProfileEndpointApiAdminLlmProfilesPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateLlmProfileEndpointApiAdminLlmProfilesPostMutationResult = NonNullable<Awaited<ReturnType<typeof createLlmProfileEndpointApiAdminLlmProfilesPost>>>
+    export type CreateLlmProfileEndpointApiAdminLlmProfilesPostMutationBody = LLMProfileCreate
+    export type CreateLlmProfileEndpointApiAdminLlmProfilesPostMutationError = ErrorType<HTTPValidationError>
+    export type CreateLlmProfileEndpointApiAdminLlmProfilesPostMutationVariables = {data: LLMProfileCreate}
+
+    /**
+ * @summary Create Llm Profile Endpoint
+ */
+export const useCreateLlmProfileEndpointApiAdminLlmProfilesPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLlmProfileEndpointApiAdminLlmProfilesPost>>, TError,CreateLlmProfileEndpointApiAdminLlmProfilesPostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createLlmProfileEndpointApiAdminLlmProfilesPost>>,
+        TError,
+        CreateLlmProfileEndpointApiAdminLlmProfilesPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateLlmProfileEndpointApiAdminLlmProfilesPostMutationOptions(options), queryClient);
+    }
+    export type updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse200 = {
+  data: LLMProfileOut
+  status: 200
+}
+
+export type updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponseSuccess = (updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse200) & {
+  headers: Headers;
+};
+export type updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponseError = (updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse422) & {
+  headers: Headers;
+};
+
+export type updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse = (updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponseSuccess | updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponseError)
+
+export const getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchUrl = (profileId: string,) => {
+
+
+
+
+  return `/admin/llm-profiles/${profileId}`
+}
+
+/**
+ * @summary Update Llm Profile Endpoint
+ */
+export const updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch = async (profileId: string,
+    lLMProfileUpdate: LLMProfileUpdate, options?: Parameters<typeof authMutator>[1]): Promise<updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return authMutator<updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse>(getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchUrl(profileId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(lLMProfileUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationKey = () => ['updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch'] as const;
+
+export const getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>, TError,UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>, TError,UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables, TContext> => {
+
+const mutationKey = getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>, UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables> = (props) => {
+          const {profileId,data} = props ?? {};
+
+          return  updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch(profileId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>>
+    export type UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationBody = LLMProfileUpdate
+    export type UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationError = ErrorType<HTTPValidationError>
+    export type UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables = {profileId: string;data: LLMProfileUpdate}
+
+    /**
+ * @summary Update Llm Profile Endpoint
+ */
+export const useUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>, TError,UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>,
+        TError,
+        UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationOptions(options), queryClient);
+    }
+    export type deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponseSuccess = (deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponse204) & {
+  headers: Headers;
+};
+export type deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponseError = (deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponse = (deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponseSuccess | deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponseError)
+
+export const getDeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteUrl = (profileId: string,) => {
+
+
+
+
+  return `/admin/llm-profiles/${profileId}`
+}
+
+/**
+ * @summary Delete Llm Profile Endpoint
+ */
+export const deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete = async (profileId: string, options?: Parameters<typeof authMutator>[1]): Promise<deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponse> => {
+
+  return authMutator<deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponse>(getDeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteUrl(profileId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationKey = () => ['deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete'] as const;
+
+export const getDeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete>>, TError,DeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete>>, TError,DeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationVariables, TContext> => {
+
+const mutationKey = getDeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete>>, DeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationVariables> = (props) => {
+          const {profileId} = props ?? {};
+
+          return  deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete(profileId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete>>>
+
+    export type DeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationError = ErrorType<HTTPValidationError>
+    export type DeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationVariables = {profileId: string}
+
+    /**
+ * @summary Delete Llm Profile Endpoint
+ */
+export const useDeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete>>, TError,DeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete>>,
+        TError,
+        DeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteMutationOptions(options), queryClient);
+    }
+    export type activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponse204 = {
+  data: void
+  status: 204
+}
+
+export type activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponseSuccess = (activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponse204) & {
+  headers: Headers;
+};
+export type activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponseError = (activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponse422) & {
+  headers: Headers;
+};
+
+export type activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponse = (activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponseSuccess | activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponseError)
+
+export const getActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostUrl = () => {
+
+
+
+
+  return `/admin/llm-profiles/activate`
+}
+
+/**
+ * @summary Activate Llm Profile Endpoint
+ */
+export const activateLlmProfileEndpointApiAdminLlmProfilesActivatePost = async (lLMActivateRequest: LLMActivateRequest, options?: Parameters<typeof authMutator>[1]): Promise<activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return authMutator<activateLlmProfileEndpointApiAdminLlmProfilesActivatePostResponse>(getActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(lLMActivateRequest)
+  }
+);}
+
+
+
+
+
+export const getActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationKey = () => ['activateLlmProfileEndpointApiAdminLlmProfilesActivatePost'] as const;
+
+export const getActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateLlmProfileEndpointApiAdminLlmProfilesActivatePost>>, TError,ActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof activateLlmProfileEndpointApiAdminLlmProfilesActivatePost>>, TError,ActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationVariables, TContext> => {
+
+const mutationKey = getActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof activateLlmProfileEndpointApiAdminLlmProfilesActivatePost>>, ActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  activateLlmProfileEndpointApiAdminLlmProfilesActivatePost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationResult = NonNullable<Awaited<ReturnType<typeof activateLlmProfileEndpointApiAdminLlmProfilesActivatePost>>>
+    export type ActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationBody = LLMActivateRequest
+    export type ActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationError = ErrorType<HTTPValidationError>
+    export type ActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationVariables = {data: LLMActivateRequest}
+
+    /**
+ * @summary Activate Llm Profile Endpoint
+ */
+export const useActivateLlmProfileEndpointApiAdminLlmProfilesActivatePost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateLlmProfileEndpointApiAdminLlmProfilesActivatePost>>, TError,ActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof activateLlmProfileEndpointApiAdminLlmProfilesActivatePost>>,
+        TError,
+        ActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getActivateLlmProfileEndpointApiAdminLlmProfilesActivatePostMutationOptions(options), queryClient);
+    }

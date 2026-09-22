@@ -71,6 +71,7 @@ const baseLlm = {
   status: "charged",
   message: "Потрачено 1.329179 RUB.",
   cost: { amount: "1.329179", currency: "RUB" },
+  pricing: { prompt_per_1k: "0.096", completion_per_1k: "0.289", currency: "RUB", verified_at: "2026-01-01" },
   byNode: [
     { node: "judge", calls: 2, promptTokens: 1000, completionTokens: 300 },
     { node: "summary", calls: 1, promptTokens: 200, completionTokens: 100 },
@@ -176,6 +177,7 @@ describe("ReportResources", () => {
         status: "model_not_needed",
         message: "Модель не понадобилась для этого документа.",
         cost: null,
+        pricing: null,
         byNode: [],
       },
       runtime: { available: false, note: "" },

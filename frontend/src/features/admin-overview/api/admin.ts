@@ -1,9 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  activateLlmProfileEndpointApiAdminLlmProfilesActivatePost,
+  createLlmProfileEndpointApiAdminLlmProfilesPost,
+  deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete,
   getOverviewApiAdminOverviewGet,
   getRunsApiAdminRunsGet,
   getUsersApiAdminUsersGet,
+  listLlmProfilesEndpointApiAdminLlmProfilesGet,
+  updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch,
 } from "../../../shared/api/generated/core/admin/admin";
 import { createUserEndpointApiUsersPost } from "../../../shared/api/generated/core/users/users";
 import type {
@@ -11,6 +16,10 @@ import type {
   AdminRunListResponse,
   AdminUserRowOut,
   GetRunsApiAdminRunsGetParams,
+  LLMActivateRequest,
+  LLMProfileCreate,
+  LLMProfileOut,
+  LLMProfileUpdate,
   UserCreate,
   UserPublic,
 } from "../../../shared/api/generated/core/triemaMaskerAPI.schemas";
@@ -26,6 +35,7 @@ export const adminKeys = {
   users: () => ["admin", "users"] as const,
   runs: (params?: GetRunsApiAdminRunsGetParams) =>
     ["admin", "runs", params ?? {}] as const,
+  llmProfiles: () => ["admin", "llm-profiles"] as const,
 };
 
 /** Единый ответ вкладки «Обзор» — агрегаты по пользователям, прогонам,
@@ -87,6 +97,93 @@ export function useCreateUser() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: adminKeys.users() });
       void queryClient.invalidateQueries({ queryKey: adminKeys.all });
+    },
+  });
+}
+
+/** Профили LLM — встроенные (YAML) и свои (БД) — вкладка «Модели». */
+export function useLlmProfiles() {
+  return useQuery({
+    queryKey: adminKeys.llmProfiles(),
+    queryFn: async (): Promise<LLMProfileOut[]> => {
+      const response = await listLlmProfilesEndpointApiAdminLlmProfilesGet();
+      if (response.status !== 200) {
+        throw new Error("Не удалось загрузить список профилей");
+      }
+      return response.data;
+    },
+  });
+}
+
+/** Завести свой профиль — `POST /admin/llm-profiles`. */
+export function useCreateLlmProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: LLMProfileCreate): Promise<LLMProfileOut> => {
+      const response = await createLlmProfileEndpointApiAdminLlmProfilesPost(payload);
+      if (response.status !== 201) {
+        throw new Error("Не удалось создать профиль");
+      }
+      return response.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.llmProfiles() });
+    },
+  });
+}
+
+/** Удалить свой профиль — `DELETE /admin/llm-profiles/{id}` (встроенные не удаляются). */
+export function useDeleteLlmProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (profileId: string): Promise<void> => {
+      const response = await deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDelete(profileId);
+      if (response.status !== 204) {
+        throw new Error("Не удалось удалить профиль");
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.llmProfiles() });
+    },
+  });
+}
+
+/** Переключить активный профиль — `POST /admin/llm-profiles/activate`. */
+export function useActivateLlmProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: LLMActivateRequest): Promise<void> => {
+      const response = await activateLlmProfileEndpointApiAdminLlmProfilesActivatePost(payload);
+      if (response.status !== 204) {
+        throw new Error("Не удалось переключить профиль");
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.llmProfiles() });
+    },
+  });
+}
+
+/** Править свой профиль — `PATCH /admin/llm-profiles/{id}` (имя неизменно). */
+export function useUpdateLlmProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (args: { profileId: string; payload: LLMProfileUpdate }): Promise<LLMProfileOut> => {
+      const response = await updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch(
+        args.profileId,
+        args.payload,
+      );
+      if (response.status !== 200) {
+        throw new Error("Не удалось сохранить профиль");
+      }
+      return response.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.llmProfiles() });
     },
   });
 }

@@ -297,6 +297,10 @@ const rawTelemetrySchema = z.object({
     by_node: z.array(z.object({
       node: z.string(), calls: z.number(), prompt_tokens: z.number(), completion_tokens: z.number(),
     })).optional().default([]),
+    // Тариф активного на момент прогона профиля — раньше отсутствовал в
+    // контракте, и report-resources.tsx оценивал стоимость по узлам зашитым
+    // тарифом GigaChat, который на другом активном профиле был бы неверным.
+    pricing: z.record(z.string(), z.unknown()).nullable().optional().default(null),
   }),
   runtime: z.object({ available: z.boolean(), note: z.string().optional().default("") }),
 });
@@ -561,6 +565,7 @@ export function parseMaskingReport(payload: ReportOut): MaskingReport {
         status: raw.telemetry.llm.status,
         message: raw.telemetry.llm.message,
         cost: raw.telemetry.llm.cost,
+        pricing: raw.telemetry.llm.pricing,
         byNode: raw.telemetry.llm.by_node.map((item) => ({
           node: item.node,
           calls: item.calls,

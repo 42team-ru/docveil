@@ -29,6 +29,7 @@ from sqlalchemy.pool import NullPool
 from api.core.db import get_db
 from api.core.deps import get_current_user
 from api.main import app
+from api.models.llm_profile import LLMActiveSettingORM
 from api.models.run import RunORM
 from api.models.user import UserORM
 from api.services import run_service
@@ -99,6 +100,7 @@ def client(
     async def _create_tables() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(RunORM.__table__.create)
+            await conn.run_sync(LLMActiveSettingORM.__table__.create)
 
     asyncio.run(_create_tables())
 

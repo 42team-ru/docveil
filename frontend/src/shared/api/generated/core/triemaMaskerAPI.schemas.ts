@@ -1040,6 +1040,113 @@ export interface JudgeQuestionOut {
   anchors: ProfileAnchorOut[];
 }
 
+export type LLMActivateRequestSource = typeof LLMActivateRequestSource[keyof typeof LLMActivateRequestSource];
+
+
+export const LLMActivateRequestSource = {
+  builtin: 'builtin',
+  custom: 'custom',
+} as const;
+
+/**
+ * Тело запроса `POST /admin/llm-profiles/activate`.
+ */
+export interface LLMActivateRequest {
+  source: LLMActivateRequestSource;
+  name: string;
+}
+
+/**
+ * Тариф — та же форма, что и `llm.profiles.*.pricing` в `masker.yaml`.
+ */
+export interface LLMPricingIn {
+  /** @minimum 0 */
+  prompt_per_1k: number;
+  /** @minimum 0 */
+  completion_per_1k: number;
+  currency?: string;
+  verified_at?: string;
+}
+
+export type LLMProfileCreateProvider = typeof LLMProfileCreateProvider[keyof typeof LLMProfileCreateProvider];
+
+
+export const LLMProfileCreateProvider = {
+  fake: 'fake',
+  cassette: 'cassette',
+  openrouter: 'openrouter',
+  gigachat: 'gigachat',
+} as const;
+
+export type LLMProfileCreateProviderConfig = { [key: string]: unknown };
+
+/**
+ * Тело запроса создания профиля из GUI.
+ */
+export interface LLMProfileCreate {
+  name: string;
+  provider: LLMProfileCreateProvider;
+  model?: string;
+  api_key_env?: string;
+  provider_config?: LLMProfileCreateProviderConfig;
+  pricing?: LLMPricingIn | null;
+}
+
+export type LLMProfileOutSource = typeof LLMProfileOutSource[keyof typeof LLMProfileOutSource];
+
+
+export const LLMProfileOutSource = {
+  builtin: 'builtin',
+  custom: 'custom',
+} as const;
+
+export type LLMProfileOutProviderConfig = { [key: string]: unknown };
+
+/**
+ * Один профиль в списке — встроенный (YAML) или пользовательский (БД).
+ */
+export interface LLMProfileOut {
+  id: string | null;
+  source: LLMProfileOutSource;
+  name: string;
+  provider: string;
+  model: string;
+  api_key_env: string;
+  provider_config: LLMProfileOutProviderConfig;
+  pricing: LLMPricingIn | null;
+  is_active: boolean;
+  created_at: string | null;
+}
+
+export type LLMProfileUpdateProvider = typeof LLMProfileUpdateProvider[keyof typeof LLMProfileUpdateProvider];
+
+
+export const LLMProfileUpdateProvider = {
+  fake: 'fake',
+  cassette: 'cassette',
+  openrouter: 'openrouter',
+  gigachat: 'gigachat',
+} as const;
+
+export type LLMProfileUpdateProviderConfig = { [key: string]: unknown };
+
+/**
+ * Тело запроса правки своего профиля (`PATCH /admin/llm-profiles/{id}`).
+ *
+ * Имя не меняется: оно же ключ, на который смотрит `llm_active_setting`,
+ * когда профиль активен, — переименование потребовало бы либо запрета
+ * редактирования активного профиля, либо синхронной правки указателя;
+ * проще было не заводить это как задачу, раз имя и так не участвует в
+ * вызове модели.
+ */
+export interface LLMProfileUpdate {
+  provider: LLMProfileUpdateProvider;
+  model?: string;
+  api_key_env?: string;
+  provider_config?: LLMProfileUpdateProviderConfig;
+  pricing?: LLMPricingIn | null;
+}
+
 /**
  * Сохранность текстового слоя PDF вне замен — `validation.layout[]`.
  */
@@ -1323,6 +1430,8 @@ export type TelemetryLlmOutByNodeItem = { [key: string]: unknown };
 
 export type TelemetryLlmOutCost = { [key: string]: unknown } | null;
 
+export type TelemetryLlmOutPricing = { [key: string]: unknown } | null;
+
 /**
  * Итог расходов на LLM — `telemetry.llm`.
  */
@@ -1334,6 +1443,7 @@ export interface TelemetryLlmOut {
   message: string;
   by_node?: TelemetryLlmOutByNodeItem[];
   cost?: TelemetryLlmOutCost;
+  pricing?: TelemetryLlmOutPricing;
 }
 
 /**

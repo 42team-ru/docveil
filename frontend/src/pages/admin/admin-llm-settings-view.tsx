@@ -13,10 +13,7 @@ import { AdminLlmProfilesTable } from "../../features/admin-overview/ui/admin-ll
 import { LlmProfileDialog } from "../../features/admin-overview/ui/llm-profile-dialog";
 import type { LLMProfileOut } from "../../shared/api/generated/core/triemaMaskerAPI.schemas";
 
-/** Вкладка «Модели»: какой профиль LLM сейчас обслуживает прогоны, и
- * переключение между встроенными (`masker.yaml`) и своими профилями.
- * Секреты (ключи API) сюда не попадают — только имя переменной окружения,
- * где сервер их ищет. */
+/** Вкладка «Модели»: выбор активного профиля, создание и настройка профилей. */
 export function AdminLlmSettingsView() {
   const profiles = useLlmProfiles();
   const [dialogProfile, setDialogProfile] = useState<LLMProfileOut | null>(null);
@@ -26,7 +23,9 @@ export function AdminLlmSettingsView() {
     <VStack gap={4}>
       <Text type="supporting" color="secondary" size="sm">
         Активный профиль обслуживает все новые прогоны и компиляцию своих
-        типов. Переключение не требует перезапуска сервера.
+        типов. Любой профиль можно настроить кнопкой «Изменить»; для встроенного
+        сохранится ваша версия, исходные настройки можно вернуть удалением.
+        Переключение не требует перезапуска сервера.
       </Text>
 
       <HStack hAlign="end">

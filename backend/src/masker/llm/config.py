@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -14,12 +14,13 @@ from masker.telemetry import LLMPricing, pricing_from_dict
 
 @dataclass(frozen=True, slots=True)
 class LLMConfig:
-    """Настройки LLM без секретного значения ключа."""
+    """Настройки LLM; секрет профиля не попадает в repr конфигурации."""
 
     provider: str = "fake"
     profile: str = ""
     model: str = ""
     api_key_env: str = "OPENROUTER_API_KEY"
+    api_key: str = field(default="", repr=False, compare=False)
     timeout_seconds: float = 60.0
     site_url: str = ""
     title: str = "triema-masker"
@@ -30,6 +31,9 @@ class LLMConfig:
     gigachat_temperature: float = 0.0001
     gigachat_ca_bundle_file: str = ""
     gigachat_insecure_skip_tls_verify: bool = False
+    #: Локальный сервер Ollama обычно не требует ключа — своя секция вместо
+    #: `api_key_env`, по аналогии с `openrouter`/`gigachat`.
+    ollama_base_url: str = "http://localhost:11434"
     pricing: LLMPricing | None = None
 
 
@@ -90,6 +94,8 @@ def llm_config_from_mapping(settings: Any) -> LLMConfig:
     gigachat_insecure_skip_tls_verify = _boolean(
         gigachat, "insecure_skip_tls_verify", default=False
     )
+    ollama = _merged_mapping(settings, selected, "ollama")
+    ollama_base_url = _required_text(ollama, "base_url", default="http://localhost:11434")
     if provider == "openrouter" and not model:
         raise ValueError("для llm.provider=openrouter укажите llm.model")
     if not api_key_env.isidentifier():
@@ -109,6 +115,7 @@ def llm_config_from_mapping(settings: Any) -> LLMConfig:
         gigachat_temperature=gigachat_temperature,
         gigachat_ca_bundle_file=gigachat_ca_bundle_file,
         gigachat_insecure_skip_tls_verify=gigachat_insecure_skip_tls_verify,
+        ollama_base_url=ollama_base_url,
         pricing=pricing,
     )
 

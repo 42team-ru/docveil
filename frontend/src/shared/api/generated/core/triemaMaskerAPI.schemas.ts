@@ -1076,6 +1076,7 @@ export const LLMProfileCreateProvider = {
   cassette: 'cassette',
   openrouter: 'openrouter',
   gigachat: 'gigachat',
+  ollama: 'ollama',
 } as const;
 
 export type LLMProfileCreateProviderConfig = { [key: string]: unknown };
@@ -1088,6 +1089,7 @@ export interface LLMProfileCreate {
   provider: LLMProfileCreateProvider;
   model?: string;
   api_key_env?: string;
+  api_key?: string | null;
   provider_config?: LLMProfileCreateProviderConfig;
   pricing?: LLMPricingIn | null;
 }
@@ -1112,6 +1114,7 @@ export interface LLMProfileOut {
   provider: string;
   model: string;
   api_key_env: string;
+  has_api_key: boolean;
   provider_config: LLMProfileOutProviderConfig;
   pricing: LLMPricingIn | null;
   is_active: boolean;
@@ -1126,6 +1129,7 @@ export const LLMProfileUpdateProvider = {
   cassette: 'cassette',
   openrouter: 'openrouter',
   gigachat: 'gigachat',
+  ollama: 'ollama',
 } as const;
 
 export type LLMProfileUpdateProviderConfig = { [key: string]: unknown };
@@ -1138,11 +1142,17 @@ export type LLMProfileUpdateProviderConfig = { [key: string]: unknown };
  * редактирования активного профиля, либо синхронной правки указателя;
  * проще было не заводить это как задачу, раз имя и так не участвует в
  * вызове модели.
+ *
+ * `api_key` отсутствует в теле запроса — сохранённый токен не трогаем
+ * (форма не обязана перепосылать секрет, который не показывает). Поле
+ * прислано пустой строкой или `null` — токен очищается. Различие видно
+ * через `model_fields_set`, а не через сравнение значений.
  */
 export interface LLMProfileUpdate {
   provider: LLMProfileUpdateProvider;
   model?: string;
   api_key_env?: string;
+  api_key?: string | null;
   provider_config?: LLMProfileUpdateProviderConfig;
   pricing?: LLMPricingIn | null;
 }

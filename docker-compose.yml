@@ -43,6 +43,8 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - path: ./backend/.env
         required: false

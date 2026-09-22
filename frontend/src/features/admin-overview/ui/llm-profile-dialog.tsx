@@ -28,16 +28,18 @@ type LlmProfileDialogProps = {
 const PROVIDER_OPTIONS: { value: LLMProfileCreateProvider; label: string }[] = [
   { value: "openrouter", label: "OpenRouter" },
   { value: "gigachat", label: "GigaChat" },
+  { value: "ollama", label: "Ollama (локальный сервер)" },
   { value: "fake", label: "Fake (без реальных вызовов, для теста)" },
   { value: "cassette", label: "Cassette (записанные ответы, для теста)" },
 ];
 
-/** Создать или отредактировать свой профиль LLM (встроенные из
- * `masker.yaml` — не через этот диалог, они только для просмотра).
+const DEFAULT_OLLAMA_BASE_URL = "http://host.docker.internal:11434";
+
+/** Создать или отредактировать профиль LLM; встроенный можно сохранить как
+ * пользовательское переопределение под тем же именем.
  *
- * `api_key_env` — имя переменной окружения с ключом, не сам ключ: тот же
- * принцип, что и в `masker.yaml` (секреты живут в окружении процесса,
- * профиль только называет, где их искать). Тариф необязателен — без него
+ * Токен можно вставить прямо в форму или прочитать из переменной окружения
+ * backend. Тариф необязателен — без него
  * стоимость просто не попадёт в отчёт по прогонам на этом профиле.
  */
 export function LlmProfileDialog({ isOpen, onOpenChange, editingProfile }: LlmProfileDialogProps) {
@@ -46,6 +48,9 @@ export function LlmProfileDialog({ isOpen, onOpenChange, editingProfile }: LlmPr
   const [provider, setProvider] = useState<LLMProfileCreateProvider>("openrouter");
   const [model, setModel] = useState("");
   const [apiKeyEnv, setApiKeyEnv] = useState("OPENROUTER_API_KEY");
+  const [apiKey, setApiKey] = useState("");
+  const [clearApiKey, setClearApiKey] = useState(false);
+  const [ollamaBaseUrl, setOllamaBaseUrl] = useState(DEFAULT_OLLAMA_BASE_URL);
   const [hasPricing, setHasPricing] = useState(false);
   const [promptPer1k, setPromptPer1k] = useState<number | null>(null);
   const [completionPer1k, setCompletionPer1k] = useState<number | null>(null);
@@ -64,6 +69,12 @@ export function LlmProfileDialog({ isOpen, onOpenChange, editingProfile }: LlmPr
       setProvider(editingProfile.provider as LLMProfileCreateProvider);
       setModel(editingProfile.model);
       setApiKeyEnv(editingProfile.api_key_env);
+      const providerConfig = editingProfile.provider_config as { ollama_base_url?: string };
+      setOllamaBaseUrl(
+        editingProfile.provider === "ollama"
+          ? providerConfig.ollama_base_url ?? DEFAULT_OLLAMA_BASE_URL
+          : DEFAULT_OLLAMA_BASE_URL,
+      );
       setHasPricing(editingProfile.pricing !== null);
       setPromptPer1k(editingProfile.pricing?.prompt_per_1k ?? null);
       setCompletionPer1k(editingProfile.pricing?.completion_per_1k ?? null);
@@ -72,17 +83,22 @@ export function LlmProfileDialog({ isOpen, onOpenChange, editingProfile }: LlmPr
       setProvider("openrouter");
       setModel("");
       setApiKeyEnv("OPENROUTER_API_KEY");
+      setOllamaBaseUrl(DEFAULT_OLLAMA_BASE_URL);
       setHasPricing(false);
       setPromptPer1k(null);
       setCompletionPer1k(null);
     }
+    setApiKey("");
+    setClearApiKey(false);
     setErrorMessage(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- editingProfile.id, не сам объект: не пере-заполнять форму на каждый рефетч списка.
   }, [isOpen, editingProfile?.id]);
 
   const canSubmit =
     name.trim() !== "" &&
-    apiKeyEnv.trim() !== "" &&
+    (provider === "ollama"
+      ? model.trim() !== "" && ollamaBaseUrl.trim() !== ""
+      : apiKeyEnv.trim() !== "") &&
     (!hasPricing || (promptPer1k !== null && completionPer1k !== null));
 
   function handleClose() {
@@ -108,7 +124,20 @@ export function LlmProfileDialog({ isOpen, onOpenChange, editingProfile }: LlmPr
       updateProfile.mutate(
         {
           profileId: editingProfile.id,
-          payload: { provider, model: model.trim(), api_key_env: apiKeyEnv.trim(), pricing },
+          payload: {
+            provider,
+            model: model.trim(),
+            api_key_env: apiKeyEnv.trim(),
+            api_key:
+              provider === "ollama" ? undefined : clearApiKey ? null : apiKey.trim() || undefined,
+            provider_config:
+              provider === "ollama"
+                ? { ollama_base_url: ollamaBaseUrl.trim() }
+                : provider === editingProfile.provider
+                  ? editingProfile.provider_config
+                  : {},
+            pricing,
+          },
         },
         {
           onSuccess: () => {
@@ -122,10 +151,23 @@ export function LlmProfileDialog({ isOpen, onOpenChange, editingProfile }: LlmPr
     }
 
     createProfile.mutate(
-      { name: name.trim(), provider, model: model.trim(), api_key_env: apiKeyEnv.trim(), pricing },
+      {
+        name: name.trim(),
+        provider,
+        model: model.trim(),
+        api_key_env: apiKeyEnv.trim(),
+        api_key: provider === "ollama" ? undefined : apiKey.trim() || undefined,
+        provider_config:
+          provider === "ollama"
+            ? { ollama_base_url: ollamaBaseUrl.trim() }
+            : isEditing && provider === editingProfile.provider
+              ? editingProfile.provider_config
+              : {},
+        pricing,
+      },
       {
         onSuccess: () => {
-          showToast({ body: "Профиль создан", type: "info" });
+          showToast({ body: isEditing ? "Профиль сохранён" : "Профиль создан", type: "info" });
           handleClose();
         },
         onError,
@@ -177,16 +219,55 @@ export function LlmProfileDialog({ isOpen, onOpenChange, editingProfile }: LlmPr
               />
               <TextInput
                 label="Модель"
-                description="Как в API провайдера, например deepseek/deepseek-chat"
+                description={
+                  provider === "ollama"
+                    ? "Имя модели, установленной в Ollama, например qwen3:8b"
+                    : "Как в API провайдера, например deepseek/deepseek-chat"
+                }
                 value={model}
                 onChange={setModel}
               />
-              <TextInput
-                label="Переменная окружения с ключом"
-                description="Имя переменной, не сам ключ — сам ключ должен уже быть в окружении сервера"
-                value={apiKeyEnv}
-                onChange={setApiKeyEnv}
-              />
+              {provider === "ollama" ? (
+                <TextInput
+                  label="Адрес Ollama"
+                  description="Для Ollama на этом компьютере оставьте этот адрес. Он доступен backend из Docker."
+                  value={ollamaBaseUrl}
+                  onChange={setOllamaBaseUrl}
+                />
+              ) : (
+                <>
+                  <TextInput
+                    label="API-токен"
+                    type="password"
+                    placeholder={
+                      isEditing && editingProfile.has_api_key
+                        ? "Токен сохранён — введите новый, чтобы заменить"
+                        : "Вставьте токен провайдера"
+                    }
+                    value={apiKey}
+                    onChange={(value) => {
+                      setApiKey(value);
+                      if (value) setClearApiKey(false);
+                    }}
+                  />
+                  {isEditing && editingProfile.has_api_key ? (
+                    <CheckboxInput
+                      label="Удалить сохранённый токен"
+                      value={clearApiKey}
+                      onChange={(value) => {
+                        setClearApiKey(value);
+                        if (value) setApiKey("");
+                      }}
+                    />
+                  ) : null}
+                  <TextInput
+                    label="Или переменная окружения backend"
+                    description="Используется, если токен выше не указан"
+                    value={apiKeyEnv}
+                    onChange={setApiKeyEnv}
+                  />
+                </>
+              )}
               <VStack gap={2}>
                 <CheckboxInput
                   label="Указать тариф (для отчёта по стоимости прогонов)"

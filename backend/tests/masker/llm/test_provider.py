@@ -13,6 +13,7 @@ from masker.llm import (
     FakeProvider,
     LLMError,
     Message,
+    OllamaProvider,
     OpenRouterProvider,
     get_provider,
     load_llm_config,
@@ -295,6 +296,68 @@ def test_openrouter_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(LLMError, match="OPENROUTER_API_KEY"):
         get_provider()
+
+
+def test_get_provider_builds_ollama_without_requiring_a_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Локальный Ollama не требует ключа в окружении — в отличие от OpenRouter/GigaChat."""
+    monkeypatch.setenv("MASKER_LLM", "ollama")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "llama3")
+    monkeypatch.setenv("MASKER_LLM_OLLAMA_BASE_URL", "http://ollama.internal:11434")
+
+    provider = get_provider()
+
+    assert isinstance(provider, OllamaProvider)
+    assert provider.model == "llama3"
+    assert provider.base_url == "http://ollama.internal:11434"
+
+
+def test_get_provider_ollama_requires_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MASKER_LLM", "ollama")
+    monkeypatch.setenv("MASKER_LLM_MODEL", "")
+
+    with pytest.raises(LLMError, match="Ollama"):
+        get_provider()
+
+
+def test_ollama_provider_sends_openai_compatible_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Response:
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            del exc_type, exc, traceback
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(request: object, *, timeout: float) -> Response:
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr("masker.llm.ollama.urlopen", fake_urlopen)
+    provider = OllamaProvider(
+        base_url="http://localhost:11434", model="llama3", timeout_seconds=5.0
+    )
+
+    result = provider.complete([Message("user", "test")])
+
+    assert result == "ok"
+    request = captured["request"]
+    assert isinstance(request, Request)
+    assert request.full_url == "http://localhost:11434/v1/chat/completions"
+    assert json.loads(request.data) == {
+        "model": "llama3",
+        "messages": [{"role": "user", "content": "test"}],
+        "temperature": 0.0,
+    }
+    assert captured["timeout"] == 5.0
 
 
 def test_load_llm_config_keeps_key_in_environment(tmp_path: Path) -> None:

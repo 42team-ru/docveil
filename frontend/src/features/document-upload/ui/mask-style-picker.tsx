@@ -1,4 +1,4 @@
-import { Plus, X } from "lucide-react";
+import { Check, Plus, X } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Code } from "@astryxdesign/core/Code";
@@ -43,11 +43,28 @@ const REGISTRY_TYPE_COUNT = ALL_TYPE_OPTIONS.length;
  * Превью показывает то, что реально попадёт в документ — не исходное
  * значение с подсветкой поверх (так было раньше, и это была неправда):
  * "Маркер" стирает исходный текст и пишет вместо него `[ТИП]`, "Заливка"
- * стирает его вообще без следа. Блоки `████` — не декоративные точки, а
- * буквальная имитация "здесь ничего не прочитать".
+ * стирает его вообще без следа — как сплошная чёрная плашка поверх строки
+ * в самом документе, а не текст из символов `█`.
  */
-const PREVIEW_ORG = { marker: "[ОРГАНИЗАЦИЯ]", blackbox: "███████" } as const;
-const PREVIEW_INN = { marker: "[ИНН]", blackbox: "██████████" } as const;
+const PREVIEW_ORG = { marker: "[ОРГАНИЗАЦИЯ]" } as const;
+const PREVIEW_INN = { marker: "[ИНН]" } as const;
+
+/** Ширина плашки под примерную длину скрытого значения — не про пиксели темы, а про то, как реально выглядит "Заливка" в документе. */
+function BlackboxBar({ width }: { width: number }) {
+  return (
+    <span
+      aria-label="скрыто"
+      style={{
+        display: "inline-block",
+        width,
+        height: "0.9em",
+        verticalAlign: "middle",
+        backgroundColor: "#000000",
+        borderRadius: 2,
+      }}
+    />
+  );
+}
 
 /** Подписи стилей маски — переиспользуются в подтверждении запуска на `UploadPage`. */
 export const MASK_STYLE_OPTIONS: Array<{
@@ -152,16 +169,24 @@ export function MaskStylePicker({
                       <VStack gap={1}>
                         <Text type="code" size="sm" color="secondary">
                           {"Поставщик: ООО «"}
-                          <Code className="text-primary" style={previewStyle}>
-                            {PREVIEW_ORG[option.id]}
-                          </Code>
+                          {option.id === "blackbox" ? (
+                            <BlackboxBar width={84} />
+                          ) : (
+                            <Code className="text-primary" style={previewStyle}>
+                              {PREVIEW_ORG.marker}
+                            </Code>
+                          )}
                           {"»"}
                         </Text>
                         <Text type="code" size="sm" color="secondary">
                           {"ИНН: "}
-                          <Code className="text-primary" style={previewStyle}>
-                            {PREVIEW_INN[option.id]}
-                          </Code>
+                          {option.id === "blackbox" ? (
+                            <BlackboxBar width={64} />
+                          ) : (
+                            <Code className="text-primary" style={previewStyle}>
+                              {PREVIEW_INN.marker}
+                            </Code>
+                          )}
                         </Text>
                       </VStack>
                     </Section>
@@ -188,17 +213,26 @@ export function MaskStylePicker({
                               key={colorOption.value}
                               label={colorOption.label}
                               isSelected={isColorSelected}
-                              variant={isColorSelected ? "blue" : "default"}
                               padding={1}
                               width={36}
                               height={36}
                               onChange={() => setHighlightColor(colorOption.value)}
                             >
+                              {/* `variant` красит фон самой карточки, а не кольцо выбора —
+                                  на маленьком квадрате inset-рамка `isSelected` слишком
+                                  незаметна на разных цветах. Галочка внутри — однозначный
+                                  индикатор независимо от фонового цвета. */}
                               <VStack
                                 width="100%"
                                 height="100%"
+                                hAlign="center"
+                                vAlign="center"
                                 style={{ backgroundColor: colorOption.value, borderRadius: 4 }}
-                              />
+                              >
+                                {isColorSelected ? (
+                                  <Icon icon={Check} size="sm" color="primary" />
+                                ) : null}
+                              </VStack>
                             </SelectableCard>
                           );
                         })}

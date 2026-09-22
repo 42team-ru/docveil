@@ -29,6 +29,11 @@ class LLMProfileORM(Base):
     provider: Mapped[str] = mapped_column(String, nullable=False)
     model: Mapped[str] = mapped_column(String, nullable=False)
     api_key_env: Mapped[str] = mapped_column(String, nullable=False)
+    #: Реальный секрет, если админ вставил токен в GUI напрямую, а не завёл
+    #: переменную окружения на сервере. `None` — поведение как раньше:
+    #: значение ищется в `api_key_env` окружения процесса. Наружу (в
+    #: `LLMProfileOut`) не отдаётся никогда — только флаг `has_api_key`.
+    api_key: Mapped[str | None] = mapped_column(String, nullable=True)
     #: Провайдер-специфичные поля (`openrouter`/`gigachat` секции YAML) — как есть.
     provider_config: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
     #: `{prompt_per_1k, completion_per_1k, currency, verified_at}` — форма `LLMPricing.as_dict()`.

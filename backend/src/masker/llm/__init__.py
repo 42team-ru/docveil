@@ -12,6 +12,7 @@ from masker.llm.cassette import CassetteProvider
 from masker.llm.config import LLMConfig, llm_config_from_mapping, load_llm_config
 from masker.llm.fake import FakeProvider
 from masker.llm.gigachat import GigaChatProvider
+from masker.llm.ollama import OllamaProvider
 from masker.llm.openrouter import OpenRouterProvider
 from masker.llm.trace import BatchTrace, CallTrace, ProfileOutcome, TracingProvider, write_trace
 from masker.telemetry import LLMPricing, pricing_from_dict
@@ -27,6 +28,7 @@ __all__ = [
     "LLMProvider",
     "LLMUsage",
     "Message",
+    "OllamaProvider",
     "OpenRouterProvider",
     "ProfileOutcome",
     "TracingProvider",
@@ -70,7 +72,7 @@ def get_provider(config: LLMConfig | None = None) -> LLMProvider:
         directory = Path(config.cassette_directory or _DEFAULT_CASSETTE_DIRECTORY)
         return CassetteProvider(directory)
     if provider == "openrouter":
-        api_key = os.environ.get(config.api_key_env, "")
+        api_key = config.api_key or os.environ.get(config.api_key_env, "")
         if not api_key:
             raise LLMError(
                 f"не задана переменная окружения {config.api_key_env} с ключом OpenRouter"
@@ -87,7 +89,7 @@ def get_provider(config: LLMConfig | None = None) -> LLMProvider:
             provider_order=config.openrouter_provider_order,
         )
     if provider == "gigachat":
-        credentials = os.environ.get(config.api_key_env, "")
+        credentials = config.api_key or os.environ.get(config.api_key_env, "")
         if not credentials:
             raise LLMError(
                 f"не задана переменная окружения {config.api_key_env} с ключом авторизации GigaChat"
@@ -102,6 +104,14 @@ def get_provider(config: LLMConfig | None = None) -> LLMProvider:
             timeout_seconds=config.timeout_seconds,
             ca_bundle_file=config.gigachat_ca_bundle_file or None,
             verify_ssl_certs=not config.gigachat_insecure_skip_tls_verify,
+        )
+    if provider == "ollama":
+        if not config.model:
+            raise LLMError("для Ollama задайте модель в конфиге или MASKER_LLM_MODEL")
+        return OllamaProvider(
+            base_url=config.ollama_base_url or "http://localhost:11434",
+            model=config.model,
+            timeout_seconds=config.timeout_seconds,
         )
     raise LLMError(f"неизвестный поставщик LLM: {provider!r}")
 
@@ -165,6 +175,7 @@ def _environment_overrides(config: LLMConfig) -> LLMConfig:
             "MASKER_LLM_GIGACHAT_INSECURE_SKIP_TLS_VERIFY",
             config.gigachat_insecure_skip_tls_verify,
         ),
+        ollama_base_url=_read_text_env("MASKER_LLM_OLLAMA_BASE_URL", config.ollama_base_url),
         pricing=_pricing_environment_overrides(config.pricing),
     )
 

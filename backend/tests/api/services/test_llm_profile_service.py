@@ -8,6 +8,7 @@ masker.yaml разработчика.
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -85,15 +86,15 @@ async def test_list_profiles_includes_custom_rows_and_marks_active_one():
 
 
 @pytest.mark.asyncio
-async def test_create_profile_rejects_name_colliding_with_builtin():
+async def test_create_profile_can_override_builtin_name():
     session = _session_with()
     payload = LLMProfileCreate(name="fake", provider="openrouter", model="x")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await create_profile(session, payload)
+    profile = await create_profile(session, payload)
 
-    assert exc_info.value.status_code == 409
-    session.add.assert_not_called()
+    assert profile.name == "fake"
+    assert profile.source == "custom"
+    session.add.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -256,3 +257,60 @@ async def test_update_profile_reports_active_when_currently_active():
     result = await update_profile(session, row.id, payload)
 
     assert result.is_active is True
+
+
+@pytest.mark.asyncio
+async def test_update_profile_leaves_api_key_untouched_when_field_absent():
+    """Форма правки не обязана перепосылать секрет, который сама не показывает."""
+    row = _custom_row(name="my-openrouter", api_key="stored-secret")
+    session = AsyncMock()
+    session.get = AsyncMock(side_effect=[row, None])
+    payload = LLMProfileUpdate(provider="openrouter", model="new-model")
+
+    result = await update_profile(session, row.id, payload)
+
+    assert row.api_key == "stored-secret"
+    assert result.has_api_key is True
+
+
+@pytest.mark.asyncio
+async def test_update_profile_replaces_api_key_when_provided():
+    row = _custom_row(name="my-openrouter", api_key="old-secret")
+    session = AsyncMock()
+    session.get = AsyncMock(side_effect=[row, None])
+    payload = LLMProfileUpdate(provider="openrouter", model="new-model", api_key="new-secret")
+
+    result = await update_profile(session, row.id, payload)
+
+    assert row.api_key == "new-secret"
+    assert result.has_api_key is True
+
+
+@pytest.mark.asyncio
+async def test_update_profile_clears_api_key_when_sent_empty():
+    row = _custom_row(name="my-openrouter", api_key="old-secret")
+    session = AsyncMock()
+    session.get = AsyncMock(side_effect=[row, None])
+    payload = LLMProfileUpdate(provider="openrouter", model="new-model", api_key="")
+
+    result = await update_profile(session, row.id, payload)
+
+    assert row.api_key is None
+    assert result.has_api_key is False
+
+
+@pytest.mark.asyncio
+async def test_resolve_active_llm_config_keeps_stored_secret_out_of_environment(monkeypatch):
+    monkeypatch.delenv("MY_KEY_ENV", raising=False)
+    row = _custom_row(name="my-openrouter", api_key_env="MY_KEY_ENV", api_key="real-token-value")
+    active = LLMActiveSettingORM(
+        id=1, source="custom", name="my-openrouter", updated_at=datetime.now(UTC)
+    )
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=active)
+    session.scalar = AsyncMock(return_value=row)
+
+    config = await resolve_active_llm_config(session)
+
+    assert config.api_key == "real-token-value"
+    assert "MY_KEY_ENV" not in os.environ

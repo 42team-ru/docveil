@@ -4212,7 +4212,8 @@
               "fake",
               "cassette",
               "openrouter",
-              "gigachat"
+              "gigachat",
+              "ollama"
             ],
             "title": "Provider"
           },
@@ -4225,6 +4226,17 @@
             "type": "string",
             "title": "Api Key Env",
             "default": "OPENROUTER_API_KEY"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
           },
           "provider_config": {
             "additionalProperties": true,
@@ -4288,6 +4300,10 @@
             "type": "string",
             "title": "Api Key Env"
           },
+          "has_api_key": {
+            "type": "boolean",
+            "title": "Has Api Key"
+          },
           "provider_config": {
             "additionalProperties": true,
             "type": "object",
@@ -4328,6 +4344,7 @@
           "provider",
           "model",
           "api_key_env",
+          "has_api_key",
           "provider_config",
           "pricing",
           "is_active",
@@ -4344,7 +4361,8 @@
               "fake",
               "cassette",
               "openrouter",
-              "gigachat"
+              "gigachat",
+              "ollama"
             ],
             "title": "Provider"
           },
@@ -4357,6 +4375,17 @@
             "type": "string",
             "title": "Api Key Env",
             "default": "OPENROUTER_API_KEY"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
           },
           "provider_config": {
             "additionalProperties": true,
@@ -4379,7 +4408,7 @@
           "provider"
         ],
         "title": "LLMProfileUpdate",
-        "description": "Тело запроса правки своего профиля (`PATCH /admin/llm-profiles/{id}`).\n\nИмя не меняется: оно же ключ, на который смотрит `llm_active_setting`,\nкогда профиль активен, — переименование потребовало бы либо запрета\nредактирования активного профиля, либо синхронной правки указателя;\nпроще было не заводить это как задачу, раз имя и так не участвует в\nвызове модели."
+        "description": "Тело запроса правки своего профиля (`PATCH /admin/llm-profiles/{id}`).\n\nИмя не меняется: оно же ключ, на который смотрит `llm_active_setting`,\nкогда профиль активен, — переименование потребовало бы либо запрета\nредактирования активного профиля, либо синхронной правки указателя;\nпроще было не заводить это как задачу, раз имя и так не участвует в\nвызове модели.\n\n`api_key` отсутствует в теле запроса — сохранённый токен не трогаем\n(форма не обязана перепосылать секрет, который не показывает). Поле\nприслано пустой строкой или `null` — токен очищается. Различие видно\nчерез `model_fields_set`, а не через сравнение значений."
       },
       "LayoutOut": {
         "properties": {

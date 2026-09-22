@@ -59,6 +59,7 @@ export function AdminLlmProfilesTable({ profiles, onEdit }: AdminLlmProfilesTabl
                   color={profile.source === "builtin" ? "gray" : "blue"}
                   label={profile.source === "builtin" ? "Встроенный" : "Свой"}
                 />
+                {profile.has_api_key ? <Token size="sm" color="green" label="Токен задан" /> : null}
               </HStack>
             ),
           },
@@ -105,7 +106,7 @@ export function AdminLlmProfilesTable({ profiles, onEdit }: AdminLlmProfilesTabl
           {
             key: "actions",
             header: "",
-            width: pixel(200),
+            width: pixel(220),
             renderCell: (profile) => (
               <HStack gap={1} vAlign="center" hAlign="end" width="100%">
                 {!profile.is_active ? (
@@ -120,15 +121,13 @@ export function AdminLlmProfilesTable({ profiles, onEdit }: AdminLlmProfilesTabl
                     }
                   />
                 ) : null}
-                {profile.source === "custom" ? (
-                  <IconButton
-                    size="sm"
-                    variant="ghost"
-                    icon={<Icon icon={Pencil} size="sm" />}
-                    label={`Изменить профиль «${profile.name}»`}
-                    onClick={() => onEdit(profile)}
-                  />
-                ) : null}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Icon icon={Pencil} size="sm" />}
+                  label="Изменить"
+                  onClick={() => onEdit(profile)}
+                />
                 {profile.source === "custom" && profile.id ? (
                   <IconButton
                     size="sm"

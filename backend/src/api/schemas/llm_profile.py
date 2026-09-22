@@ -23,10 +23,15 @@ class LLMProfileCreate(BaseModel):
     """Тело запроса создания профиля из GUI."""
 
     name: str
-    provider: Literal["fake", "cassette", "openrouter", "gigachat"]
+    provider: Literal["fake", "cassette", "openrouter", "gigachat", "ollama"]
     model: str = ""
     #: Имя переменной окружения с ключом/учётными данными — не сам секрет.
     api_key_env: str = "OPENROUTER_API_KEY"
+    #: Реальный токен, вставленный прямо в GUI, — альтернатива настройке
+    #: переменной окружения на сервере. Хранится в БД, наружу не отдаётся
+    #: (см. `LLMProfileOut.has_api_key`). `None` — как раньше, секрет ищется
+    #: в окружении процесса по `api_key_env`.
+    api_key: str | None = None
     #: Провайдер-специфичные поля (`openrouter`/`gigachat` секции YAML) как есть.
     provider_config: dict[str, Any] = Field(default_factory=dict)
     pricing: LLMPricingIn | None = None
@@ -39,11 +44,17 @@ class LLMProfileUpdate(BaseModel):
     когда профиль активен, — переименование потребовало бы либо запрета
     редактирования активного профиля, либо синхронной правки указателя;
     проще было не заводить это как задачу, раз имя и так не участвует в
-    вызове модели."""
+    вызове модели.
 
-    provider: Literal["fake", "cassette", "openrouter", "gigachat"]
+    `api_key` отсутствует в теле запроса — сохранённый токен не трогаем
+    (форма не обязана перепосылать секрет, который не показывает). Поле
+    прислано пустой строкой или `null` — токен очищается. Различие видно
+    через `model_fields_set`, а не через сравнение значений."""
+
+    provider: Literal["fake", "cassette", "openrouter", "gigachat", "ollama"]
     model: str = ""
     api_key_env: str = "OPENROUTER_API_KEY"
+    api_key: str | None = None
     provider_config: dict[str, Any] = Field(default_factory=dict)
     pricing: LLMPricingIn | None = None
 
@@ -58,6 +69,9 @@ class LLMProfileOut(BaseModel):
     provider: str
     model: str
     api_key_env: str
+    #: Сохранён ли в БД реальный токен для этого профиля — сам секрет
+    #: никогда не возвращается наружу.
+    has_api_key: bool
     provider_config: dict[str, Any]
     pricing: LLMPricingIn | None
     is_active: bool

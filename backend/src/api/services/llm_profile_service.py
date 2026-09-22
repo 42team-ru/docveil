@@ -67,6 +67,7 @@ def _config_from_row(row: LLMProfileORM) -> LLMConfig:
         profile=row.name,
         model=row.model,
         api_key_env=row.api_key_env,
+        api_key=row.api_key or "",
         timeout_seconds=float(cfg.get("timeout_seconds", defaults.timeout_seconds)),
         site_url=str(cfg.get("site_url", defaults.site_url)),
         title=str(cfg.get("title", defaults.title)),
@@ -83,8 +84,26 @@ def _config_from_row(row: LLMProfileORM) -> LLMConfig:
         gigachat_insecure_skip_tls_verify=bool(
             cfg.get("gigachat_insecure_skip_tls_verify", defaults.gigachat_insecure_skip_tls_verify)
         ),
+        ollama_base_url=str(cfg.get("ollama_base_url", defaults.ollama_base_url)),
         pricing=pricing_from_dict(row.pricing) if row.pricing else None,
     )
+
+
+def _provider_config_out(config: LLMConfig) -> dict[str, object]:
+    """Без секретов сериализовать настройки профиля для формы редактирования."""
+    return {
+        "timeout_seconds": config.timeout_seconds,
+        "site_url": config.site_url,
+        "title": config.title,
+        "cassette_directory": config.cassette_directory,
+        "openrouter_temperature": config.openrouter_temperature,
+        "openrouter_provider_order": list(config.openrouter_provider_order),
+        "gigachat_scope": config.gigachat_scope,
+        "gigachat_temperature": config.gigachat_temperature,
+        "gigachat_ca_bundle_file": config.gigachat_ca_bundle_file,
+        "gigachat_insecure_skip_tls_verify": config.gigachat_insecure_skip_tls_verify,
+        "ollama_base_url": config.ollama_base_url,
+    }
 
 
 async def _active_pointer(session: AsyncSession) -> LLMActiveSettingORM | None:
@@ -98,8 +117,17 @@ async def list_profiles(session: AsyncSession) -> list[LLMProfileOut]:
         active.name if active is not None else (project_section("llm").get("profile") or "")
     )
 
+    rows = (
+        (await session.execute(select(LLMProfileORM).order_by(LLMProfileORM.created_at)))
+        .scalars()
+        .all()
+    )
+    builtin_names = set(_builtin_names())
+    overridden_names = {row.name for row in rows if row.name in builtin_names}
     result: list[LLMProfileOut] = []
     for name in _builtin_names():
+        if name in overridden_names:
+            continue
         config = _builtin_config(name)
         result.append(
             LLMProfileOut(
@@ -109,18 +137,14 @@ async def list_profiles(session: AsyncSession) -> list[LLMProfileOut]:
                 provider=config.provider,
                 model=config.model,
                 api_key_env=config.api_key_env,
-                provider_config={},
+                has_api_key=False,
+                provider_config=_provider_config_out(config),
                 pricing=_pricing_out(config.pricing),
                 is_active=(active_source == "builtin" and active_name == name),
                 created_at=None,
             )
         )
 
-    rows = (
-        (await session.execute(select(LLMProfileORM).order_by(LLMProfileORM.created_at)))
-        .scalars()
-        .all()
-    )
     for row in rows:
         result.append(
             LLMProfileOut(
@@ -130,9 +154,10 @@ async def list_profiles(session: AsyncSession) -> list[LLMProfileOut]:
                 provider=row.provider,
                 model=row.model,
                 api_key_env=row.api_key_env,
+                has_api_key=bool(row.api_key),
                 provider_config=row.provider_config,
                 pricing=LLMPricingIn.model_validate(row.pricing) if row.pricing else None,
-                is_active=(active_source == "custom" and active_name == row.name),
+                is_active=(active_name == row.name),
                 created_at=row.created_at,
             )
         )
@@ -140,10 +165,8 @@ async def list_profiles(session: AsyncSession) -> list[LLMProfileOut]:
 
 
 async def create_profile(session: AsyncSession, payload: LLMProfileCreate) -> LLMProfileOut:
-    if payload.name in _builtin_names():
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, f"имя {payload.name!r} занято встроенным профилем"
-        )
+    # Совпадение со встроенным именем — пользовательское переопределение.
+    # list_profiles скрывает исходную YAML-строку, удаление возвращает её.
     exists = await session.scalar(
         select(LLMProfileORM.id).where(LLMProfileORM.name == payload.name)
     )
@@ -156,6 +179,7 @@ async def create_profile(session: AsyncSession, payload: LLMProfileCreate) -> LL
         provider=payload.provider,
         model=payload.model,
         api_key_env=payload.api_key_env,
+        api_key=payload.api_key or None,
         provider_config=payload.provider_config,
         pricing=payload.pricing.model_dump() if payload.pricing else None,
         created_at=datetime.now(UTC),
@@ -170,6 +194,7 @@ async def create_profile(session: AsyncSession, payload: LLMProfileCreate) -> LL
         provider=row.provider,
         model=row.model,
         api_key_env=row.api_key_env,
+        has_api_key=bool(row.api_key),
         provider_config=row.provider_config,
         pricing=payload.pricing,
         is_active=False,
@@ -192,6 +217,10 @@ async def update_profile(
     row.provider = payload.provider
     row.model = payload.model
     row.api_key_env = payload.api_key_env
+    if "api_key" in payload.model_fields_set:
+        # Поле прислано явно — либо новый токен, либо очистка (""/null).
+        # Отсутствие поля в теле запроса оставляет сохранённый токен как есть.
+        row.api_key = payload.api_key or None
     row.provider_config = payload.provider_config
     row.pricing = payload.pricing.model_dump() if payload.pricing else None
     await session.commit()
@@ -206,6 +235,7 @@ async def update_profile(
         provider=row.provider,
         model=row.model,
         api_key_env=row.api_key_env,
+        has_api_key=bool(row.api_key),
         provider_config=row.provider_config,
         pricing=payload.pricing,
         is_active=is_active,
@@ -257,6 +287,10 @@ async def resolve_active_llm_config(session: AsyncSession) -> LLMConfig:
     settings = project_section("llm")
     active = await _active_pointer(session)
     if active is None:
+        active_name = str(settings.get("profile") or "")
+        row = await session.scalar(select(LLMProfileORM).where(LLMProfileORM.name == active_name))
+        if row is not None:
+            return _config_from_row(row)
         return llm_config_from_mapping(settings)
 
     if active.source == "custom":
@@ -267,6 +301,9 @@ async def resolve_active_llm_config(session: AsyncSession) -> LLMConfig:
         # случаться (delete_profile это запрещает), но не 500 на прогон.
 
     if active.name in settings.get("profiles", {}):
+        row = await session.scalar(select(LLMProfileORM).where(LLMProfileORM.name == active.name))
+        if row is not None:
+            return _config_from_row(row)
         return llm_config_from_mapping({**settings, "profile": active.name})
 
     return llm_config_from_mapping(settings)

@@ -143,6 +143,7 @@ def _run_options(request: RunCreateRequest, document_format: str) -> RunOptions:
         review=request.review,
         custom_types=tuple(request.custom_types),
         image_output_format=request.image_output_format,
+        highlight_background=request.highlight_background,
     )
 
 

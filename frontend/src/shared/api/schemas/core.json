@@ -755,7 +755,8 @@
                     "awaiting_review",
                     "done",
                     "failed",
-                    "leaked"
+                    "leaked",
+                    "cancelled"
                   ],
                   "type": "string"
                 },
@@ -849,6 +850,46 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Delete Run",
+        "description": "Удалить прогон в любом статусе; если он активен — сначала отменить.",
+        "operationId": "delete_run_api_runs__run_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -1736,7 +1777,8 @@
               "awaiting_review",
               "done",
               "failed",
-              "leaked"
+              "leaked",
+              "cancelled"
             ],
             "title": "Status"
           },
@@ -5523,6 +5565,18 @@
             ],
             "title": "Image Output Format",
             "default": "original"
+          },
+          "highlight_background": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highlight Background",
+            "default": "#FFDE66"
           }
         },
         "type": "object",
@@ -5594,7 +5648,8 @@
               "awaiting_review",
               "done",
               "failed",
-              "leaked"
+              "leaked",
+              "cancelled"
             ],
             "title": "Status"
           },
@@ -5695,7 +5750,8 @@
               "awaiting_review",
               "done",
               "failed",
-              "leaked"
+              "leaked",
+              "cancelled"
             ],
             "title": "Status"
           },

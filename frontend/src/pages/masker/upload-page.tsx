@@ -44,6 +44,7 @@ export function UploadPage() {
 
   const maskStyle = useRuleProfileStore((state) => state.maskStyle);
   const enabledTypes = useRuleProfileStore((state) => state.enabledTypes);
+  const highlightColor = useRuleProfileStore((state) => state.highlightColor);
 
   const customTypes = useCustomTypesStore((state) => state.types);
 
@@ -122,6 +123,7 @@ export function UploadPage() {
           maskStyle,
           types: enabledTypes,
           customTypes,
+          highlightColor,
         });
         markStarted(item.id, run.id);
         if (firstRunId === null) {

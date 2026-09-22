@@ -16,9 +16,27 @@ import { Token } from "@astryxdesign/core/Token";
 
 import { piiTypeOptions } from "../../../entity/pii/model/pii-type-dict";
 import { useCustomTypesStore } from "../../custom-types-compiler/model/store";
+import type { HighlightColor } from "../../../entity/rule-profile/model/rule-profile-store";
 import { useRuleProfileStore } from "../../../entity/rule-profile/model/rule-profile-store";
 import type { MaskStyle } from "../../../entity/rule-profile/model/types";
 import { pluralRu } from "../../../shared/lib/plural-ru";
+
+/**
+ * Курируемая палитра, а не произвольный color-picker: бухгалтеру проще
+ * выбрать из шести узнаваемых цветов маркера, чем подбирать hex руками.
+ * Значения — реальные `#RRGGBB`, которые уйдут в документ как есть
+ * (`RunCreateRequest.highlight_background`) — это данные результата, а не
+ * тема интерфейса, поэтому квадраты ниже красятся инлайн-стилем по тому же
+ * прецеденту, что и в `docx-viewer.tsx` (см. его комментарий).
+ */
+const HIGHLIGHT_COLOR_OPTIONS: Array<{ value: HighlightColor; label: string }> = [
+  { value: "#FFDE66", label: "Жёлтый" },
+  { value: "#A8E6A1", label: "Зелёный" },
+  { value: "#A8D4FF", label: "Голубой" },
+  { value: "#FFB3D9", label: "Розовый" },
+  { value: "#FFC680", label: "Оранжевый" },
+  { value: "#D0D0D0", label: "Серый" },
+];
 
 const ALL_TYPE_OPTIONS = piiTypeOptions();
 /** Сколько типов ПДн знает движок. */
@@ -26,13 +44,13 @@ const REGISTRY_TYPE_COUNT = ALL_TYPE_OPTIONS.length;
 
 /**
  * Как «Поставщик»/«ИНН» из примера выглядят в превью каждого стиля маски.
- * Не `bg-accent`/`text-accent`: в этой теме accent — нейтральный чёрно-белый
- * бренд-токен (`neutralTheme.ts`), а не синий, поэтому подсветка маркера на
- * нём не читалась. Синий берём из отдельной hue-палитры (`bg-blue-subtle`/
- * `text-blue-vivid`), которая accent-ом не переопределяется.
+ * "Заливка" всегда чёрная на бэкенде (`docx_redact.py`) — фиксированный
+ * класс. "Маркер" красится инлайн-стилем в реальный выбранный цвет
+ * (`highlightColor`, ниже), поэтому здесь для него нет фонового класса —
+ * только текст, читаемый на любом из шести пастельных пресетов палитры.
  */
 const HIGHLIGHT_CLASS: Record<MaskStyle, string> = {
-  marker: "bg-blue-subtle text-blue-vivid",
+  marker: "text-primary",
   blackbox: "bg-primary text-transparent",
 };
 
@@ -81,6 +99,10 @@ export function MaskStylePicker({
   const setStableMarkers = useRuleProfileStore(
     (state) => state.setStableMarkers,
   );
+  const highlightColor = useRuleProfileStore((state) => state.highlightColor);
+  const setHighlightColor = useRuleProfileStore(
+    (state) => state.setHighlightColor,
+  );
   const enabledTypes = useRuleProfileStore((state) => state.enabledTypes);
   const setEnabledTypes = useRuleProfileStore((state) => state.setEnabledTypes);
   const customTypes = useCustomTypesStore((state) => state.types);
@@ -114,6 +136,11 @@ export function MaskStylePicker({
           {MASK_STYLE_OPTIONS.map((option) => {
             const isSelected = maskStyle === option.id;
             const highlight = HIGHLIGHT_CLASS[option.id];
+            // "Заливка" всегда чёрная (см. HIGHLIGHT_CLASS) — цвет ниже
+            // применим только к превью "Маркер", иначе выбор в палитре не
+            // отражался бы на превью выбранного стиля.
+            const previewStyle =
+              option.id === "marker" ? { backgroundColor: highlightColor } : undefined;
             return (
               <SelectableCard
                 key={option.id}
@@ -157,12 +184,12 @@ export function MaskStylePicker({
                     <VStack gap={1}>
                       <Text type="code" size="sm" color="secondary">
                         {"Поставщик: ООО «"}
-                        <Code className={highlight}>Ромашка</Code>
+                        <Code className={highlight} style={previewStyle}>Ромашка</Code>
                         {"»"}
                       </Text>
                       <Text type="code" size="sm" color="secondary">
                         {"ИНН: "}
-                        <Code className={highlight}>7712345678</Code>
+                        <Code className={highlight} style={previewStyle}>7712345678</Code>
                       </Text>
                     </VStack>
                   </Section>
@@ -280,7 +307,7 @@ export function MaskStylePicker({
           }
           content={
             <LayoutContent>
-              <VStack gap={2}>
+              <VStack gap={4}>
                 {maskStyle === "marker" ? (
                   <>
                     <CheckboxInput
@@ -293,6 +320,34 @@ export function MaskStylePicker({
                       value={stableMarkers}
                       onChange={() => setStableMarkers(!stableMarkers)}
                     />
+                    <VStack gap={2}>
+                      <Text type="label" weight="medium">
+                        Цвет маркера
+                      </Text>
+                      <HStack gap={2} wrap="wrap">
+                        {HIGHLIGHT_COLOR_OPTIONS.map((option) => {
+                          const isSelected = highlightColor === option.value;
+                          return (
+                            <SelectableCard
+                              key={option.value}
+                              label={option.label}
+                              isSelected={isSelected}
+                              variant={isSelected ? "blue" : "default"}
+                              padding={1}
+                              width={36}
+                              height={36}
+                              onChange={() => setHighlightColor(option.value)}
+                            >
+                              <VStack
+                                width="100%"
+                                height="100%"
+                                style={{ backgroundColor: option.value, borderRadius: 4 }}
+                              />
+                            </SelectableCard>
+                          );
+                        })}
+                      </HStack>
+                    </VStack>
                   </>
                 ) : (
                   <CheckboxInput

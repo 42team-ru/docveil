@@ -103,6 +103,37 @@ describe("черновик перегенерации", () => {
     initial.confirmGroup("G1");
     expect(initial.hasUnappliedChanges()).toBe(true);
   });
+
+  it("отменяет все черновые решения, типы и ручные отметки, не меняя опубликованные", () => {
+    const groups = groupsOf();
+    const [occurrence] = flattenPiiOccurrences(maskingReportFixture.extraction);
+    initial.setDocumentGroups("run-1:0", groups);
+    initial.rejectGroup("G1");
+    initial.rejectOccurrence(occurrence.id, occurrence.groupId);
+    initial.setGroupType("G1", "phone");
+    initial.setOccurrenceType(occurrence.id, "address");
+    initial.addManual({
+      id: "manual-1",
+      type: "person",
+      text: "Иванов И.И.",
+      anchor: occurrence.anchor,
+    });
+
+    const appliedGroupDecisions = { ...useReviewStore.getState().appliedGroupDecisions };
+    const appliedOccurrenceDecisions = { ...useReviewStore.getState().appliedOccurrenceDecisions };
+
+    initial.discardDraftChanges();
+
+    const state = useReviewStore.getState();
+    expect(state.groupDecisions).toEqual({});
+    expect(state.occurrenceDecisions).toEqual({});
+    expect(state.typeOverrides).toEqual({});
+    expect(state.occurrenceTypeOverrides).toEqual({});
+    expect(state.manualOccurrences).toEqual([]);
+    expect(state.appliedGroupDecisions).toEqual(appliedGroupDecisions);
+    expect(state.appliedOccurrenceDecisions).toEqual(appliedOccurrenceDecisions);
+    expect(initial.hasUnappliedChanges()).toBe(false);
+  });
 });
 
 describe("confirmedGroupCount", () => {

@@ -65,6 +65,7 @@ export type ReviewState = {
   rejectOccurrence: (occurrenceId: string, groupId: string) => void;
   confirmAllGroups: (groupIds: string[]) => void;
   hasUnappliedChanges: () => boolean;
+  discardDraftChanges: () => void;
   setGroupType: (groupId: string, type: PiiType) => void;
   setOccurrenceType: (occurrenceId: string, type: PiiType) => void;
   addManual: (occurrence: ManualPiiOccurrence) => void;
@@ -144,6 +145,15 @@ export const useReviewStore = create<ReviewState>()(
         || Object.keys(state.occurrenceTypeOverrides).length > 0
         || state.manualOccurrences.length > 0;
     },
+
+    discardDraftChanges: () =>
+      set({
+        groupDecisions: {},
+        occurrenceDecisions: {},
+        typeOverrides: {},
+        occurrenceTypeOverrides: {},
+        manualOccurrences: [],
+      }),
 
     setGroupType: (groupId, type) =>
       set((state) => ({

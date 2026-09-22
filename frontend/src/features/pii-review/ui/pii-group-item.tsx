@@ -105,43 +105,42 @@ export function PiiGroupItem({
           <Icon icon={isOpen ? ChevronDown : ChevronRight} size="sm" color="secondary" />
         }
         label={
-          <HStack gap={2} vAlign="center" wrap="wrap">
-            <Text
-              weight="medium"
-              color={isExcluded ? "secondary" : undefined}
-              hasStrikethrough={isExcluded}
-            >
-              {first.marker || first.originalText}
-            </Text>
-            <Text type="supporting" color="secondary">
-              {piiTypeLabel(first.type)}
-            </Text>
-            {occurrences.length > 1 ? (
-              <Text type="supporting" color="secondary">
-                × {occurrences.length}
+          <VStack gap={1}>
+            <HStack gap={2} vAlign="center" wrap="wrap">
+              <Token size="sm" color="blue" label={piiTypeLabel(first.type)} />
+              <Text
+                weight="medium"
+                color={isExcluded ? "secondary" : undefined}
+                hasStrikethrough={isExcluded}
+                maxLines={1}
+              >
+                {first.originalText}
               </Text>
-            ) : null}
-            {isExcluded ? (
-              <Tooltip
-                content="Маскирование снято: сущность останется видимой в готовом документе."
-                placement="above"
-              >
-                <Token size="sm" color="gray" label="Не замазано" />
-              </Tooltip>
-            ) : null}
-            {notFoundCount > 0 ? (
-              <Tooltip
-                content={
-                  notFoundCount === occurrences.length
-                    ? "Уже замаскировано в документе — сам маркер найти и подсветить не удалось, но на файл это не влияет."
-                    : `Замазано без подсветки: ${notFoundCount} из ${occurrences.length} вхождений.`
-                }
-                placement="above"
-              >
-                <Token size="sm" color="green" label="Замазано" />
-              </Tooltip>
-            ) : null}
-          </HStack>
+              {occurrences.length > 1 ? (
+                <Token size="sm" color="gray" label={`Повторений: ${occurrences.length}`} />
+              ) : null}
+              {isExcluded ? (
+                <Tooltip
+                  content="Маскирование снято: сущность останется видимой в готовом документе."
+                  placement="above"
+                >
+                  <Token size="sm" color="gray" label="Не маскировать" />
+                </Tooltip>
+              ) : null}
+              {notFoundCount > 0 ? (
+                <Tooltip
+                  content={
+                    notFoundCount === occurrences.length
+                      ? "Уже замаскировано в документе — сам маркер найти и подсветить не удалось, но на файл это не влияет."
+                      : `Замазано без подсветки: ${notFoundCount} из ${occurrences.length} вхождений.`
+                  }
+                  placement="above"
+                >
+                  <Token size="sm" color="green" label="Замаскировано" />
+                </Tooltip>
+              ) : null}
+            </HStack>
+          </VStack>
         }
         endContent={
           <HStack gap={1} vAlign="center">

@@ -97,6 +97,7 @@ export function DocumentPage() {
   const [isDownloading, setIsDownloading] = useState(false);
 
   const setDocumentGroups = useReviewStore((state) => state.setDocumentGroups);
+  const discardDraftChanges = useReviewStore((state) => state.discardDraftChanges);
   const hasUnappliedChanges = useReviewStore((state) =>
     Object.keys(state.groupDecisions).length > 0
       || Object.keys(state.occurrenceDecisions).length > 0
@@ -362,11 +363,11 @@ export function DocumentPage() {
           <ReviewView
             document={reviewedDocument}
             extraction={extraction}
-            occurrences={occurrences}
             pages={report?.pages ?? []}
             hasUnappliedChanges={hasUnappliedChanges}
             isRegenerating={isRegenerating}
             onRegenerate={handleRegenerate}
+            onDiscardChanges={discardDraftChanges}
             onNotFoundChange={setNotFoundIds}
           />
         ) : (

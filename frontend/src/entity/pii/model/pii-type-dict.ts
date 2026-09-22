@@ -41,9 +41,48 @@ const PII_TYPE_DICT: Record<PiiType, PiiTypeInfo> = {
   signature: { label: "Подпись", markerPrefix: "ПОДПИСЬ", critical: false },
 };
 
+const PII_TYPE_CATEGORIES: Record<PiiType, string> = {
+  org_name: "Стороны и представители",
+  person: "Стороны и представители",
+  inn: "Реквизиты и счета",
+  kpp: "Реквизиты и счета",
+  ogrn: "Реквизиты и счета",
+  snils: "Реквизиты и счета",
+  bank_account: "Реквизиты и счета",
+  bik: "Реквизиты и счета",
+  bank_name: "Реквизиты и счета",
+  passport: "Реквизиты и счета",
+  address: "Контакты и адреса",
+  phone: "Контакты и адреса",
+  email: "Контакты и адреса",
+  site: "Контакты и адреса",
+  contract_number: "Договор и условия",
+  money: "Договор и условия",
+  date: "Договор и условия",
+  birth_date: "Договор и условия",
+  federal_law: "Договор и условия",
+  contract_amount: "Договор и условия",
+  delivery_period: "Договор и условия",
+  payment_terms: "Договор и условия",
+  signature: "Договор и условия",
+};
+
+export const PII_CATEGORY_ORDER = [
+  "Стороны и представители",
+  "Реквизиты и счета",
+  "Контакты и адреса",
+  "Договор и условия",
+  "Другие данные",
+] as const;
+
 /** Русская подпись типа. Неизвестный бэкенду тип подписывается как есть. */
 export function piiTypeLabel(type: PiiType): string {
   return PII_TYPE_DICT[type]?.label ?? type;
+}
+
+/** Понятная бухгалтеру группа; пользовательские типы идут в «Другие данные». */
+export function piiTypeCategory(type: string): string {
+  return PII_TYPE_CATEGORIES[type as PiiType] ?? "Другие данные";
 }
 
 /** Префикс маркера типа; для неизвестного типа — сам идентификатор. */

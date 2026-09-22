@@ -2,7 +2,6 @@ import { Info } from "lucide-react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/Stack";
 import { Icon } from "@astryxdesign/core/Icon";
-import { Kbd } from "@astryxdesign/core/Kbd";
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -19,19 +18,16 @@ const PREVIEW_NOTICE =
   "Итоговый файл для скачивания собирается отдельно и может отличаться от этого отображения.";
 
 type DocumentToolbarProps = {
-  documentName: string;
   viewMode: DocumentViewMode;
   onViewModeChange: (mode: DocumentViewMode) => void;
   /** Только для pdf/скана с больше чем одной страницей — `bbox-viewer.tsx`. */
   pageInfo?: VisiblePageInfo | null;
 };
 
-/** Полоса над листом документа: имя файла, режим показа и горячие клавиши
- * j/k. Кнопка
+/** Полоса над листом документа: режим показа и предупреждение о превью. Кнопка
  * «Добавить как ПДн» больше не здесь — она всплывает рядом с выделением
  * (`add-pii-trigger.tsx`), а не в фиксированной полосе тулбара. */
 export function DocumentToolbar({
-  documentName,
   viewMode,
   onViewModeChange,
   pageInfo,
@@ -42,9 +38,6 @@ export function DocumentToolbar({
       size="sm"
       startContent={
         <HStack gap={3} vAlign="center">
-          <Text type="supporting" maxLines={1}>
-            {documentName}
-          </Text>
           <SegmentedControl
             size="sm"
             label="Режим показа"
@@ -70,11 +63,6 @@ export function DocumentToolbar({
               label="Предупреждение"
             />
           </Tooltip>
-          <HStack gap={1} vAlign="center">
-            <Kbd keys="j" />
-            <Kbd keys="k" />
-            <Text type="supporting">навигация</Text>
-          </HStack>
         </HStack>
       }
     />

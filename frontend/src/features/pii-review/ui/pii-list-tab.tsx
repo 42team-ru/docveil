@@ -5,7 +5,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
+import { Heading, Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import {
   SegmentedControl,
@@ -18,7 +18,11 @@ import {
   manualFallbackId,
   type FlatPiiOccurrence,
 } from "../../../entity/pii/model/flatten";
-import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
+import {
+  PII_CATEGORY_ORDER,
+  piiTypeCategory,
+  piiTypeLabel,
+} from "../../../entity/pii/model/pii-type-dict";
 import { useLowConfidenceGroupCount } from "../../../entity/pii/model/selectors";
 import { effectiveGroupDecision, useReviewStore } from "../../../entity/pii/model/review-store";
 import type { PiiExtraction } from "../../../entity/pii/model/types";
@@ -112,6 +116,12 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
     if (filter === "notFound") return group.hasNotFound;
     return true;
   });
+  const groupsByCategory = PII_CATEGORY_ORDER.map((category) => ({
+    category,
+    groups: visibleGroups.filter(
+      (group) => piiTypeCategory(group.occurrences[0].type) === category,
+    ),
+  })).filter(({ groups }) => groups.length > 0);
 
   return (
     <VStack gap={0} height="100%">
@@ -173,30 +183,40 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
           description="В этом фильтре не осталось групп, требующих решения."
         />
       ) : (
-        <VStack gap={0} as="ul" isScrollable>
-          {visibleGroups.map((group) => (
-            <PiiGroupItem
-              key={group.groupId}
-              groupId={group.groupId}
-              occurrences={group.occurrences}
-              decision={group.decision}
-              groupDecisions={groupDecisions}
-              occurrenceDecisions={occurrenceDecisions}
-              appliedGroupDecisions={appliedGroupDecisions}
-              appliedOccurrenceDecisions={appliedOccurrenceDecisions}
-              selectedOccurrenceId={selectedOccurrenceId}
-              notFoundIds={notFoundIds}
-              manualOccurrenceIds={manualOccurrenceIds}
-              onSelect={select}
-              onConfirm={confirmGroup}
-              onReject={rejectGroup}
-              onConfirmOccurrence={confirmOccurrence}
-              onRejectOccurrence={rejectOccurrence}
-              onSetGroupType={setGroupType}
-              onSetOccurrenceType={setOccurrenceType}
-              onAddFallbackManual={handleAddFallbackManual}
-              isEditingDisabled={isEditingDisabled}
-            />
+        <VStack gap={2} isScrollable>
+          {groupsByCategory.map(({ category, groups }) => (
+            <VStack key={category} gap={0} as="section">
+              <HStack gap={2} vAlign="center" padding={3}>
+                <Heading level={5}>{category}</Heading>
+                <Token size="sm" color="gray" label={`Найдено: ${groups.length}`} />
+              </HStack>
+              <VStack gap={0} as="ul">
+                {groups.map((group) => (
+                  <PiiGroupItem
+                    key={group.groupId}
+                    groupId={group.groupId}
+                    occurrences={group.occurrences}
+                    decision={group.decision}
+                    groupDecisions={groupDecisions}
+                    occurrenceDecisions={occurrenceDecisions}
+                    appliedGroupDecisions={appliedGroupDecisions}
+                    appliedOccurrenceDecisions={appliedOccurrenceDecisions}
+                    selectedOccurrenceId={selectedOccurrenceId}
+                    notFoundIds={notFoundIds}
+                    manualOccurrenceIds={manualOccurrenceIds}
+                    onSelect={select}
+                    onConfirm={confirmGroup}
+                    onReject={rejectGroup}
+                    onConfirmOccurrence={confirmOccurrence}
+                    onRejectOccurrence={rejectOccurrence}
+                    onSetGroupType={setGroupType}
+                    onSetOccurrenceType={setOccurrenceType}
+                    onAddFallbackManual={handleAddFallbackManual}
+                    isEditingDisabled={isEditingDisabled}
+                  />
+                ))}
+              </VStack>
+            </VStack>
           ))}
         </VStack>
       )}

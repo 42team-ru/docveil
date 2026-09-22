@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { maskingReportFixture } from "./fixtures";
 import { flattenPiiOccurrences, groupOccurrences } from "./flatten";
 import { type ReviewGroup, useReviewStore } from "./review-store";
+import { confirmedGroupCount } from "./selectors";
 
 /** Группы документа в том виде, в каком их кладёт экран проверки. */
 function groupsOf(report = maskingReportFixture): ReviewGroup[] {
@@ -101,6 +102,37 @@ describe("черновик перегенерации", () => {
     expect(useReviewStore.getState().appliedGroupDecisions.G1).toBe("rejected");
     initial.confirmGroup("G1");
     expect(initial.hasUnappliedChanges()).toBe(true);
+  });
+});
+
+describe("confirmedGroupCount", () => {
+  it("считает все группы подтверждёнными на только что открытом документе без кликов оператора", () => {
+    const groups = groupsOf();
+    initial.setDocumentGroups("run-1:0", groups);
+
+    // Регрессия: раньше счёт брали из groupDecisions (клики этой сессии),
+    // который пуст до первого клика, — бейдж показывал «0/N подтверждено»
+    // на уже полностью замаскированном документе.
+    expect(confirmedGroupCount(useReviewStore.getState())).toBe(groups.length);
+  });
+
+  it("не считает группу, применённое решение которой — «оставить как есть»", () => {
+    const groups = groupsOf();
+    groups[0] = { ...groups[0], appliedDecision: "rejected" as "confirmed" | "rejected" };
+    initial.setDocumentGroups("run-1:0", groups);
+
+    expect(confirmedGroupCount(useReviewStore.getState())).toBe(groups.length - 1);
+  });
+
+  it("следует за черновиком оператора, а не только за применённым решением", () => {
+    const groups = groupsOf();
+    initial.setDocumentGroups("run-1:0", groups);
+
+    initial.rejectGroup("G1");
+    expect(confirmedGroupCount(useReviewStore.getState())).toBe(groups.length - 1);
+
+    initial.confirmGroup("G1");
+    expect(confirmedGroupCount(useReviewStore.getState())).toBe(groups.length);
   });
 });
 

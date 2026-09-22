@@ -11,6 +11,7 @@ import { Heading, Text } from "@astryxdesign/core/Text";
 import { useTheme } from "@astryxdesign/core/theme";
 
 import { flattenPiiOccurrences } from "../../../entity/pii/model/flatten";
+import { PII_SOURCE_LABEL, piiSourceLabel } from "../../../entity/pii/model/pii-source-dict";
 import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
 import type {
   ConfidenceLevel,
@@ -19,7 +20,6 @@ import type {
   MaskPlanRecord,
   MaskingReport,
   PiiExtraction,
-  PiiSource,
   RefDecision,
   ReportDecisions,
   Telemetry,
@@ -79,18 +79,6 @@ const FALLBACK_ORDER = [
 
 /** Стадии короче этого порога сворачиваются в одну строку — это шум, а не сигнал. */
 const MINOR_STAGE_THRESHOLD_MS = 5;
-
-/** Подпись слоя детекции — `PiiSource` из `masker.model.Source`. */
-const SOURCE_LABELS: Record<PiiSource | "gliner", string> = {
-  rule: "Правила",
-  ner: "Локальный NER (Natasha)",
-  gliner: "GLiNER",
-  block: "Блоки реквизитов",
-  llm: "Модель",
-  user: "Свои типы",
-  cv: "CV-детектор",
-  ml: "ML-модель",
-};
 
 /** Подпись уровня уверенности — порядок фиксирован (от надёжного к спорному). */
 const LEVEL_LABELS: Record<ConfidenceLevel, string> = {
@@ -233,7 +221,7 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
   );
   const cost = formatCost(telemetry.llm.cost);
 
-  const sourceData = buildCategoryData(report.summary.bySource, SOURCE_LABELS);
+  const sourceData = buildCategoryData(report.summary.bySource, PII_SOURCE_LABEL);
   const levelData = buildCategoryData(
     report.summary.byLevel,
     LEVEL_LABELS,
@@ -472,7 +460,7 @@ function DetailedLog({
       type: piiTypeLabel(occ.type),
       original: occ.originalText,
       marker: occ.marker,
-      source: SOURCE_LABELS[occ.source] ?? occ.source,
+      source: piiSourceLabel(occ.source),
       confidence: `${Math.round(occ.confidence * 100)}%`,
     }),
   );

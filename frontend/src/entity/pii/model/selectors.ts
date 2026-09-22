@@ -1,4 +1,5 @@
-import { useReviewStore } from "./review-store";
+import type { ReviewState } from "./review-store";
+import { effectiveGroupDecision, useReviewStore } from "./review-store";
 
 /**
  * Счётчики проверки. Считают по группам документа, который открыт **сейчас**
@@ -8,23 +9,29 @@ import { useReviewStore } from "./review-store";
  *
  * Группы кладёт экран проверки, когда получает данные, — счётчики ничего не
  * знают ни про источник данных, ни про формат документа.
+ *
+ * `useConfirmedGroupCount` считает по `effectiveGroupDecision` (черновик
+ * поверх уже применённого решения), а не по сырому `groupDecisions`: черновик
+ * пуст для любой группы, где оператор ничего не менял, а `setGroupDecision`
+ * вообще не кладёт туда запись, если новое решение совпадает с применённым.
+ * Раньше это давало «0/N подтверждено» на только что открытом, полностью
+ * замаскированном документе — счётчик мерил клики оператора в этой сессии,
+ * а не то, что реально попадёт в выходной файл.
  */
 export const useTotalGroupCount = (): number =>
   useReviewStore((state) => state.documentGroups.length);
 
-export const useConfirmedGroupCount = (): number =>
-  useReviewStore(
-    (state) =>
-      Object.values(state.groupDecisions).filter((k) => k === "confirmed")
-        .length,
-  );
+/** Вынесено из хука отдельной функцией, чтобы счёт можно было проверить юнит-тестом без рендера. */
+export function confirmedGroupCount(
+  state: Pick<ReviewState, "documentGroups" | "groupDecisions" | "appliedGroupDecisions">,
+): number {
+  return state.documentGroups.filter(
+    (group) => effectiveGroupDecision(state, group.id) === "confirmed",
+  ).length;
+}
 
-export const usePendingGroupCount = (): number =>
-  useReviewStore(
-    (state) =>
-      state.documentGroups.length -
-      Object.values(state.groupDecisions).filter((k) => k !== "pending").length,
-  );
+export const useConfirmedGroupCount = (): number =>
+  useReviewStore(confirmedGroupCount);
 
 /** Группы с низкой уверенностью хотя бы одного вхождения — им нужен взгляд оператора в первую очередь. */
 const LOW_CONFIDENCE = 0.6;

@@ -26,7 +26,13 @@ function topType(byType: Record<string, number>): string {
 function buildStats(report: MaskingReport): Stat[] {
   const groups = report.plan?.groups.length ?? 0;
   const validation = report.validation;
-  const minConfidence = report.summary.minimumConfidence;
+  // Движок маскирует находки любого уровня уверенности одинаково молча —
+  // "possible" ничем не отличается по факту замены от "confirmed", разница
+  // только в том, что стоит бегло перепроверить глазами. Раньше плитка
+  // показывала голое число уверенности (например, "0.44") с подписью "есть
+  // находки, требующие проверки" — читалось так, будто часть документа
+  // ещё не замаскирована, хотя это не так.
+  const worthReview = report.summary.byLevel.possible ?? 0;
 
   return [
     {
@@ -42,12 +48,12 @@ function buildStats(report: MaskingReport): Stat[] {
         .join(" · "),
     },
     {
-      label: "Низшая уверенность",
-      value: minConfidence === null ? "—" : minConfidence.toFixed(2),
+      label: "Стоит перепроверить",
+      value: worthReview > 0 ? String(worthReview) : "Нет",
       note:
-        minConfidence !== null && minConfidence < 0.6
-          ? "есть находки, требующие проверки"
-          : "все находки выше порога проверки",
+        worthReview > 0
+          ? "уже заменены на маркер — модель не до конца уверена, взгляните на них"
+          : "все находки — с высокой уверенностью",
     },
     {
       label: "Проверка утечек",

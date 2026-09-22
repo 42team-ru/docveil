@@ -2,20 +2,28 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+import logging
+import uuid
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import Response
 
 from api.core.config import settings
+from api.core.logging import configure_logging, request_id_var
 from api.core.storage import ensure_bucket
 from api.core.warmup import warm_up
 from api.routers import admin, auth, custom_types, files, health, ocr, runs, users
 from api.services import run_service
+
+configure_logging(settings.log_level)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -43,8 +51,48 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition"],
+    expose_headers=["Content-Disposition", "X-Request-Id"],
 )
+
+
+@app.middleware("http")
+async def request_id_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Один ID на весь запрос — сшивает строки лога одного запроса, включая
+    необработанное исключение, залогированное здесь же.
+
+    Раньше необработанное исключение уходило только в дефолтный traceback
+    uvicorn без контекста запроса — 500 у пользователя было невозможно
+    объяснить по логам (см. AGENTS.md, «очень слабое логирование»).
+    `HTTPException` (401/403/404/422 и т.п.) сюда не попадает — её уже
+    превращает в ответ обработчик Starlette внутри `call_next`, до того как
+    исключение способно всплыть сюда.
+
+    Лог и генерик-500 собраны прямо в `except`, а не через
+    `@app.exception_handler(Exception)`: у `BaseHTTPMiddleware` (на нём
+    построен `@app.middleware("http")`) есть задокументированный конфликт с
+    хендлерами общего `Exception` — ответ, который такой хендлер строит
+    глубже в стеке, до `call_next` не долетает, и наружу всё равно уходит
+    голое исключение вместо ответа.
+    """
+    request_id = uuid.uuid4().hex
+    token = request_id_var.set(request_id)
+    try:
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            logger.error(
+                "Необработанное исключение: %s %s", request.method, request.url.path, exc_info=exc
+            )
+            response = JSONResponse(
+                status_code=500, content={"detail": "Внутренняя ошибка сервера"}
+            )
+    finally:
+        request_id_var.reset(token)
+    response.headers["X-Request-Id"] = request_id
+    return response
+
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health.router)

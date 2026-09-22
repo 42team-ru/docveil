@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     #: запятую.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    #: Уровень корневого логгера API (`api.core.logging.configure_logging`).
+    #: `INFO` по умолчанию; `DEBUG` — на диагностику, без пересборки образа.
+    log_level: str = "INFO"
+
     @property
     def cors_origin_list(self) -> list[str]:
         """`cors_origins` как список; пустые элементы отбрасываются."""

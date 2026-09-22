@@ -1137,7 +1137,7 @@ def make_render_node(deps: RunDeps) -> Callable[[State], dict[str, object]]:
                     continue
                 else:
                     docx_preview_module.render_docx_preview(
-                        source, destination, document, masked_entities
+                        source, destination, document, masked_entities, highlight_background
                     )
                 redacting = False
             else:

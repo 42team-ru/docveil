@@ -90,6 +90,9 @@ export type StartRunInput = {
   types: string[];
   /** Кастомные типы, скомпилированные пользователем. */
   customTypes: CompiledTypeOut[];
+  /** Цвет фона маркера — `#RRGGBB`, только для `maskStyle: "marker"`
+   * (бэкенд игнорирует его для "заливки", см. `mask-style-picker.tsx`). */
+  highlightColor?: string;
 };
 
 /**
@@ -102,7 +105,13 @@ export function useStartRun() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ source, maskStyle, types, customTypes }: StartRunInput): Promise<RunResponse> => {
+    mutationFn: async ({
+      source,
+      maskStyle,
+      types,
+      customTypes,
+      highlightColor,
+    }: StartRunInput): Promise<RunResponse> => {
       const objectName =
         source.kind === "existing"
           ? source.objectName
@@ -131,6 +140,9 @@ export function useStartRun() {
         types: typesToSend,
         mask_style: maskStyle,
         custom_types: compiledSpecs.length > 0 ? compiledSpecs : undefined,
+        // "Заливка" всегда чёрная на бэкенде — цвет ей не нужен, а дефолт
+        // запроса совпал бы с выбором пользователя только случайно.
+        highlight_background: maskStyle === "marker" ? highlightColor : undefined,
       });
       if (created.status !== 202) {
         throw new Error("Не удалось запустить обезличивание");

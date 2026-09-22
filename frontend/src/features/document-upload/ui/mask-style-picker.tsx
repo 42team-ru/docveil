@@ -1,40 +1,53 @@
-import { useState } from "react";
-import { Plus, Settings, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Code } from "@astryxdesign/core/Code";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
-import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { SelectableCard } from "@astryxdesign/core/SelectableCard";
 import { Section } from "@astryxdesign/core/Section";
 import { Token } from "@astryxdesign/core/Token";
 
 import { piiTypeOptions } from "../../../entity/pii/model/pii-type-dict";
 import { useCustomTypesStore } from "../../custom-types-compiler/model/store";
+import type { HighlightColor } from "../../../entity/rule-profile/model/rule-profile-store";
 import { useRuleProfileStore } from "../../../entity/rule-profile/model/rule-profile-store";
 import type { MaskStyle } from "../../../entity/rule-profile/model/types";
 import { pluralRu } from "../../../shared/lib/plural-ru";
+
+/**
+ * Курируемая палитра, а не произвольный color-picker: бухгалтеру проще
+ * выбрать из шести узнаваемых цветов маркера, чем подбирать hex руками.
+ * Значения — реальные `#RRGGBB`, которые уйдут в документ как есть
+ * (`RunCreateRequest.highlight_background`) — это данные результата, а не
+ * тема интерфейса, поэтому квадраты ниже красятся инлайн-стилем по тому же
+ * прецеденту, что и в `docx-viewer.tsx` (см. его комментарий).
+ */
+const HIGHLIGHT_COLOR_OPTIONS: Array<{ value: HighlightColor; label: string }> = [
+  { value: "#FFDE66", label: "Жёлтый" },
+  { value: "#A8E6A1", label: "Зелёный" },
+  { value: "#A8D4FF", label: "Голубой" },
+  { value: "#FFB3D9", label: "Розовый" },
+  { value: "#FFC680", label: "Оранжевый" },
+  { value: "#D0D0D0", label: "Серый" },
+];
 
 const ALL_TYPE_OPTIONS = piiTypeOptions();
 /** Сколько типов ПДн знает движок. */
 const REGISTRY_TYPE_COUNT = ALL_TYPE_OPTIONS.length;
 
 /**
- * Как «Поставщик»/«ИНН» из примера выглядят в превью каждого стиля маски.
- * Не `bg-accent`/`text-accent`: в этой теме accent — нейтральный чёрно-белый
- * бренд-токен (`neutralTheme.ts`), а не синий, поэтому подсветка маркера на
- * нём не читалась. Синий берём из отдельной hue-палитры (`bg-blue-subtle`/
- * `text-blue-vivid`), которая accent-ом не переопределяется.
+ * Превью показывает то, что реально попадёт в документ — не исходное
+ * значение с подсветкой поверх (так было раньше, и это была неправда):
+ * "Маркер" стирает исходный текст и пишет вместо него `[ТИП]`, "Заливка"
+ * стирает его вообще без следа. Блоки `████` — не декоративные точки, а
+ * буквальная имитация "здесь ничего не прочитать".
  */
-const HIGHLIGHT_CLASS: Record<MaskStyle, string> = {
-  marker: "bg-blue-subtle text-blue-vivid",
-  blackbox: "bg-primary text-transparent",
-};
+const PREVIEW_ORG = { marker: "[ОРГАНИЗАЦИЯ]", blackbox: "███████" } as const;
+const PREVIEW_INN = { marker: "[ИНН]", blackbox: "██████████" } as const;
 
 /** Подписи стилей маски — переиспользуются в подтверждении запуска на `UploadPage`. */
 export const MASK_STYLE_OPTIONS: Array<{
@@ -44,13 +57,15 @@ export const MASK_STYLE_OPTIONS: Array<{
 }> = [
   {
     id: "marker",
-    name: "Маркер",
-    description: "Маркер с подсветкой — видно, что и на что заменено.",
+    name: "Маркер (рекомендуется)",
+    description:
+      "Текст заменяется читаемой пометкой вроде [ИНН] — видно, что именно и где скрыто.",
   },
   {
     id: "blackbox",
     name: "Заливка",
-    description: "Сплошная заливка — исходное значение закрыто целиком.",
+    description:
+      "Текст закрывается сплошным чёрным прямоугольником — не видно вообще ничего, даже какого поле типа.",
   },
 ];
 
@@ -68,28 +83,14 @@ export function MaskStylePicker({
 }: MaskStylePickerProps) {
   const maskStyle = useRuleProfileStore((state) => state.maskStyle);
   const setMaskStyle = useRuleProfileStore((state) => state.setMaskStyle);
-
-  const highlightChanges = useRuleProfileStore(
-    (state) => state.highlightChanges,
-  );
-  const setHighlightChanges = useRuleProfileStore(
-    (state) => state.setHighlightChanges,
-  );
-  const keepTables = useRuleProfileStore((state) => state.keepTables);
-  const setKeepTables = useRuleProfileStore((state) => state.setKeepTables);
-  const stableMarkers = useRuleProfileStore((state) => state.stableMarkers);
-  const setStableMarkers = useRuleProfileStore(
-    (state) => state.setStableMarkers,
+  const highlightColor = useRuleProfileStore((state) => state.highlightColor);
+  const setHighlightColor = useRuleProfileStore(
+    (state) => state.setHighlightColor,
   );
   const enabledTypes = useRuleProfileStore((state) => state.enabledTypes);
   const setEnabledTypes = useRuleProfileStore((state) => state.setEnabledTypes);
   const customTypes = useCustomTypesStore((state) => state.types);
   const removeCustomType = useCustomTypesStore((state) => state.removeType);
-
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const selectedOption = MASK_STYLE_OPTIONS.find(
-    (option) => option.id === maskStyle,
-  );
 
   // [] = все выбраны (поведение бэкенда), иначе — подмножество
   const allSelected = enabledTypes.length === 0;
@@ -108,12 +109,19 @@ export function MaskStylePicker({
     <Section padding={0}>
       <VStack gap={3} paddingBlock={4} paddingInline={4}>
         <VStack gap={1}>
-          <Heading level={4}>Как выглядит маска</Heading>
+          <Heading level={4}>Чем закрывать найденное</Heading>
+          <Text type="supporting" size="sm" color="secondary">
+            Превью ниже — то, что реально окажется в документе, не исходный текст с подсветкой.
+          </Text>
         </VStack>
         <Grid columns={2} gap={4} align="start">
           {MASK_STYLE_OPTIONS.map((option) => {
             const isSelected = maskStyle === option.id;
-            const highlight = HIGHLIGHT_CLASS[option.id];
+            // Блоки для "Заливки" уже сами по себе тёмные символы — фон не
+            // нужен. У "Маркера" фон — реально выбранный цвет, а не токен
+            // темы (см. комментарий у HIGHLIGHT_COLOR_OPTIONS).
+            const previewStyle =
+              option.id === "marker" ? { backgroundColor: highlightColor } : undefined;
             return (
               <SelectableCard
                 key={option.id}
@@ -123,50 +131,81 @@ export function MaskStylePicker({
                 variant={isSelected ? "blue" : "default"}
                 onChange={() => setMaskStyle(option.id)}
               >
-                <HStack gap={4} vAlign="center">
-                  <StackItem size="fill" className="min-w-0">
-                    <VStack gap={2}>
-                      <HStack gap={2} vAlign="center">
+                <VStack gap={3}>
+                  <HStack gap={4} vAlign="center">
+                    <StackItem size="fill" className="min-w-0">
+                      <VStack gap={2}>
                         <Text weight="medium">{option.name}</Text>
-                        {isSelected ? (
-                          <IconButton
-                            size="sm"
-                            variant="primary"
-                            icon={<Icon icon={Settings} size="sm" />}
-                            label={`Настройки режима «${option.name}»`}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setIsSettingsOpen(true);
-                            }}
-                          />
-                        ) : null}
-                      </HStack>
-                      <Text type="supporting" size="sm" color="secondary">
-                        {option.description}
-                      </Text>
-                    </VStack>
-                  </StackItem>
+                        <Text type="supporting" size="sm" color="secondary">
+                          {option.description}
+                        </Text>
+                      </VStack>
+                    </StackItem>
 
-                  <Section
-                    variant="transparent"
-                    padding={3}
-                    width="fit-content"
-                    maxWidth="60%"
-                    className="mr-4 my-auto shrink-0 bg-surface rounded-lg border border-border"
-                  >
-                    <VStack gap={1}>
-                      <Text type="code" size="sm" color="secondary">
-                        {"Поставщик: ООО «"}
-                        <Code className={highlight}>Ромашка</Code>
-                        {"»"}
+                    <Section
+                      variant="transparent"
+                      padding={3}
+                      width="fit-content"
+                      maxWidth="60%"
+                      className="mr-4 my-auto shrink-0 bg-surface rounded-lg border border-border"
+                    >
+                      <VStack gap={1}>
+                        <Text type="code" size="sm" color="secondary">
+                          {"Поставщик: ООО «"}
+                          <Code className="text-primary" style={previewStyle}>
+                            {PREVIEW_ORG[option.id]}
+                          </Code>
+                          {"»"}
+                        </Text>
+                        <Text type="code" size="sm" color="secondary">
+                          {"ИНН: "}
+                          <Code className="text-primary" style={previewStyle}>
+                            {PREVIEW_INN[option.id]}
+                          </Code>
+                        </Text>
+                      </VStack>
+                    </Section>
+                  </HStack>
+
+                  {option.id === "marker" && isSelected ? (
+                    <VStack
+                      gap={2}
+                      paddingBlockStart={2}
+                      className="border-t border-border"
+                    >
+                      <Text type="label" weight="medium">
+                        Цвет маркера
                       </Text>
-                      <Text type="code" size="sm" color="secondary">
-                        {"ИНН: "}
-                        <Code className={highlight}>7712345678</Code>
-                      </Text>
+                      <HStack
+                        gap={2}
+                        wrap="wrap"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {HIGHLIGHT_COLOR_OPTIONS.map((colorOption) => {
+                          const isColorSelected = highlightColor === colorOption.value;
+                          return (
+                            <SelectableCard
+                              key={colorOption.value}
+                              label={colorOption.label}
+                              isSelected={isColorSelected}
+                              variant={isColorSelected ? "blue" : "default"}
+                              padding={1}
+                              width={36}
+                              height={36}
+                              onChange={() => setHighlightColor(colorOption.value)}
+                            >
+                              <VStack
+                                width="100%"
+                                height="100%"
+                                style={{ backgroundColor: colorOption.value, borderRadius: 4 }}
+                              />
+                            </SelectableCard>
+                          );
+                        })}
+                      </HStack>
                     </VStack>
-                  </Section>
-                </HStack>
+                  ) : null}
+                </VStack>
               </SelectableCard>
             );
           })}
@@ -264,48 +303,6 @@ export function MaskStylePicker({
           )}
         </VStack>
       </Section>
-
-      <Dialog
-        isOpen={isSettingsOpen}
-        onOpenChange={setIsSettingsOpen}
-        purpose="form"
-        width={420}
-      >
-        <Layout
-          header={
-            <DialogHeader
-              title={`Настройки режима «${selectedOption?.name}»`}
-              onOpenChange={setIsSettingsOpen}
-            />
-          }
-          content={
-            <LayoutContent>
-              <VStack gap={2}>
-                {maskStyle === "marker" ? (
-                  <>
-                    <CheckboxInput
-                      label="Подсвечивать изменённые фрагменты"
-                      value={highlightChanges}
-                      onChange={() => setHighlightChanges(!highlightChanges)}
-                    />
-                    <CheckboxInput
-                      label="Стабильные номера маркеров между запусками"
-                      value={stableMarkers}
-                      onChange={() => setStableMarkers(!stableMarkers)}
-                    />
-                  </>
-                ) : (
-                  <CheckboxInput
-                    label="Сохранять структуру таблиц"
-                    value={keepTables}
-                    onChange={() => setKeepTables(!keepTables)}
-                  />
-                )}
-              </VStack>
-            </LayoutContent>
-          }
-        />
-      </Dialog>
     </Section>
   );
 }

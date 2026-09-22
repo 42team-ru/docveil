@@ -152,6 +152,7 @@ export const AdminRunRowOutStatus = {
   done: 'done',
   failed: 'failed',
   leaked: 'leaked',
+  cancelled: 'cancelled',
 } as const;
 
 /**
@@ -1435,6 +1436,7 @@ export interface RunCreateRequest {
   review?: boolean;
   custom_types?: RunCreateRequestCustomTypesItem[];
   image_output_format?: RunCreateRequestImageOutputFormat;
+  highlight_background?: string | null;
 }
 
 export type RunProgressEventContent = { [key: string]: unknown };

@@ -13,6 +13,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND
+
 #: Стиль маски в терминах фронта; в `RunOptions.styles` уходит как
 #: `marker` → `masked_highlight.*`, `blackbox` → `masked_black.*`
 #: (то же соответствие, что у CLI `--redact-style`).
@@ -64,6 +66,11 @@ class RunCreateRequest(BaseModel):
     custom_types: list[dict[str, Any]] = Field(default_factory=list)
     #: Формат выходного файла при ingest картинки (JPEG/PNG/TIFF).
     image_output_format: Literal["original", "pdf"] = "original"
+    #: Фон маски-маркера: `#RRGGBB` или `"none"` (без заливки, только
+    #: маркер и точки-заполнители). Некорректное значение отвергает движок
+    #: через `RunOptions` (`masker.highlight.parse_highlight_background`),
+    #: как и неизвестный тип выше, — эта схема формат не перепроверяет.
+    highlight_background: str | None = DEFAULT_HIGHLIGHT_BACKGROUND
 
 
 class RunResponse(BaseModel):

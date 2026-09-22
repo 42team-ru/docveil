@@ -27,7 +27,9 @@ from api.core.deps import get_current_user
 from api.main import app
 from api.models.run import RunORM
 from api.models.user import UserORM
+from api.schemas.run import RunCreateRequest
 from api.services import run_service
+from masker.highlight import DEFAULT_HIGHLIGHT_BACKGROUND
 from masker.run import sqlite_checkpointer_factory
 
 ROOT = next(
@@ -154,7 +156,9 @@ def test_run_skips_questions_and_exposes_preview(client: TestClient, storage: Pa
         "object_name": "documents/contract_01.docx",
     }
 
-    assert client.get(f"/api/runs/{created['id']}/questions").status_code == status.HTTP_404_NOT_FOUND
+    assert (
+        client.get(f"/api/runs/{created['id']}/questions").status_code == status.HTTP_404_NOT_FOUND
+    )
 
 
 def test_progress_events_are_available_with_cursor(client: TestClient, storage: Path) -> None:
@@ -461,3 +465,23 @@ def test_history_lists_runs_of_current_user(client: TestClient, storage: Path) -
     assert len(listing["items"]) == 2
     assert listing["items"][0]["document"]["name"] == "contract_01.docx"
     assert client.get("/api/runs", params={"query": "нет-такого"}).json()["total"] == 0
+
+
+def test_run_options_thread_highlight_background() -> None:
+    """`RunCreateRequest.highlight_background` — новое поле, добавленное для
+    выбора цвета маски из GUI; по умолчанию тот же янтарный, что и раньше."""
+    custom = RunCreateRequest(
+        object_name="documents/contract_01.docx", highlight_background="#123456"
+    )
+    assert run_service._run_options(custom, "docx").highlight_background == "#123456"
+
+    default = RunCreateRequest(object_name="documents/contract_01.docx")
+    assert (
+        run_service._run_options(default, "docx").highlight_background
+        == DEFAULT_HIGHLIGHT_BACKGROUND
+    )
+
+    disabled = RunCreateRequest(
+        object_name="documents/contract_01.docx", highlight_background="none"
+    )
+    assert run_service._run_options(disabled, "docx").highlight_background is None

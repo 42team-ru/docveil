@@ -5,6 +5,7 @@ import { Heading, Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 
 import { flattenPiiOccurrences } from "../../../entity/pii/model/flatten";
+import { piiSourceLabel } from "../../../entity/pii/model/pii-source-dict";
 import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
 import type {
   DecisionSource,
@@ -79,7 +80,7 @@ function buildRows(report: MaskingReport): ReportRow[] {
       original: occurrence.originalText,
       marker: occurrence.marker,
       where: occurrence.anchor.label,
-      foundBy: occurrence.source,
+      foundBy: piiSourceLabel(occurrence.source),
       confidence: occurrence.confidence.toFixed(2),
       side: roleByProfileId.get(profileId) ?? "—",
       decidedBy: decisionByRef.get(occurrence.ref)?.decidedBy ?? null,

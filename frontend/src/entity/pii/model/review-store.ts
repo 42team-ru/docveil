@@ -22,7 +22,7 @@ export type ReviewGroup = {
   appliedOccurrenceDecisions?: Record<string, Exclude<PiiDecisionKind, "pending">>;
 };
 
-type ReviewState = {
+export type ReviewState = {
   /**
    * Группы открытого сейчас документа. Держим их здесь, потому что счётчик
    * нужен и правой панели, и бейджу в рейле навигации (`masker-layout.tsx`),

@@ -35,6 +35,7 @@ from api.schemas.admin import (
     DayCountOut,
 )
 from api.schemas.run import RunDocument
+from api.schemas.user import Role
 
 #: Статусы прогона, которые ещё не дошли до конца (см. `RunStatus`
 #: в `api/schemas/run.py`).
@@ -107,9 +108,7 @@ async def users_stats(session: AsyncSession, *, days: int) -> AdminUsersStatsOut
             1 for user in users if user.last_login_at and _as_utc(user.last_login_at) >= window_7d
         ),
         active_last_30d=sum(
-            1
-            for user in users
-            if user.last_login_at and _as_utc(user.last_login_at) >= window_30d
+            1 for user in users if user.last_login_at and _as_utc(user.last_login_at) >= window_30d
         ),
         with_avatar=sum(1 for user in users if user.has_avatar),
         signups_by_day=_daily_series(signups, days=days),
@@ -189,9 +188,7 @@ async def failure_breakdown(
     runs = await _all_runs(session)
     window_start = _window_start(days)
     failed = [
-        run
-        for run in runs
-        if run.status == "failed" and _as_utc(run.created_at) >= window_start
+        run for run in runs if run.status == "failed" and _as_utc(run.created_at) >= window_start
     ]
 
     by_node: dict[str | None, list[RunORM]] = {}
@@ -265,7 +262,7 @@ async def user_rows(session: AsyncSession) -> list[AdminUserRowOut]:
             id=user.id,
             email=user.email,
             full_name=user.full_name,
-            roles=list(user.roles),
+            roles=[Role(role) for role in user.roles],
             is_active=user.is_active,
             created_at=user.created_at,
             last_login_at=user.last_login_at,

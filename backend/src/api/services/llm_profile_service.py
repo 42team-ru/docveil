@@ -287,10 +287,10 @@ async def resolve_active_llm_config(session: AsyncSession) -> LLMConfig:
     settings = project_section("llm")
     active = await _active_pointer(session)
     if active is None:
-        active_name = str(settings.get("profile") or "")
-        row = await session.scalar(select(LLMProfileORM).where(LLMProfileORM.name == active_name))
-        if row is not None:
-            return _config_from_row(row)
+        # Без указателя активен именно YAML-профиль. Не ищем строку с таким
+        # же именем среди пользовательских профилей: они активируются только
+        # явной записью в llm_active_setting. Это также оставляет чтение
+        # встроенного профиля независимым от таблицы llm_profiles.
         return llm_config_from_mapping(settings)
 
     if active.source == "custom":
@@ -301,9 +301,8 @@ async def resolve_active_llm_config(session: AsyncSession) -> LLMConfig:
         # случаться (delete_profile это запрещает), но не 500 на прогон.
 
     if active.name in settings.get("profiles", {}):
-        row = await session.scalar(select(LLMProfileORM).where(LLMProfileORM.name == active.name))
-        if row is not None:
-            return _config_from_row(row)
+        # Встроенный профиль полностью описан в YAML; БД нужна только для
+        # пользовательских профилей (ветка source == "custom" выше).
         return llm_config_from_mapping({**settings, "profile": active.name})
 
     return llm_config_from_mapping(settings)

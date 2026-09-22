@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langgraph.types import interrupt
 
@@ -32,6 +32,7 @@ from masker.detect.contract_params import (
     PaymentTermsDetector,
 )
 from masker.detect.result import DetectionResult, build_pii_chunks
+from masker.detect.signature_detector import SignatureDetector
 from masker.entity_types import EntityTypeRegistry
 from masker.graph.questions import build_ask_payload, parse_answers
 from masker.graph.review import (
@@ -409,7 +410,7 @@ def _detect_signatures_pdf(
     entities: list[Entity] = []
 
     try:
-        doc = pymupdf.open(path)
+        doc: Any = pymupdf.open(path)  # type: ignore[no-untyped-call]
     except Exception:
         return [], []
 

@@ -38,9 +38,7 @@ async def get_overview(
     options = await options_stats(session, days=days)
     failures = await failure_breakdown(session, days=days)
     sessions = await sessions_stats(session)
-    top_users = sorted(
-        await user_rows(session), key=lambda row: row.runs_total, reverse=True
-    )[:10]
+    top_users = sorted(await user_rows(session), key=lambda row: row.runs_total, reverse=True)[:10]
 
     return AdminOverviewOut(
         generated_at=datetime.now(UTC),

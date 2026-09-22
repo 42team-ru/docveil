@@ -340,6 +340,9 @@ def test_role_accuracy_excludes_profile_without_documented_role(
     документ не называет роль стороны вовсе, но в разметке она есть.
     `role_coverage` этот профиль по-прежнему учитывает.
     """
+    # Метрика не проверяет сетевого провайдера; выбор модели в
+    # backend/masker.yaml не должен добавлять к ней требование секрета.
+    monkeypatch.setenv("MASKER_LLM_PROFILE", "fake")
     anchor = Anchor(fmt="docx", locator=("body", 0))
     supplier = Entity(
         type=EntityType.INN,

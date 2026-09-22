@@ -101,12 +101,8 @@ def _token(
 
 
 def _mock_tables(mocker, *, users=(), runs=(), tokens=()) -> None:
-    mocker.patch(
-        "api.services.admin_service._all_users", AsyncMock(return_value=list(users))
-    )
-    mocker.patch(
-        "api.services.admin_service._all_runs", AsyncMock(return_value=list(runs))
-    )
+    mocker.patch("api.services.admin_service._all_users", AsyncMock(return_value=list(users)))
+    mocker.patch("api.services.admin_service._all_runs", AsyncMock(return_value=list(runs)))
     mocker.patch(
         "api.services.admin_service._all_refresh_tokens",
         AsyncMock(return_value=list(tokens)),

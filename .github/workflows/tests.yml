@@ -82,7 +82,7 @@ jobs:
         run: uv sync --locked --extra dev
 
       - name: Run tests
-        run: uv run --locked pytest -q
+        run: uv run --locked pytest -q --durations=20
 
   frontend:
     name: Frontend checks
@@ -456,4 +456,3 @@ jobs:
             --title "DocVeil ${{ needs.release_plan.outputs.version }}" \
             --notes-file release-notes.md \
             release-assets/*
-

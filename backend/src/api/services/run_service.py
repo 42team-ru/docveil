@@ -335,16 +335,18 @@ def _execute(
     try:
         document = _ensure_document(run_id, object_name)
         artifact_dir = _work_dir(run_id) / "artifacts"
+
+        def observe_progress(node: str, content: dict[str, object]) -> None:
+            run_guard.check(run_id)
+            run_events.publish(run_id, node, content)
+
         deps = RunDeps(
             llm=llm,
             artifact_dir=artifact_dir,
             pricing=pricing,
             ocr=select_ocr(),
             signature=select_signature(),
-            progress_observer=lambda node, content: (
-                run_guard.check(run_id),
-                run_events.publish(run_id, node, content),
-            )[-1],
+            progress_observer=observe_progress,
         )
         try:
             if options is not None:

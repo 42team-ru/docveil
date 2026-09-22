@@ -94,6 +94,8 @@ def test_critical_unmasked_metric_can_fail(monkeypatch, capsys) -> None:  # type
     import masker.eval as eval_module
     from masker.policy.agent import CriticalUnmask
 
+    # Self-test ворот проверяет реакцию метрики, а не доступность GigaChat.
+    monkeypatch.setenv("MASKER_LLM_PROFILE", "fake")
     original_apply = eval_module.PolicyAgent.apply
     corpus = _fixture_corpus("contract_04_bankruptcy.docx")
 

@@ -120,9 +120,7 @@ def test_get_overview_success(client, override_require_admin, mock_admin_service
     mock_admin_service.patch("api.routers.admin.sessions_stats").return_value = AdminSessionsOut(
         active=1, by_device={"web": 1}, revoked=0, expired=0
     )
-    mock_admin_service.patch("api.routers.admin.user_rows").return_value = [
-        _user_row(admin_user)
-    ]
+    mock_admin_service.patch("api.routers.admin.user_rows").return_value = [_user_row(admin_user)]
 
     response = client.get("/api/admin/overview")
 

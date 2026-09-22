@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 from docx import Document as open_docx
-from docx.enum.text import WD_COLOR_INDEX
 from docx.oxml.ns import qn
+from docx.text.run import Run
 
 import masker.render.docx_redact as docx_redact_module
 from masker.cli import EXIT_LEAK, main
@@ -38,6 +38,12 @@ def table_shape(path: Path) -> list[tuple[int, list[int], int]]:
             )
         )
     return result
+
+
+def _is_highlighted(run: Run) -> bool:
+    """DOCX-подсветка теперь хранится заливкой `w:shd` для любого цвета."""
+    properties = run._r.rPr
+    return properties is not None and properties.find(qn("w:shd")) is not None
 
 
 def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
@@ -99,7 +105,7 @@ def test_cli_creates_report_and_exact_preview(tmp_path: Path) -> None:
         run.text
         for paragraph in preview.paragraphs
         for run in iter_runs(paragraph)
-        if run.font.highlight_color == WD_COLOR_INDEX.YELLOW
+        if _is_highlighted(run)
     ]
     assert "500100732259" in highlighted
     assert hashlib.sha256(FIXTURE.read_bytes()).digest() == source_hash
@@ -447,7 +453,7 @@ def test_cli_highlights_entity_split_across_runs(tmp_path: Path) -> None:
     preview = open_docx(output_path / "split-runs" / "preview.docx")
     runs = iter_runs(preview.paragraphs[0])
     assert "".join(run.text for run in runs) == "<script>ИНН 500100732259</script>"
-    assert [run.text for run in runs if run.font.highlight_color == WD_COLOR_INDEX.YELLOW] == [
+    assert [run.text for run in runs if _is_highlighted(run)] == [
         "500100",
         "732259",
     ]
@@ -470,7 +476,7 @@ def test_preview_highlights_entity_inside_table_cell(tmp_path: Path) -> None:
         for cell in row.cells
         for paragraph in cell.paragraphs
         for run in iter_runs(paragraph)
-        if run.font.highlight_color == WD_COLOR_INDEX.YELLOW
+        if _is_highlighted(run)
     ]
     assert highlighted == ["500100732259"]
 
@@ -496,7 +502,7 @@ def test_preview_highlights_entity_split_across_runs_in_cell(tmp_path: Path) -> 
     preview = open_docx(output_path / "split-runs-cell" / "preview.docx")
     runs = iter_runs(preview.tables[0].cell(0, 0).paragraphs[0])
     assert "".join(run.text for run in runs) == "<script>ИНН 500100732259</script>"
-    assert [run.text for run in runs if run.font.highlight_color == WD_COLOR_INDEX.YELLOW] == [
+    assert [run.text for run in runs if _is_highlighted(run)] == [
         "500100",
         "732259",
     ]
@@ -705,7 +711,7 @@ def test_decisions_block_reflects_type_keep_and_preview_excludes_it(tmp_path: Pa
         run.text
         for paragraph in preview.paragraphs
         for run in iter_runs(paragraph)
-        if run.font.highlight_color == WD_COLOR_INDEX.YELLOW
+        if _is_highlighted(run)
     }
     assert not ({record["text"] for record in phone_records} & highlighted)
     assert {record["text"] for record in inn_records} <= highlighted

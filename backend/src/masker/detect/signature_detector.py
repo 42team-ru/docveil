@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -76,7 +76,12 @@ class SignatureDetector(Protocol):
     держится.
     """
 
-    def detect(self, image: np.ndarray, dpi: int) -> tuple[SignatureCandidate, ...]:
+    def detect(
+        self,
+        image: np.ndarray,
+        dpi: int,
+        text_masks: Iterable[tuple[float, float, float, float]] = (),
+    ) -> tuple[SignatureCandidate, ...]:
         """Найти подписи на одной странице.
 
         ``image`` — RGB или BGR-массив формы ``(H, W, 3)`` в ``uint8``,
@@ -85,6 +90,9 @@ class SignatureDetector(Protocol):
         реализация вправе игнорировать, но обязана принять (некоторые
         фильтры калибруются через физический размер).
 
+        Пустой кортеж — валидный результат («на странице нет подписей»),
+        ``text_masks`` — прямоугольники текстовых блоков в пикселях: детектор
+        вправе исключить их, чтобы не принять печатный текст за подпись.
         Пустой кортеж — валидный результат («на странице нет подписей»),
         исключение — только фатальная ошибка реализации.
         """
@@ -332,14 +340,14 @@ class SignatureDETRDetector:
 
     def __init__(self, min_confidence: float = _DETR_MIN_CONFIDENCE) -> None:
         self._min_confidence = float(min_confidence)
-        self._model: object | None = None
-        self._processor: object | None = None
+        self._model: Any | None = None
+        self._processor: Any | None = None
 
     def _load(self) -> None:
         if self._model is not None:
             return
         try:
-            from transformers import (  # type: ignore[import-not-found]
+            from transformers import (
                 AutoImageProcessor,
                 AutoModelForObjectDetection,
             )
@@ -350,7 +358,9 @@ class SignatureDETRDetector:
                 "или установить extra `signature`"
             ) from error
         try:
-            self._processor = AutoImageProcessor.from_pretrained(_DETR_MODEL_ID)
+            self._processor = AutoImageProcessor.from_pretrained(  # type: ignore[no-untyped-call]
+                _DETR_MODEL_ID
+            )
             self._model = AutoModelForObjectDetection.from_pretrained(_DETR_MODEL_ID)
         except OSError as error:  # сеть недоступна, кэш пуст
             raise SignatureDetectionError(
@@ -442,7 +452,8 @@ class FakeSignatureDetector:
         self.calls += 1
         if image.ndim != 3 or image.shape[2] != 3:
             raise SignatureDetectionError(
-                f"FakeSignatureDetector ожидает изображение формы (H, W, 3), получил {image.shape!r}"
+                "FakeSignatureDetector ожидает изображение формы (H, W, 3), "
+                f"получил {image.shape!r}"
             )
         key = (int(image.shape[1]), int(image.shape[0]))
         if key in self._by_size:

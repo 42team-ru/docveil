@@ -12,6 +12,7 @@ import { Toolbar } from "@astryxdesign/core/Toolbar";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
 
 import type { DocumentViewMode } from "../../../entity/pii/model/review-store";
+import type { VisiblePageInfo } from "../../document-viewer/ui/bbox-viewer";
 
 const PREVIEW_NOTICE =
   "Вёрстка, шрифты и разбиение на страницы — приближение к оригиналу. " +
@@ -21,6 +22,8 @@ type DocumentToolbarProps = {
   documentName: string;
   viewMode: DocumentViewMode;
   onViewModeChange: (mode: DocumentViewMode) => void;
+  /** Только для pdf/скана с больше чем одной страницей — `bbox-viewer.tsx`. */
+  pageInfo?: VisiblePageInfo | null;
 };
 
 /** Полоса над листом документа: имя файла, режим показа и горячие клавиши
@@ -31,6 +34,7 @@ export function DocumentToolbar({
   documentName,
   viewMode,
   onViewModeChange,
+  pageInfo,
 }: DocumentToolbarProps) {
   return (
     <Toolbar
@@ -50,6 +54,11 @@ export function DocumentToolbar({
             <SegmentedControlItem value="all" label="Все" />
             <SegmentedControlItem value="original" label="Оригинал" />
           </SegmentedControl>
+          {pageInfo ? (
+            <Text type="supporting" color="secondary" hasTabularNumbers>
+              {`Страница ${pageInfo.current} из ${pageInfo.total}`}
+            </Text>
+          ) : null}
         </HStack>
       }
       endContent={

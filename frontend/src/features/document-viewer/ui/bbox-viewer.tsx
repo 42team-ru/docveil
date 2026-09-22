@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { VStack } from "@astryxdesign/core/Stack";
@@ -20,6 +20,8 @@ import { loadPdfDocument, renderPdfPage } from "../lib/pdf-source";
 import type { RegionSelectionCapture, SelectionCapture } from "../lib/read-selection";
 import { useDocumentRender } from "../lib/use-document-render";
 
+export type VisiblePageInfo = { current: number; total: number };
+
 type BboxViewerProps = {
   format: PiiDocFormat;
   fileUrl: string;
@@ -29,6 +31,9 @@ type BboxViewerProps = {
   pages: PiiPage[];
   onNotFoundChange?: (ids: Set<string>) => void;
   onSelectionCapture?: (capture: SelectionCapture) => void;
+  /** Страница, видимая по центру области прокрутки, для счётчика в тулбаре.
+   * `null` — счётчик не нужен (один лист, docx/xlsx через этот вьюер не идут). */
+  onVisiblePageChange?: (info: VisiblePageInfo | null) => void;
 };
 
 /** Атрибут страницы-контейнера: номер страницы 0-based, тот же, что в `regions[].page`. */
@@ -293,8 +298,10 @@ export function BboxViewer({
   pages,
   onNotFoundChange,
   onSelectionCapture,
+  onVisiblePageChange,
 }: BboxViewerProps) {
   const dragRef = useRef<DragState | null>(null);
+  const containerRef = useRef<HTMLElement | null>(null);
 
   async function render(host: HTMLElement, data: ArrayBuffer, signal: AbortSignal): Promise<void> {
     const mime = IMAGE_MIME[format];
@@ -319,10 +326,58 @@ export function BboxViewer({
     onSelectionCapture,
   });
 
+  // Счётчик страниц: какая страница сейчас по центру видимой области
+  // прокрутки. Только тут — у docx/xlsx нет понятия страницы в этом
+  // рендерере, `document-toolbar.tsx` просто не получает колбэк.
+  useEffect(() => {
+    if (status !== "ready") return;
+    const host = hostRef.current;
+    const root = containerRef.current;
+    if (!host || !root) return;
+
+    const pageEls = Array.from(host.querySelectorAll<HTMLElement>(`[${PAGE_ATTR}]`));
+    const total = pageEls.length;
+    if (total <= 1) {
+      onVisiblePageChange?.(null);
+      return;
+    }
+
+    const ratios = new Map<number, number>();
+    const reportCurrent = () => {
+      let bestPage = 0;
+      let bestRatio = -1;
+      for (const [page, ratio] of ratios) {
+        if (ratio > bestRatio) {
+          bestRatio = ratio;
+          bestPage = page;
+        }
+      }
+      onVisiblePageChange?.({ current: bestPage + 1, total });
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const page = Number(entry.target.getAttribute(PAGE_ATTR));
+          ratios.set(page, entry.intersectionRatio);
+        }
+        reportCurrent();
+      },
+      { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
+    );
+    for (const el of pageEls) observer.observe(el);
+    onVisiblePageChange?.({ current: 1, total });
+
+    return () => {
+      observer.disconnect();
+      onVisiblePageChange?.(null);
+    };
+  }, [status, hostRef, onVisiblePageChange]);
+
   const hasPageDims = pages.length > 0;
 
   return (
-    <VStack hAlign="center" padding={6} isScrollable height="100%">
+    <VStack ref={containerRef} hAlign="center" padding={6} isScrollable height="100%">
       {status === "loading" ? <Skeleton height={800} width={720} /> : null}
       {status === "error" ? (
         <EmptyState

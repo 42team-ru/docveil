@@ -47,7 +47,8 @@ it("сохраняет типы, но не отвечает за человек�
 it("показывает ожидание, ошибку и закрывает диалог после обработки", async () => {
   const props = { runId: "run", ask: null, isSelecting: false, onSelected: () => {}, onLeave: () => {} };
   await act(async () => root.render(<MaskingSetupDialog {...props} isProcessing error={null} />));
-  expect(host.textContent).toContain("Обработка документа");
+  expect(host.textContent).toContain("Обезличиваем документ");
+  expect(host.textContent).toContain("Начинаю разбор документа");
   await act(async () => root.render(<MaskingSetupDialog {...props} isProcessing={false} error="Ошибка сети" />));
   expect(host.textContent).toContain("Ошибка сети");
   await act(async () => root.render(<MaskingSetupDialog {...props} isProcessing={false} error={null} />));

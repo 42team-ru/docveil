@@ -13,6 +13,7 @@ import type {
   PiiType,
 } from "../../entity/pii/model/types";
 import { DocumentViewer } from "../../features/document-viewer/ui/document-viewer";
+import type { VisiblePageInfo } from "../../features/document-viewer/ui/bbox-viewer";
 import type { SelectionCapture } from "../../features/document-viewer/lib/read-selection";
 import type { ReviewedDocument } from "../../features/pii-review/api/use-review-data";
 import { useReviewHotkeys } from "../../features/pii-review/lib/use-review-hotkeys";
@@ -49,6 +50,7 @@ export function ReviewView({
 }: ReviewViewProps) {
   const [pendingSelection, setPendingSelection] =
     useState<SelectionCapture | null>(null);
+  const [pageInfo, setPageInfo] = useState<VisiblePageInfo | null>(null);
 
   const viewMode = useReviewStore((state) => state.viewMode);
   const setViewMode = useReviewStore((state) => state.setViewMode);
@@ -89,6 +91,7 @@ export function ReviewView({
             documentName={document.name}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
+            pageInfo={pageInfo}
           />
         </LayoutHeader>
       }
@@ -136,6 +139,7 @@ export function ReviewView({
               pages={pages}
               onNotFoundChange={onNotFoundChange}
               onSelectionCapture={setPendingSelection}
+              onVisiblePageChange={setPageInfo}
             />
           </VStack>
           <AddPiiTrigger

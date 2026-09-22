@@ -10,6 +10,7 @@ import type {
   PiiPage,
 } from "../../../entity/pii/model/types";
 import type { SelectionCapture } from "../lib/read-selection";
+import type { VisiblePageInfo } from "./bbox-viewer";
 import { UnsupportedFormat } from "./unsupported-format";
 
 // docx-preview, exceljs и pdfjs-dist тянут больше 1 МБ в бандл каждый (см.
@@ -46,6 +47,8 @@ type DocumentViewerProps = {
   pages?: PiiPage[];
   onNotFoundChange?: (ids: Set<string>) => void;
   onSelectionCapture?: (capture: SelectionCapture) => void;
+  /** Только для bbox-форматов (pdf/скан) — у docx/xlsx странице неоткуда взяться. */
+  onVisiblePageChange?: (info: VisiblePageInfo | null) => void;
 };
 
 /** Диспетчер по формату документа — единственная точка входа для страницы. */

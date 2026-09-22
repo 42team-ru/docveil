@@ -49,6 +49,18 @@ async def test_get_current_user_invalid_token():
 
 
 @pytest.mark.asyncio
+async def test_get_current_user_malformed_subject_claim():
+    """`sub` не-UUID (битый/старого формата токен) — это 401, а не необработанный 500."""
+    token = create_access_token("not-a-uuid", ["user"])
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_user(credentials=_bearer(token), session=None)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Невалидный или просроченный токен"
+
+
+@pytest.mark.asyncio
 async def test_get_current_user_not_found(mocker):
     mocker.patch("api.core.deps.get_user_by_id", return_value=None)
     token = create_access_token(str(uuid.uuid4()), ["user"])

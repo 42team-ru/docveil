@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { getAccessToken, setAccessToken } from "../api/auth-token";
-import { clientApi, REFRESH_ENDPOINT } from "../api/mutators/authMutator";
+import { clientApi, isGenuineUnauthorized, REFRESH_ENDPOINT } from "../api/mutators/authMutator";
 
 type SessionState = "checking" | "ready" | "anonymous";
 
@@ -47,8 +47,15 @@ export function useAuthSession(): SessionState {
         setAccessToken(token);
         setState("ready");
       })
-      .catch(() => {
-        if (!cancelled) goToLogin();
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        // 401 на refresh — сессии правда нет, на вход. Любая другая ошибка
+        // (500, обрыв сети) не означает разлогин: молча остаёмся в
+        // "checking" — экраны под каркасом сами покажут ошибку своих
+        // запросов, когда попробуют что-то загрузить с тем же битым
+        // соединением, вместо того чтобы прямо сейчас увести на /login
+        // человека с действующей сессией.
+        if (isGenuineUnauthorized(error)) goToLogin();
       });
 
     return () => {

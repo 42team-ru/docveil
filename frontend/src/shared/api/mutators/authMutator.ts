@@ -136,6 +136,18 @@ const dispatchUnauthorized = () => {
   }
 };
 
+/**
+ * Отличает «сессия правда истекла» (бэкенд честно ответил 401 на refresh) от
+ * любой другой причины, по которой запрос на обновление токена не дошёл до
+ * ответа: 500 на бэкенде, обрыв сети, таймаут. Раньше обе ветки обрабатывались
+ * одинаково — `dispatchUnauthorized()` звался при любой ошибке `catch`, и
+ * временный сбой сервера разлогинивал пользователя так же, как просроченный
+ * токен, хотя сама сессия была в порядке (см. AGENTS.md — «выкидывает с
+ * аккаунта» при 500, которую нельзя отличить от настоящего логаута).
+ */
+export const isGenuineUnauthorized = (error: unknown): boolean =>
+  axios.isAxiosError(error) && error.response?.status === 401;
+
 export const clientApi = axios.create({
   baseURL,
   withCredentials: true,
@@ -208,7 +220,14 @@ clientApiWithAuth.interceptors.response.use(
 
       return clientApiWithAuth(originalRequest);
     } catch (refreshError) {
-      dispatchUnauthorized();
+      // Разлогиниваем только когда refresh реально ответил 401 — сессия
+      // истекла или отозвана. На 500/сетевую ошибку сессию не трогаем:
+      // это сбой запроса, а не признак того, что пользователь разлогинен.
+      // Исходный запрос просто падает как обычная ошибка — вызвавший код
+      // (react-query, форма) покажет её сам, без принудительного разлогина.
+      if (isGenuineUnauthorized(refreshError)) {
+        dispatchUnauthorized();
+      }
 
       if (axios.isAxiosError<ApiErrorPayload>(refreshError)) {
         return Promise.reject(normalizeAxiosError(refreshError));

@@ -28,7 +28,16 @@ async def get_current_user(
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "Невалидный или просроченный токен"
         ) from exc
-    user = await get_user_by_id(session, payload["sub"])
+    try:
+        user = await get_user_by_id(session, payload["sub"])
+    except ValueError as exc:
+        # payload["sub"] не UUID — токен подписан нашим ключом, но клейм битый
+        # (например, старый формат токена). Это тоже "невалидный токен", а не
+        # 500: без этого uuid.UUID() в get_user_by_id падал необработанным
+        # исключением наружу.
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Невалидный или просроченный токен"
+        ) from exc
     if user is None or not user.is_active:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "Пользователь не найден или деактивирован"

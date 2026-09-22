@@ -15,6 +15,7 @@ import {
   regionToPixelRect,
   type PixelRect,
 } from "../lib/bbox-geometry";
+import { paintManualRegionHighlight } from "../lib/manual-highlight";
 import { loadPdfDocument, renderPdfPage } from "../lib/pdf-source";
 import type { RegionSelectionCapture, SelectionCapture } from "../lib/read-selection";
 import { useDocumentRender } from "../lib/use-document-render";
@@ -313,6 +314,7 @@ export function BboxViewer({
     render,
     buildIndex: buildBboxIndex,
     captureSelection: () => finishDrag(dragRef),
+    paintManualOccurrence: paintManualRegionHighlight,
     onNotFoundChange,
     onSelectionCapture,
   });

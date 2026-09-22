@@ -11,6 +11,7 @@ import {
 } from "../lib/anchor-index";
 import type { HighlightOccurrence } from "../lib/apply-highlights";
 import { fixTableCellDirection } from "../lib/fix-table-cell-direction";
+import { paintManualDocxHighlight } from "../lib/manual-highlight";
 import { captureDocxSelection, type SelectionCapture } from "../lib/read-selection";
 import { useDocumentRender } from "../lib/use-document-render";
 
@@ -100,6 +101,7 @@ export function DocxViewer({
     render: renderDocx,
     buildIndex: buildDocxIndex,
     captureSelection: captureDocxSelection,
+    paintManualOccurrence: paintManualDocxHighlight,
     onNotFoundChange,
     onSelectionCapture,
   });

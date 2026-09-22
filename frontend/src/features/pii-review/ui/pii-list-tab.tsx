@@ -159,8 +159,8 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
               </HStack>
             ))}
             <Text type="supporting" color="secondary" textWrap="pretty">
-              В документе такие фрагменты пока не подсвечиваются: подсветка
-              ищет уже вписанный маркер, а у ручной отметки его ещё нет.
+              В документе такие фрагменты подсвечены жёлтым, как черновик —
+              маска встанет в файл после перегенерации.
             </Text>
           </VStack>
         </Section>

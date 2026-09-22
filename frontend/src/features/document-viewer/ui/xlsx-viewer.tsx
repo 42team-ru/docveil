@@ -4,6 +4,7 @@ import { VStack } from "@astryxdesign/core/Stack";
 
 import type { PiiExtraction } from "../../../entity/pii/model/types";
 import type { HighlightOccurrence } from "../lib/apply-highlights";
+import { paintManualXlsxHighlight } from "../lib/manual-highlight";
 import { captureXlsxSelection, type SelectionCapture } from "../lib/read-selection";
 import { renderXlsxTable } from "../lib/render-xlsx-table";
 import { useDocumentRender } from "../lib/use-document-render";
@@ -60,6 +61,7 @@ export function XlsxViewer({
       const table = host.querySelector<HTMLTableElement>("table[data-sheet-name]");
       return captureXlsxSelection(table?.dataset.sheetName ?? "")(host);
     },
+    paintManualOccurrence: paintManualXlsxHighlight,
     onNotFoundChange,
     onSelectionCapture,
   });

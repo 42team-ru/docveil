@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { flattenPiiOccurrences } from "../../../entity/pii/model/flatten";
+import type { DocumentViewMode } from "../../../entity/pii/model/review-store";
 import { appliedGroupDecision, useReviewStore } from "../../../entity/pii/model/review-store";
-import type { PiiExtraction } from "../../../entity/pii/model/types";
-import { applyHighlights, type HighlightOccurrence, type ResolvedRun } from "./apply-highlights";
+import type { ManualPiiOccurrence, PiiExtraction } from "../../../entity/pii/model/types";
+import {
+  applyHighlights,
+  resolvePaintState,
+  type HighlightOccurrence,
+  type ResolvedRun,
+} from "./apply-highlights";
 import { subscribeHighlightSync } from "./highlight-sync";
+import { unpaintManualHighlight } from "./manual-highlight";
+import { paintRun } from "./paint-run";
 import type { SelectionCapture } from "./read-selection";
 
 export type DocumentRenderStatus = "loading" | "ready" | "error";
@@ -24,6 +32,15 @@ type UseDocumentRenderOptions = {
   ) => Map<string, ResolvedRun>;
   /** Читает текущее выделение мыши внутри host в координату для «добавить пропущенное». */
   captureSelection: (host: HTMLElement) => SelectionCapture | null;
+  /** Красит ручную отметку (`review-store.manualOccurrences`) прямо в host —
+   * в отличие от `buildIndex`, создаёт новый узел, а не ищет существующий
+   * (`manual-highlight.ts`). `null` — привязка не удалась (например, абзац
+   * успел перерисоваться), тогда отметка просто не подсвечивается. */
+  paintManualOccurrence?: (
+    host: HTMLElement,
+    occurrence: ManualPiiOccurrence,
+    viewMode: DocumentViewMode,
+  ) => HTMLElement | null;
   onNotFoundChange?: (ids: Set<string>) => void;
   onSelectionCapture?: (capture: SelectionCapture) => void;
 };
@@ -49,6 +66,7 @@ export function useDocumentRender({
   render,
   buildIndex,
   captureSelection,
+  paintManualOccurrence,
   onNotFoundChange,
   onSelectionCapture,
 }: UseDocumentRenderOptions): UseDocumentRenderResult {
@@ -63,6 +81,7 @@ export function useDocumentRender({
     let cancelled = false;
     const abortController = new AbortController();
     let cleanupSync: (() => void) | null = null;
+    let cleanupManualSync: (() => void) | null = null;
     let handleClick: ((event: MouseEvent) => void) | null = null;
     let handleMouseUp: (() => void) | null = null;
 
@@ -112,6 +131,45 @@ export function useDocumentRender({
           }));
         cleanupSync = subscribeHighlightSync(targets);
 
+        if (paintManualOccurrence) {
+          const painted = new Map<string, HTMLElement>();
+
+          const paintOne = (occurrence: ManualPiiOccurrence) => {
+            const run = paintManualOccurrence(host, occurrence, useReviewStore.getState().viewMode);
+            if (run) painted.set(occurrence.id, run);
+          };
+
+          for (const occurrence of useReviewStore.getState().manualOccurrences) paintOne(occurrence);
+
+          const unsubManual = useReviewStore.subscribe(
+            (state) => state.manualOccurrences,
+            (occurrences, previous) => {
+              const nextIds = new Set(occurrences.map((o) => o.id));
+              for (const prev of previous) {
+                if (!nextIds.has(prev.id)) {
+                  unpaintManualHighlight(host, prev.id);
+                  painted.delete(prev.id);
+                }
+              }
+              for (const occurrence of occurrences) {
+                if (!painted.has(occurrence.id)) paintOne(occurrence);
+              }
+            },
+          );
+          const unsubManualViewMode = useReviewStore.subscribe(
+            (state) => state.viewMode,
+            (viewMode) => {
+              for (const run of painted.values()) {
+                paintRun(run, resolvePaintState("pending", viewMode), false);
+              }
+            },
+          );
+          cleanupManualSync = () => {
+            unsubManual();
+            unsubManualViewMode();
+          };
+        }
+
         handleClick = (event) => {
           const targetEl = event.target as HTMLElement;
           const run = targetEl.closest<HTMLElement>("[data-pii-id]");
@@ -144,6 +202,7 @@ export function useDocumentRender({
       cancelled = true;
       abortController.abort();
       cleanupSync?.();
+      cleanupManualSync?.();
       if (handleClick) host.removeEventListener("click", handleClick);
       if (handleMouseUp) host.removeEventListener("mouseup", handleMouseUp);
       host.innerHTML = "";

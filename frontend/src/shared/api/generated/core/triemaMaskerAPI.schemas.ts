@@ -1118,6 +1118,35 @@ export interface LLMProfileOut {
   created_at: string | null;
 }
 
+export type LLMProfileUpdateProvider = typeof LLMProfileUpdateProvider[keyof typeof LLMProfileUpdateProvider];
+
+
+export const LLMProfileUpdateProvider = {
+  fake: 'fake',
+  cassette: 'cassette',
+  openrouter: 'openrouter',
+  gigachat: 'gigachat',
+} as const;
+
+export type LLMProfileUpdateProviderConfig = { [key: string]: unknown };
+
+/**
+ * Тело запроса правки своего профиля (`PATCH /admin/llm-profiles/{id}`).
+ *
+ * Имя не меняется: оно же ключ, на который смотрит `llm_active_setting`,
+ * когда профиль активен, — переименование потребовало бы либо запрета
+ * редактирования активного профиля, либо синхронной правки указателя;
+ * проще было не заводить это как задачу, раз имя и так не участвует в
+ * вызове модели.
+ */
+export interface LLMProfileUpdate {
+  provider: LLMProfileUpdateProvider;
+  model?: string;
+  api_key_env?: string;
+  provider_config?: LLMProfileUpdateProviderConfig;
+  pricing?: LLMPricingIn | null;
+}
+
 /**
  * Сохранность текстового слоя PDF вне замен — `validation.layout[]`.
  */
@@ -1401,6 +1430,8 @@ export type TelemetryLlmOutByNodeItem = { [key: string]: unknown };
 
 export type TelemetryLlmOutCost = { [key: string]: unknown } | null;
 
+export type TelemetryLlmOutPricing = { [key: string]: unknown } | null;
+
 /**
  * Итог расходов на LLM — `telemetry.llm`.
  */
@@ -1412,6 +1443,7 @@ export interface TelemetryLlmOut {
   message: string;
   by_node?: TelemetryLlmOutByNodeItem[];
   cost?: TelemetryLlmOutCost;
+  pricing?: TelemetryLlmOutPricing;
 }
 
 /**

@@ -20,7 +20,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.llm_profile import LLMActiveSettingORM, LLMProfileORM
-from api.schemas.llm_profile import LLMPricingIn, LLMProfileCreate, LLMProfileOut
+from api.schemas.llm_profile import (
+    LLMPricingIn,
+    LLMProfileCreate,
+    LLMProfileOut,
+    LLMProfileUpdate,
+)
 from masker.config import project_section
 from masker.llm.config import LLMConfig, llm_config_from_mapping
 from masker.telemetry import LLMPricing, pricing_from_dict
@@ -168,6 +173,42 @@ async def create_profile(session: AsyncSession, payload: LLMProfileCreate) -> LL
         provider_config=row.provider_config,
         pricing=payload.pricing,
         is_active=False,
+        created_at=row.created_at,
+    )
+
+
+async def update_profile(
+    session: AsyncSession, profile_id: uuid.UUID, payload: LLMProfileUpdate
+) -> LLMProfileOut:
+    """Править свой профиль на месте — имя не меняется (см. `LLMProfileUpdate`).
+
+    Если профиль сейчас активен, новые поля вступают в силу немедленно на
+    следующем запросе: `resolve_active_llm_config` каждый раз читает строку
+    заново, ничего не кеширует."""
+    row = await session.get(LLMProfileORM, profile_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "профиль не найден")
+
+    row.provider = payload.provider
+    row.model = payload.model
+    row.api_key_env = payload.api_key_env
+    row.provider_config = payload.provider_config
+    row.pricing = payload.pricing.model_dump() if payload.pricing else None
+    await session.commit()
+    await session.refresh(row)
+
+    active = await _active_pointer(session)
+    is_active = active is not None and active.source == "custom" and active.name == row.name
+    return LLMProfileOut(
+        id=row.id,
+        source="custom",
+        name=row.name,
+        provider=row.provider,
+        model=row.model,
+        api_key_env=row.api_key_env,
+        provider_config=row.provider_config,
+        pricing=payload.pricing,
+        is_active=is_active,
         created_at=row.created_at,
     )
 

@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.db import get_db
 from api.core.deps import require_admin
-from api.schemas.llm_profile import LLMActivateRequest, LLMProfileCreate, LLMProfileOut
+from api.schemas.llm_profile import (
+    LLMActivateRequest,
+    LLMProfileCreate,
+    LLMProfileOut,
+    LLMProfileUpdate,
+)
 from api.services import llm_profile_service
 
 router = APIRouter(
@@ -30,6 +35,15 @@ async def create_llm_profile_endpoint(
     session: AsyncSession = Depends(get_db),
 ) -> LLMProfileOut:
     return await llm_profile_service.create_profile(session, payload)
+
+
+@router.patch("/{profile_id}", response_model=LLMProfileOut)
+async def update_llm_profile_endpoint(
+    profile_id: uuid.UUID,
+    payload: LLMProfileUpdate,
+    session: AsyncSession = Depends(get_db),
+) -> LLMProfileOut:
+    return await llm_profile_service.update_profile(session, profile_id, payload)
 
 
 @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)

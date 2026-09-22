@@ -135,15 +135,23 @@ const STAGE_LAYERS: { key: string; label: string; nodes: string[] }[] = [
 ];
 
 /**
- * Тариф GigaChat из `masker.yaml` (`llm.pricing`): ввод и вывод стоят по-разному
- * (0.289 ₽ за 1000 токенов вывода почти втрое дороже 0.096 ₽ за ввод), а
- * `report.json` отдаёт только итоговую сумму — разбивки по узлам в контракте нет.
- * Используем те же ставки, что и движок, только чтобы честно распределить уже
- * посчитанную им сумму между узлами графа; когда тариф не задан (`cost === null`),
- * эта оценка не считается вовсе — деньги не показываем.
+ * Ставки тарифа, реально применённого на этом прогоне (`telemetry.llm.pricing`
+ * — тариф активного на момент прогона профиля, не текущего: профиль мог
+ * смениться в админке уже после). `report.json` отдаёт только итоговую сумму
+ * — разбивки по узлам в контракте нет, поэтому здесь только распределяем уже
+ * посчитанную бэкендом сумму между узлами графа, а не считаем её заново.
+ * `null` — тариф не задан или не распарсился, тогда узлы графа показывают
+ * количество токенов, а не рубли (см. `NodeCostChart`).
  */
-const PROMPT_RUB_PER_1K = 0.096;
-const COMPLETION_RUB_PER_1K = 0.289;
+type PricingRates = { promptPer1k: number; completionPer1k: number };
+
+function pricingRates(pricing: Record<string, unknown> | null): PricingRates | null {
+  if (!pricing) return null;
+  const promptPer1k = Number(pricing.prompt_per_1k);
+  const completionPer1k = Number(pricing.completion_per_1k);
+  if (!Number.isFinite(promptPer1k) || !Number.isFinite(completionPer1k)) return null;
+  return { promptPer1k, completionPer1k };
+}
 
 /** Цвет точки в журнале обработки по имени узла графа. */
 const STAGE_COLORS: Record<string, string> = {
@@ -373,14 +381,15 @@ type NodeCostChartProps = {
 
 /** Кольцевая диаграмма стоимости или токенов LLM по узлам графа. */
 function NodeCostChart({ telemetry }: NodeCostChartProps) {
-  const byCost = telemetry.llm.cost !== null;
+  const rates = pricingRates(telemetry.llm.pricing);
+  const byCost = telemetry.llm.cost !== null && rates !== null;
   const format = byCost
     ? formatRub
     : (value: number) => `${value.toLocaleString("ru-RU")} ток.`;
   const data = telemetry.llm.byNode
     .map((item) => {
       const value = byCost
-        ? estimateNodeCostRub(item.promptTokens, item.completionTokens)
+        ? estimateNodeCostRub(item.promptTokens, item.completionTokens, rates)
         : item.promptTokens + item.completionTokens;
       return {
         key: item.node,
@@ -721,10 +730,11 @@ function stageTitle(stage: string): string {
 function estimateNodeCostRub(
   promptTokens: number,
   completionTokens: number,
+  rates: PricingRates,
 ): number {
   return (
-    (promptTokens / 1000) * PROMPT_RUB_PER_1K +
-    (completionTokens / 1000) * COMPLETION_RUB_PER_1K
+    (promptTokens / 1000) * rates.promptPer1k +
+    (completionTokens / 1000) * rates.completionPer1k
   );
 }
 

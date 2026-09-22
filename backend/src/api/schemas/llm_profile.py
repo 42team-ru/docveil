@@ -32,6 +32,22 @@ class LLMProfileCreate(BaseModel):
     pricing: LLMPricingIn | None = None
 
 
+class LLMProfileUpdate(BaseModel):
+    """Тело запроса правки своего профиля (`PATCH /admin/llm-profiles/{id}`).
+
+    Имя не меняется: оно же ключ, на который смотрит `llm_active_setting`,
+    когда профиль активен, — переименование потребовало бы либо запрета
+    редактирования активного профиля, либо синхронной правки указателя;
+    проще было не заводить это как задачу, раз имя и так не участвует в
+    вызове модели."""
+
+    provider: Literal["fake", "cassette", "openrouter", "gigachat"]
+    model: str = ""
+    api_key_env: str = "OPENROUTER_API_KEY"
+    provider_config: dict[str, Any] = Field(default_factory=dict)
+    pricing: LLMPricingIn | None = None
+
+
 class LLMProfileOut(BaseModel):
     """Один профиль в списке — встроенный (YAML) или пользовательский (БД)."""
 

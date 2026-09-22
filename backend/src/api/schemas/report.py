@@ -334,6 +334,12 @@ class TelemetryLlmOut(BaseModel):
     message: str
     by_node: list[dict[str, Any]] = Field(default_factory=list)
     cost: dict[str, Any] | None = None
+    #: Тариф активного на момент прогона профиля (`LLMPricing.as_dict()`) —
+    #: `None`, если тариф не задан. Раньше здесь не было ничего, и фронт
+    #: (`report-resources.tsx`) оценивал разбивку стоимости по узлам
+    #: зашитым тарифом GigaChat — на другом активном профиле (см.
+    #: `llm_profile_service`) эта оценка была бы неверной.
+    pricing: dict[str, Any] | None = None
 
 
 class TelemetryRuntimeOut(BaseModel):

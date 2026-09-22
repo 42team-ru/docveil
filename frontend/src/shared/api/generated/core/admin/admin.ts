@@ -32,7 +32,8 @@ import type {
   HTTPValidationError,
   LLMActivateRequest,
   LLMProfileCreate,
-  LLMProfileOut
+  LLMProfileOut,
+  LLMProfileUpdate
 } from '../triemaMaskerAPI.schemas';
 
 import { authMutator } from '../../../mutators/authMutator';
@@ -631,6 +632,105 @@ export const useCreateLlmProfileEndpointApiAdminLlmProfilesPost = <TError = Erro
         TContext
       > => {
       return useMutation(getCreateLlmProfileEndpointApiAdminLlmProfilesPostMutationOptions(options), queryClient);
+    }
+    export type updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse200 = {
+  data: LLMProfileOut
+  status: 200
+}
+
+export type updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponseSuccess = (updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse200) & {
+  headers: Headers;
+};
+export type updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponseError = (updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse422) & {
+  headers: Headers;
+};
+
+export type updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse = (updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponseSuccess | updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponseError)
+
+export const getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchUrl = (profileId: string,) => {
+
+
+
+
+  return `/admin/llm-profiles/${profileId}`
+}
+
+/**
+ * @summary Update Llm Profile Endpoint
+ */
+export const updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch = async (profileId: string,
+    lLMProfileUpdate: LLMProfileUpdate, options?: Parameters<typeof authMutator>[1]): Promise<updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return authMutator<updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchResponse>(getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchUrl(profileId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(lLMProfileUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationKey = () => ['updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch'] as const;
+
+export const getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>, TError,UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>, TError,UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables, TContext> => {
+
+const mutationKey = getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>, UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables> = (props) => {
+          const {profileId,data} = props ?? {};
+
+          return  updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch(profileId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>>
+    export type UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationBody = LLMProfileUpdate
+    export type UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationError = ErrorType<HTTPValidationError>
+    export type UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables = {profileId: string;data: LLMProfileUpdate}
+
+    /**
+ * @summary Update Llm Profile Endpoint
+ */
+export const useUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>, TError,UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatch>>,
+        TError,
+        UpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateLlmProfileEndpointApiAdminLlmProfilesProfileIdPatchMutationOptions(options), queryClient);
     }
     export type deleteLlmProfileEndpointApiAdminLlmProfilesProfileIdDeleteResponse204 = {
   data: void

@@ -334,6 +334,9 @@ export type Telemetry = {
     message: string;
     cost: Record<string, unknown> | null;
     byNode: { node: string; calls: number; promptTokens: number; completionTokens: number }[];
+    /** Тариф активного на момент прогона профиля — `{prompt_per_1k, completion_per_1k, currency, verified_at}`,
+     * `null` если не задан. Форма — `LLMPricing.as_dict()` бэкенда. */
+    pricing: Record<string, unknown> | null;
   };
   runtime: { available: boolean; note: string };
 };

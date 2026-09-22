@@ -16,13 +16,14 @@ import pytest
 from fastapi import HTTPException
 
 from api.models.llm_profile import LLMActiveSettingORM, LLMProfileORM
-from api.schemas.llm_profile import LLMProfileCreate
+from api.schemas.llm_profile import LLMProfileCreate, LLMProfileUpdate
 from api.services.llm_profile_service import (
     create_profile,
     delete_profile,
     list_profiles,
     resolve_active_llm_config,
     set_active,
+    update_profile,
 )
 
 
@@ -213,3 +214,45 @@ async def test_resolve_active_llm_config_uses_custom_profile_fields():
     assert config.model == "deepseek/deepseek-chat"
     assert config.api_key_env == "MY_KEY_ENV"
     assert config.profile == "my-openrouter"
+
+
+@pytest.mark.asyncio
+async def test_update_profile_rejects_missing_profile():
+    session = _session_with(get_result=None)
+    payload = LLMProfileUpdate(provider="openrouter", model="new-model")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_profile(session, uuid.uuid4(), payload)
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_profile_persists_new_fields():
+    row = _custom_row(name="my-openrouter", provider="openrouter", model="old-model")
+    session = AsyncMock()
+    session.get = AsyncMock(side_effect=[row, None])
+    payload = LLMProfileUpdate(provider="openrouter", model="new-model", api_key_env="NEW_ENV")
+
+    result = await update_profile(session, row.id, payload)
+
+    assert row.model == "new-model"
+    assert row.api_key_env == "NEW_ENV"
+    assert result.model == "new-model"
+    assert result.is_active is False
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_update_profile_reports_active_when_currently_active():
+    row = _custom_row(name="my-openrouter")
+    active = LLMActiveSettingORM(
+        id=1, source="custom", name="my-openrouter", updated_at=datetime.now(UTC)
+    )
+    session = AsyncMock()
+    session.get = AsyncMock(side_effect=[row, active])
+    payload = LLMProfileUpdate(provider="openrouter", model="new-model")
+
+    result = await update_profile(session, row.id, payload)
+
+    assert result.is_active is True

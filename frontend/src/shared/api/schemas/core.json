@@ -1660,6 +1660,62 @@
       }
     },
     "/admin/llm-profiles/{profile_id}": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Update Llm Profile Endpoint",
+        "operationId": "update_llm_profile_endpoint_api_admin_llm_profiles__profile_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMProfileUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMProfileOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "tags": [
           "admin"
@@ -4280,6 +4336,51 @@
         "title": "LLMProfileOut",
         "description": "Один профиль в списке — встроенный (YAML) или пользовательский (БД)."
       },
+      "LLMProfileUpdate": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "fake",
+              "cassette",
+              "openrouter",
+              "gigachat"
+            ],
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          },
+          "api_key_env": {
+            "type": "string",
+            "title": "Api Key Env",
+            "default": "OPENROUTER_API_KEY"
+          },
+          "provider_config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Provider Config"
+          },
+          "pricing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LLMPricingIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider"
+        ],
+        "title": "LLMProfileUpdate",
+        "description": "Тело запроса правки своего профиля (`PATCH /admin/llm-profiles/{id}`).\n\nИмя не меняется: оно же ключ, на который смотрит `llm_active_setting`,\nкогда профиль активен, — переименование потребовало бы либо запрета\nредактирования активного профиля, либо синхронной правки указателя;\nпроще было не заводить это как задачу, раз имя и так не участвует в\nвызове модели."
+      },
       "LayoutOut": {
         "properties": {
           "artifact": {
@@ -6261,6 +6362,18 @@
               }
             ],
             "title": "Cost"
+          },
+          "pricing": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pricing"
           }
         },
         "type": "object",

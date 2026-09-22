@@ -17,21 +17,23 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from fastapi import Depends
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from api.core.config import settings
-from api.core.db import async_session_maker
+from api.core.db import async_session_maker, get_db
 from api.core.storage import minio_client
 from api.models.run import RunORM
 from api.schemas.run import RunCreateRequest
+from api.services import llm_profile_service
 from api.services.run_events import run_events
 from api.services.run_guard import run_guard
 from masker.detect.signature_select import select_signature
 from masker.graph.nodes import RunDeps
 from masker.ingest import SUPPORTED_SUFFIXES as ENGINE_SUFFIXES
-from masker.llm import LLMProvider, get_provider, resolve_llm_config
+from masker.llm import LLMProvider, get_provider
 from masker.ocr.select import select_ocr
 from masker.run import (
     AlreadyFinishedError,
@@ -53,6 +55,7 @@ from masker.run import (
     sqlite_checkpointer_factory,
     start_run,
 )
+from masker.telemetry import LLMPricing
 
 __all__ = [
     "AlreadyFinishedError",
@@ -92,13 +95,17 @@ class UnsupportedFormatError(Exception):
     """Формат документа движок не обрабатывает — прогон не заводится вовсе."""
 
 
-def get_llm_provider() -> LLMProvider:
+async def get_llm_provider(session: AsyncSession = Depends(get_db)) -> LLMProvider:
     """FastAPI-зависимость: провайдер LLM прогона.
 
     Только через `masker.llm.get_provider()` (требование заказчика №6):
-    подмена GigaChat/OpenRouter/Fake — вопрос окружения процесса, не кода.
+    узлы графа не знают, какой это провайдер. Какой это провайдер — решает
+    активный профиль (админка, `llm_profile_service`) поверх YAML-дефолта;
+    переменные окружения (`MASKER_LLM*`) сильнее обоих — `get_provider`
+    накладывает их сам, эта функция лишь выбирает базовый `LLMConfig`.
     """
-    return get_provider()
+    config = await llm_profile_service.resolve_active_llm_config(session)
+    return get_provider(config)
 
 
 def get_run_checkpointer_factory() -> CheckpointerFactory:
@@ -311,12 +318,17 @@ def _execute(
     finalize_review: bool,
     artifact_revision: int,
     llm: LLMProvider,
+    pricing: LLMPricing | None,
     checkpointer_factory: CheckpointerFactory,
 ) -> tuple[str, str | None, str | None, str | None]:
     """Один синхронный проход графа: старт либо возобновление.
 
     Возвращает `(статус, node_hint, текст ошибки, префикс артефактов)` — всё,
-    что фоновой задаче нужно записать в `runs`.
+    что фоновой задаче нужно записать в `runs`. `llm`/`pricing` резолвит
+    вызывающий (`execute_run`) одним и тем же активным профилем — раньше
+    `pricing` бралось отдельным вызовом `resolve_llm_config()` без активного
+    профиля из БД, и на кастомном профиле стоимость в отчёте не совпадала бы
+    с реально использованной моделью.
     """
     run_guard.start(run_id)
     try:
@@ -325,7 +337,7 @@ def _execute(
         deps = RunDeps(
             llm=llm,
             artifact_dir=artifact_dir,
-            pricing=resolve_llm_config().pricing,
+            pricing=pricing,
             ocr=select_ocr(),
             signature=select_signature(),
             progress_observer=lambda node, content: (
@@ -394,6 +406,11 @@ async def execute_run(
             run.status = "running"
             await session.commit()
 
+        # Тот же активный профиль, что уже выбрал `llm` (собран запросом,
+        # который поставил эту фоновую задачу) — своя сессия есть, отдельного
+        # резолва без учёта активного профиля из БД здесь не нужно.
+        pricing = (await llm_profile_service.resolve_active_llm_config(session)).pricing
+
         try:
             # Опции нужны только старту: возобновление (ответы или правки)
             # берёт их из состояния треда.
@@ -416,6 +433,7 @@ async def execute_run(
                     run.artifact_revision if artifact_revision is None else artifact_revision
                 ),
                 llm=llm,
+                pricing=pricing,
                 checkpointer_factory=checkpointer_factory,
             )
         except RunCancelledError:

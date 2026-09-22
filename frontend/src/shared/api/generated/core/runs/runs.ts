@@ -409,7 +409,100 @@ export function useGetRunApiRunsRunIdGet<TData = Awaited<ReturnType<typeof getRu
 
 
 
-export type getRunEventsApiRunsRunIdEventsGetResponse200 = {
+export type deleteRunApiRunsRunIdDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteRunApiRunsRunIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type deleteRunApiRunsRunIdDeleteResponseSuccess = (deleteRunApiRunsRunIdDeleteResponse204) & {
+  headers: Headers;
+};
+export type deleteRunApiRunsRunIdDeleteResponseError = (deleteRunApiRunsRunIdDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type deleteRunApiRunsRunIdDeleteResponse = (deleteRunApiRunsRunIdDeleteResponseSuccess | deleteRunApiRunsRunIdDeleteResponseError)
+
+export const getDeleteRunApiRunsRunIdDeleteUrl = (runId: string,) => {
+
+
+
+
+  return `/runs/${runId}`
+}
+
+/**
+ * Удалить прогон в любом статусе; если он активен — сначала отменить.
+ * @summary Delete Run
+ */
+export const deleteRunApiRunsRunIdDelete = async (runId: string, options?: Parameters<typeof authMutator>[1]): Promise<deleteRunApiRunsRunIdDeleteResponse> => {
+
+  return authMutator<deleteRunApiRunsRunIdDeleteResponse>(getDeleteRunApiRunsRunIdDeleteUrl(runId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteRunApiRunsRunIdDeleteMutationKey = () => ['deleteRunApiRunsRunIdDelete'] as const;
+
+export const getDeleteRunApiRunsRunIdDeleteMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteRunApiRunsRunIdDelete>>, TError,DeleteRunApiRunsRunIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteRunApiRunsRunIdDelete>>, TError,DeleteRunApiRunsRunIdDeleteMutationVariables, TContext> => {
+
+const mutationKey = getDeleteRunApiRunsRunIdDeleteMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteRunApiRunsRunIdDelete>>, DeleteRunApiRunsRunIdDeleteMutationVariables> = (props) => {
+          const {runId} = props ?? {};
+
+          return  deleteRunApiRunsRunIdDelete(runId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteRunApiRunsRunIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteRunApiRunsRunIdDelete>>>
+
+    export type DeleteRunApiRunsRunIdDeleteMutationError = ErrorType<HTTPValidationError>
+    export type DeleteRunApiRunsRunIdDeleteMutationVariables = {runId: string}
+
+    /**
+ * @summary Delete Run
+ */
+export const useDeleteRunApiRunsRunIdDelete = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteRunApiRunsRunIdDelete>>, TError,DeleteRunApiRunsRunIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof authMutator>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteRunApiRunsRunIdDelete>>,
+        TError,
+        DeleteRunApiRunsRunIdDeleteMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteRunApiRunsRunIdDeleteMutationOptions(options), queryClient);
+    }
+    export type getRunEventsApiRunsRunIdEventsGetResponse200 = {
   data: RunEventsResponse
   status: 200
 }

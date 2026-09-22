@@ -1,4 +1,5 @@
 import os
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -62,7 +63,14 @@ def _mock_startup_db(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch):
     async def mock_get_db():
-        yield None
+        # Заглушка, а не голый None: `llm_profile_service.resolve_active_llm_config`
+        # (через `run_service`/`custom_types_service.get_llm_provider`) теперь
+        # читает активный профиль сессией на каждый запрос — `.get(...)`
+        # отвечает "профиль в БД не задан", что и даёт дефолт из YAML, как и
+        # раньше без этой настройки.
+        session = AsyncMock()
+        session.get = AsyncMock(return_value=None)
+        yield session
 
     monkeypatch.setattr("api.main.ensure_bucket", lambda: None)
     app.dependency_overrides[get_db] = mock_get_db

@@ -25,6 +25,7 @@ from sqlalchemy.pool import NullPool
 from api.core.db import get_db
 from api.core.deps import get_current_user
 from api.main import app
+from api.models.llm_profile import LLMActiveSettingORM
 from api.models.run import RunORM
 from api.models.user import UserORM
 from api.services import run_service
@@ -99,6 +100,10 @@ def client(
     async def _create_tables() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(RunORM.__table__.create)
+            # get_llm_provider теперь читает активный профиль через сессию на
+            # каждый запрос (`llm_profile_service.resolve_active_llm_config`) —
+            # без этой таблицы каждый POST/GET в тестах падал бы `OperationalError`.
+            await conn.run_sync(LLMActiveSettingORM.__table__.create)
 
     asyncio.run(_create_tables())
 
@@ -154,7 +159,9 @@ def test_run_skips_questions_and_exposes_preview(client: TestClient, storage: Pa
         "object_name": "documents/contract_01.docx",
     }
 
-    assert client.get(f"/api/runs/{created['id']}/questions").status_code == status.HTTP_404_NOT_FOUND
+    assert (
+        client.get(f"/api/runs/{created['id']}/questions").status_code == status.HTTP_404_NOT_FOUND
+    )
 
 
 def test_progress_events_are_available_with_cursor(client: TestClient, storage: Path) -> None:

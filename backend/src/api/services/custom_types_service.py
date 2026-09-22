@@ -14,7 +14,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from api.core.config import settings
+from api.core.db import get_db
 from api.core.storage import minio_client
 from api.schemas.custom_types import (
     AnswerRequest,
@@ -29,6 +33,7 @@ from api.schemas.custom_types import (
     PreviewOut,
     PreviewSegmentOut,
 )
+from api.services import llm_profile_service
 from masker.customtypes.compiler import available_executors
 from masker.customtypes.graph import (
     CheckpointerFactory,
@@ -57,14 +62,17 @@ __all__ = [
 DEFAULT_STATE_DB = Path("data/custom_types_compile.sqlite")
 
 
-def get_llm_provider() -> LLMProvider:
+async def get_llm_provider(session: AsyncSession = Depends(get_db)) -> LLMProvider:
     """FastAPI-зависимость: провайдер LLM компилятора.
 
     Только через `masker.llm.get_provider()` (требование заказчика №6) —
-    узлы графа компиляции не знают, какой это провайдер; подмена
-    OpenRouter/GigaChat/Fake — вопрос переменных окружения процесса, не кода.
+    узлы графа компиляции не знают, какой это провайдер. Какой это провайдер
+    — выбирает активный профиль (админка, `llm_profile_service`) поверх
+    YAML-дефолта; переменные окружения (`MASKER_LLM*`) сильнее и того, и
+    другого — `get_provider` накладывает их сам.
     """
-    return get_provider()
+    config = await llm_profile_service.resolve_active_llm_config(session)
+    return get_provider(config)
 
 
 def get_compile_checkpointer_factory() -> CheckpointerFactory:

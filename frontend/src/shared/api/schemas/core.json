@@ -755,7 +755,8 @@
                     "awaiting_review",
                     "done",
                     "failed",
-                    "leaked"
+                    "leaked",
+                    "cancelled"
                   ],
                   "type": "string"
                 },
@@ -849,6 +850,46 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Delete Run",
+        "description": "Удалить прогон в любом статусе; если он активен — сначала отменить.",
+        "operationId": "delete_run_api_runs__run_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -1543,6 +1584,160 @@
           }
         }
       }
+    },
+    "/admin/llm-profiles": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Llm Profiles Endpoint",
+        "operationId": "list_llm_profiles_endpoint_api_admin_llm_profiles_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LLMProfileOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Llm Profiles Endpoint Api Admin Llm Profiles Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Create Llm Profile Endpoint",
+        "operationId": "create_llm_profile_endpoint_api_admin_llm_profiles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMProfileCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMProfileOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/admin/llm-profiles/{profile_id}": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Delete Llm Profile Endpoint",
+        "operationId": "delete_llm_profile_endpoint_api_admin_llm_profiles__profile_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/llm-profiles/activate": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Activate Llm Profile Endpoint",
+        "operationId": "activate_llm_profile_endpoint_api_admin_llm_profiles_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMActivateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1736,7 +1931,8 @@
               "awaiting_review",
               "done",
               "failed",
-              "leaked"
+              "leaked",
+              "cancelled"
             ],
             "title": "Status"
           },
@@ -3894,6 +4090,196 @@
         "title": "JudgeQuestionOut",
         "description": "Вопрос судьи о повторяющемся значении — `profile_judge.questions[]`."
       },
+      "LLMActivateRequest": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "builtin",
+              "custom"
+            ],
+            "title": "Source"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "name"
+        ],
+        "title": "LLMActivateRequest",
+        "description": "Тело запроса `POST /admin/llm-profiles/activate`."
+      },
+      "LLMPricingIn": {
+        "properties": {
+          "prompt_per_1k": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Prompt Per 1K"
+          },
+          "completion_per_1k": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Completion Per 1K"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "RUB"
+          },
+          "verified_at": {
+            "type": "string",
+            "title": "Verified At",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "prompt_per_1k",
+          "completion_per_1k"
+        ],
+        "title": "LLMPricingIn",
+        "description": "Тариф — та же форма, что и `llm.profiles.*.pricing` в `masker.yaml`."
+      },
+      "LLMProfileCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "fake",
+              "cassette",
+              "openrouter",
+              "gigachat"
+            ],
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          },
+          "api_key_env": {
+            "type": "string",
+            "title": "Api Key Env",
+            "default": "OPENROUTER_API_KEY"
+          },
+          "provider_config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Provider Config"
+          },
+          "pricing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LLMPricingIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "provider"
+        ],
+        "title": "LLMProfileCreate",
+        "description": "Тело запроса создания профиля из GUI."
+      },
+      "LLMProfileOut": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "builtin",
+              "custom"
+            ],
+            "title": "Source"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "api_key_env": {
+            "type": "string",
+            "title": "Api Key Env"
+          },
+          "provider_config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Provider Config"
+          },
+          "pricing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LLMPricingIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "name",
+          "provider",
+          "model",
+          "api_key_env",
+          "provider_config",
+          "pricing",
+          "is_active",
+          "created_at"
+        ],
+        "title": "LLMProfileOut",
+        "description": "Один профиль в списке — встроенный (YAML) или пользовательский (БД)."
+      },
       "LayoutOut": {
         "properties": {
           "artifact": {
@@ -5594,7 +5980,8 @@
               "awaiting_review",
               "done",
               "failed",
-              "leaked"
+              "leaked",
+              "cancelled"
             ],
             "title": "Status"
           },
@@ -5695,7 +6082,8 @@
               "awaiting_review",
               "done",
               "failed",
-              "leaked"
+              "leaked",
+              "cancelled"
             ],
             "title": "Status"
           },

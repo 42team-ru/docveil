@@ -152,6 +152,7 @@ export const AdminRunRowOutStatus = {
   done: 'done',
   failed: 'failed',
   leaked: 'leaked',
+  cancelled: 'cancelled',
 } as const;
 
 /**
@@ -1037,6 +1038,84 @@ export interface JudgeQuestionOut {
   default: string;
   refs: string[];
   anchors: ProfileAnchorOut[];
+}
+
+export type LLMActivateRequestSource = typeof LLMActivateRequestSource[keyof typeof LLMActivateRequestSource];
+
+
+export const LLMActivateRequestSource = {
+  builtin: 'builtin',
+  custom: 'custom',
+} as const;
+
+/**
+ * Тело запроса `POST /admin/llm-profiles/activate`.
+ */
+export interface LLMActivateRequest {
+  source: LLMActivateRequestSource;
+  name: string;
+}
+
+/**
+ * Тариф — та же форма, что и `llm.profiles.*.pricing` в `masker.yaml`.
+ */
+export interface LLMPricingIn {
+  /** @minimum 0 */
+  prompt_per_1k: number;
+  /** @minimum 0 */
+  completion_per_1k: number;
+  currency?: string;
+  verified_at?: string;
+}
+
+export type LLMProfileCreateProvider = typeof LLMProfileCreateProvider[keyof typeof LLMProfileCreateProvider];
+
+
+export const LLMProfileCreateProvider = {
+  fake: 'fake',
+  cassette: 'cassette',
+  openrouter: 'openrouter',
+  gigachat: 'gigachat',
+} as const;
+
+export type LLMProfileCreateProviderConfig = { [key: string]: unknown };
+
+/**
+ * Тело запроса создания профиля из GUI.
+ */
+export interface LLMProfileCreate {
+  name: string;
+  provider: LLMProfileCreateProvider;
+  model?: string;
+  api_key_env?: string;
+  provider_config?: LLMProfileCreateProviderConfig;
+  pricing?: LLMPricingIn | null;
+}
+
+export type LLMProfileOutSource = typeof LLMProfileOutSource[keyof typeof LLMProfileOutSource];
+
+
+export const LLMProfileOutSource = {
+  builtin: 'builtin',
+  custom: 'custom',
+} as const;
+
+export type LLMProfileOutProviderConfig = { [key: string]: unknown };
+
+/**
+ * Один профиль в списке — встроенный (YAML) или пользовательский (БД).
+ */
+export interface LLMProfileOut {
+  id: string | null;
+  source: LLMProfileOutSource;
+  name: string;
+  provider: string;
+  model: string;
+  api_key_env: string;
+  provider_config: LLMProfileOutProviderConfig;
+  pricing: LLMPricingIn | null;
+  is_active: boolean;
+  created_at: string | null;
 }
 
 /**

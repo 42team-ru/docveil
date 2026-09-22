@@ -5,16 +5,20 @@ import os
 import sys
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from alembic import context
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from api.core.db import Base  # noqa: E402
-from api.models import refresh_token, run, user  # noqa: E402,F401  регистрирует таблицы в metadata
+from api.core.db import Base
+from api.models import (  # noqa: F401  регистрирует таблицы в metadata
+    llm_profile,
+    refresh_token,
+    run,
+    user,
+)
 
 config = context.config
 

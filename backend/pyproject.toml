@@ -151,6 +151,10 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 # Depends/Cookie — декларативная часть сигнатуры FastAPI, а не вычисления логики.
 "src/api/core/deps.py" = ["B008"]
 "src/api/routers/*.py" = ["B008"]
+# get_llm_provider — сам FastAPI-зависимость (Depends(run_service.get_llm_provider)
+# в routers/runs.py), поэтому ему для БД-доступа нужен тот же приём.
+"src/api/services/run_service.py" = ["B008"]
+"src/api/services/custom_types_service.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.13"

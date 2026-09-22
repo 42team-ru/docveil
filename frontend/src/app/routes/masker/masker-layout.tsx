@@ -1,4 +1,4 @@
-import { FilePlus2, FileText, ShieldCheck } from "lucide-react";
+import { FilePlus2, FileText, PanelsTopLeft, ShieldCheck } from "lucide-react";
 import { Outlet, useLocation } from "react-router";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
@@ -33,6 +33,9 @@ export default function MaskerLayout() {
       title: "Работа",
       items: [{ to: "/documents", label: "Документы", icon: FileText }],
     },
+    ...(import.meta.env.DEV
+      ? [{ title: "Макеты", items: [{ to: "/design-preview", label: "Концепт UI", icon: PanelsTopLeft }] }]
+      : []),
     ...(isAdmin(account)
       ? [
           {

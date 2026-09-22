@@ -43,9 +43,11 @@ def test_unhandled_exception_returns_generic_500_and_is_logged(monkeypatch, capl
     app.dependency_overrides[get_current_user] = _fake_user
 
     try:
-        with caplog.at_level(logging.ERROR):
-            with TestClient(app, raise_server_exceptions=False) as client:
-                response = client.get("/api/runs")
+        with (
+            caplog.at_level(logging.ERROR),
+            TestClient(app, raise_server_exceptions=False) as client,
+        ):
+            response = client.get("/api/runs")
     finally:
         app.dependency_overrides.clear()
 

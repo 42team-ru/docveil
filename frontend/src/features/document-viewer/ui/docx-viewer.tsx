@@ -1,4 +1,5 @@
 import { renderAsync } from "docx-preview";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { VStack } from "@astryxdesign/core/Stack";
@@ -14,6 +15,7 @@ import { fixTableCellDirection } from "../lib/fix-table-cell-direction";
 import { paintManualDocxHighlight } from "../lib/manual-highlight";
 import { captureDocxSelection, type SelectionCapture } from "../lib/read-selection";
 import { useDocumentRender } from "../lib/use-document-render";
+import "./docx-viewer.css";
 
 type DocxViewerProps = {
   fileUrl: string;
@@ -95,6 +97,7 @@ export function DocxViewer({
   onNotFoundChange,
   onSelectionCapture,
 }: DocxViewerProps) {
+  const isNarrow = useMediaQuery("(max-width: 768px)", false);
   const { hostRef, status } = useDocumentRender({
     fileUrl,
     extraction,
@@ -107,8 +110,8 @@ export function DocxViewer({
   });
 
   return (
-    <VStack hAlign="center" padding={6} isScrollable height="100%">
-      {status === "loading" ? <Skeleton height={800} width={720} /> : null}
+    <VStack hAlign={isNarrow ? "start" : "center"} padding={3} isScrollable height="100%">
+      {status === "loading" ? <Skeleton height={800} width="100%" /> : null}
       {status === "error" ? (
         <EmptyState
           title="Не удалось показать документ"
@@ -119,6 +122,7 @@ export function DocxViewer({
         ref={hostRef}
         width="100%"
         maxWidth={760}
+        className="document-viewer-docx-host"
         style={{ color: "var(--color-on-light)", colorScheme: "light" }}
       />
     </VStack>

@@ -87,7 +87,7 @@ export function PiiOccurrenceItem({
           </HStack>
         }
         description={
-          <Text color="secondary" maxLines={1}>
+          <Text color="secondary" textWrap="pretty">
             {piiTypeLabel(occurrence.type)} · {occurrence.originalText}
           </Text>
         }

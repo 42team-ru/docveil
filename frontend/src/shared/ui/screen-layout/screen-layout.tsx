@@ -8,6 +8,7 @@ import {
 } from "@astryxdesign/core/Layout";
 import type { SizeValue } from "@astryxdesign/core/Layout";
 import { Toolbar } from "@astryxdesign/core/Toolbar";
+import "./screen-layout.css";
 
 type SpacingStep = 0 | 0.5 | 1 | 1.5 | 2 | 3 | 4 | 5 | 6 | 8 | 10;
 
@@ -43,6 +44,7 @@ type ScreenLayoutProps = {
    * работает в паттерне `role="tablist"`, а не как навигация.
    */
   contentId?: string;
+  /** Поле тела экрана. По умолчанию 8 (32 px); 0 оставлять только полноэкранным рабочим областям. */
   contentPadding?: SpacingStep;
   isContentScrollable?: boolean;
   children: ReactNode;
@@ -61,7 +63,7 @@ export function ScreenLayout({
   panel,
   contentWidth,
   contentId,
-  contentPadding = 6,
+  contentPadding = 8,
   isContentScrollable = true,
   children,
 }: ScreenLayoutProps) {
@@ -77,12 +79,13 @@ export function ScreenLayout({
       height="fill"
       contentWidth={contentWidth}
       header={hasHeader ? (
-        <LayoutHeader hasDivider>
+        <LayoutHeader hasDivider className="screen-layout-header">
           <Toolbar
+            className={tabs !== undefined || actions !== undefined ? "screen-layout-toolbar-with-end" : undefined}
             label={title ?? "Экран"}
             size="sm"
             startContent={
-              <HStack gap={2} vAlign="center">
+              <HStack gap={2} vAlign="center" wrap="wrap" className="min-w-0">
                 {startContent}
                 {title !== undefined && (
                   <Heading level={4} accessibilityLevel={1}>
@@ -94,7 +97,7 @@ export function ScreenLayout({
             }
             endContent={
               tabs !== undefined ? (
-                <HStack gap={8} vAlign="center">
+                <HStack gap={8} vAlign="center" wrap="wrap">
                   {actions}
                   {tabs}
                 </HStack>
@@ -108,6 +111,7 @@ export function ScreenLayout({
       content={
         <LayoutContent
           id={contentId}
+          className="screen-layout-content"
           padding={contentPadding}
           isScrollable={isContentScrollable}
         >

@@ -5,9 +5,11 @@ import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { FileClock, SearchX, Trash2 } from "lucide-react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { List } from "@astryxdesign/core/List";
 import { Pagination } from "@astryxdesign/core/Pagination";
@@ -27,6 +29,7 @@ import type { RunListItem } from "../../../shared/api/generated/core/triemaMaske
 import { formatMoment } from "../../../shared/lib/format-moment";
 import { MotionListItem, listItemMotion } from "../../../shared/ui/motion/motion-astryx";
 import { RunDetailsDialog } from "./run-details-dialog";
+import "./history-table.css";
 
 /**
  * `Table` требует от строки индексной сигнатуры, а сгенерированный из
@@ -62,7 +65,7 @@ export function HistoryTable({
   onResetFilters,
 }: HistoryTableProps) {
   const navigate = useNavigate();
-  const isMobile = useMediaQuery("(max-width: 768px)", false);
+  const isCompact = useMediaQuery("(max-width: 1200px)", false);
   const [detailsRunId, setDetailsRunId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RunListItem | null>(null);
   const deleteRun = useDeleteRun();
@@ -195,49 +198,50 @@ export function HistoryTable({
   }
 
   return (
-    <Section padding={0}>
-      <VStack gap={0} paddingInline={isMobile ? 0 : 4}>
-        {isMobile ? (
-          <List hasDividers>
+    <Card padding={0}>
+      <VStack gap={0} paddingInline={isCompact ? 0 : 4}>
+        {isCompact ? (
+          <List hasDividers className="history-mobile-list">
             <AnimatePresence initial={false}>
               {rows.map((run) => (
                 <MotionListItem
                   key={run.id}
                   {...listItemMotion}
-                  label={run.document.name}
+                  label={<Text weight="medium" textWrap="pretty">{run.document.name}</Text>}
                   startContent={
                     <FormatToken
                       format={run.document.format.toUpperCase() as DocumentFormat}
                     />
                   }
                   description={
-                    <VStack gap={1}>
-                      <RunStatusToken status={run.status} />
-                      <Text type="supporting" color="secondary" size="sm">
-                        {formatMoment(run.created_at)}
-                      </Text>
-                    </VStack>
-                  }
-                  endContent={
-                    <VStack gap={1.5} hAlign="end">
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        label={
-                          run.status === "awaiting_review" || run.status === "done"
-                            ? "Проверить"
-                            : "Открыть"
-                        }
-                        onClick={() =>
-                          navigate(`/documents/${run.id}`, { viewTransition: true })
-                        }
-                      />
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        label="Детали"
-                        onClick={() => setDetailsRunId(run.id)}
-                      />
+                    <VStack gap={2}>
+                      <HStack gap={2} wrap="wrap" vAlign="center">
+                        <RunStatusToken status={run.status} />
+                        <Text type="supporting" color="secondary" size="sm">
+                          {formatMoment(run.created_at)}
+                        </Text>
+                      </HStack>
+                      <HStack gap={2} wrap="wrap" vAlign="center">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          label={run.status === "awaiting_review" || run.status === "done" ? "Проверить" : "Открыть"}
+                          onClick={() => navigate(`/documents/${run.id}`, { viewTransition: true })}
+                        />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          label="Детали"
+                          onClick={() => setDetailsRunId(run.id)}
+                        />
+                        <IconButton
+                          size="sm"
+                          variant="ghost"
+                          icon={<Icon icon={Trash2} size="sm" color="secondary" />}
+                          label={`Удалить прогон «${run.document.name}»`}
+                          onClick={() => setDeleteTarget(run)}
+                        />
+                      </HStack>
                     </VStack>
                   }
                 />
@@ -342,6 +346,6 @@ export function HistoryTable({
       </VStack>
       {detailsDialog}
       {deleteDialog}
-    </Section>
+    </Card>
   );
 }

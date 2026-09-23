@@ -15,13 +15,14 @@ function buildItems(currentType: PiiType, onSelect: (type: PiiType) => void) {
 type GroupTypeMenuProps = {
   currentType: PiiType;
   onSelect: (type: PiiType) => void;
+  isDisabled?: boolean;
 };
 
 /** Смена типа на всю группу — триггер в шапке `pii-group-item.tsx`. */
-export function GroupTypeMenu({ currentType, onSelect }: GroupTypeMenuProps) {
+export function GroupTypeMenu({ currentType, onSelect, isDisabled = false }: GroupTypeMenuProps) {
   return (
     <DropdownMenu
-      button={{ label: "Сменить тип", size: "sm", variant: "ghost" }}
+      button={{ label: "Сменить тип", size: "sm", variant: "ghost", isDisabled }}
       items={buildItems(currentType, onSelect)}
     />
   );
@@ -30,6 +31,7 @@ export function GroupTypeMenu({ currentType, onSelect }: GroupTypeMenuProps) {
 type OccurrenceTypeMenuProps = {
   currentType: PiiType;
   onSelectOnlyThis: (type: PiiType) => void;
+  isDisabled?: boolean;
 };
 
 /**
@@ -41,11 +43,13 @@ type OccurrenceTypeMenuProps = {
 export function OccurrenceTypeMenu({
   currentType,
   onSelectOnlyThis,
+  isDisabled = false,
 }: OccurrenceTypeMenuProps) {
   return (
     <MoreMenu
       label="Тип только для этого вхождения"
       size="sm"
+      isDisabled={isDisabled}
       items={[
         { type: "section", title: "Только это вхождение", items: buildItems(currentType, onSelectOnlyThis) },
       ]}

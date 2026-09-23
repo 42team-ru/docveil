@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
@@ -25,7 +25,7 @@ import {
 } from "../../../entity/pii/model/pii-type-dict";
 import { useLowConfidenceGroupCount } from "../../../entity/pii/model/selectors";
 import { effectiveGroupDecision, useReviewStore } from "../../../entity/pii/model/review-store";
-import type { PiiExtraction } from "../../../entity/pii/model/types";
+import type { PiiExtraction, PiiType } from "../../../entity/pii/model/types";
 import { PiiGroupItem } from "./pii-group-item";
 
 type Filter = "all" | "excluded" | "low" | "notFound";
@@ -36,11 +36,14 @@ type PiiListTabProps = {
   extraction: PiiExtraction;
   notFoundIds: Set<string>;
   isEditingDisabled?: boolean;
+  isReadOnly?: boolean;
 };
 
 /** Вкладка «Замены»: список групп ПДн с фильтром по состоянию проверки. */
-export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false }: PiiListTabProps) {
+export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false, isReadOnly = false }: PiiListTabProps) {
   const [filter, setFilter] = useState<Filter>("all");
+  const isEditingDisabledRef = useRef(isEditingDisabled);
+  isEditingDisabledRef.current = isEditingDisabled;
 
   const groupDecisions = useReviewStore((state) => state.groupDecisions);
   const appliedGroupDecisions = useReviewStore((state) => state.appliedGroupDecisions);
@@ -75,6 +78,7 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
   // ищет `text` вслепую, и найдёт ли он именно то вхождение — вне контроля
   // фронта.
   function handleAddFallbackManual(occurrence: FlatPiiOccurrence) {
+    if (isEditingDisabledRef.current) return;
     const region = occurrence.regions[0];
     addManual({
       id: manualFallbackId(occurrence.id),
@@ -82,6 +86,34 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
       text: occurrence.originalText,
       ...(region ? { region } : { anchor: occurrence.anchor }),
     });
+  }
+
+  function handleConfirmGroup(groupId: string) {
+    if (!isEditingDisabledRef.current) confirmGroup(groupId);
+  }
+
+  function handleRejectGroup(groupId: string) {
+    if (!isEditingDisabledRef.current) rejectGroup(groupId);
+  }
+
+  function handleConfirmOccurrence(occurrenceId: string, groupId: string) {
+    if (!isEditingDisabledRef.current) confirmOccurrence(occurrenceId, groupId);
+  }
+
+  function handleRejectOccurrence(occurrenceId: string, groupId: string) {
+    if (!isEditingDisabledRef.current) rejectOccurrence(occurrenceId, groupId);
+  }
+
+  function handleSetGroupType(groupId: string, type: PiiType) {
+    if (!isEditingDisabledRef.current) setGroupType(groupId, type);
+  }
+
+  function handleSetOccurrenceType(occurrenceId: string, type: PiiType) {
+    if (!isEditingDisabledRef.current) setOccurrenceType(occurrenceId, type);
+  }
+
+  function handleRemoveManual(occurrenceId: string) {
+    if (!isEditingDisabledRef.current) removeManual(occurrenceId);
   }
 
   const groups = groupOccurrences(flattenPiiOccurrences(extraction));
@@ -125,7 +157,7 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
 
   return (
     <VStack gap={0} height="100%">
-      <HStack gap={2} vAlign="center" padding={3} wrap="wrap">
+      <HStack gap={3} vAlign="center" padding={4} wrap="wrap">
         <SegmentedControl
           size="sm"
           label="Фильтр замен"
@@ -142,13 +174,13 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
       </HStack>
 
       {manualOccurrences.length > 0 ? (
-        <Section padding={3} dividers={["top", "bottom"]}>
+        <Section padding={4} dividers={["top", "bottom"]}>
           <VStack gap={2}>
             <Text type="supporting" weight="medium">
               {`Отмечено вручную: ${manualOccurrences.length}`}
             </Text>
             {manualOccurrences.map((occurrence) => (
-              <HStack key={occurrence.id} gap={2} vAlign="center" width="100%">
+              <HStack key={occurrence.id} gap={2} vAlign="center" width="100%" wrap="wrap">
                 <Token size="sm" color="orange" label={piiTypeLabel(occurrence.type)} />
                 <Text textWrap="pretty">{occurrence.text}</Text>
                 <StackItem size="fill" />
@@ -158,13 +190,13 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
                       ? `стр. ${occurrence.region.page + 1}, рамка на превью`
                       : "")}
                 </Text>
-                <IconButton
+              <IconButton
                   size="sm"
                   variant="ghost"
                   label={`Убрать «${occurrence.text}»`}
                   icon={<Icon icon={Trash2} size="sm" />}
                   isDisabled={isEditingDisabled}
-                  onClick={() => removeManual(occurrence.id)}
+                  onClick={() => handleRemoveManual(occurrence.id)}
                 />
               </HStack>
             ))}
@@ -176,7 +208,13 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
         </Section>
       ) : null}
 
-      {visibleGroups.length === 0 ? (
+      {allGroups.length === 0 && manualOccurrences.length === 0 ? (
+        <EmptyState
+          isCompact
+          title="Сущностей для маскирования не найдено"
+          description="Документ можно просмотреть и завершить проверку без решений по заменам."
+        />
+      ) : visibleGroups.length === 0 ? (
         <EmptyState
           isCompact
           title="Все проверено"
@@ -186,7 +224,7 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
         <VStack gap={2} isScrollable>
           {groupsByCategory.map(({ category, groups }) => (
             <VStack key={category} gap={0} as="section">
-              <HStack gap={2} vAlign="center" padding={3}>
+              <HStack gap={3} vAlign="center" padding={4}>
                 <Heading level={5}>{category}</Heading>
                 <Token size="sm" color="gray" label={`Найдено: ${groups.length}`} />
               </HStack>
@@ -205,14 +243,15 @@ export function PiiListTab({ extraction, notFoundIds, isEditingDisabled = false 
                     notFoundIds={notFoundIds}
                     manualOccurrenceIds={manualOccurrenceIds}
                     onSelect={select}
-                    onConfirm={confirmGroup}
-                    onReject={rejectGroup}
-                    onConfirmOccurrence={confirmOccurrence}
-                    onRejectOccurrence={rejectOccurrence}
-                    onSetGroupType={setGroupType}
-                    onSetOccurrenceType={setOccurrenceType}
+                    onConfirm={handleConfirmGroup}
+                    onReject={handleRejectGroup}
+                    onConfirmOccurrence={handleConfirmOccurrence}
+                    onRejectOccurrence={handleRejectOccurrence}
+                    onSetGroupType={handleSetGroupType}
+                    onSetOccurrenceType={handleSetOccurrenceType}
                     onAddFallbackManual={handleAddFallbackManual}
                     isEditingDisabled={isEditingDisabled}
+                    isReadOnly={isReadOnly}
                   />
                 ))}
               </VStack>

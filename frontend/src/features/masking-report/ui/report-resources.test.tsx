@@ -243,7 +243,7 @@ describe("ReportResources", () => {
     const text = host.textContent ?? "";
     expect(text).toContain("Кем принято решение");
     expect(text).toContain("судья");
-    expect(text).toContain("гвардия");
+    expect(text).toContain("обязательная защита");
   });
 
   it("честно признаёт, что детекцию нельзя разложить на правила/NER/GLiNER/LLM", async () => {

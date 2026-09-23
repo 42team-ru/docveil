@@ -167,7 +167,7 @@ export function UploadPage() {
   }
 
   const queueHeader = (
-    <HStack gap={2} vAlign="center" paddingInline={3} paddingBlock={3}>
+    <HStack gap={3} vAlign="center" paddingInline={4} paddingBlock={4}>
       <Text type="label" weight="semibold">
         Очередь файлов
       </Text>
@@ -223,7 +223,7 @@ export function UploadPage() {
               height="fill"
               header={<LayoutHeader hasDivider padding={0}>{queueHeader}</LayoutHeader>}
               content={
-                <LayoutContent padding={4} isScrollable label="Очередь">
+                <LayoutContent padding={6} isScrollable label="Очередь">
                   <VStack gap={4} height="100%">
                     <StackItem size="fill">
                       <UploadQueue />
@@ -243,7 +243,7 @@ export function UploadPage() {
           <LayoutContent
             isScrollable
             label="Настройки маскирования"
-            padding={6}
+            padding={8}
           >
             <VStack gap={5}>
               <Card padding={0}>

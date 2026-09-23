@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { CheckCircle2, Download, FileBarChart2, ListChecks } from "lucide-react";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
-import { HStack } from "@astryxdesign/core/Stack";
+import { Layout, LayoutContent, LayoutHeader } from "@astryxdesign/core/Layout";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
-import { Text } from "@astryxdesign/core/Text";
+import { Heading, Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
 
 import type { DocumentFormat } from "../../entity/document/model/types";
@@ -24,6 +27,7 @@ import {
 import {
   downloadArtifact,
   hasRunResult,
+  isRunFinished,
   isRunPending,
   runKeys,
   useRegenerateReview,
@@ -32,13 +36,20 @@ import {
 } from "../../features/masking-run/api/masking-run";
 import { useReviewData } from "../../features/pii-review/api/use-review-data";
 import { ReviewPanel } from "../../features/pii-review/ui/review-panel";
+import {
+  canStartReviewSubmission,
+  reviewConfirmationDescription,
+  shouldShowReviewFinish,
+} from "../../features/pii-review/lib/review-lifecycle";
 import { MaskingSetupDialog } from "../../features/pii-review/ui/masking-setup-dialog";
 import { UploadSelectionDialog } from "../../features/document-upload/ui/upload-selection-dialog";
 import { ScreenLayout } from "../../shared/ui/screen-layout/screen-layout";
+import { maskedOccurrences } from "../../features/masking-report/lib/report-occurrences";
+import { pluralRu } from "../../shared/lib/plural-ru";
 import { ReportView } from "./report-view";
 import { ReviewView } from "./review-view";
 
-type DocumentTab = "review" | "report";
+type DocumentTab = "result" | "review" | "report";
 
 /**
  * Один и тот же контейнер тела экрана — под ним каждый раз оказывается
@@ -56,6 +67,16 @@ const CONTENT_PANEL_ID = "document-tab-panel";
 const REPORT_CONTENT_WIDTH = 1200;
 
 /**
+ * Ширина карточки «Документ готов»: это три строки текста и две кнопки, а
+ * не таблица. Задаётся самой карточке (`width`/`maxWidth`), а не через
+ * `contentWidth` экрана — тот центрирует блок «шапка+тело+панель» целиком, а
+ * не отдельно взятую карточку внутри тела, и с одной вкладкой без панели
+ * карточка просто прижималась к левому краю вместо центра. Центрирует
+ * оборачивающий `VStack hAlign="center"` рядом с местом рендера.
+ */
+const RESULT_CONTENT_WIDTH = 640;
+
+/**
  * Рабочий стол документа: проверка и отчёт делят одну шапку и панель,
  * переключение — таб в шапке, а не переход по страницам. Документ и его
  * `blob:`-ссылка (`useReviewData`) читаются один раз здесь, а не в каждой
@@ -71,7 +92,9 @@ export function DocumentPage() {
   const showToast = useToast();
 
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab: DocumentTab = searchParams.get("tab") === "report" ? "report" : "review";
+  const requestedTab = searchParams.get("tab");
+  const isNarrowReview = useMediaQuery("(max-width: 1024px)", false);
+  const [mobileReviewTab, setMobileReviewTab] = useState<"document" | "changes">("document");
 
   const {
     status,
@@ -83,6 +106,26 @@ export function DocumentPage() {
     isLoading,
     error,
   } = useReviewData(runId);
+  const isCompletedSafely = status === "done" && report?.validation?.ok === true;
+  const hasUnsafeResult = status === "leaked" || (status === "done" && report?.validation?.ok === false);
+  const tab: DocumentTab = requestedTab === "report"
+    ? "report"
+    : requestedTab === "review"
+      ? "review"
+      : hasUnsafeResult
+        ? "report"
+        : isCompletedSafely
+        ? "result"
+        : "review";
+
+  function selectTab(value: DocumentTab) {
+    setSearchParams((params) => {
+      const next = new URLSearchParams(params);
+      if (value === "result") next.delete("tab");
+      else next.set("tab", value);
+      return next;
+    }, { replace: true });
+  }
 
   const [selectedTypesRunId, setSelectedTypesRunId] = useState<string | null>(null);
   const progress = useRunProgress(runId, isRunPending(status));
@@ -93,8 +136,12 @@ export function DocumentPage() {
 
   const [notFoundIds, setNotFoundIds] = useState<Set<string>>(new Set());
   const [isConfirmApproveOpen, setIsConfirmApproveOpen] = useState(false);
+  const [isReviewSubmitted, setIsReviewSubmitted] = useState(false);
   const [regenerationRevision, setRegenerationRevision] = useState<number | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const statusRef = useRef(status);
+  const reviewSubmittedRef = useRef(false);
+  statusRef.current = status;
 
   const setDocumentGroups = useReviewStore((state) => state.setDocumentGroups);
   const discardDraftChanges = useReviewStore((state) => state.discardDraftChanges);
@@ -107,7 +154,8 @@ export function DocumentPage() {
   );
   const confirmedCount = useConfirmedGroupCount();
   const totalCount = useTotalGroupCount();
-  const allConfirmed = confirmedCount === totalCount;
+  const isReviewFinished = isRunFinished(status);
+  const hasBlockingReviewChanges = hasUnappliedChanges && !isReviewFinished;
 
   const occurrences = useMemo(() => flattenPiiOccurrences(extraction), [extraction]);
 
@@ -155,10 +203,20 @@ export function DocumentPage() {
   }, [artifactRevision, documentGroups, runId, setDocumentGroups]);
 
   const ready = hasRunResult(status);
+  const canDownload = ready && report?.validation?.ok === true && !hasUnsafeResult;
+  const replacementCount = report ? maskedOccurrences(report).length : null;
   const submitReview = useSubmitReview(runId);
   const regenerateReview = useRegenerateReview(runId);
   const isRegenerating = regenerationRevision !== null;
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (status !== "awaiting_review") {
+      reviewSubmittedRef.current = false;
+      setIsReviewSubmitted(false);
+    }
+    if (isRunFinished(status)) setIsConfirmApproveOpen(false);
+  }, [status]);
 
   useEffect(() => {
     if (
@@ -189,6 +247,10 @@ export function DocumentPage() {
    * уходит из `onAction` диалога.
    */
   function handleApprove() {
+    if (!canStartReviewSubmission(statusRef.current, submitReview.isPending, reviewSubmittedRef.current)) return;
+
+    reviewSubmittedRef.current = true;
+    setIsReviewSubmitted(true);
     const state = useReviewStore.getState();
     submitReview.mutate(buildReviewEdits(extraction, state), {
       onSuccess: () => {
@@ -199,6 +261,8 @@ export function DocumentPage() {
         });
       },
       onError: () => {
+        reviewSubmittedRef.current = false;
+        setIsReviewSubmitted(false);
         setIsConfirmApproveOpen(false);
         showToast({
           body: "Прогон уже не ждёт правок — обновите страницу",
@@ -209,7 +273,7 @@ export function DocumentPage() {
   }
 
   function handleRegenerate() {
-    if (runId === null || isRegenerating) return;
+    if (runId === null || statusRef.current !== "awaiting_review" || isRegenerating) return;
     const expectedRevision = artifactRevision;
     setRegenerationRevision(expectedRevision + 1);
     regenerateReview.mutate(
@@ -228,12 +292,13 @@ export function DocumentPage() {
 
   /** Скачивает подсвеченный вариант — тот же файл, что открыт во вьюере. */
   async function handleDownload() {
-    if (runId === null) return;
+    if (runId === null || !canDownload) return;
     setIsDownloading(true);
     try {
       await downloadArtifact(runId, "masked_highlight", reviewedDocument.name);
       showToast({ body: "Обезличенный документ скачан", type: "info" });
-    } catch {
+    } catch (e) {
+      console.log(e);
       showToast({ body: "Не удалось скачать обезличенный документ", type: "error" });
     } finally {
       setIsDownloading(false);
@@ -258,6 +323,20 @@ export function DocumentPage() {
     );
   }
 
+  const reviewView = (
+    <ReviewView
+      document={reviewedDocument}
+      extraction={extraction}
+      pages={report?.pages ?? []}
+      hasUnappliedChanges={hasUnappliedChanges}
+      isRegenerating={isRegenerating}
+      isReviewFinished={isReviewFinished}
+      onRegenerate={handleRegenerate}
+      onDiscardChanges={discardDraftChanges}
+      onNotFoundChange={setNotFoundIds}
+    />
+  );
+
   return (
     <>
       <ScreenLayout
@@ -266,9 +345,9 @@ export function DocumentPage() {
           <FormatToken format={reviewedDocument.format.toUpperCase() as DocumentFormat} />
         }
         meta={
-          tab === "review" ? (
+          tab === "review" && totalCount > 0 ? (
             <Badge
-              variant={ready ? "success" : "neutral"}
+              variant={isReviewFinished ? "success" : "neutral"}
               label={`${confirmedCount}/${totalCount} подтверждено`}
             />
           ) : report ? (
@@ -284,26 +363,24 @@ export function DocumentPage() {
         tabs={
           <TabList
             value={tab}
-            onChange={(value) =>
-              setSearchParams(
-                (params) => {
-                  const next = new URLSearchParams(params);
-                  if (value === "report") next.set("tab", "report");
-                  else next.delete("tab");
-                  return next;
-                },
-                { replace: true },
-              )
-            }
+            onChange={(value) => selectTab(value as DocumentTab)}
             // Таб меняет тело экрана на месте, а не переходит по странице —
             // это настоящий tablist-паттерн, а не навигация: иконки и роль
             // делают это видно сразу, а не только по URL.
             role="tablist"
             size="sm"
           >
+            {isCompletedSafely ? (
+              <Tab
+                value="result"
+                label="Результат"
+                icon={<Icon icon={CheckCircle2} size="sm" />}
+                panelId={CONTENT_PANEL_ID}
+              />
+            ) : null}
             <Tab
               value="review"
-              label="Проверка"
+              label={isCompletedSafely ? "Документ" : "Проверка"}
               icon={<Icon icon={ListChecks} size="sm" />}
               panelId={CONTENT_PANEL_ID}
             />
@@ -316,37 +393,49 @@ export function DocumentPage() {
           </TabList>
         }
         actions={
-          tab === "review" ? (
+          tab === "review" && !isNarrowReview ? (
             <HStack gap={2}>
               {uploadIds.length > 1 ? <Button size="sm" variant="ghost" label="Выбрать файл"
                 onClick={() => void navigate(location.pathname, { replace: true, state: { uploadIds, chooseUpload: true } })} /> : null}
               <Button
                 size="sm"
-                variant={ready ? "primary" : "secondary"}
+                variant={isCompletedSafely ? "secondary" : canDownload ? "primary" : "secondary"}
                 label="Скачать обезличенный документ"
                 icon={<Icon icon={Download} size="sm" />}
-                isDisabled={!ready || hasUnappliedChanges || isRegenerating || isDownloading}
+                isDisabled={!canDownload || hasBlockingReviewChanges || isRegenerating || isDownloading}
                 isLoading={isDownloading}
                 onClick={() => void handleDownload()}
               />
-              <Button
-                size="sm"
-                variant="secondary"
-                label="Завершить проверку"
-                icon={<Icon icon={CheckCircle2} size="sm" />}
-                isDisabled={status !== "awaiting_review" || submitReview.isPending || hasUnappliedChanges || isRegenerating}
-                isLoading={submitReview.isPending}
-                onClick={() => setIsConfirmApproveOpen(true)}
-              />
+              {shouldShowReviewFinish(status) ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  label="Завершить проверку"
+                  icon={<Icon icon={CheckCircle2} size="sm" />}
+                  isDisabled={submitReview.isPending || isReviewSubmitted || hasUnappliedChanges || isRegenerating}
+                  isLoading={submitReview.isPending}
+                  onClick={() => setIsConfirmApproveOpen(true)}
+                />
+              ) : null}
             </HStack>
+          ) : tab === "report" && canDownload ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              label="Скачать обезличенный документ"
+              icon={<Icon icon={Download} size="sm" />}
+              isDisabled={hasBlockingReviewChanges || isRegenerating || isDownloading}
+              isLoading={isDownloading}
+              onClick={() => void handleDownload()}
+            />
           ) : null
         }
         contentId={CONTENT_PANEL_ID}
-        contentPadding={tab === "review" ? 0 : 6}
+        contentPadding={tab === "review" ? 0 : 8}
         isContentScrollable={tab !== "review"}
         contentWidth={tab === "report" ? REPORT_CONTENT_WIDTH : undefined}
         panel={
-          tab === "review" ? (
+          tab === "review" && !isNarrowReview ? (
             <ReviewPanel
               extraction={extraction}
               report={report}
@@ -354,24 +443,91 @@ export function DocumentPage() {
               runId={runId}
               totalCount={totalCount}
               notFoundIds={notFoundIds}
-              isEditingDisabled={isRegenerating}
+              isEditingDisabled={isRegenerating || isReviewFinished}
+              isReadOnly={isReviewFinished}
             />
           ) : undefined
         }
       >
-        {tab === "review" ? (
-          <ReviewView
-            document={reviewedDocument}
-            extraction={extraction}
-            pages={report?.pages ?? []}
-            hasUnappliedChanges={hasUnappliedChanges}
-            isRegenerating={isRegenerating}
-            onRegenerate={handleRegenerate}
-            onDiscardChanges={discardDraftChanges}
-            onNotFoundChange={setNotFoundIds}
+        {tab === "result" ? (
+          <VStack hAlign="center">
+            <Card padding={6} width="100%" maxWidth={RESULT_CONTENT_WIDTH}>
+              <VStack gap={5}>
+                <VStack gap={2}>
+                  <Heading level={2}>Документ готов</Heading>
+                  <Text color="secondary" textWrap="pretty">
+                    Обезличивание завершено. Скачайте готовый файл или посмотрите замены в отчёте.
+                  </Text>
+                </VStack>
+                <VStack gap={2}>
+                  <Text weight="semibold" textWrap="pretty" className="break-all">
+                    {reviewedDocument.name}
+                  </Text>
+                  {replacementCount !== null ? (
+                    <Text color="secondary">
+                      {replacementCount} {pluralRu(replacementCount, ["фрагмент скрыт", "фрагмента скрыты", "фрагментов скрыто"])}.
+                    </Text>
+                  ) : null}
+                </VStack>
+                <HStack gap={3} wrap="wrap">
+                  <Button
+                    size="lg"
+                    width={isNarrowReview ? "100%" : undefined}
+                    variant="primary"
+                    label="Скачать обезличенный документ"
+                    icon={<Icon icon={Download} size="sm" />}
+                    isDisabled={isDownloading}
+                    isLoading={isDownloading}
+                    onClick={() => void handleDownload()}
+                  />
+                  <Button
+                    variant="ghost"
+                    label="Посмотреть замены"
+                    onClick={() => selectTab("report")}
+                  />
+                </HStack>
+              </VStack>
+            </Card>
+          </VStack>
+        ) : tab === "review" && isNarrowReview ? (
+          <Layout
+            height="fill"
+            header={
+              <LayoutHeader hasDivider>
+                <TabList
+                  value={mobileReviewTab}
+                  onChange={(value) => setMobileReviewTab(value as "document" | "changes")}
+                  size="sm"
+                  layout="fill"
+                  role="tablist"
+                >
+                  <Tab value="document" label="Документ" panelId="mobile-review-panel" />
+                  <Tab value="changes" label="Замены" panelId="mobile-review-panel" />
+                </TabList>
+              </LayoutHeader>
+            }
+            content={
+              <LayoutContent padding={0} id="mobile-review-panel">
+                {mobileReviewTab === "document" ? reviewView : (
+                  <ReviewPanel
+                    extraction={extraction}
+                    report={report}
+                    ask={ask}
+                    runId={runId}
+                    totalCount={totalCount}
+                    notFoundIds={notFoundIds}
+                    isEditingDisabled={isRegenerating || isReviewFinished}
+                    isReadOnly={isReviewFinished}
+                    isNarrow
+                  />
+                )}
+              </LayoutContent>
+            }
           />
+        ) : tab === "review" ? (
+          reviewView
         ) : (
-          <ReportView report={report} runId={runId} />
+          <ReportView report={report} runId={runId} status={status} canDownload={canDownload} />
         )}
       </ScreenLayout>
       <MaskingSetupDialog
@@ -404,17 +560,11 @@ export function DocumentPage() {
         onLeave={() => void navigate("/", { viewTransition: true })}
       />
       <AlertDialog
-        isOpen={isConfirmApproveOpen}
+        isOpen={!isReviewFinished && isConfirmApproveOpen}
         onOpenChange={setIsConfirmApproveOpen}
         title="Утвердить документ?"
         description={
-          allConfirmed
-            ? "Документ пересоберётся и проверка будет завершена."
-            // Кнопка открытия этого диалога недоступна, пока есть
-            // неприменённые правки, — если мы здесь, allConfirmed < totalCount
-            // означает не незавершённость, а то, что часть находок оставлена
-            // как есть намеренно (решение «оставить»).
-            : `${confirmedCount} из ${totalCount} находок будут заменены на маркер, остальные — оставлены как есть по вашему решению. Документ пересоберётся с учётом этого.`
+          reviewConfirmationDescription(confirmedCount, totalCount)
         }
         actionLabel="Утвердить"
         actionVariant="primary"

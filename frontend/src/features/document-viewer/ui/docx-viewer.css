@@ -1,0 +1,5 @@
+@media (max-width: 768px) {
+  .document-viewer-docx-host .docx-wrapper {
+    align-items: flex-start;
+  }
+}

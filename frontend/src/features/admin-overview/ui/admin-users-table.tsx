@@ -1,6 +1,9 @@
+import { useMediaQuery } from "@astryxdesign/core/hooks";
+import { Card } from "@astryxdesign/core/Card";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { List, ListItem } from "@astryxdesign/core/List";
 import { Section } from "@astryxdesign/core/Section";
-import { HStack } from "@astryxdesign/core/Stack";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Table, pixel, proportional } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
@@ -20,6 +23,7 @@ type AdminUsersTableProps = {
 
 /** Все пользователи системы с активностью — вкладка «Пользователи». */
 export function AdminUsersTable({ users }: AdminUsersTableProps) {
+  const isCompact = useMediaQuery("(max-width: 1200px)", false);
   if (users.length === 0) {
     return (
       <Section padding={4}>
@@ -28,8 +32,42 @@ export function AdminUsersTable({ users }: AdminUsersTableProps) {
     );
   }
 
+  if (isCompact) {
+    return (
+      <Card padding={0}>
+        <List hasDividers>
+          {users.map((user) => (
+            <ListItem
+              key={user.id}
+              label={
+                <VStack gap={1} className="min-w-0">
+                  <Text weight="medium" textWrap="pretty">{user.full_name}</Text>
+                  <Text color="secondary" textWrap="pretty">{user.email}</Text>
+                </VStack>
+              }
+              description={
+                <VStack gap={2} className="min-w-0">
+                  <HStack gap={2} wrap="wrap" vAlign="center">
+                    {user.roles.map((role) => <Token key={role} size="sm" label={ROLE_LABEL[role] ?? role} />)}
+                    <StatusDot variant={user.is_active ? "success" : "neutral"} label={user.is_active ? "Активен" : "Деактивирован"} />
+                  </HStack>
+                  <Text type="supporting" color="secondary" textWrap="pretty">
+                    {`Прогонов: ${user.runs_total ?? 0} (${user.runs_failed ?? 0} с ошибкой) · Сессий: ${user.active_sessions ?? 0}`}
+                  </Text>
+                  <Text type="supporting" color="secondary" textWrap="pretty">
+                    {`Последний вход: ${formatMoment(user.last_login_at)} · Зарегистрирован: ${formatMoment(user.created_at)}`}
+                  </Text>
+                </VStack>
+              }
+            />
+          ))}
+        </List>
+      </Card>
+    );
+  }
+
   return (
-    <Section padding={0}>
+    <Card padding={0}>
       <Table<UserRow>
         data={users as UserRow[]}
         idKey="id"
@@ -112,6 +150,6 @@ export function AdminUsersTable({ users }: AdminUsersTableProps) {
           },
         ]}
       />
-    </Section>
+    </Card>
   );
 }

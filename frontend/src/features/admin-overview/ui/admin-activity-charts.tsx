@@ -33,15 +33,15 @@ export function AdminActivityCharts({ overview }: AdminActivityChartsProps) {
           ))}
         </SegmentedControl>
       </HStack>
-      <Grid columns={{ minWidth: 320, max: 2, repeat: "fit" }} gap={4}>
-        <Section>
-          <VStack gap={3}>
+      <Grid columns={{ minWidth: 280, max: 2, repeat: "fit" }} gap={4}>
+        <Section padding={5}>
+          <VStack gap={3} width="100%" minHeight={0}>
             <Heading level={4}>Регистрации</Heading>
             <TrendAreaChart data={overview.users.signups_by_day ?? []} />
           </VStack>
         </Section>
-        <Section>
-          <VStack gap={3}>
+        <Section padding={5}>
+          <VStack gap={3} width="100%" minHeight={0}>
             <Heading level={4}>Прогоны</Heading>
             <TrendAreaChart data={overview.runs.by_day ?? []} />
           </VStack>

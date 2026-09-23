@@ -1,0 +1,25 @@
+/* LayoutContent exposes its own padding for direct full-bleed children.
+   A nested Grid/Stack is a new content area: its descendants must not
+   inherit that padding and escape their grid cell or row. */
+:where(.screen-layout-content > *) {
+  --container-padding-inline-start: 0px;
+  --container-padding-inline-end: 0px;
+  --container-padding-block-start: 0px;
+  --container-padding-block-end: 0px;
+  min-width: 0;
+}
+
+@media (max-width: 1024px) {
+  .screen-layout-header [role="toolbar"] {
+    flex-wrap: wrap;
+  }
+
+  .screen-layout-header [role="toolbar"] > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .screen-layout-toolbar-with-end [role="toolbar"] > :last-child {
+    overflow-x: auto;
+  }
+}

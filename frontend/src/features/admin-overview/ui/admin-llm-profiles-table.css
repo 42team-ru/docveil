@@ -1,0 +1,8 @@
+.admin-llm-profile-card {
+  min-width: 0;
+  height: 100%;
+}
+
+.admin-llm-profile-value {
+  overflow-wrap: anywhere;
+}

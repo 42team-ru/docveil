@@ -606,7 +606,7 @@ export function AccountantUxConceptsPage() {
     <ScreenLayout
       title={activeScreen.label}
       meta={<Badge variant="info" label="Концепт · не рабочая функция" />}
-      contentPadding={4}
+      contentPadding={6}
     >
       <div className="ux-concept-page">
         <div className="ux-concept-nav" role="tablist" aria-label="Экраны концепта">

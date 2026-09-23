@@ -67,8 +67,8 @@ export function XlsxViewer({
   });
 
   return (
-    <VStack hAlign="start" padding={6} isScrollable height="100%">
-      {status === "loading" ? <Skeleton height={400} width={600} /> : null}
+    <VStack hAlign="start" padding={3} isScrollable height="100%">
+      {status === "loading" ? <Skeleton height={400} width="100%" /> : null}
       {status === "error" ? (
         <EmptyState
           title="Не удалось показать таблицу"

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { VStack } from "@astryxdesign/core/Stack";
@@ -300,6 +301,7 @@ export function BboxViewer({
   onSelectionCapture,
   onVisiblePageChange,
 }: BboxViewerProps) {
+  const isNarrow = useMediaQuery("(max-width: 768px)", false);
   const dragRef = useRef<DragState | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
 
@@ -377,8 +379,8 @@ export function BboxViewer({
   const hasPageDims = pages.length > 0;
 
   return (
-    <VStack ref={containerRef} hAlign="center" padding={6} isScrollable height="100%">
-      {status === "loading" ? <Skeleton height={800} width={720} /> : null}
+    <VStack ref={containerRef} hAlign={isNarrow ? "start" : "center"} padding={3} isScrollable height="100%">
+      {status === "loading" ? <Skeleton height={800} width="100%" /> : null}
       {status === "error" ? (
         <EmptyState
           title="Не удалось показать документ"

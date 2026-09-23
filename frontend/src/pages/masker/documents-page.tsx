@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import { Text } from "@astryxdesign/core/Text";
+import { useNavigate } from "react-router";
+import { FilePlus2 } from "lucide-react";
+import { Button } from "@astryxdesign/core/Button";
+import { Icon } from "@astryxdesign/core/Icon";
 import { StackItem, VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
 
 import { HistoryFilters } from "../../features/document-history/ui/history-filters";
 import { HistoryTable } from "../../features/document-history/ui/history-table";
@@ -14,12 +18,11 @@ const PAGE_SIZE = 20;
 
 /**
  * Журнал обработанных документов — единственная точка входа в проверку и
- * отчёт. Заголовок «Новый документ» здесь не повторяется отдельной кнопкой:
- * тот же переход уже есть в шапке панели (`PanelShell.navStartContent`,
- * `masker-layout.tsx`), а вторая такая же кнопка на странице путала —
- * два разных по размеру и иконке контрола делали одно и то же.
+ * отчёт. Локальное действие «Новый документ» стоит рядом с фильтрами, чтобы
+ * оставаться заметным в контексте списка; глобальный переход остаётся в шапке.
  */
 export function DocumentsPage() {
+  const navigate = useNavigate();
   const query = useHistoryFilterStore((state) => state.query);
   const status = useHistoryFilterStore((state) => state.status);
   const resetFilters = useHistoryFilterStore((state) => state.reset);
@@ -45,7 +48,7 @@ export function DocumentsPage() {
 
   return (
     <ScreenLayout
-      title="Журнал обработок"
+      title="Журнал документов"
       meta={
         typeof total === "number" ? (
           <Text type="supporting" color="secondary" size="sm">
@@ -55,7 +58,17 @@ export function DocumentsPage() {
       }
     >
       <VStack gap={4} height="100%">
-        <HistoryFilters />
+        <HistoryFilters
+          actions={(
+            <Button
+              size="sm"
+              variant="primary"
+              label="Новый документ"
+              icon={<Icon icon={FilePlus2} size="sm" />}
+              onClick={() => void navigate("/", { viewTransition: true })}
+            />
+          )}
+        />
         <StackItem size="fill">
           <HistoryTable
             runs={runs}

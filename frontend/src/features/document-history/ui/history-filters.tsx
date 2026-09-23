@@ -12,9 +12,6 @@ import {
   type HistoryStatusFilter,
 } from "../model/history-filter-store";
 
-/** Ширина поля поиска — структурный размер контрола. */
-const SEARCH_WIDTH = 420;
-
 /**
  * Порядок статусов в фильтре — от «в работе» к «завершено», как идёт прогон
  * по графу. `leaked` обязан быть здесь наравне с `failed`: это не «ошибка
@@ -63,14 +60,14 @@ export function HistoryFilters({ actions }: HistoryFiltersProps) {
       size="lg"
       gap={3}
       startContent={
-        <HStack gap={3} vAlign="center" wrap="wrap">
+        <HStack gap={3} vAlign="center" wrap="wrap" width="100%">
           <TextInput
             size="lg"
-            label="Поиск по журналу"
+            label="Поиск по имени документа"
             isLabelHidden
             placeholder="Поиск по имени документа…"
             startIcon={Search}
-            width={SEARCH_WIDTH}
+            width="min(420px, 100%)"
             hasClear
             value={query}
             onChange={setQuery}
@@ -84,9 +81,9 @@ export function HistoryFilters({ actions }: HistoryFiltersProps) {
             value={status}
             onChange={(value) => setStatus(value as HistoryStatusFilter)}
           />
+          {actions}
         </HStack>
       }
-      endContent={actions}
     />
   );
 }

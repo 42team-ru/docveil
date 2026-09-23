@@ -1,0 +1,8 @@
+.history-mobile-list > li:nth-of-type(even) {
+  background: var(--color-background-muted);
+}
+
+.history-mobile-list > li:hover,
+.history-mobile-list > li:focus-within {
+  background: var(--color-overlay-hover);
+}

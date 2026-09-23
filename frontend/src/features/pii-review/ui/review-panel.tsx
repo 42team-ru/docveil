@@ -19,7 +19,7 @@ import { ContractSummaryTab } from "./contract-summary-tab";
 import { PiiListTab } from "./pii-list-tab";
 import { ProfilesTab } from "./profiles-tab";
 
-const PANEL_WIDTH = 400;
+const PANEL_WIDTH = 480;
 
 /**
  * LayoutHeader содержит внутренний паддинг, поэтому для выравнивания табов по
@@ -37,6 +37,8 @@ type ReviewPanelProps = {
   totalCount: number;
   notFoundIds: Set<string>;
   isEditingDisabled?: boolean;
+  isReadOnly?: boolean;
+  isNarrow?: boolean;
 };
 
 /**
@@ -51,6 +53,8 @@ export function ReviewPanel({
   totalCount,
   notFoundIds,
   isEditingDisabled = false,
+  isReadOnly = false,
+  isNarrow = false,
 }: ReviewPanelProps) {
   const [selectedTab, setTab] = useState<string | null>(null);
   const questionCount = ask?.questions.filter((question) => question.kind !== "type").length ?? 0;
@@ -58,8 +62,8 @@ export function ReviewPanel({
 
   return (
     <LayoutPanel
-      width={PANEL_WIDTH}
-      hasDivider
+      width={isNarrow ? "100%" : PANEL_WIDTH}
+      hasDivider={!isNarrow}
       padding={0}
       isScrollable={false}
       label="Проверка замен"
@@ -73,7 +77,7 @@ export function ReviewPanel({
                 <Tab
                   value="list"
                   label="Замены"
-                  endContent={<Badge variant="neutral" label={totalCount} />}
+                  endContent={totalCount > 0 ? <Badge variant="neutral" label={totalCount} /> : undefined}
                 />
                 <Tab value="profiles" label="Профили" />
                 <Tab
@@ -91,12 +95,13 @@ export function ReviewPanel({
           </LayoutHeader>
         }
         content={
-          <LayoutContent padding={0} label="Содержимое вкладки">
+          <LayoutContent padding={1} label="Содержимое вкладки">
             {tab === "list" ? (
               <PiiListTab
                 extraction={extraction}
                 notFoundIds={notFoundIds}
                 isEditingDisabled={isEditingDisabled}
+                isReadOnly={isReadOnly}
               />
             ) : null}
             {tab === "profiles" ? (

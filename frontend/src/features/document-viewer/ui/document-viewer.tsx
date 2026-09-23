@@ -79,8 +79,8 @@ export function DocumentViewer({
     return (
       <Suspense
         fallback={
-          <VStack hAlign="center" padding={6} height="100%">
-            <Skeleton height={400} width={600} />
+          <VStack hAlign="center" padding={3} height="100%">
+            <Skeleton height={400} width="100%" />
           </VStack>
         }
       >
@@ -93,8 +93,8 @@ export function DocumentViewer({
     return (
       <Suspense
         fallback={
-          <VStack hAlign="center" padding={6} height="100%">
-            <Skeleton height={400} width={600} />
+          <VStack hAlign="center" padding={3} height="100%">
+            <Skeleton height={400} width="100%" />
           </VStack>
         }
       >

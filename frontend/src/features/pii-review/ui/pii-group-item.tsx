@@ -41,6 +41,7 @@ type PiiGroupItemProps = {
   /** Завести ручную запись по непривязанному вхождению — тип уже известен. */
   onAddFallbackManual: (occurrence: FlatPiiOccurrence) => void;
   isEditingDisabled?: boolean;
+  isReadOnly?: boolean;
 };
 
 const CRITICAL_TYPES = new Set(["inn", "passport", "bank_account", "ogrn", "snils"]);
@@ -79,6 +80,7 @@ export function PiiGroupItem({
   onSetOccurrenceType,
   onAddFallbackManual,
   isEditingDisabled = false,
+  isReadOnly = false,
 }: PiiGroupItemProps) {
   const containsSelected = occurrences.some((o) => o.id === selectedOccurrenceId);
   const [isOpen, setIsOpen] = useState(containsSelected);
@@ -112,7 +114,7 @@ export function PiiGroupItem({
                 weight="medium"
                 color={isExcluded ? "secondary" : undefined}
                 hasStrikethrough={isExcluded}
-                maxLines={1}
+                textWrap="pretty"
               >
                 {first.originalText}
               </Text>
@@ -143,11 +145,14 @@ export function PiiGroupItem({
           </VStack>
         }
         endContent={
-          <HStack gap={1} vAlign="center">
-            <GroupTypeMenu
-              currentType={first.type}
-              onSelect={(type) => onSetGroupType(groupId, type)}
-            />
+          <HStack gap={2} vAlign="center">
+            {isReadOnly ? null : (
+              <GroupTypeMenu
+                currentType={first.type}
+                isDisabled={isEditingDisabled}
+                onSelect={(type) => onSetGroupType(groupId, type)}
+              />
+            )}
             {decision === "rejected" ? (
               <Button
                 size="sm"
@@ -182,11 +187,11 @@ export function PiiGroupItem({
       />
 
       {isOpen ? (
-        <VStack gap={1} as="ul" paddingInlineStart={6}>
+        <VStack gap={2} as="ul" paddingInlineStart={6}>
           {occurrences.map((occurrence) => {
             const isNotFound = notFoundIds.has(occurrence.id);
             return (
-              <HStack key={occurrence.id} gap={0} vAlign="center" paddingInlineEnd={2}>
+              <HStack key={occurrence.id} gap={2} vAlign="center" paddingInlineEnd={3}>
                 <StackItem size="fill">
                   <PiiOccurrenceItem
                     occurrence={occurrence}
@@ -195,10 +200,13 @@ export function PiiGroupItem({
                     onSelect={onSelect}
                   />
                 </StackItem>
-                <OccurrenceTypeMenu
-                  currentType={occurrence.type}
-                  onSelectOnlyThis={(type) => onSetOccurrenceType(occurrence.id, type)}
-                />
+                {isReadOnly ? null : (
+                  <OccurrenceTypeMenu
+                    currentType={occurrence.type}
+                    isDisabled={isEditingDisabled}
+                    onSelectOnlyThis={(type) => onSetOccurrenceType(occurrence.id, type)}
+                  />
+                )}
                 {effectiveOccurrenceDecision(
                   {
                     groupDecisions,

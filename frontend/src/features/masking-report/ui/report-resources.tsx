@@ -301,20 +301,24 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
         </Section>
       ) : null}
 
-      <Grid columns={{ minWidth: 260, max: 3, repeat: "fit" }} gap={4}>
-        <Heading level={4}>Сколько PII обнаружил каждый детектор</Heading>
-        <Heading level={4}>С какой уверенностью</Heading>
-        <Heading level={4}>Кем принято решение</Heading>
-      </Grid>
-      <Grid columns={{ minWidth: 260, max: 3, repeat: "fit" }} gap={4}>
+      <Grid columns={{ minWidth: 200, max: 3, repeat: "fit" }} gap={4}>
         <Section>
-          <CategoryBarChart data={sourceData} fixedHeight={chartRowHeight} />
+          <VStack gap={3}>
+            <Heading level={4}>Сколько PII обнаружил каждый детектор</Heading>
+            <CategoryBarChart data={sourceData} fixedHeight={chartRowHeight} />
+          </VStack>
         </Section>
         <Section>
-          <CategoryBarChart data={levelData} fixedHeight={chartRowHeight} />
+          <VStack gap={3}>
+            <Heading level={4}>С какой уверенностью</Heading>
+            <CategoryBarChart data={levelData} fixedHeight={chartRowHeight} />
+          </VStack>
         </Section>
         <Section>
-          <CategoryBarChart data={decidedByData} fixedHeight={chartRowHeight} />
+          <VStack gap={3}>
+            <Heading level={4}>Кем принято решение</Heading>
+            <CategoryBarChart data={decidedByData} fixedHeight={chartRowHeight} />
+          </VStack>
         </Section>
       </Grid>
       {nonLlmShare !== null ? (
@@ -331,7 +335,7 @@ export function ReportResources({ report, runtime }: ReportResourcesProps) {
           collapsible={false}
         />
       ) : (
-        <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={4}>
+        <Grid columns={{ minWidth: 200, max: 2, repeat: "fit" }} gap={4}>
           <NodeCostChart telemetry={telemetry} />
           <Section>
             <VStack gap={3}>
@@ -730,7 +734,7 @@ function formatRub(amount: number): string {
   return `${amount.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`;
 }
 
-function formatCost(cost: Record<string, unknown> | null): string | null {
+export function formatCost(cost: Record<string, unknown> | null): string | null {
   if (!cost || typeof cost.amount !== "string") return null;
   const amount = Number(cost.amount);
   if (!Number.isFinite(amount)) return null;

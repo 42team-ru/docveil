@@ -1,5 +1,5 @@
 import { Info } from "lucide-react";
-import { Badge } from "@astryxdesign/core/Badge";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { HStack } from "@astryxdesign/core/Stack";
 import { Icon } from "@astryxdesign/core/Icon";
 import {
@@ -36,8 +36,9 @@ export function DocumentToolbar({
     <Toolbar
       label="Просмотр документа"
       size="sm"
+      gap={3}
       startContent={
-        <HStack gap={3} vAlign="center">
+        <HStack gap={3} vAlign="center" wrap="wrap">
           <SegmentedControl
             size="sm"
             label="Режим показа"
@@ -55,15 +56,14 @@ export function DocumentToolbar({
         </HStack>
       }
       endContent={
-        <HStack gap={3} vAlign="center" wrap="wrap">
-          <Tooltip content={PREVIEW_NOTICE} placement="below">
-            <Badge
-              variant="warning"
-              icon={<Icon icon={Info} size="sm" />}
-              label="Предупреждение"
-            />
-          </Tooltip>
-        </HStack>
+        <Tooltip content={PREVIEW_NOTICE} placement="below" touchTrigger="tap">
+          <IconButton
+            size="sm"
+            variant="ghost"
+            icon={<Icon icon={Info} size="sm" />}
+            label="О предпросмотре"
+          />
+        </Tooltip>
       }
     />
   );

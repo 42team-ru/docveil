@@ -1,85 +1,53 @@
-import { Card } from "@astryxdesign/core/Card";
-import { Grid } from "@astryxdesign/core/Grid";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Heading, Text } from "@astryxdesign/core/Text";
 
 import { piiTypeLabel } from "../../../entity/pii/model/pii-type-dict";
-import type { MaskingReport } from "../../../entity/pii/model/types";
+import type { MaskingReport, PiiType } from "../../../entity/pii/model/types";
+import { pluralRu } from "../../../shared/lib/plural-ru";
+import { maskedOccurrences } from "../lib/report-occurrences";
 
-type ReportStatsProps = {
-  report: MaskingReport;
-};
+type ReportStatsProps = { report: MaskingReport };
 
-type Stat = { label: string; value: string; note: string };
-
-/** Самый частый тип — чтобы плитка говорила, чего в документе больше всего. */
-function topType(byType: Record<string, number>): string {
-  const entries = Object.entries(byType);
-  if (entries.length === 0) return "—";
-
-  const [type, count] = entries.reduce((best, current) =>
-    current[1] > best[1] ? current : best,
-  );
-  return `${piiTypeLabel(type as never)} — ${count}`;
-}
-
-function buildStats(report: MaskingReport): Stat[] {
-  const groups = report.plan?.groups.length ?? 0;
-  const validation = report.validation;
-  // Движок маскирует находки любого уровня уверенности одинаково молча —
-  // "possible" ничем не отличается по факту замены от "confirmed", разница
-  // только в том, что стоит бегло перепроверить глазами. Раньше плитка
-  // показывала голое число уверенности (например, "0.44") с подписью "есть
-  // находки, требующие проверки" — читалось так, будто часть документа
-  // ещё не замаскирована, хотя это не так.
-  const worthReview = report.summary.byLevel.possible ?? 0;
-
-  return [
-    {
-      label: "Найдено сущностей",
-      value: String(report.summary.entitiesTotal),
-      note: `${groups} групп замен · ${report.extraction.chunkCount} фрагментов`,
-    },
-    {
-      label: "Чаще всего",
-      value: topType(report.summary.byType),
-      note: Object.entries(report.summary.bySource)
-        .map(([source, count]) => `${source}: ${count}`)
-        .join(" · "),
-    },
-    {
-      label: "Стоит перепроверить",
-      value: worthReview > 0 ? String(worthReview) : "Нет",
-      note:
-        worthReview > 0
-          ? "уже заменены на маркер — модель не до конца уверена, взгляните на них"
-          : "все находки — с высокой уверенностью",
-    },
-    {
-      label: "Проверка утечек",
-      value: validation?.ok ? "чисто" : "не пройдена",
-      note: validation
-        ? `утечек: ${validation.leakedCount} · остатков: ${validation.residualCount}`
-        : "проверка не выполнялась",
-    },
-  ];
-}
-
-/** Четыре плитки со сводкой прогона — цифры из `report.summary` и `report.validation`. */
+/** Обзор только реально заменённых вхождений, без найденных, но оставленных данных. */
 export function ReportStats({ report }: ReportStatsProps) {
+  const occurrences = maskedOccurrences(report);
+  const byType = new Map<PiiType, number>();
+  for (const occurrence of occurrences) {
+    byType.set(occurrence.type, (byType.get(occurrence.type) ?? 0) + 1);
+  }
+  const types = [...byType].sort((left, right) => right[1] - left[1]);
+  const possibleCount = occurrences.filter((occurrence) => occurrence.level === "possible").length;
+
   return (
-    <Grid columns={{ minWidth: 200, max: 4, repeat: "fit" }} gap={3}>
-      {buildStats(report).map((stat) => (
-        <Card key={stat.label} padding={4}>
-          <VStack gap={1}>
-            <Text type="supporting" weight="medium">
-              {stat.label}
-            </Text>
-            <Heading level={2}>{stat.value}</Heading>
-            <Text type="supporting">{stat.note}</Text>
-          </VStack>
-        </Card>
-      ))}
-    </Grid>
+    <Section padding={4}>
+      <VStack gap={3}>
+        <VStack gap={1}>
+          <Heading level={3}>Что скрыто в документе</Heading>
+          <Text color="secondary" textWrap="pretty">
+            {occurrences.length === 0
+              ? "По данным отчёта замены не применялись."
+              : `${occurrences.length} ${pluralRu(occurrences.length, ["фрагмент", "фрагмента", "фрагментов"])} · ${types.length} ${pluralRu(types.length, ["тип", "типа", "типов"])} данных`}
+          </Text>
+        </VStack>
+        {types.length > 0 ? (
+          <List hasDividers density="balanced" header="Типы заменённых данных">
+            {types.map(([type, count]) => (
+              <ListItem
+                key={type}
+                label={piiTypeLabel(type)}
+                endContent={<Text hasTabularNumbers weight="semibold">{count}</Text>}
+              />
+            ))}
+          </List>
+        ) : null}
+        {possibleCount > 0 ? (
+          <Text type="supporting" color="secondary" textWrap="pretty">
+            {`${possibleCount} ${pluralRu(possibleCount, ["замену", "замены", "замен"])} с низкой уверенностью стоит проверить в списке ниже. Фрагменты уже скрыты в результате.`}
+          </Text>
+        ) : null}
+      </VStack>
+    </Section>
   );
 }

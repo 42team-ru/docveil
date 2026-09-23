@@ -1,8 +1,11 @@
 import { Search } from "lucide-react";
 import type { UseQueryResult } from "@tanstack/react-query";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { List, ListItem } from "@astryxdesign/core/List";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { Section } from "@astryxdesign/core/Section";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -53,6 +56,7 @@ type AdminRunsTableProps = {
 /** Журнал прогонов **всех** пользователей — в отличие от личного журнала
  * (`document-history`), здесь видна колонка «Владелец» и фильтр по нему. */
 export function AdminRunsTable({ runs, users, page, pageSize, onPageChange }: AdminRunsTableProps) {
+  const isCompact = useMediaQuery("(max-width: 1200px)", false);
   const query = useAdminFiltersStore((state) => state.runQuery);
   const setQuery = useAdminFiltersStore((state) => state.setRunQuery);
   const status = useAdminFiltersStore((state) => state.runStatus);
@@ -71,14 +75,14 @@ export function AdminRunsTable({ runs, users, page, pageSize, onPageChange }: Ad
       size="lg"
       gap={3}
       startContent={
-        <HStack gap={3} vAlign="center" wrap="wrap">
+        <HStack gap={3} vAlign="center" wrap="wrap" width="100%">
           <TextInput
             size="lg"
             label="Поиск по документу"
             isLabelHidden
             placeholder="Поиск по имени документа…"
             startIcon={Search}
-            width={320}
+            width="min(320px, 100%)"
             hasClear
             value={query}
             onChange={setQuery}
@@ -87,7 +91,7 @@ export function AdminRunsTable({ runs, users, page, pageSize, onPageChange }: Ad
             size="lg"
             label="Состояние прогона"
             isLabelHidden
-            width={200}
+            width="min(200px, 100%)"
             options={STATUS_OPTIONS}
             value={status}
             onChange={(value) => setStatus(value as AdminRunStatusFilter)}
@@ -96,7 +100,7 @@ export function AdminRunsTable({ runs, users, page, pageSize, onPageChange }: Ad
             size="lg"
             label="Владелец"
             isLabelHidden
-            width={260}
+            width="min(260px, 100%)"
             options={ownerOptions}
             value={ownerId ?? "all"}
             onChange={(value) => setOwnerId(value === "all" ? null : value)}
@@ -149,8 +153,32 @@ export function AdminRunsTable({ runs, users, page, pageSize, onPageChange }: Ad
           />
         </Section>
       ) : (
-        <Section padding={0}>
+        <Card padding={0}>
           <VStack gap={0}>
+            {isCompact ? (
+              <List hasDividers>
+                {rows.map((run) => (
+                  <ListItem
+                    key={run.id}
+                    label={<Text weight="medium" textWrap="pretty">{run.document.name}</Text>}
+                    description={
+                      <VStack gap={2} className="min-w-0">
+                        <HStack gap={2} wrap="wrap" vAlign="center">
+                          <RunStatusToken status={run.status} />
+                          <Text type="supporting" color="secondary">{run.document.format.toUpperCase()}</Text>
+                        </HStack>
+                        <Text type="supporting" color="secondary" textWrap="pretty">
+                          {`Владелец: ${run.user_full_name ?? run.user_email ?? run.user_id}`}
+                        </Text>
+                        <Text type="supporting" color="secondary" textWrap="pretty">
+                          {`Запущен: ${formatMoment(run.created_at)} · Завершён: ${formatMoment(run.finished_at)}`}
+                        </Text>
+                      </VStack>
+                    }
+                  />
+                ))}
+              </List>
+            ) : (
             <Table<AdminRunRow>
               data={rows}
               idKey="id"
@@ -204,13 +232,14 @@ export function AdminRunsTable({ runs, users, page, pageSize, onPageChange }: Ad
                 },
               ]}
             />
+            )}
             {total > pageSize ? (
               <HStack hAlign="center" paddingBlock={3}>
                 <Pagination page={page} onChange={onPageChange} totalItems={total} pageSize={pageSize} size="sm" />
               </HStack>
             ) : null}
           </VStack>
-        </Section>
+        </Card>
       )}
     </VStack>
   );

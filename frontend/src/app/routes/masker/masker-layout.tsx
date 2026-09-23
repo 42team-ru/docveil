@@ -1,4 +1,4 @@
-import { FilePlus2, FileText, PanelsTopLeft, ShieldCheck } from "lucide-react";
+import { FilePlus2, FileText, LayoutDashboard, ShieldCheck } from "lucide-react";
 import { Outlet, useLocation } from "react-router";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
@@ -16,9 +16,8 @@ import {
  * Каркас панели обезличивания: верхнее меню + область экрана.
  * Роут-модуль знает только состав меню, всю верстку держит `PanelShell`.
  *
- * В меню одна вкладка — «Документы»: вход в проверку и отчёт идёт только
- * через журнал, отдельных пунктов для них больше нет. Вторая группа —
- * «Администрирование» — появляется только у роли `admin` (`entity/user/model/roles`);
+ * Основные экраны сгруппированы в «Работа». «Администрирование» появляется
+ * только у роли `admin` (`entity/user/model/roles`);
  * настоящая защита самого раздела — на бэкенде, здесь только видимость пункта меню.
  */
 export default function MaskerLayout() {
@@ -31,11 +30,11 @@ export default function MaskerLayout() {
   const groups: PanelNavGroup[] = [
     {
       title: "Работа",
-      items: [{ to: "/documents", label: "Документы", icon: FileText }],
+      items: [
+        { to: "/dashboard", label: "Рабочий стол", icon: LayoutDashboard },
+        { to: "/documents", label: "Документы", icon: FileText },
+      ],
     },
-    ...(import.meta.env.DEV
-      ? [{ title: "Макеты", items: [{ to: "/design-preview", label: "Концепт UI", icon: PanelsTopLeft }] }]
-      : []),
     ...(isAdmin(account)
       ? [
           {

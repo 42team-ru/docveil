@@ -26,8 +26,8 @@ export function AdminBreakdownCharts({ overview }: AdminBreakdownChartsProps) {
 
   return (
     <Grid columns={{ minWidth: 280, max: 3, repeat: "fit" }} gap={4}>
-      <Section>
-        <VStack gap={3}>
+      <Section padding={5}>
+        <VStack gap={3} width="100%" minHeight={0}>
           <Heading level={4}>Статусы прогонов</Heading>
           {statusData.length > 0 ? (
             <DonutChart data={statusData} />
@@ -36,14 +36,14 @@ export function AdminBreakdownCharts({ overview }: AdminBreakdownChartsProps) {
           )}
         </VStack>
       </Section>
-      <Section>
-        <VStack gap={3}>
+      <Section padding={5}>
+        <VStack gap={3} width="100%" minHeight={0}>
           <Heading level={4}>Форматы документов</Heading>
           <CategoryBarChart data={formatData} />
         </VStack>
       </Section>
-      <Section>
-        <VStack gap={3}>
+      <Section padding={5}>
+        <VStack gap={3} width="100%" minHeight={0}>
           <Heading level={4}>Стиль маскирования</Heading>
           <CategoryBarChart data={maskStyleData} />
         </VStack>

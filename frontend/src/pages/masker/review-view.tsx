@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -27,6 +27,7 @@ type ReviewViewProps = {
   pages: PiiPage[];
   hasUnappliedChanges: boolean;
   isRegenerating: boolean;
+  isReviewFinished: boolean;
   onRegenerate: () => void;
   onDiscardChanges: () => void;
   onNotFoundChange: (ids: Set<string>) => void;
@@ -41,6 +42,7 @@ export function ReviewView({
   pages,
   hasUnappliedChanges,
   isRegenerating,
+  isReviewFinished,
   onRegenerate,
   onDiscardChanges,
   onNotFoundChange,
@@ -54,9 +56,23 @@ export function ReviewView({
   const viewMode = useReviewStore((state) => state.viewMode);
   const setViewMode = useReviewStore((state) => state.setViewMode);
   const addManual = useReviewStore((state) => state.addManual);
+  const isReviewFinishedRef = useRef(isReviewFinished);
+  isReviewFinishedRef.current = isReviewFinished;
+
+  useEffect(() => {
+    if (!isReviewFinished) return;
+    setPendingSelection(null);
+    setIsDiscardDialogOpen(false);
+    setIsApplyDialogOpen(false);
+  }, [isReviewFinished]);
+
+  function captureSelection(capture: SelectionCapture) {
+    if (isReviewFinishedRef.current) return;
+    setPendingSelection(capture);
+  }
 
   function handleAddManual({ type, text }: { type: PiiType; text: string }) {
-    if (!pendingSelection) return;
+    if (isReviewFinishedRef.current || !pendingSelection) return;
     addManual({
       id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type,
@@ -69,6 +85,7 @@ export function ReviewView({
   }
 
   function handleDiscardChanges() {
+    if (isReviewFinishedRef.current) return;
     setPendingSelection(null);
     onDiscardChanges();
   }
@@ -80,6 +97,7 @@ export function ReviewView({
 
   function confirmApplyChanges() {
     setIsApplyDialogOpen(false);
+    if (isReviewFinishedRef.current) return;
     onRegenerate();
   }
 
@@ -99,7 +117,7 @@ export function ReviewView({
         content={
           <LayoutContent padding={0} label="Лист документа">
             <VStack gap={0} height="100%">
-              {hasUnappliedChanges || isRegenerating ? (
+              {!isReviewFinished && (hasUnappliedChanges || isRegenerating) ? (
                 <Banner
                   container="section"
                   status={isRegenerating ? "info" : "warning"}
@@ -149,20 +167,22 @@ export function ReviewView({
                 extraction={extraction}
                 pages={pages}
                 onNotFoundChange={onNotFoundChange}
-                onSelectionCapture={setPendingSelection}
+                onSelectionCapture={isReviewFinished ? undefined : captureSelection}
                 onVisiblePageChange={setPageInfo}
               />
             </VStack>
-            <AddPiiTrigger
-              capture={pendingSelection}
-              onAdd={handleAddManual}
-              onDismiss={() => setPendingSelection(null)}
-            />
+            {!isReviewFinished ? (
+              <AddPiiTrigger
+                capture={pendingSelection}
+                onAdd={handleAddManual}
+                onDismiss={() => setPendingSelection(null)}
+              />
+            ) : null}
           </LayoutContent>
         }
       />
       <AlertDialog
-        isOpen={isDiscardDialogOpen}
+        isOpen={!isReviewFinished && isDiscardDialogOpen}
         onOpenChange={setIsDiscardDialogOpen}
         title="Отменить изменения?"
         description="Черновые решения, изменения типов и ручные отметки будут удалены. Уже собранный файл не изменится."
@@ -172,7 +192,7 @@ export function ReviewView({
         onAction={confirmDiscardChanges}
       />
       <AlertDialog
-        isOpen={isApplyDialogOpen}
+        isOpen={!isReviewFinished && isApplyDialogOpen}
         onOpenChange={setIsApplyDialogOpen}
         title="Применить изменения?"
         description="Будет собрана новая версия обезличенного файла с текущими решениями. Предпросмотр обновится после завершения обработки."

@@ -1,4 +1,5 @@
 import { Check, Plus, X } from "lucide-react";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Code } from "@astryxdesign/core/Code";
@@ -98,6 +99,7 @@ export function MaskStylePicker({
   onAddCustomType,
   isAddingCustomType = false,
 }: MaskStylePickerProps) {
+  const isNarrow = useMediaQuery("(max-width: 600px)", false);
   const maskStyle = useRuleProfileStore((state) => state.maskStyle);
   const setMaskStyle = useRuleProfileStore((state) => state.setMaskStyle);
   const highlightColor = useRuleProfileStore((state) => state.highlightColor);
@@ -131,7 +133,7 @@ export function MaskStylePicker({
             Превью ниже — то, что реально окажется в документе, не исходный текст с подсветкой.
           </Text>
         </VStack>
-        <Grid columns={2} gap={4} align="start">
+        <Grid columns={{ minWidth: 280, max: 2, repeat: "fit" }} gap={4} align="start">
           {MASK_STYLE_OPTIONS.map((option) => {
             const isSelected = maskStyle === option.id;
             // Блоки для "Заливки" уже сами по себе тёмные символы — фон не
@@ -149,8 +151,8 @@ export function MaskStylePicker({
                 onChange={() => setMaskStyle(option.id)}
               >
                 <VStack gap={3}>
-                  <HStack gap={4} vAlign="center">
-                    <StackItem size="fill" className="min-w-0">
+                  <HStack gap={4} vAlign="center" wrap={isNarrow ? "wrap" : "nowrap"}>
+                    <StackItem size="fill" className={isNarrow ? "min-w-0 w-full" : "min-w-0"}>
                       <VStack gap={2}>
                         <Text weight="medium">{option.name}</Text>
                         <Text type="supporting" size="sm" color="secondary">
@@ -163,8 +165,8 @@ export function MaskStylePicker({
                       variant="transparent"
                       padding={3}
                       width="fit-content"
-                      maxWidth="60%"
-                      className="mr-4 my-auto shrink-0 bg-surface rounded-lg border border-border"
+                      maxWidth={isNarrow ? "100%" : "60%"}
+                      className="my-auto shrink-0 bg-surface rounded-lg border border-border"
                     >
                       <VStack gap={1}>
                         <Text type="code" size="sm" color="secondary">
@@ -271,7 +273,7 @@ export function MaskStylePicker({
                 label="Убрать все"
                 onClick={() => setEnabledTypes([])}
               />
-              <Grid columns={4} gap={2}>
+              <Grid columns={{ minWidth: 150, max: 4, repeat: "fit" }} gap={2}>
                 {ALL_TYPE_OPTIONS.map((opt) => (
                   <CheckboxInput
                     key={opt.value}

@@ -107,6 +107,32 @@ def has_name_grammeme(word: str) -> bool:
 
 
 @functools.lru_cache(maxsize=4096)
+def is_unambiguous_geo_word(word: str) -> bool:
+    """Слово — топоним (граммема OpenCorpora ``Geox``) и не омоним ФИО.
+
+    Нашёлся 23.09.2026 на реальном контракте: `find_requisite_block_candidates`
+    (``requisite_blocks.py``) в блоке банковских реквизитов подхватывал
+    «Республике Саха» как ФИО — заглавная пара слов вне признанных сущностей,
+    ничем не отличимая от подписи по одной этой эвристике. «Саха» и
+    «Якутия» у OpenCorpora размечены только ``Geox``, без единого разбора
+    ``Surn``/``Name``/``Patr`` — надёжный сигнал «это топоним, не фамилия».
+
+    Условие строго «есть Geox И нет граммемы имени», а не просто «есть
+    Geox»: у части фамилий-омонимов топонимов (например, «Александрова» —
+    и фамилия, и форма города) тоже есть разбор с ``Geox``, и такое слово
+    здесь не должно гасить кандидата — иначе поймали бы противоположный
+    дефект, пропуск настоящей фамилии.
+    """
+    if not word or not (word[0].isalpha() and word[0].isupper()):
+        return False
+    parses = list(_morph_vocab()(word))
+    tags = [str(getattr(form, "tag", "")) for form in parses]
+    has_geo = any("Geox" in tag for tag in tags)
+    has_name = any(name_tag in tag for tag in tags for name_tag in _NAME_TAGS)
+    return has_geo and not has_name
+
+
+@functools.lru_cache(maxsize=4096)
 def _classify_word(word: str) -> str | None:
     """Вернуть граммему `Surn`/`Name`/`Patr` первого (наиболее вероятного)
     морфологического разбора слова, иначе `None`.

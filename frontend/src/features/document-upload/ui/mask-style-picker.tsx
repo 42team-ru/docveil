@@ -13,6 +13,11 @@ import { Section } from "@astryxdesign/core/Section";
 import { Token } from "@astryxdesign/core/Token";
 
 import { piiTypeOptions } from "../../../entity/pii/model/pii-type-dict";
+import {
+  hasAnyTypeSelected,
+  toggleAllTypes,
+  updateTypeSelection,
+} from "../lib/masking-type-selection";
 import { useCustomTypesStore } from "../../custom-types-compiler/model/store";
 import type { HighlightColor } from "../../../entity/rule-profile/model/rule-profile-store";
 import { useRuleProfileStore } from "../../../entity/rule-profile/model/rule-profile-store";
@@ -111,18 +116,19 @@ export function MaskStylePicker({
   const customTypes = useCustomTypesStore((state) => state.types);
   const removeCustomType = useCustomTypesStore((state) => state.removeType);
 
-  // [] = все выбраны (поведение бэкенда), иначе — подмножество
-  const allSelected = enabledTypes.length === 0;
-  const someSelected = !allSelected && enabledTypes.length > 0;
+  // null = все выбраны; пустой список теперь означает, что не выбран никто.
+  const allSelected = enabledTypes === null;
   const selectAllValue = allSelected
     ? true
-    : someSelected
+    : (enabledTypes?.length ?? 0) > 0
       ? "indeterminate"
       : false;
 
   function handleSelectAll() {
-    setEnabledTypes(allSelected ? ALL_TYPE_OPTIONS.map((o) => o.value) : []);
+    setEnabledTypes(toggleAllTypes(enabledTypes));
   }
+
+  const canStartWithSelection = hasAnyTypeSelected(enabledTypes, customTypes.length);
 
   return (
     <Section padding={0}>
@@ -255,7 +261,7 @@ export function MaskStylePicker({
             <Text type="supporting" size="sm" color="secondary">
               {allSelected
                 ? `Маскируются все ${REGISTRY_TYPE_COUNT} ${pluralRu(REGISTRY_TYPE_COUNT, ["тип", "типа", "типов"])} — снимите флажок, чтобы выбрать конкретные`
-                : `Выбрано ${enabledTypes.length} из ${REGISTRY_TYPE_COUNT}`}
+                : `Выбрано ${enabledTypes?.length ?? 0} из ${REGISTRY_TYPE_COUNT}`}
             </Text>
           </VStack>
           <HStack gap={2} vAlign="center">
@@ -264,31 +270,40 @@ export function MaskStylePicker({
               value={selectAllValue}
               onChange={handleSelectAll}
             />
+            <Button
+              size="sm"
+              variant="ghost"
+              label="Убрать все"
+              isDisabled={enabledTypes !== null && enabledTypes.length === 0}
+              onClick={() => setEnabledTypes([])}
+            />
           </HStack>
           {!allSelected && (
             <VStack gap={2}>
-              <Button
-                size="sm"
-                variant="ghost"
-                label="Убрать все"
-                onClick={() => setEnabledTypes([])}
-              />
               <Grid columns={{ minWidth: 150, max: 4, repeat: "fit" }} gap={2}>
                 {ALL_TYPE_OPTIONS.map((opt) => (
                   <CheckboxInput
                     key={opt.value}
                     label={opt.label}
-                    value={enabledTypes.includes(opt.value)}
+                    value={enabledTypes?.includes(opt.value) ?? false}
                     onChange={(checked) => {
                       setEnabledTypes(
-                        checked
-                          ? [...enabledTypes, opt.value]
-                          : enabledTypes.filter((value) => value !== opt.value),
+                        updateTypeSelection(
+                          enabledTypes,
+                          opt.value,
+                          checked,
+                          ALL_TYPE_OPTIONS.map((option) => option.value),
+                        ),
                       );
                     }}
                   />
                 ))}
               </Grid>
+              {!canStartWithSelection ? (
+                <Text type="supporting" size="sm" color="secondary">
+                  Выберите хотя бы один тип или добавьте свой, чтобы начать обработку.
+                </Text>
+              ) : null}
             </VStack>
           )}
         </VStack>

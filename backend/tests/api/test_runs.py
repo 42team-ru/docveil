@@ -490,3 +490,22 @@ def test_run_options_thread_highlight_background() -> None:
         object_name="documents/contract_01.docx", highlight_background="none"
     )
     assert run_service._run_options(disabled, "docx").highlight_background is None
+
+
+def test_run_request_requires_at_least_one_explicit_type() -> None:
+    with pytest.raises(ValueError, match="Выберите хотя бы один"):
+        RunCreateRequest(object_name="documents/contract_01.docx", types=[])
+
+    custom_only = RunCreateRequest(
+        object_name="documents/demo.docx",
+        types=["demo_project_code"],
+        custom_types=[{
+            "schema_version": 1,
+            "id": "demo_project_code",
+            "title": "Демо-код проекта",
+            "marker": "[ДЕМО-КОД-{n}]",
+            "critical": False,
+            "detect": {"kind": "regex", "pattern": "DEMO-PROJ-[0-9]{4}"},
+        }],
+    )
+    assert run_service._run_options(custom_only, "docx").types == ("demo_project_code",)

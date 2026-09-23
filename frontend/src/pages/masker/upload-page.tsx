@@ -21,6 +21,7 @@ import { RecentDocuments } from "../../features/document-history/ui/recent-docum
 import { useStartRun } from "../../features/masking-run/api/masking-run";
 import { CustomTypesCompilerDialog } from "../../features/custom-types-compiler/ui/compiler-dialog";
 import { useCustomTypesStore } from "../../features/custom-types-compiler/model/store";
+import { hasAnyTypeSelected } from "../../features/document-upload/lib/masking-type-selection";
 import { MaskStylePicker } from "../../features/document-upload/ui/mask-style-picker";
 import { UploadDropzone } from "../../features/document-upload/ui/upload-dropzone";
 import { UploadQueue } from "../../features/document-upload/ui/upload-queue";
@@ -47,6 +48,7 @@ export function UploadPage() {
   const highlightColor = useRuleProfileStore((state) => state.highlightColor);
 
   const customTypes = useCustomTypesStore((state) => state.types);
+  const hasSelectedTypes = hasAnyTypeSelected(enabledTypes, customTypes.length);
 
   const [isCompilerOpen, setIsCompilerOpen] = useState(false);
   const [compilerObjectName, setCompilerObjectName] = useState<string | null>(null);
@@ -109,7 +111,7 @@ export function UploadPage() {
    * порядком в очереди, а первый открылся на проверку.
    */
   async function handleStart() {
-    if (startingRef.current) return;
+    if (startingRef.current || submittable.length === 0 || !hasSelectedTypes) return;
     startingRef.current = true;
     setIsStarting(true);
     let firstRunId: string | null = null;
@@ -198,7 +200,7 @@ export function UploadPage() {
           ? "Обезличить документ"
           : `Обезличить ${submittable.length} ${pluralRu(submittable.length, ["документ", "документа", "документов"])}`
       }
-      isDisabled={submittable.length === 0 || isStarting}
+      isDisabled={submittable.length === 0 || !hasSelectedTypes || isStarting}
       isLoading={isStarting}
       onClick={() => void handleStart()}
     />

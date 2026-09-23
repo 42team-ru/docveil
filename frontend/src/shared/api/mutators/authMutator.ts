@@ -25,7 +25,9 @@ const getBackendOrigin = () => {
     return import.meta.env.VITE_BACKEND_PROD_URL || REMOTE_BACKEND_ORIGIN;
   }
 
-  return import.meta.env.VITE_BACKEND_DEV_URL || LOCAL_BACKEND_ORIGIN;
+  // В dev ходим same-origin через Vite proxy (`/api` → localhost:8000).
+  // Это убирает зависимость локальной авторизации и скачивания файлов от CORS.
+  return "";
 };
 
 export const baseURL = `${trimTrailingSlash(getBackendOrigin())}${API_PATH}`;

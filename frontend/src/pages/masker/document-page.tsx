@@ -26,6 +26,7 @@ import {
 } from "../../entity/pii/model/selectors";
 import {
   downloadArtifact,
+  hasReadyArtifactForDownload,
   hasRunResult,
   isRunFinished,
   isRunPending,
@@ -136,6 +137,7 @@ export function DocumentPage() {
 
   const [notFoundIds, setNotFoundIds] = useState<Set<string>>(new Set());
   const [isConfirmApproveOpen, setIsConfirmApproveOpen] = useState(false);
+  const [isUnsafeDownloadConfirmOpen, setIsUnsafeDownloadConfirmOpen] = useState(false);
   const [isReviewSubmitted, setIsReviewSubmitted] = useState(false);
   const [regenerationRevision, setRegenerationRevision] = useState<number | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -204,6 +206,7 @@ export function DocumentPage() {
 
   const ready = hasRunResult(status);
   const canDownload = ready && report?.validation?.ok === true && !hasUnsafeResult;
+  const hasReadyArtifact = hasReadyArtifactForDownload(status, reviewedDocument.fileUrl);
   const replacementCount = report ? maskedOccurrences(report).length : null;
   const submitReview = useSubmitReview(runId);
   const regenerateReview = useRegenerateReview(runId);
@@ -291,8 +294,12 @@ export function DocumentPage() {
   }
 
   /** Скачивает подсвеченный вариант — тот же файл, что открыт во вьюере. */
-  async function handleDownload() {
-    if (runId === null || !canDownload) return;
+  async function handleDownload(allowFailedValidation = false) {
+    if (runId === null || !hasReadyArtifact) return;
+    if (!canDownload && !allowFailedValidation) {
+      setIsUnsafeDownloadConfirmOpen(true);
+      return;
+    }
     setIsDownloading(true);
     try {
       await downloadArtifact(runId, "masked_highlight", reviewedDocument.name);
@@ -399,10 +406,10 @@ export function DocumentPage() {
                 onClick={() => void navigate(location.pathname, { replace: true, state: { uploadIds, chooseUpload: true } })} /> : null}
               <Button
                 size="sm"
-                variant={isCompletedSafely ? "secondary" : canDownload ? "primary" : "secondary"}
+                variant={isCompletedSafely ? "secondary" : hasReadyArtifact ? "primary" : "secondary"}
                 label="Скачать обезличенный документ"
                 icon={<Icon icon={Download} size="sm" />}
-                isDisabled={!canDownload || hasBlockingReviewChanges || isRegenerating || isDownloading}
+                isDisabled={!hasReadyArtifact || hasBlockingReviewChanges || isRegenerating || isDownloading}
                 isLoading={isDownloading}
                 onClick={() => void handleDownload()}
               />
@@ -418,7 +425,7 @@ export function DocumentPage() {
                 />
               ) : null}
             </HStack>
-          ) : tab === "report" && canDownload ? (
+          ) : tab === "report" && hasReadyArtifact ? (
             <Button
               size="sm"
               variant="secondary"
@@ -476,7 +483,7 @@ export function DocumentPage() {
                     variant="primary"
                     label="Скачать обезличенный документ"
                     icon={<Icon icon={Download} size="sm" />}
-                    isDisabled={isDownloading}
+                    isDisabled={!hasReadyArtifact || isDownloading}
                     isLoading={isDownloading}
                     onClick={() => void handleDownload()}
                   />
@@ -570,6 +577,22 @@ export function DocumentPage() {
         actionVariant="primary"
         isActionLoading={submitReview.isPending}
         onAction={handleApprove}
+      />
+      <AlertDialog
+        isOpen={isUnsafeDownloadConfirmOpen}
+        onOpenChange={setIsUnsafeDownloadConfirmOpen}
+        title="Проверка результата не пройдена"
+        description={report?.validation
+          ? `Проверка обнаружила ${report.validation.leakedCount} возможных утечек и ${report.validation.residualCount} остаточных совпадений. В скачанном файле могут остаться исходные данные.`
+          : "Безопасность результата не подтверждена. В скачанном файле могут остаться исходные данные."}
+        cancelLabel="Отмена"
+        actionLabel="Скачать всё равно"
+        actionVariant="destructive"
+        isActionLoading={isDownloading}
+        onAction={() => {
+          setIsUnsafeDownloadConfirmOpen(false);
+          void handleDownload(true);
+        }}
       />
     </>
   );

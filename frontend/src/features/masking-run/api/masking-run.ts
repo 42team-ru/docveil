@@ -65,6 +65,18 @@ export function hasRunResult(status: RunStatus | null | undefined): boolean {
 }
 
 /**
+ * Проверяет, есть ли уже готовый файл для выдачи. Это только наличие артефакта,
+ * а не гарантия его безопасности: результат со статусом `leaked` требует
+ * отдельного предупреждения перед скачиванием.
+ */
+export function hasReadyArtifactForDownload(
+  status: RunStatus | null | undefined,
+  fileUrl: string,
+): boolean {
+  return hasRunResult(status) && fileUrl.length > 0;
+}
+
+/**
  * Как часто опрашивать состояние прогона. Транспорт намеренно обычный HTTP:
  * ни WebSocket, ни SSE — опрос переживает обрыв связи и перезагрузку вкладки,
  * потому что читает состояние из чекпойнтера LangGraph, а не из соединения.
@@ -86,14 +98,31 @@ export type RunProgress = Pick<RunProgressEvent, "sequence" | "node" | "content"
 export type StartRunInput = {
   source: UploadSource;
   maskStyle: MaskStyle;
-  /** Типы ПДн для маскирования. Пустой массив = весь реестр. */
-  types: string[];
+  /** `null` означает все встроенные типы; `[]` — ни одного. */
+  types: string[] | null;
   /** Кастомные типы, скомпилированные пользователем. */
   customTypes: CompiledTypeOut[];
   /** Цвет фона маркера — `#RRGGBB`, только для `maskStyle: "marker"`
    * (бэкенд игнорирует его для "заливки", см. `mask-style-picker.tsx`). */
   highlightColor?: string;
 };
+
+/** Добавляет выбранные пользовательские типы к явному списку типов прогона. */
+export function selectedTypesForRun(
+  types: string[] | null,
+  customTypes: CompiledTypeOut[],
+): string[] | null {
+  // null — выбор «все»: движок добавит в полный реестр и пользовательские типы.
+  if (types === null) return null;
+
+  const customTypeIds = customTypes.flatMap((type) => {
+    if (type.outcome === "compile" && type.spec?.id) return [type.spec.id];
+    if (type.outcome === "use_builtin" && type.type_id) return [type.type_id];
+    return [];
+  });
+
+  return [...new Set([...types, ...customTypeIds])];
+}
 
 /**
  * Запуск прогона. Для нового файла — сперва загрузка в MinIO, затем
@@ -127,13 +156,9 @@ export function useStartRun() {
         .filter((t) => t.outcome === "compile" && t.spec != null)
         .map((t) => t.spec as unknown as Record<string, unknown>);
 
-      // Когда пользователь выбрал конкретные типы (types.length > 0), кастомные
-      // типы не попадают в список автоматически — они не в реестре встроенных.
-      // Добавляем их явно, чтобы план не отфильтровал их с причиной type_not_requested.
-      const customTypeIds = customTypes
-        .filter((t) => t.outcome === "compile" && t.spec != null)
-        .map((t) => t.spec!.id);
-      const typesToSend = types.length > 0 ? [...types, ...customTypeIds] : types;
+      // Явно включаем custom ids: при снятых встроенных флажках список состоит
+      // только из пользовательских типов и не превращается на бэкенде во «все».
+      const typesToSend = selectedTypesForRun(types, customTypes);
 
       const created = await createRunApiRunsPost({
         object_name: objectName,
@@ -419,8 +444,12 @@ export async function downloadArtifact(
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
+  link.style.display = "none";
+  document.body.append(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  // Не отзывать blob URL синхронно: браузер ещё может не начать загрузку.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 /**

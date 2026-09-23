@@ -50,7 +50,8 @@ class RunCreateRequest(BaseModel):
     """Запуск прогона по уже загруженному в MinIO файлу (`/api/files/upload`)."""
 
     object_name: str
-    #: Типы PII из `masker.model.EntityType`; `None` — все известные типы.
+    #: Типы PII из реестра; `None` — все известные типы. Пустой список
+    #: запрещён, чтобы нечаянно не запустить обработку всех типов.
     #: Неизвестное имя типа отвергает сам движок, а не эта схема: реестр
     #: типов живёт единственным местом.
     types: list[str] | None = None
@@ -71,6 +72,12 @@ class RunCreateRequest(BaseModel):
     #: через `RunOptions` (`masker.highlight.parse_highlight_background`),
     #: как и неизвестный тип выше, — эта схема формат не перепроверяет.
     highlight_background: str | None = DEFAULT_HIGHLIGHT_BACKGROUND
+
+    @model_validator(mode="after")
+    def require_selected_type(self) -> RunCreateRequest:
+        if self.types == []:
+            raise ValueError("Выберите хотя бы один встроенный или пользовательский тип данных")
+        return self
 
 
 class RunResponse(BaseModel):

@@ -15,11 +15,11 @@ type RuleProfileState = {
   maskStyle: MaskStyle;
   /** Цвет фона маркера — только для стиля "marker", «Заливка» всегда чёрная на бэкенде. */
   highlightColor: HighlightColor;
-  /** Выбранные типы ПДн. Пустой массив = всё (бэкенд интерпретирует `types: []` как «весь реестр»). */
-  enabledTypes: string[];
+  /** `null` = все встроенные типы, `[]` = ни одного, массив = выбранное подмножество. */
+  enabledTypes: string[] | null;
   setMaskStyle: (style: MaskStyle) => void;
   setHighlightColor: (value: HighlightColor) => void;
-  setEnabledTypes: (types: string[]) => void;
+  setEnabledTypes: (types: string[] | null) => void;
 };
 
 /**
@@ -35,7 +35,7 @@ type RuleProfileState = {
 export const useRuleProfileStore = create<RuleProfileState>((set) => ({
   maskStyle: "marker",
   highlightColor: DEFAULT_HIGHLIGHT_COLOR,
-  enabledTypes: [],
+  enabledTypes: null,
   setMaskStyle: (maskStyle) => set({ maskStyle }),
   setHighlightColor: (highlightColor) => set({ highlightColor }),
   setEnabledTypes: (enabledTypes) => set({ enabledTypes }),

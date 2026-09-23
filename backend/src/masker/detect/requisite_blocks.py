@@ -51,7 +51,10 @@ from __future__ import annotations
 
 import re
 
+from masker.detect.morph import is_unambiguous_geo_word
+from masker.detect.ner import _GENERIC_PERSON_TERMS
 from masker.detect.normalize import normalize_value
+from masker.detect.orgforms import TRIM_CHARS
 from masker.detect.persons import drop_role_prefix, find_identifying_signatory_positions
 from masker.model import Document, Entity, EntityType, Source
 
@@ -225,6 +228,17 @@ def find_requisite_block_candidates(
                 if _covered(ranges, start, end):
                     continue
                 value = text[start:end]
+                if any(is_unambiguous_geo_word(word.strip(TRIM_CHARS)) for word in value.split()):
+                    # «Республике Саха» (банковские реквизиты — «Отделение-НБ
+                    # Республика Саха (Якутия) Банка России») — топоним, не
+                    # ФИО (23.09.2026, см. докстринг `is_unambiguous_geo_word`).
+                    continue
+                if value.strip(" \t,.").casefold() in _GENERIC_PERSON_TERMS:
+                    # «Российской Федерации» — юридическая формула, а не
+                    # сторона договора; повторяется в тексте десятки раз, и
+                    # одна ложная сущность превращает все остальные вхождения
+                    # в «утечку» при валидации (23.09.2026).
+                    continue
                 found.append(
                     Entity(
                         type=EntityType.PERSON,

@@ -26,4 +26,16 @@ describe("maskedOccurrences", () => {
     expect(masked.some((occurrence) => occurrence.ref === firstRef)).toBe(false);
     expect(masked.length).toBe(maskedOccurrences(maskingReportFixture).length - removedCount);
   });
+
+  it("сохраняет уровень уверенности в плоских вхождениях", () => {
+    const firstMasked = maskedOccurrences(maskingReportFixture)[0];
+    expect(firstMasked).toBeDefined();
+    if (!firstMasked) return;
+
+    const sourceOccurrence = flattenPiiOccurrences(maskingReportFixture.extraction)
+      .find((occurrence) => occurrence.id === firstMasked.id);
+
+    expect(sourceOccurrence).toBeDefined();
+    expect(firstMasked.level).toBe(sourceOccurrence?.level);
+  });
 });

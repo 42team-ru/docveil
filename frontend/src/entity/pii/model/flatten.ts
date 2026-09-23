@@ -1,4 +1,5 @@
 import type {
+  ConfidenceLevel,
   EntityAction,
   PiiAnchor,
   PiiExtraction,
@@ -31,6 +32,7 @@ export type FlatPiiOccurrence = {
   action: EntityAction | null;
   type: PiiType;
   confidence: number;
+  level: ConfidenceLevel;
   source: PiiSource;
   /** Правдоподобный текст до маскирования — из JSON, в самом документе его нет. */
   originalText: string;
@@ -78,6 +80,7 @@ export function flattenPiiOccurrences(
         action: pii.action,
         type: pii.type,
         confidence: pii.confidence,
+        level: pii.level,
         source: pii.source,
         originalText: pii.text,
         normalized: pii.normalized,
